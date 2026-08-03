@@ -1,0 +1,1265 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<meta name="design_doc_mode" content="canvas">
+<link rel="stylesheet" href="_ds/nocturne-05e7ae1d-c163-4f2f-b72b-439ee8b0dcbb/styles.css">
+<script src="_ds/nocturne-05e7ae1d-c163-4f2f-b72b-439ee8b0dcbb/_ds_bundle.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
+<script src="image-slot.js"></script>
+<style>
+body{margin:0;background:#0f1119;font-family:Inter,system-ui,sans-serif}
+.dv-turn{padding:40px 44px 32px;border-bottom:1px solid rgba(233,233,237,.08)}
+.dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 20px}
+.dv-tid{font:600 10px ui-monospace,Menlo,monospace;padding:3px 7px;background:#9184d9;color:#161826;border-radius:4px;text-decoration:none}
+.dv-tname{font:500 13px/1.2 Inter,system-ui,sans-serif;color:#e9e9ed}
+.dv-opts{display:flex;flex-wrap:wrap;gap:32px;align-items:flex-start}
+.dv-opt{flex:none;display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px}
+.dv-oid{font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(233,233,237,.1);color:#e9e9ed;border-radius:5px;text-decoration:none}
+.dv-olabel{display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 Inter,system-ui,sans-serif;color:rgba(233,233,237,.55)}
+.dv-opt:target .dv-oid{background:#9184d9;color:#161826}
+.dv-next{margin:22px 0 0;font:12px/1.5 Inter,system-ui,sans-serif;color:rgba(233,233,237,.45)}
+.mono{font-family:ui-monospace,"SF Mono",Menlo,monospace}
+.pane-cols{column-count:2;column-gap:14px}
+.pane-cols>*{break-inside:avoid;margin-bottom:11.2px}
+::-webkit-scrollbar{width:0;height:0}
+</style>
+</helmet>
+
+<section class="dv-turn" id="t1">
+<div class="dv-thd"><a class="dv-tid" href="#t1">1</a><span class="dv-tname">Nocturne — field imaging session control (Android)</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="1a">
+<div class="dv-olabel"><a class="dv-oid" href="#1a">1a</a>Working prototype — 5 tabs, live telemetry, red mode, detail sheets · rotate icon in the header switches portrait ⇄ landscape</div>
+<x-import component-from-global-scope="AndroidDevice" from="./android-frame.jsx" dark="{{ true }}" width="{{ devW }}" height="{{ devH }}" hint-size="412px,892px">
+
+<div style="height:100%;filter:{{ screenFilter }}">
+<div style="height:100%;display:flex;flex-direction:{{ screenDir }};background:var(--color-bg);color:var(--color-text);font-family:Inter,system-ui,sans-serif;position:relative;overflow:hidden">
+<div style="{{ navStyle }}">
+<sc-for list="{{ tabs }}" as="t" hint-placeholder-count="5">
+<button style="flex:1;background:transparent;border:0;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:6px 0;min-height:48px;color:{{ t.color }}" onClick="{{ t.onClick }}">
+<i style="font-size:21px" class="{{ t.icon }}"></i>
+<span style="font-size:10px;letter-spacing:.02em">{{ t.label }}</span>
+</button>
+</sc-for>
+</div>
+<div style="flex:1;min-width:0;min-height:0;display:flex;flex-direction:column">
+
+<div style="display:flex;align-items:center;gap:11.2px;padding:{{ headerPad }};background:var(--color-bg);border-bottom:1px solid rgba(233,233,237,.08)">
+<div style="flex:1;min-width:0">
+<div style="display:flex;align-items:center;gap:6px">
+<span style="width:6px;height:6px;border-radius:50%;background:#84d9a4;box-shadow:0 0 8px #84d9a4"></span>
+<span style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#84d9a4">Imaging</span>
+<span style="font-size:10px;letter-spacing:.06em;color:#75798c" class="mono">· blk 2/5</span>
+</div>
+<div style="font-size:19px;font-weight:500;letter-spacing:-.01em;margin-top:1px">NGC 7000</div>
+</div>
+<button style="width:34px;height:34px;border-radius:var(--radius-sm);background:transparent;border:1px solid rgba(233,233,237,.16);color:var(--color-text);cursor:pointer;display:flex;align-items:center;justify-content:center" style-hover="background:rgba(233,233,237,.07)" onClick="{{ toggleLand }}">
+<i style="font-size:17px" class="ph {{ rotateIcon }}"></i>
+</button>
+<button style="display:flex;align-items:center;gap:5px;height:34px;padding:0 10px;border-radius:var(--radius-sm);background:transparent;border:1px solid var(--color-accent);color:var(--color-accent);cursor:pointer;font:500 11px Inter,sans-serif;letter-spacing:.06em" style-hover="background:rgba(145,132,217,.14)" onClick="{{ toggleRed }}">
+<i class="ph ph-moon-stars" style="font-size:15px"></i>{{ redLabel }}
+</button>
+<button style="position:relative;width:34px;height:34px;border-radius:var(--radius-sm);background:transparent;border:1px solid rgba(233,233,237,.16);color:var(--color-text);cursor:pointer;display:flex;align-items:center;justify-content:center" style-hover="background:rgba(233,233,237,.07)" onClick="{{ openAlerts }}">
+<i class="ph ph-bell" style="font-size:17px"></i>
+<span style="position:absolute;top:-5px;right:-5px;min-width:16px;height:16px;border-radius:8px;background:#d9b184;color:#161826;font:600 10px ui-monospace,monospace;display:flex;align-items:center;justify-content:center;padding:0 4px">{{ alertCount }}</span>
+</button>
+</div>
+
+<div style="flex:1;overflow:auto;display:flex;flex-direction:column;gap:11.2px;padding:{{ scrollPad }}">
+
+<sc-if value="{{ isSession }}" hint-placeholder-val="{{ true }}">
+<div class="{{ paneClass }}" style="{{ paneStyle }}">
+
+<div style="background:var(--color-surface);border-radius:var(--radius-md);box-shadow:var(--shadow-sm);padding:14px 14px 11.2px;display:flex;flex-direction:column;gap:2px">
+<div style="display:flex;justify-content:space-between;align-items:baseline">
+<span style="font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:#75798c">Night arc</span>
+<span class="mono" style="font-size:10.5px;color:#9397ab">21:48 → 04:12</span>
+</div>
+<div style="position:relative;height:{{ arcBoxH }}px">
+<svg viewBox="0 0 348 196" style="width:100%;height:{{ arcH }}px">
+<path d="M34 178 A140 140 0 0 1 314 178" fill="none" stroke="rgba(233,233,237,.07)" stroke-width="15" stroke-linecap="round"></path>
+<path d="M34 178 A140 140 0 0 1 314 178" fill="none" stroke="#423a6a" stroke-width="15" stroke-dasharray="{{ arcPlanned }}"></path>
+<path d="M34 178 A140 140 0 0 1 314 178" fill="none" stroke="#9184d9" stroke-width="15" stroke-dasharray="{{ arcShot }}"></path>
+<line x1="{{ flipX1 }}" y1="{{ flipY1 }}" x2="{{ flipX2 }}" y2="{{ flipY2 }}" stroke="#d9b184" stroke-width="2"></line>
+<circle cx="{{ nowX }}" cy="{{ nowY }}" r="6.5" fill="#e9e9ed"></circle>
+<circle cx="{{ nowX }}" cy="{{ nowY }}" r="12" fill="none" stroke="rgba(233,233,237,.3)"></circle>
+</svg>
+<div style="position:absolute;left:0;right:0;display:flex;flex-direction:column;align-items:center;gap:1px;top:{{ arcTop }}px">
+<span class="mono" style="font-size:34px;letter-spacing:-.03em">{{ integLabel }}</span>
+<span style="font-size:9.5px;letter-spacing:.1em;color:#75798c">OF 3:20 INTEGRATED</span>
+<span class="mono" style="font-size:11px;color:#b5abfc">sub 13/40 · {{ expRemain }} left</span>
+</div>
+<span class="mono" style="position:absolute;left:6px;bottom:6px;font-size:9.5px;color:#75798c">21:48</span>
+<span class="mono" style="position:absolute;right:6px;bottom:6px;font-size:9.5px;color:#75798c">04:12</span>
+<span class="mono" style="position:absolute;right:62px;top:6px;font-size:9.5px;color:#d9b184">flip</span>
+</div>
+<div class="mono" style="font-size:10.5px;color:#9397ab;display:flex;justify-content:space-between">
+<span>Ha 12/40 · OIII 0/30</span><span style="color:#75798c">dither in 2</span>
+</div>
+</div>
+
+<div style="position:relative;border-radius:var(--radius-md);overflow:hidden;box-shadow:var(--shadow-sm)">
+<div style="background:#191b28;position:relative;height:{{ previewH }}px">
+<image-slot id="sub-preview" shape="rect" placeholder="Drop the latest sub (stretched PNG)" style="position:absolute;inset:0"></image-slot>
+</div>
+<div style="position:absolute;top:8.4px;left:8.4px;display:flex;gap:5.6px">
+<span class="mono" style="font-size:9.5px;letter-spacing:.08em;padding:3px 6px;border-radius:3px;background:rgba(22,24,38,.8);border:1px solid rgba(145,132,217,.5);color:#b5abfc">SUB 013</span>
+<span class="mono" style="font-size:9.5px;letter-spacing:.08em;padding:3px 6px;border-radius:3px;background:rgba(22,24,38,.8);color:#b2b6ca">Ha 300s g100</span>
+</div>
+<div style="position:absolute;bottom:8.4px;left:8.4px;right:8.4px;display:flex;justify-content:space-between;align-items:flex-end">
+<span class="mono" style="font-size:10px;color:#b2b6ca;text-shadow:0 1px 4px #000">★ 1 482 · HFR 2.31 · ADU 1 093</span>
+<button style="width:30px;height:30px;border-radius:var(--radius-sm);background:rgba(22,24,38,.85);border:1px solid rgba(233,233,237,.16);color:var(--color-text);display:flex;align-items:center;justify-content:center;cursor:pointer" style-hover="background:rgba(145,132,217,.2)"><i class="ph ph-arrows-out" style="font-size:15px"></i></button>
+</div>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8.4px">
+<button style="text-align:left;background:var(--color-surface);border:0;box-shadow:var(--shadow-sm);border-radius:var(--radius-md);padding:11.2px;cursor:pointer;color:var(--color-text);display:flex;flex-direction:column;gap:3px;min-height:88px" style-hover="box-shadow:0 0 0 1px #9184d9" onClick="{{ openFocus }}">
+<span style="font-size:9.5px;letter-spacing:.09em;color:#75798c">HFR</span>
+<span class="mono" style="font-size:21px;letter-spacing:-.02em">2.31</span>
+<span class="mono" style="font-size:10px;color:#84d9a4">▼ 0.04</span>
+</button>
+<button style="text-align:left;background:var(--color-surface);border:0;box-shadow:var(--shadow-sm);border-radius:var(--radius-md);padding:11.2px;cursor:pointer;color:var(--color-text);display:flex;flex-direction:column;gap:3px;min-height:88px" style-hover="box-shadow:0 0 0 1px #9184d9" onClick="{{ openGuide }}">
+<span style="font-size:9.5px;letter-spacing:.09em;color:#75798c">RMS</span>
+<span class="mono" style="font-size:21px;letter-spacing:-.02em">{{ rms }}<span style="font-size:12px;color:#9397ab">"</span></span>
+<svg viewBox="0 0 96 20" preserveAspectRatio="none" style="width:100%;height:16px">
+<polyline fill="none" stroke="#9184d9" stroke-width="1.2" points="{{ miniTrace }}"></polyline>
+</svg>
+</button>
+<div style="background:var(--color-surface);box-shadow:var(--shadow-sm);border-radius:var(--radius-md);padding:11.2px;display:flex;flex-direction:column;gap:3px;min-height:88px">
+<span style="font-size:9.5px;letter-spacing:.09em;color:#75798c">SNR</span>
+<span class="mono" style="font-size:21px;letter-spacing:-.02em">41.2</span>
+<span class="mono" style="font-size:10px;color:#9397ab">bkg 1 093</span>
+</div>
+</div>
+
+<div style="display:flex;align-items:center;gap:11.2px;padding:11.2px 14px;border-radius:var(--radius-md);background:rgba(217,177,132,.09);border-left:2px solid #d9b184">
+<i class="ph ph-arrows-clockwise" style="font-size:18px;color:#d9b184"></i>
+<div style="flex:1">
+<div style="font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:#d9b184">Meridian flip</div>
+<div class="mono" style="font-size:15px">{{ flipIn }} · auto, pauses guiding</div>
+</div>
+<button style="font:500 11px Inter,sans-serif;letter-spacing:.05em;background:transparent;border:1px solid rgba(217,177,132,.5);color:#d9b184;border-radius:var(--radius-sm);padding:6px 9px;cursor:pointer" style-hover="background:rgba(217,177,132,.16)">DEFER</button>
+</div>
+
+<div style="background:var(--color-surface);border-radius:var(--radius-md);box-shadow:var(--shadow-sm);padding:14px;display:flex;flex-direction:column;gap:11.2px">
+<div style="display:flex;justify-content:space-between;align-items:center">
+<span style="font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:#75798c">Sky &amp; site</span>
+<span class="mono" style="font-size:10.5px;color:#84d9a4">roof open · safe</span>
+</div>
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:11.2px">
+<div style="display:flex;flex-direction:column;gap:2px"><span class="mono" style="font-size:16px">−3.1°</span><span style="font-size:9.5px;color:#75798c">AMB</span></div>
+<div style="display:flex;flex-direction:column;gap:2px"><span class="mono" style="font-size:16px">−5.4°</span><span style="font-size:9.5px;color:#75798c">DEW</span></div>
+<div style="display:flex;flex-direction:column;gap:2px"><span class="mono" style="font-size:16px">21.3</span><span style="font-size:9.5px;color:#75798c">SQM</span></div>
+<div style="display:flex;flex-direction:column;gap:2px"><span class="mono" style="font-size:16px">4%</span><span style="font-size:9.5px;color:#75798c">CLOUD</span></div>
+</div>
+</div>
+
+<button style="display:flex;align-items:center;justify-content:center;gap:8px;height:44px;border-radius:var(--radius-sm);background:transparent;border:1px solid rgba(233,233,237,.18);color:#b2b6ca;font:500 13px Inter,sans-serif;cursor:pointer" style-hover="border-color:#9184d9;color:#b5abfc" onClick="{{ openSummary }}">
+<i class="ph ph-flag-checkered" style="font-size:16px"></i>End session &amp; review
+</button>
+</div>
+</sc-if>
+
+<sc-if value="{{ isPlan }}" hint-placeholder-val="{{ false }}">
+<div class="{{ paneClass }}" style="{{ paneStyle }}">
+<div style="display:flex;align-items:center;gap:8.4px;height:42px;padding:0 12px;border-radius:var(--radius-sm);background:var(--color-surface);box-shadow:var(--shadow-sm)">
+<i class="ph ph-magnifying-glass" style="font-size:16px;color:#75798c"></i>
+<input value="{{ query }}" onInput="{{ onQuery }}" placeholder="Catalog — name, NGC/IC, coords" style="flex:1;min-width:0;background:transparent;border:0;outline:none;color:var(--color-text);font:400 13px Inter,sans-serif">
+<button style="width:26px;height:26px;border-radius:var(--radius-sm);background:transparent;border:0;color:#75798c;cursor:pointer;display:flex;align-items:center;justify-content:center" style-hover="color:#b5abfc" onClick="{{ clearQuery }}"><i class="ph ph-x" style="font-size:13px"></i></button>
+</div>
+<div style="display:flex;gap:5.6px;flex-wrap:wrap">
+<sc-for list="{{ planChips }}" as="c" hint-placeholder-count="4">
+<button style="font:500 11px Inter,sans-serif;padding:5px 10px;border-radius:999px;cursor:pointer;background:{{ c.bg }};color:{{ c.fg }};border:1px solid {{ c.bd }}" onClick="{{ c.onClick }}">{{ c.label }}</button>
+</sc-for>
+</div>
+<div style="background:var(--color-surface);border-radius:var(--radius-md);box-shadow:var(--shadow-sm);overflow:hidden">
+<sc-for list="{{ results }}" as="r" hint-placeholder-count="4">
+<button style="width:100%;text-align:left;display:flex;align-items:center;gap:11.2px;padding:9px 12px;background:{{ r.bg }};border:0;border-bottom:1px solid rgba(233,233,237,.06);cursor:pointer;color:var(--color-text)" style-hover="background:rgba(145,132,217,.1)" onClick="{{ r.onClick }}">
+<div style="flex:1;min-width:0">
+<div style="font-size:13px">{{ r.name }}</div>
+<div class="mono" style="font-size:10px;color:#75798c">{{ r.meta }}</div>
+</div>
+<span class="mono" style="font-size:10.5px;white-space:nowrap;color:{{ r.altColor }}">{{ r.alt }}</span>
+</button>
+</sc-for>
+<div class="mono" style="font-size:10px;color:#75798c;padding:8px 12px">{{ resultCount }}</div>
+</div>
+
+<div style="background:var(--color-surface);border-radius:var(--radius-md);box-shadow:var(--shadow-sm);padding:14px;display:flex;flex-direction:column;gap:11.2px">
+<div style="display:flex;justify-content:space-between;align-items:baseline">
+<div><div style="font-size:17px;font-weight:500">{{ tgtName }}</div><div class="mono" style="font-size:10.5px;color:#75798c">{{ tgtCoords }}</div></div>
+<span class="mono" style="font-size:10.5px;white-space:nowrap;color:#b5abfc">{{ tgtUsable }}</span>
+</div>
+<div style="position:relative;height:118px">
+<svg viewBox="0 0 348 118" preserveAspectRatio="none" style="width:100%;height:118px">
+<line x1="0" y1="88" x2="348" y2="88" stroke="rgba(233,233,237,.14)" stroke-width="1"></line>
+<line x1="0" y1="50" x2="348" y2="50" stroke="rgba(233,233,237,.07)" stroke-width="1"></line>
+<polyline fill="none" stroke="#9184d9" stroke-width="2" points="0,96 40,80 80,64 120,48 160,33 200,26 240,32 280,48 320,70 348,86"></polyline>
+<line x1="208" y1="6" x2="208" y2="110" stroke="#d9b184" stroke-width="1" stroke-dasharray="3 3"></line>
+<line x1="118" y1="6" x2="118" y2="110" stroke="#e9e9ed" stroke-width="1"></line>
+<circle cx="118" cy="49" r="3.5" fill="#e9e9ed"></circle>
+</svg>
+<span class="mono" style="position:absolute;left:0;bottom:0;font-size:9.5px;color:#75798c">21:48</span>
+<span class="mono" style="position:absolute;left:104px;bottom:0;font-size:9.5px;color:#e9e9ed">now</span>
+<span class="mono" style="position:absolute;left:186px;bottom:0;font-size:9.5px;color:#d9b184">flip</span>
+<span class="mono" style="position:absolute;right:0;bottom:0;font-size:9.5px;color:#75798c">04:12</span>
+<span class="mono" style="position:absolute;right:0;top:0;font-size:9.5px;color:#9397ab">{{ tgtMax }}</span>
+</div>
+</div>
+
+<div style="background:var(--color-surface);border-radius:var(--radius-md);box-shadow:var(--shadow-sm);padding:14px;display:flex;flex-direction:column;gap:11.2px">
+<div style="font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:#75798c">Framing · 2600MM + 550mm</div>
+<div style="position:relative;height:190px;border-radius:var(--radius-sm);overflow:hidden;background:repeating-linear-gradient(135deg,#20222f 0 9px,#191b28 9px 18px);display:flex;align-items:center;justify-content:center">
+<image-slot id="framing-survey" shape="rect" placeholder="Survey image (DSS / Aladin export)" style="position:absolute;inset:0"></image-slot>
+<div style="position:absolute;left:50%;top:50%;width:196px;height:132px;transform:translate(-50%,-50%) rotate(-11deg);border:1px solid #9184d9;box-shadow:0 0 22px rgba(145,132,217,.35)">
+<span class="mono" style="position:absolute;top:-16px;left:0;font-size:9.5px;color:#b5abfc">1.24″/px · 2.4°×1.6°</span>
+</div>
+</div>
+<div style="display:flex;align-items:center;gap:11.2px">
+<span style="font-size:11px;color:#9397ab;width:56px">Rotator</span>
+<div style="flex:1;height:4px;border-radius:2px;background:rgba(233,233,237,.12);position:relative">
+<div style="position:absolute;left:0;top:0;height:4px;width:33%;background:#9184d9;border-radius:2px"></div>
+<div style="position:absolute;left:33%;top:-5px;width:14px;height:14px;border-radius:50%;background:#e9e9ed"></div>
+</div>
+<span class="mono" style="font-size:12px;width:56px;text-align:right">118.4°</span>
+</div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:8.4px">
+<button style="height:44px;border-radius:var(--radius-sm);background:transparent;border:1px solid rgba(233,233,237,.18);color:#b2b6ca;font:500 13px Inter,sans-serif;cursor:pointer" style-hover="border-color:#9184d9;color:#b5abfc">Add to sequence</button>
+<button style="height:44px;border-radius:var(--radius-sm);background:transparent;border:1px solid var(--color-accent);color:var(--color-accent);font:500 13px Inter,sans-serif;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px" style-hover="background:rgba(145,132,217,.14)"><i class="ph ph-crosshair" style="font-size:16px"></i>Slew &amp; center</button>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isSeq }}" hint-placeholder-val="{{ false }}">
+<div class="{{ paneClass }}" style="{{ paneStyle }}">
+<div style="background:var(--color-surface);border-radius:var(--radius-md);box-shadow:var(--shadow-sm);padding:14px;display:flex;flex-direction:column;gap:8.4px">
+<div style="display:flex;justify-content:space-between;align-items:center">
+<span style="font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:#75798c">Night plan</span>
+<span class="mono" style="font-size:10.5px;color:#9397ab">21:48 → 04:12</span>
+</div>
+<div style="position:relative;height:26px;border-radius:4px;overflow:hidden;display:flex">
+<div style="width:12%;background:#5d5294"></div>
+<div style="width:31%;background:#9184d9"></div>
+<div style="width:6%;background:rgba(217,177,132,.55)"></div>
+<div style="width:33%;background:#796cbf"></div>
+<div style="width:18%;background:#423a6a"></div>
+<div style="position:absolute;left:31%;top:0;bottom:0;width:1px;background:#e9e9ed"></div>
+</div>
+<div class="mono" style="display:flex;justify-content:space-between;font-size:9.5px;color:#75798c">
+<span>cal</span><span style="color:#e9e9ed">Ha · now</span><span style="color:#d9b184">flip</span><span>OIII</span><span>SII</span>
+</div>
+</div>
+
+<sc-for list="{{ blocks }}" as="b" hint-placeholder-count="3">
+<div style="background:var(--color-surface);border-radius:var(--radius-md);box-shadow:var(--shadow-sm);padding:12px 14px;display:flex;flex-direction:column;gap:9px">
+<div style="display:flex;align-items:center;gap:11.2px">
+<i class="ph ph-dots-six-vertical" style="font-size:17px;color:#595d6c"></i>
+<span class="mono" style="font-size:11px;letter-spacing:.06em;padding:3px 7px;border-radius:3px;background:{{ b.tagBg }};color:{{ b.tagFg }}">{{ b.filter }}</span>
+<div style="flex:1;min-width:0">
+<div class="mono" style="font-size:14px">{{ b.spec }}</div>
+<div class="mono" style="font-size:10px;color:#75798c">{{ b.meta }}</div>
+</div>
+<button style="width:30px;height:30px;border-radius:var(--radius-sm);background:transparent;border:0;color:#9397ab;cursor:pointer;display:flex;align-items:center;justify-content:center" style-hover="background:rgba(233,233,237,.07)" onClick="{{ b.onToggle }}"><i class="ph ph-caret-down" style="font-size:15px"></i></button>
+</div>
+<div style="height:4px;border-radius:2px;background:rgba(233,233,237,.1)">
+<div style="height:4px;border-radius:2px;background:#9184d9;width:{{ b.pct }}"></div>
+</div>
+<sc-if value="{{ b.open }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:9px;padding-top:4px;border-top:1px solid rgba(233,233,237,.08)">
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8.4px">
+<div style="display:flex;flex-direction:column;gap:3px"><span style="font-size:9.5px;letter-spacing:.08em;color:#75798c">EXPOSURE</span><span class="mono" style="font-size:14px">300 s</span></div>
+<div style="display:flex;flex-direction:column;gap:3px"><span style="font-size:9.5px;letter-spacing:.08em;color:#75798c">GAIN / OFF</span><span class="mono" style="font-size:14px">100 / 50</span></div>
+<div style="display:flex;flex-direction:column;gap:3px"><span style="font-size:9.5px;letter-spacing:.08em;color:#75798c">BINNING</span><span class="mono" style="font-size:14px">1×1</span></div>
+</div>
+<div style="display:flex;align-items:center;gap:8.4px">
+<span style="font-size:11px;color:#9397ab;flex:1">Dither every</span>
+<div style="display:flex;border:1px solid rgba(233,233,237,.16);border-radius:var(--radius-sm);overflow:hidden">
+<span class="mono" style="font-size:11px;padding:5px 10px;color:#9397ab">1</span>
+<span class="mono" style="font-size:11px;padding:5px 10px;background:rgba(145,132,217,.2);color:#b5abfc">2</span>
+<span class="mono" style="font-size:11px;padding:5px 10px;color:#9397ab">3</span>
+<span class="mono" style="font-size:11px;padding:5px 10px;color:#9397ab">5</span>
+</div>
+<span class="mono" style="font-size:11px;color:#75798c">1.5 px</span>
+</div>
+<div style="display:flex;align-items:center;gap:8.4px">
+<span style="font-size:11px;color:#9397ab;flex:1">Autofocus</span>
+<span class="mono" style="font-size:11px;color:#b2b6ca">45 min · 1.0 °C · filter change</span>
+</div>
+</div>
+</sc-if>
+</div>
+</sc-for>
+
+<button style="display:flex;align-items:center;justify-content:center;gap:8px;height:42px;border-radius:var(--radius-sm);background:transparent;border:1px dashed rgba(233,233,237,.2);color:#9397ab;font:500 12px Inter,sans-serif;cursor:pointer" style-hover="border-color:#9184d9;color:#b5abfc"><i class="ph ph-plus" style="font-size:15px"></i>Add block</button>
+
+<button style="display:flex;align-items:center;justify-content:center;gap:8px;height:48px;border-radius:var(--radius-sm);background:transparent;font:500 14px Inter,sans-serif;cursor:pointer;border:1px solid {{ startColor }};color:{{ startColor }}" style-hover="background:rgba(145,132,217,.14)" onClick="{{ toggleRun }}">
+<i class="ph ph-pause" style="font-size:17px"></i>{{ startLabel }}
+</button>
+<sc-if value="{{ notReady }}" hint-placeholder-val="{{ false }}">
+<button style="display:flex;align-items:center;justify-content:center;gap:7px;height:38px;border-radius:var(--radius-sm);background:transparent;border:0;color:#d9b184;font:500 12px Inter,sans-serif;cursor:pointer" style-hover="background:rgba(217,177,132,.1)" onClick="{{ goGear }}">
+<i class="ph ph-plugs" style="font-size:15px"></i>Fix in Gear — a session needs mount + camera
+</button>
+</sc-if>
+</div>
+</sc-if>
+
+<sc-if value="{{ isFrames }}" hint-placeholder-val="{{ false }}">
+<div class="{{ paneClass }}" style="{{ paneStyle }}">
+<div style="display:flex;justify-content:space-between;align-items:center">
+<div style="display:flex;gap:5.6px">
+<span style="font:500 11px Inter,sans-serif;padding:5px 10px;border-radius:999px;background:rgba(145,132,217,.16);color:#b5abfc">All 42</span>
+<span class="mono" style="font-size:11px;padding:5px 10px;border-radius:999px;border:1px solid rgba(233,233,237,.16);color:#9397ab">{{ keepCount }} keep</span>
+<span class="mono" style="font-size:11px;padding:5px 10px;border-radius:999px;border:1px solid rgba(233,233,237,.16);color:#9397ab">{{ rejectCount }} cut</span>
+</div>
+<span class="mono" style="font-size:10.5px;color:#75798c">sort HFR ↓</span>
+</div>
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">
+<sc-for list="{{ frames }}" as="f" hint-placeholder-count="12">
+<button style="position:relative;padding:0;border:0;aspect-ratio:1;border-radius:var(--radius-sm);overflow:hidden;cursor:pointer;background:repeating-linear-gradient(135deg,#20222f 0 7px,#191b28 7px 14px);box-shadow:{{ f.ring }};opacity:{{ f.op }}" onClick="{{ f.onClick }}">
+<span class="mono" style="position:absolute;top:4px;left:5px;font-size:9px;color:#75798c">{{ f.id }}</span>
+<span class="mono" style="position:absolute;bottom:4px;left:5px;font-size:10px;color:{{ f.hfrColor }}">{{ f.hfr }}</span>
+<span style="position:absolute;bottom:3px;right:4px;display:flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:{{ f.badgeBg }};color:{{ f.badgeFg }}"><i style="font-size:11px" class="ph-fill {{ f.badgeIcon }}"></i></span>
+</button>
+</sc-for>
+</div>
+<div style="background:var(--color-surface);border-radius:var(--radius-md);box-shadow:var(--shadow-sm);padding:14px;display:flex;flex-direction:column;gap:9px">
+<div style="display:flex;justify-content:space-between;align-items:center">
+<span style="font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:#75798c">HFR across the run</span>
+<span class="mono" style="font-size:10.5px;color:#9397ab">cut &gt; 2.80</span>
+</div>
+<svg viewBox="0 0 348 60" preserveAspectRatio="none" style="width:100%;height:60px">
+<line x1="0" y1="22" x2="348" y2="22" stroke="rgba(217,132,132,.5)" stroke-width="1" stroke-dasharray="4 4"></line>
+<polyline fill="none" stroke="#9184d9" stroke-width="1.6" points="0,44 25,41 50,38 75,34 100,30 118,18 132,14 148,31 174,36 200,33 226,30 252,26 278,24 300,15 316,12 332,29 348,34"></polyline>
+</svg>
+<div class="mono" style="display:flex;justify-content:space-between;font-size:9.5px;color:#75798c"><span>22:10</span><span style="color:#d98484">seeing spike 01:04</span><span>03:40</span></div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isGear }}" hint-placeholder-val="{{ false }}">
+<div class="{{ paneClass }}" style="{{ paneStyle }}">
+
+<div style="border-radius:var(--radius-md);padding:12px 14px;display:flex;flex-direction:column;gap:9px;background:{{ readyBg }};border-left:2px solid {{ readyColor }}">
+<div style="display:flex;align-items:center;gap:9px">
+<i style="font-size:18px;color:{{ readyColor }}" class="ph {{ readyIcon }}"></i>
+<span style="font-size:13.5px;flex:1;color:{{ readyColor }}">{{ readyLabel }}</span>
+<span class="mono" style="font-size:9.5px;letter-spacing:.08em;color:#75798c">MINIMUM RIG</span>
+</div>
+<div style="display:flex;gap:6px;flex-wrap:wrap">
+<span class="mono" style="font-size:10.5px;padding:4px 8px;border-radius:3px;white-space:nowrap;background:rgba(22,24,38,.5);color:{{ mountChip }}">● mount</span>
+<span class="mono" style="font-size:10.5px;padding:4px 8px;border-radius:3px;white-space:nowrap;background:rgba(22,24,38,.5);color:{{ camChip }}">● camera</span>
+<span class="mono" style="font-size:10.5px;padding:4px 8px;border-radius:3px;white-space:nowrap;background:rgba(22,24,38,.5);color:{{ paColor }}">● polar {{ paTotal }}′</span>
+</div>
+</div>
+
+<button style="display:flex;align-items:center;gap:11.2px;padding:12px 14px;border-radius:var(--radius-md);background:transparent;border:1px dashed rgba(233,233,237,.2);cursor:pointer;color:var(--color-text);text-align:left" style-hover="border-color:#9184d9" onClick="{{ openSetup }}">
+<i class="ph ph-sparkle" style="font-size:19px;color:#b5abfc"></i>
+<div style="flex:1"><div style="font-size:13.5px">New rig profile</div><div class="mono" style="font-size:10px;color:#75798c">first-run setup · 4 steps · ~6 min</div></div>
+<i class="ph ph-caret-right" style="font-size:15px;color:#595d6c"></i>
+</button>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:8.4px">
+<button style="display:flex;flex-direction:column;align-items:flex-start;gap:5px;padding:12px;border-radius:var(--radius-md);background:var(--color-surface);box-shadow:var(--shadow-sm);border:0;cursor:pointer;color:var(--color-text);text-align:left" style-hover="box-shadow:0 0 0 1px #9184d9" onClick="{{ openBench }}">
+<i class="ph ph-test-tube" style="font-size:20px;color:#b5abfc"></i>
+<span style="font-size:13.5px">Bench check</span>
+<span class="mono" style="font-size:10px;color:#75798c">test frames · cooler · focuser · slew</span>
+</button>
+<button style="display:flex;flex-direction:column;align-items:flex-start;gap:5px;padding:12px;border-radius:var(--radius-md);background:var(--color-surface);box-shadow:var(--shadow-sm);border:0;cursor:pointer;color:var(--color-text);text-align:left" style-hover="box-shadow:0 0 0 1px #9184d9" onClick="{{ openPa }}">
+<i class="ph ph-target" style="font-size:20px;color:#b5abfc"></i>
+<span style="font-size:13.5px">Polar align</span>
+<span class="mono" style="font-size:10px;color:{{ paColor }}">{{ paTotal }}′ total error</span>
+</button>
+</div>
+
+<div style="background:var(--color-surface);border-radius:var(--radius-md);box-shadow:var(--shadow-sm);overflow:hidden">
+<sc-for list="{{ devices }}" as="d" hint-placeholder-count="6">
+<button style="width:100%;text-align:left;display:flex;align-items:center;gap:11.2px;padding:11.2px 14px;background:transparent;border:0;border-bottom:1px solid rgba(233,233,237,.06);cursor:pointer;color:var(--color-text)" style-hover="background:rgba(233,233,237,.04)" onClick="{{ d.onClick }}">
+<i style="font-size:19px;color:#9397ab" class="ph {{ d.icon }}"></i>
+<div style="flex:1;min-width:0">
+<div style="font-size:13.5px">{{ d.name }}</div>
+<div class="mono" style="font-size:10.5px;color:#75798c">{{ d.detail }}</div>
+</div>
+<span class="mono" style="font-size:10px;letter-spacing:.07em;padding:3px 7px;border-radius:3px;background:{{ d.chipBg }};color:{{ d.chipFg }}">{{ d.state }}</span>
+</button>
+</sc-for>
+</div>
+
+<div style="background:var(--color-surface);border-radius:var(--radius-md);box-shadow:var(--shadow-sm);padding:14px;display:flex;flex-direction:column;gap:11.2px">
+<div style="display:flex;justify-content:space-between;align-items:center">
+<span style="font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:#75798c">Power · dew</span>
+<span class="mono" style="font-size:11px;color:#b5abfc">3.42 A · 12.1 V</span>
+</div>
+<div style="display:flex;align-items:center;gap:11.2px">
+<span style="font-size:11.5px;color:#b2b6ca;width:78px">Dew · main</span>
+<div style="flex:1;height:4px;border-radius:2px;background:rgba(233,233,237,.12);position:relative"><div style="height:4px;width:62%;background:#9184d9;border-radius:2px"></div><div style="position:absolute;left:62%;top:-5px;width:14px;height:14px;border-radius:50%;background:#e9e9ed"></div></div>
+<span class="mono" style="font-size:12px;width:34px;text-align:right">62%</span>
+</div>
+<div style="display:flex;align-items:center;gap:11.2px">
+<span style="font-size:11.5px;color:#b2b6ca;width:78px">Dew · guide</span>
+<div style="flex:1;height:4px;border-radius:2px;background:rgba(233,233,237,.12);position:relative"><div style="height:4px;width:40%;background:#9184d9;border-radius:2px"></div><div style="position:absolute;left:40%;top:-5px;width:14px;height:14px;border-radius:50%;background:#e9e9ed"></div></div>
+<span class="mono" style="font-size:12px;width:34px;text-align:right">40%</span>
+</div>
+</div>
+
+<button style="display:flex;align-items:center;justify-content:center;gap:9px;height:52px;border-radius:var(--radius-sm);background:transparent;border:1px solid rgba(217,132,132,.55);color:#d98484;font:500 13px Inter,sans-serif;cursor:pointer" style-hover="background:rgba(217,132,132,.12)">
+<i class="ph ph-garage" style="font-size:18px"></i>Hold to close roof
+</button>
+</div>
+</sc-if>
+
+</div>
+
+</div>
+
+<sc-if value="{{ sheetOpen }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;inset:0;background:rgba(10,11,18,.7);display:flex;align-items:{{ sheetAlign }}" onClick="{{ backdropClose }}">
+<div style="width:100%;overflow:auto;background:var(--color-surface);box-shadow:var(--shadow-lg);padding:14px 16.8px 22.4px;display:flex;flex-direction:column;gap:14px;{{ sheetSize }}" onClick="{{ stopBubble }}">
+<div style="width:36px;height:4px;border-radius:2px;background:rgba(233,233,237,.2);align-self:center;display:{{ handleShow }}"></div>
+<div style="display:flex;justify-content:space-between;align-items:center">
+<span style="font-size:17px;font-weight:500;flex:1">{{ sheetTitle }}</span>
+<span class="mono" style="font-size:10.5px;color:#75798c">{{ sheetMeta }}</span>
+<button style="width:32px;height:32px;margin-left:9px;border-radius:var(--radius-sm);background:transparent;border:1px solid rgba(233,233,237,.16);color:#b2b6ca;cursor:pointer;display:flex;align-items:center;justify-content:center" style-hover="border-color:#9184d9;color:#b5abfc" onClick="{{ closeSheet }}"><i class="ph ph-x" style="font-size:15px"></i></button>
+</div>
+
+<sc-if value="{{ isGuideSheet }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:11.2px">
+<div style="background:var(--color-bg);border-radius:var(--radius-sm);padding:11.2px">
+<svg viewBox="0 0 344 108" preserveAspectRatio="none" style="width:100%;height:108px">
+<line x1="0" y1="54" x2="344" y2="54" stroke="rgba(233,233,237,.14)"></line>
+<line x1="0" y1="27" x2="344" y2="27" stroke="rgba(233,233,237,.05)"></line>
+<line x1="0" y1="81" x2="344" y2="81" stroke="rgba(233,233,237,.05)"></line>
+<polyline fill="none" stroke="#9184d9" stroke-width="1.4" points="{{ raTrace }}"></polyline>
+<polyline fill="none" stroke="#84b8d9" stroke-width="1.4" points="{{ decTrace }}"></polyline>
+</svg>
+<div class="mono" style="display:flex;gap:14px;font-size:10px;margin-top:6px"><span style="color:#9184d9">— RA 0.41″</span><span style="color:#84b8d9">— DEC 0.26″</span><span style="color:#75798c">±2″ scale</span></div>
+</div>
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8.4px">
+<div style="background:var(--color-bg);border-radius:var(--radius-sm);padding:11.2px;display:flex;flex-direction:column;gap:2px"><span style="font-size:9.5px;color:#75798c">TOTAL RMS</span><span class="mono" style="font-size:17px">{{ rms }}″</span></div>
+<div style="background:var(--color-bg);border-radius:var(--radius-sm);padding:11.2px;display:flex;flex-direction:column;gap:2px"><span style="font-size:9.5px;color:#75798c">PEAK</span><span class="mono" style="font-size:17px">1.42″</span></div>
+<div style="background:var(--color-bg);border-radius:var(--radius-sm);padding:11.2px;display:flex;flex-direction:column;gap:2px"><span style="font-size:9.5px;color:#75798c">STAR SNR</span><span class="mono" style="font-size:17px">38</span></div>
+</div>
+<div class="mono" style="font-size:11px;color:#9397ab">2.1 px/″ · 2s exposure · aggr RA 70 / DEC 60 · backlash comp on</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isFocusSheet }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:11.2px">
+<div style="background:var(--color-bg);border-radius:var(--radius-sm);padding:11.2px">
+<svg viewBox="0 0 344 130" style="width:100%;height:130px">
+<polyline fill="none" stroke="rgba(145,132,217,.45)" stroke-width="1.4" points="14,16 62,42 110,68 158,96 186,112 214,96 262,68 310,42 340,18"></polyline>
+<circle cx="14" cy="16" r="3" fill="#9184d9"></circle><circle cx="62" cy="42" r="3" fill="#9184d9"></circle><circle cx="110" cy="68" r="3" fill="#9184d9"></circle><circle cx="158" cy="96" r="3" fill="#9184d9"></circle>
+<circle cx="186" cy="112" r="5" fill="#e9e9ed"></circle>
+<circle cx="214" cy="96" r="3" fill="#9184d9"></circle><circle cx="262" cy="68" r="3" fill="#9184d9"></circle><circle cx="310" cy="42" r="3" fill="#9184d9"></circle><circle cx="340" cy="18" r="3" fill="#9184d9"></circle>
+</svg>
+<div class="mono" style="display:flex;justify-content:space-between;font-size:10px;color:#75798c;margin-top:4px"><span>18 180</span><span style="color:#e9e9ed">best 18 422 · HFR 2.27</span><span>18 660</span></div>
+</div>
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8.4px">
+<div style="background:var(--color-bg);border-radius:var(--radius-sm);padding:11.2px;display:flex;flex-direction:column;gap:2px"><span style="font-size:9.5px;color:#75798c">POSITION</span><span class="mono" style="font-size:17px">18 422</span></div>
+<div style="background:var(--color-bg);border-radius:var(--radius-sm);padding:11.2px;display:flex;flex-direction:column;gap:2px"><span style="font-size:9.5px;color:#75798c">TEMP Δ</span><span class="mono" style="font-size:17px">−0.6°</span></div>
+<div style="background:var(--color-bg);border-radius:var(--radius-sm);padding:11.2px;display:flex;flex-direction:column;gap:2px"><span style="font-size:9.5px;color:#75798c">NEXT AF</span><span class="mono" style="font-size:17px">28 m</span></div>
+</div>
+<button style="height:44px;border-radius:var(--radius-sm);background:transparent;border:1px solid var(--color-accent);color:var(--color-accent);font:500 13px Inter,sans-serif;cursor:pointer" style-hover="background:rgba(145,132,217,.14)">Run autofocus now</button>
+</div>
+</sc-if>
+
+<sc-if value="{{ isAlertSheet }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:8.4px">
+<sc-for list="{{ alerts }}" as="a" hint-placeholder-count="4">
+<div style="display:flex;gap:11.2px;padding:11.2px;border-radius:var(--radius-sm);background:var(--color-bg);border-left:2px solid {{ a.color }}">
+<i style="font-size:17px;margin-top:1px;color:{{ a.color }}" class="ph {{ a.icon }}"></i>
+<div style="flex:1">
+<div style="font-size:13px">{{ a.text }}</div>
+<div class="mono" style="font-size:10px;color:#75798c">{{ a.time }}</div>
+</div>
+</div>
+</sc-for>
+<button style="display:flex;align-items:center;justify-content:center;gap:7px;height:42px;border-radius:var(--radius-sm);background:transparent;border:1px solid rgba(233,233,237,.18);color:#b2b6ca;font:500 12px Inter,sans-serif;cursor:pointer;margin-top:4px" style-hover="border-color:#9184d9;color:#b5abfc" onClick="{{ openPrefs }}"><i class="ph ph-sliders-horizontal" style="font-size:15px"></i>Alert rules &amp; notifications</button>
+</div>
+</sc-if>
+
+<sc-if value="{{ isPrefsSheet }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:8.4px">
+<sc-for list="{{ prefs }}" as="p" hint-placeholder-count="6">
+<div style="display:flex;align-items:center;gap:11.2px;padding:10px 11.2px;border-radius:var(--radius-sm);background:var(--color-bg)">
+<div style="flex:1;min-width:0">
+<div style="font-size:13px">{{ p.label }}</div>
+<div class="mono" style="font-size:10px;color:#75798c">{{ p.desc }}</div>
+</div>
+<button style="width:42px;height:24px;border-radius:12px;border:0;cursor:pointer;position:relative;flex:none;background:{{ p.bg }}" onClick="{{ p.onClick }}">
+<span style="position:absolute;top:3px;width:18px;height:18px;border-radius:50%;background:#e9e9ed;transition:left .15s;left:{{ p.knob }}"></span>
+</button>
+</div>
+</sc-for>
+<div style="display:flex;align-items:center;gap:11.2px;padding:10px 11.2px;border-radius:var(--radius-sm);background:var(--color-bg)">
+<span style="font-size:13px;flex:1">Quiet hours</span>
+<span class="mono" style="font-size:11.5px;color:#b5abfc">off while imaging</span>
+</div>
+<div class="mono" style="font-size:10px;color:#75798c;line-height:1.6">Critical alerts (unsafe weather, disconnect, mount fault) always sound, even in quiet hours.</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isSetupSheet }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:14px">
+<div style="display:flex;gap:6px">
+<sc-for list="{{ setupSteps }}" as="p" hint-placeholder-count="4">
+<div style="flex:1;display:flex;align-items:center;gap:6px;padding:7px 9px;border-radius:var(--radius-sm);background:rgba(233,233,237,.04)">
+<span class="mono" style="width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;background:{{ p.bg }};color:{{ p.fg }}">{{ p.n }}</span>
+<span style="font-size:10.5px;color:#b2b6ca">{{ p.label }}</span>
+</div>
+</sc-for>
+</div>
+
+<sc-if value="{{ setup0 }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:11.2px">
+<div style="display:flex;flex-direction:column;gap:5px">
+<span style="font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:#75798c">Profile name</span>
+<input value="{{ profileName }}" onInput="{{ onProfileName }}" style="height:42px;padding:0 12px;border-radius:var(--radius-sm);background:var(--color-bg);border:1px solid rgba(233,233,237,.14);outline:none;color:var(--color-text);font:400 14px Inter,sans-serif">
+</div>
+<div style="display:flex;flex-direction:column;gap:5px">
+<span style="font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:#75798c">Optics</span>
+<div style="display:flex;border:1px solid rgba(233,233,237,.14);border-radius:var(--radius-sm);overflow:hidden">
+<sc-for list="{{ scopes }}" as="o" hint-placeholder-count="3">
+<button class="mono" style="flex:1;height:40px;border:0;font-size:11px;cursor:pointer;background:{{ o.bg }};color:{{ o.fg }}" onClick="{{ o.onClick }}">{{ o.label }}</button>
+</sc-for>
+</div>
+<span class="mono" style="font-size:10px;color:#75798c">{{ scopeNote }}</span>
+</div>
+<div style="display:flex;flex-direction:column;gap:5px">
+<span style="font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:#75798c">Site</span>
+<div class="mono" style="font-size:12px;color:#b2b6ca;padding:11px 12px;border-radius:var(--radius-sm);background:var(--color-bg)">52.37 N · 4.89 E · 12 m — from phone GPS</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ setup1 }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:8.4px">
+<div class="mono" style="font-size:11px;color:#9397ab">Mount and camera are required; the rest can come later.</div>
+<sc-for list="{{ devices }}" as="d" hint-placeholder-count="7">
+<button style="width:100%;text-align:left;display:flex;align-items:center;gap:11.2px;padding:10px 12px;border-radius:var(--radius-sm);background:var(--color-bg);border:0;cursor:pointer;color:var(--color-text)" style-hover="background:rgba(145,132,217,.08)" onClick="{{ d.onClick }}">
+<i style="font-size:18px;color:#9397ab" class="ph {{ d.icon }}"></i>
+<span style="flex:1;font-size:13px">{{ d.name }}</span>
+<span class="mono" style="font-size:10px;letter-spacing:.07em;padding:3px 7px;border-radius:3px;background:{{ d.chipBg }};color:{{ d.chipFg }}">{{ d.state }}</span>
+</button>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{ setup2 }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:8.4px">
+<button style="display:flex;align-items:center;gap:11.2px;padding:14px;border-radius:var(--radius-sm);background:var(--color-bg);border:0;cursor:pointer;color:var(--color-text);text-align:left" style-hover="background:rgba(145,132,217,.08)" onClick="{{ openBench }}">
+<i class="ph ph-test-tube" style="font-size:20px;color:#b5abfc"></i>
+<div style="flex:1"><div style="font-size:13.5px">Bench check</div><div class="mono" style="font-size:10px;color:#75798c">test frames · cooler · focuser · slew</div></div>
+<i class="ph ph-caret-right" style="font-size:15px;color:#595d6c"></i>
+</button>
+<button style="display:flex;align-items:center;gap:11.2px;padding:14px;border-radius:var(--radius-sm);background:var(--color-bg);border:0;cursor:pointer;color:var(--color-text);text-align:left" style-hover="background:rgba(145,132,217,.08)" onClick="{{ openPa }}">
+<i class="ph ph-target" style="font-size:20px;color:#b5abfc"></i>
+<div style="flex:1"><div style="font-size:13.5px">Polar align</div><div class="mono" style="font-size:10px;color:{{ paColor }}">{{ paTotal }}′ total error</div></div>
+<i class="ph ph-caret-right" style="font-size:15px;color:#595d6c"></i>
+</button>
+<div class="mono" style="font-size:10px;color:#75798c;line-height:1.6">Both are optional to save the profile, but a session won't start clean without them.</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ setup3 }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:11.2px">
+<div style="display:flex;flex-direction:column;gap:6px;padding:14px;border-radius:var(--radius-sm);background:var(--color-bg)">
+<span class="mono" style="font-size:16px">{{ profileName }}</span>
+<span class="mono" style="font-size:11px;color:#9397ab">{{ scopeNote }}</span>
+<span class="mono" style="font-size:11px;color:{{ readyColor }}">{{ readyLabel }} · polar {{ paTotal }}′</span>
+</div>
+<div class="mono" style="font-size:10.5px;color:#75798c;line-height:1.7">Saved. Next time this profile loads in one tap and every device reconnects with these settings.</div>
+<button style="height:48px;border-radius:var(--radius-sm);background:transparent;border:1px solid var(--color-accent);color:var(--color-accent);font:500 14px Inter,sans-serif;cursor:pointer" style-hover="background:rgba(145,132,217,.14)" onClick="{{ finishSetup }}">Save profile &amp; open session</button>
+</div>
+</sc-if>
+
+<sc-if value="{{ setupFooter }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;gap:8.4px">
+<button style="flex:1;height:44px;border-radius:var(--radius-sm);background:transparent;border:1px solid rgba(233,233,237,.18);color:#b2b6ca;font:500 13px Inter,sans-serif;cursor:pointer" style-hover="border-color:#9184d9;color:#b5abfc" onClick="{{ setupBack }}">Back</button>
+<button style="flex:1;height:44px;border-radius:var(--radius-sm);background:transparent;border:1px solid var(--color-accent);color:var(--color-accent);font:500 13px Inter,sans-serif;cursor:pointer" style-hover="background:rgba(145,132,217,.14)" onClick="{{ setupNext }}">{{ setupNextLabel }}</button>
+</div>
+</sc-if>
+</div>
+</sc-if>
+
+<sc-if value="{{ isBenchSheet }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;gap:16px;align-items:flex-start;flex-direction:{{ paRowDir }}">
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:14px">
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:8.4px">
+<div style="display:flex;flex-direction:column;gap:5px">
+<div style="position:relative;aspect-ratio:4/3;border-radius:var(--radius-sm);overflow:hidden;background:repeating-linear-gradient(135deg,#20222f 0 8px,#191b28 8px 16px);display:flex;align-items:center;justify-content:center">
+<image-slot id="bench-main" shape="rect" placeholder="Main sensor test frame" style="position:absolute;inset:0"></image-slot>
+<span class="mono" style="position:absolute;top:5px;left:6px;font-size:9px;color:#b5abfc">2 s · bin 2</span>
+</div>
+<div class="mono" style="font-size:9.5px;color:#9397ab">{{ mainLabel }}</div>
+<button style="height:34px;border-radius:var(--radius-sm);background:transparent;border:1px solid var(--color-accent);color:var(--color-accent);font:500 11.5px Inter,sans-serif;cursor:pointer" style-hover="background:rgba(145,132,217,.14)" onClick="{{ snapMain }}">Snap main</button>
+</div>
+<div style="display:flex;flex-direction:column;gap:5px">
+<div style="position:relative;aspect-ratio:4/3;border-radius:var(--radius-sm);overflow:hidden;background:repeating-linear-gradient(135deg,#20222f 0 8px,#191b28 8px 16px);display:flex;align-items:center;justify-content:center">
+<image-slot id="bench-guide" shape="rect" placeholder="Guide sensor test frame" style="position:absolute;inset:0"></image-slot>
+<span class="mono" style="position:absolute;top:5px;left:6px;font-size:9px;color:#b5abfc">2 s · loop</span>
+</div>
+<div class="mono" style="font-size:9.5px;color:#9397ab">{{ guideLabel }}</div>
+<button style="height:34px;border-radius:var(--radius-sm);background:transparent;border:1px solid var(--color-accent);color:var(--color-accent);font:500 11.5px Inter,sans-serif;cursor:pointer" style-hover="background:rgba(145,132,217,.14)" onClick="{{ snapGuide }}">Snap guide</button>
+</div>
+</div>
+
+<div style="background:var(--color-bg);border-radius:var(--radius-sm);padding:11.2px;display:flex;flex-direction:column;gap:9px">
+<div style="display:flex;justify-content:space-between;align-items:center">
+<span style="font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:#75798c">Cooler</span>
+<span class="mono" style="font-size:10.5px;white-space:nowrap;color:{{ coolStateColor }}">{{ coolState }} · {{ coolPower }}</span>
+</div>
+<div style="display:flex;align-items:center;gap:11.2px">
+<div style="flex:1"><div class="mono" style="font-size:26px;letter-spacing:-.02em">{{ coolNow }} °C</div><div class="mono" style="font-size:10px;color:#75798c">sensor now</div></div>
+<button style="width:38px;height:38px;border-radius:var(--radius-sm);background:transparent;border:1px solid rgba(233,233,237,.18);color:#b2b6ca;font-size:18px;cursor:pointer" style-hover="border-color:#9184d9;color:#b5abfc" onClick="{{ coolDown }}">−</button>
+<div style="text-align:center;width:64px"><div class="mono" style="font-size:16px;color:#b5abfc">{{ coolTarget }}°</div><div style="font-size:9px;color:#75798c">SET POINT</div></div>
+<button style="width:38px;height:38px;border-radius:var(--radius-sm);background:transparent;border:1px solid rgba(233,233,237,.18);color:#b2b6ca;font-size:18px;cursor:pointer" style-hover="border-color:#9184d9;color:#b5abfc" onClick="{{ coolUp }}">+</button>
+</div>
+<div style="height:4px;border-radius:2px;background:rgba(233,233,237,.1)"><div style="height:4px;border-radius:2px;background:#9184d9;width:{{ coolBar }}"></div></div>
+</div>
+
+</div>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:14px">
+<div style="background:var(--color-bg);border-radius:var(--radius-sm);padding:11.2px;display:flex;flex-direction:column;gap:9px">
+<div style="display:flex;justify-content:space-between;align-items:baseline">
+<span style="font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:#75798c">Focuser · manual</span>
+<span class="mono" style="font-size:16px">{{ focPos }}</span>
+</div>
+<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:5px">
+<sc-for list="{{ jogs }}" as="j" hint-placeholder-count="6">
+<button class="mono" style="height:38px;border-radius:var(--radius-sm);background:transparent;border:1px solid rgba(233,233,237,.14);color:#b2b6ca;font-size:11px;cursor:pointer" style-hover="border-color:#9184d9;color:#b5abfc" onClick="{{ j.onClick }}">{{ j.label }}</button>
+</sc-for>
+</div>
+<div class="mono" style="font-size:10px;color:#75798c">rough focus by eye, then run autofocus · backlash 90 out</div>
+</div>
+
+<div style="background:var(--color-bg);border-radius:var(--radius-sm);padding:11.2px;display:flex;flex-direction:column;gap:9px">
+<div style="display:flex;justify-content:space-between;align-items:center">
+<span style="font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:#75798c">Mount · manual</span>
+<span class="mono" style="font-size:10.5px;color:{{ slewColor }}">{{ slewState }}</span>
+</div>
+<div style="display:flex;align-items:center;gap:14px">
+<div style="display:grid;grid-template-columns:repeat(3,44px);grid-template-rows:repeat(3,44px);gap:5px;grid-template-areas:'. N .' 'W C E' '. S .'">
+<sc-for list="{{ dirs }}" as="d" hint-placeholder-count="4">
+<button style="width:44px;height:44px;border-radius:var(--radius-sm);border:0;cursor:pointer;display:flex;align-items:center;justify-content:center;grid-area:{{ d.k }};background:{{ d.bg }};color:{{ d.fg }}" onClick="{{ d.onClick }}"><i style="font-size:20px" class="ph {{ d.icon }}"></i></button>
+</sc-for>
+<button style="grid-area:C;width:44px;height:44px;border-radius:var(--radius-sm);background:transparent;border:1px solid rgba(217,132,132,.5);color:#d98484;font:500 10px Inter,sans-serif;cursor:pointer" style-hover="background:rgba(217,132,132,.12)" onClick="{{ stopSlew }}">STOP</button>
+</div>
+<div style="flex:1;display:flex;flex-direction:column;gap:6px">
+<div style="display:flex;border:1px solid rgba(233,233,237,.14);border-radius:var(--radius-sm);overflow:hidden">
+<sc-for list="{{ rates }}" as="r" hint-placeholder-count="5">
+<button class="mono" style="flex:1;height:32px;border:0;font-size:10.5px;cursor:pointer;background:{{ r.bg }};color:{{ r.fg }}" onClick="{{ r.onClick }}">{{ r.label }}</button>
+</sc-for>
+</div>
+<div class="mono" style="font-size:10.5px;color:#9397ab;line-height:1.7">RA 20h59m12s<br>DEC +44°31′08″<br>alt 49.2° · az 71.6°</div>
+</div>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:8.4px">
+<button style="height:38px;border-radius:var(--radius-sm);background:transparent;border:1px solid rgba(233,233,237,.18);color:#b2b6ca;font:500 12px Inter,sans-serif;cursor:pointer" style-hover="border-color:#9184d9;color:#b5abfc">Unpark / home</button>
+<button style="height:38px;border-radius:var(--radius-sm);background:transparent;border:1px solid rgba(233,233,237,.18);color:#b2b6ca;font:500 12px Inter,sans-serif;cursor:pointer" style-hover="border-color:#9184d9;color:#b5abfc">Plate solve here</button>
+</div>
+</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isPaSheet }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:14px">
+<div style="display:flex;gap:6px">
+<sc-for list="{{ paSteps }}" as="p" hint-placeholder-count="3">
+<div style="flex:1;display:flex;align-items:center;gap:6px;padding:7px 9px;border-radius:var(--radius-sm);background:rgba(233,233,237,.04)">
+<span class="mono" style="width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;background:{{ p.bg }};color:{{ p.fg }}">{{ p.n }}</span>
+<span style="font-size:10.5px;color:#b2b6ca">{{ p.label }}</span>
+</div>
+</sc-for>
+</div>
+
+<sc-if value="{{ paStep0 }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:11.2px">
+<div style="position:relative;height:170px;border-radius:var(--radius-sm);overflow:hidden;background:repeating-linear-gradient(135deg,#20222f 0 9px,#191b28 9px 18px);display:flex;align-items:center;justify-content:center">
+<image-slot id="pa-live" shape="rect" placeholder="Live view — point near meridian, alt 30–60°" style="position:absolute;inset:0"></image-slot>
+</div>
+<div class="mono" style="font-size:11.5px;color:#9397ab;line-height:1.7">No need to see Polaris. Point anywhere near the meridian, 30–60° altitude, and let the routine plate-solve three frames as the mount rotates.</div>
+<button style="height:46px;border-radius:var(--radius-sm);background:transparent;border:1px solid var(--color-accent);color:var(--color-accent);font:500 13px Inter,sans-serif;cursor:pointer" style-hover="background:rgba(145,132,217,.14)" onClick="{{ paNext }}">Solve here &amp; start</button>
+</div>
+</sc-if>
+
+<sc-if value="{{ paStep1 }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:11.2px">
+<div style="display:flex;gap:6px">
+<div style="flex:1;aspect-ratio:1;border-radius:var(--radius-sm);background:rgba(145,132,217,.16);display:flex;align-items:center;justify-content:center"><span class="mono" style="font-size:10px;color:#b5abfc">solved 0°</span></div>
+<div style="flex:1;aspect-ratio:1;border-radius:var(--radius-sm);background:rgba(145,132,217,.16);display:flex;align-items:center;justify-content:center"><span class="mono" style="font-size:10px;color:#b5abfc">solved 30°</span></div>
+<div style="flex:1;aspect-ratio:1;border-radius:var(--radius-sm);background:repeating-linear-gradient(135deg,#20222f 0 8px,#191b28 8px 16px);display:flex;align-items:center;justify-content:center"><span class="mono" style="font-size:10px;color:#75798c">60°…</span></div>
+</div>
+<div class="mono" style="font-size:11.5px;color:#9397ab;line-height:1.7">Mount is rotating 60° in RA. Keep hands off the tripod — two frames solved, one to go.</div>
+<div style="height:4px;border-radius:2px;background:rgba(233,233,237,.1)"><div style="height:4px;width:66%;border-radius:2px;background:#9184d9"></div></div>
+<button style="height:46px;border-radius:var(--radius-sm);background:transparent;border:1px solid var(--color-accent);color:var(--color-accent);font:500 13px Inter,sans-serif;cursor:pointer" style-hover="background:rgba(145,132,217,.14)" onClick="{{ paNext }}">Capture third frame</button>
+</div>
+</sc-if>
+
+<sc-if value="{{ paStep2 }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;gap:16px;align-items:flex-start;flex-direction:{{ paRowDir }}">
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:11.2px">
+<div style="display:flex;gap:14px;align-items:center">
+<div style="position:relative;width:150px;height:150px;flex:none;border-radius:50%;background:var(--color-bg);box-shadow:inset 0 0 0 1px rgba(233,233,237,.1)">
+<div style="position:absolute;inset:26px;border-radius:50%;border:1px solid rgba(233,233,237,.08)"></div>
+<div style="position:absolute;inset:52px;border-radius:50%;border:1px solid rgba(132,217,164,.35)"></div>
+<div style="position:absolute;left:50%;top:8px;bottom:8px;width:1px;background:rgba(233,233,237,.07)"></div>
+<div style="position:absolute;top:50%;left:8px;right:8px;height:1px;background:rgba(233,233,237,.07)"></div>
+<div style="position:absolute;width:11px;height:11px;border-radius:50%;transform:translate(-50%,-50%);background:{{ paColor }};left:{{ paDotX }};top:{{ paDotY }}"></div>
+</div>
+<div style="flex:1;display:flex;flex-direction:column;gap:4px">
+<span class="mono" style="font-size:30px;letter-spacing:-.03em;color:{{ paColor }}">{{ paTotal }}′</span>
+<span style="font-size:10px;letter-spacing:.09em;color:#75798c">TOTAL ERROR · {{ paVerdict }}</span>
+<span class="mono" style="font-size:11.5px;color:#b2b6ca">ALT {{ paAlt }}′ — {{ paAltDir }}</span>
+<span class="mono" style="font-size:11.5px;color:#b2b6ca">AZ {{ paAz }}′ — {{ paAzDir }}</span>
+</div>
+</div>
+</div>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:11.2px">
+<div style="display:flex;flex-direction:column;gap:8px;padding:9px 11.2px;border-radius:var(--radius-sm);background:var(--color-bg)">
+<div style="display:flex;align-items:center;gap:9px">
+<i class="ph ph-arrows-clockwise" style="font-size:15px;color:#9184d9"></i>
+<span style="font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:#75798c;flex:1">Re-solve every</span>
+<span class="mono" style="font-size:10.5px;color:#b5abfc">{{ paTick }}</span>
+</div>
+<div style="display:flex;border:1px solid rgba(233,233,237,.14);border-radius:var(--radius-sm);overflow:hidden">
+<sc-for list="{{ paRates }}" as="r" hint-placeholder-count="4">
+<button class="mono" style="flex:1;height:34px;border:0;font-size:11px;cursor:pointer;background:{{ r.bg }};color:{{ r.fg }}" onClick="{{ r.onClick }}">{{ r.label }}</button>
+</sc-for>
+</div>
+<span class="mono" style="font-size:10px;color:#75798c">{{ paRateNote }}</span>
+</div>
+<div class="mono" style="font-size:10px;color:#75798c;line-height:1.6">Turn the mount's own alt and az knobs — the app never moves them. Motorised wedges appear here as a Slew control instead.</div>
+<button style="height:46px;border-radius:var(--radius-sm);background:transparent;border:1px solid var(--color-accent);color:var(--color-accent);font:500 13px Inter,sans-serif;cursor:pointer" style-hover="background:rgba(145,132,217,.14)" onClick="{{ closeSheet }}">Accept &amp; finish</button>
+</div>
+</div>
+</sc-if>
+</div>
+</sc-if>
+
+<sc-if value="{{ isDeviceSheet }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:11.2px">
+<div style="display:flex;align-items:center;gap:9px;padding:11.2px;border-radius:var(--radius-sm);background:var(--color-bg)">
+<span style="width:7px;height:7px;border-radius:50%;background:{{ devStatusColor }}"></span>
+<span class="mono" style="font-size:12px;flex:1;color:{{ devStatusColor }}">{{ devStatus }}</span>
+<sc-if value="{{ devRequired }}" hint-placeholder-val="{{ false }}">
+<span class="mono" style="font-size:9.5px;letter-spacing:.07em;padding:3px 7px;border-radius:3px;background:rgba(145,132,217,.18);color:#b5abfc">REQUIRED</span>
+</sc-if>
+</div>
+<sc-for list="{{ devCfg }}" as="c" hint-placeholder-count="4">
+<button style="width:100%;text-align:left;display:flex;align-items:center;gap:11.2px;padding:10px 11.2px;border-radius:var(--radius-sm);background:var(--color-bg);border:1px solid rgba(233,233,237,.06);cursor:pointer;color:var(--color-text)" style-hover="border-color:#9184d9">
+<span style="font-size:11px;color:#75798c;width:88px;flex:none">{{ c.label }}</span>
+<span class="mono" style="font-size:12px;flex:1">{{ c.value }}</span>
+<i class="ph ph-caret-right" style="font-size:14px;color:#595d6c"></i>
+</button>
+</sc-for>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:8.4px;padding-top:2px">
+<button style="height:44px;border-radius:var(--radius-sm);background:transparent;border:1px solid rgba(233,233,237,.18);color:#b2b6ca;font:500 13px Inter,sans-serif;cursor:pointer" style-hover="border-color:#9184d9;color:#b5abfc">Swap hardware</button>
+<button style="height:44px;border-radius:var(--radius-sm);background:transparent;border:1px solid var(--color-accent);color:var(--color-accent);font:500 13px Inter,sans-serif;cursor:pointer" style-hover="background:rgba(145,132,217,.14)" onClick="{{ toggleDevice }}">{{ devConnectLabel }}</button>
+</div>
+<div class="mono" style="font-size:10.5px;color:#75798c">Saved to profile “Field · 550 mm” — 4 profiles</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isSummarySheet }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:11.2px">
+<div style="display:flex;gap:8.4px">
+<div style="flex:1;background:var(--color-bg);border-radius:var(--radius-sm);padding:11.2px"><div style="font-size:9.5px;color:#75798c">KEPT</div><div class="mono" style="font-size:20px">3h 10m</div></div>
+<div style="flex:1;background:var(--color-bg);border-radius:var(--radius-sm);padding:11.2px"><div style="font-size:9.5px;color:#75798c">DISCARDED</div><div class="mono" style="font-size:20px">20m</div></div>
+<div style="flex:1;background:var(--color-bg);border-radius:var(--radius-sm);padding:11.2px"><div style="font-size:9.5px;color:#75798c">MED HFR</div><div class="mono" style="font-size:20px">2.34</div></div>
+</div>
+<div style="background:var(--color-bg);border-radius:var(--radius-sm);padding:11.2px;display:flex;flex-direction:column;gap:9px">
+<span style="font-size:9.5px;letter-spacing:.08em;color:#75798c">INTEGRATION BY FILTER</span>
+<div style="display:flex;align-items:center;gap:9px"><span class="mono" style="font-size:11px;width:30px">Ha</span><div style="flex:1;height:10px;border-radius:2px;background:#9184d9;max-width:74%"></div><span class="mono" style="font-size:11px">2h 05m</span></div>
+<div style="display:flex;align-items:center;gap:9px"><span class="mono" style="font-size:11px;width:30px">OIII</span><div style="flex:1;height:10px;border-radius:2px;background:#796cbf;max-width:38%"></div><span class="mono" style="font-size:11px">1h 05m</span></div>
+<div style="display:flex;align-items:center;gap:9px"><span class="mono" style="font-size:11px;width:30px">SII</span><div style="flex:1;height:10px;border-radius:2px;background:#5d5294;max-width:8%"></div><span class="mono" style="font-size:11px">0h 20m</span></div>
+</div>
+<div class="mono" style="font-size:11px;color:#9397ab;line-height:1.6">Lost 20m — cloud 01:04–01:18, one failed plate solve.<br>Battery 12.1 V at teardown · dew never reached ambient.</div>
+<button style="height:44px;border-radius:var(--radius-sm);background:transparent;border:1px solid var(--color-accent);color:var(--color-accent);font:500 13px Inter,sans-serif;cursor:pointer" style-hover="background:rgba(145,132,217,.14)">Export log + FITS list</button>
+</div>
+</sc-if>
+
+</div>
+</div>
+</sc-if>
+
+</div>
+</div>
+</x-import>
+</div>
+
+<div class="dv-opt" id="1b">
+<div class="dv-olabel"><a class="dv-oid" href="#1b">1b</a>Dashboard viz B — night arc: the whole session as one dial</div>
+<div style="width:412px;background:var(--color-bg);border-radius:14px;box-shadow:var(--shadow-md);padding:20px 16.8px;display:flex;flex-direction:column;gap:14px;color:var(--color-text)">
+<div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-size:17px;font-weight:500">NGC 7000</span><span class="mono" style="font-size:11px;color:#84d9a4">imaging · 00:42 to flip</span></div>
+<div style="position:relative;height:250px">
+<svg viewBox="0 0 380 250" style="width:100%;height:250px">
+<path d="M40 216 A 150 150 0 0 1 340 216" fill="none" stroke="rgba(233,233,237,.09)" stroke-width="16" stroke-linecap="round"></path>
+<path d="M40 216 A 150 150 0 0 1 96 108" fill="none" stroke="#5d5294" stroke-width="16"></path>
+<path d="M96 108 A 150 150 0 0 1 208 66" fill="none" stroke="#9184d9" stroke-width="16"></path>
+<path d="M255 78 A 150 150 0 0 1 316 152" fill="none" stroke="#796cbf" stroke-width="16" opacity=".45"></path>
+<path d="M316 152 A 150 150 0 0 1 340 216" fill="none" stroke="#423a6a" stroke-width="16" opacity=".45"></path>
+<line x1="208" y1="52" x2="208" y2="80" stroke="#e9e9ed" stroke-width="2"></line>
+<line x1="243" y1="58" x2="252" y2="86" stroke="#d9b184" stroke-width="1.5" stroke-dasharray="3 3"></line>
+<circle cx="208" cy="66" r="6" fill="#e9e9ed"></circle>
+</svg>
+<div style="position:absolute;left:0;right:0;top:112px;display:flex;flex-direction:column;align-items:center;gap:2px">
+<span class="mono" style="font-size:38px;letter-spacing:-.03em">1:00</span>
+<span style="font-size:10px;letter-spacing:.1em;color:#75798c">OF 3:20 INTEGRATED</span>
+<span class="mono" style="font-size:11px;color:#b5abfc">sub 13/40 · 172 s left</span>
+</div>
+<span class="mono" style="position:absolute;left:14px;bottom:14px;font-size:10px;color:#75798c">21:48</span>
+<span class="mono" style="position:absolute;right:14px;bottom:14px;font-size:10px;color:#75798c">04:12</span>
+<span class="mono" style="position:absolute;right:76px;top:30px;font-size:10px;color:#d9b184">flip</span>
+</div>
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8.4px">
+<div style="background:var(--color-surface);border-radius:var(--radius-md);padding:11.2px;box-shadow:var(--shadow-sm)"><div style="font-size:9.5px;color:#75798c">HFR</div><div class="mono" style="font-size:20px">2.31</div></div>
+<div style="background:var(--color-surface);border-radius:var(--radius-md);padding:11.2px;box-shadow:var(--shadow-sm)"><div style="font-size:9.5px;color:#75798c">RMS</div><div class="mono" style="font-size:20px">0.48″</div></div>
+<div style="background:var(--color-surface);border-radius:var(--radius-md);padding:11.2px;box-shadow:var(--shadow-sm)"><div style="font-size:9.5px;color:#75798c">SNR</div><div class="mono" style="font-size:20px">41.2</div></div>
+</div>
+<div class="mono" style="font-size:10.5px;color:#75798c">arc = the night · thick band = shot · faint = planned · tick = now</div>
+</div>
+</div>
+
+<div class="dv-opt" id="1c">
+<div class="dv-olabel"><a class="dv-oid" href="#1c">1c</a>Dashboard viz C — dense strip: every metric on one time axis</div>
+<div style="width:412px;background:var(--color-bg);border-radius:14px;box-shadow:var(--shadow-md);padding:20px 16.8px;display:flex;flex-direction:column;gap:12px;color:var(--color-text)">
+<div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-size:17px;font-weight:500">NGC 7000</span><span class="mono" style="font-size:11px;color:#9397ab">22:10 → now · 42 subs</span></div>
+
+<div style="display:flex;flex-direction:column;gap:2px">
+<div class="mono" style="display:flex;justify-content:space-between;font-size:10px;color:#75798c"><span>HFR</span><span style="color:#e9e9ed">2.31 · med 2.34</span></div>
+<svg viewBox="0 0 380 52" preserveAspectRatio="none" style="width:100%;height:52px;background:var(--color-surface);border-radius:4px">
+<polyline fill="none" stroke="#9184d9" stroke-width="1.6" points="0,38 24,35 48,32 72,30 96,26 118,14 134,10 152,28 178,32 204,29 230,27 256,23 282,21 306,12 326,9 348,26 380,30"></polyline>
+</svg>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:2px">
+<div class="mono" style="display:flex;justify-content:space-between;font-size:10px;color:#75798c"><span>GUIDE RMS</span><span style="color:#e9e9ed">0.48″ · pk 1.42″</span></div>
+<svg viewBox="0 0 380 52" preserveAspectRatio="none" style="width:100%;height:52px;background:var(--color-surface);border-radius:4px">
+<line x1="0" y1="16" x2="380" y2="16" stroke="rgba(217,132,132,.4)" stroke-dasharray="4 4"></line>
+<polyline fill="none" stroke="#84b8d9" stroke-width="1.6" points="0,34 20,30 40,36 60,32 80,29 100,33 120,20 130,9 142,22 160,31 180,34 200,30 220,33 240,28 260,31 280,26 300,30 320,24 340,29 360,27 380,31"></polyline>
+</svg>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:2px">
+<div class="mono" style="display:flex;justify-content:space-between;font-size:10px;color:#75798c"><span>SKY / CLOUD</span><span style="color:#d9b184">cloud 01:04–01:18</span></div>
+<svg viewBox="0 0 380 40" preserveAspectRatio="none" style="width:100%;height:40px;background:var(--color-surface);border-radius:4px">
+<rect x="118" y="0" width="30" height="40" fill="rgba(217,177,132,.28)"></rect>
+<polyline fill="none" stroke="#b2b6ca" stroke-width="1.4" points="0,10 60,12 118,14 148,28 200,15 260,12 320,11 380,13"></polyline>
+</svg>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:4px">
+<div class="mono" style="font-size:10px;color:#75798c">SUBS · kept / cut</div>
+<div style="display:flex;gap:2px;height:26px">
+<div style="flex:5;background:#9184d9;border-radius:2px"></div><div style="flex:1;background:#423a6a;border-radius:2px"></div><div style="flex:9;background:#9184d9;border-radius:2px"></div><div style="flex:2;background:rgba(217,132,132,.6);border-radius:2px"></div><div style="flex:14;background:#9184d9;border-radius:2px"></div><div style="flex:1;background:#423a6a;border-radius:2px"></div><div style="flex:10;background:#796cbf;border-radius:2px"></div>
+</div>
+<div class="mono" style="display:flex;justify-content:space-between;font-size:9.5px;color:#75798c"><span>22:10</span><span>Ha 40</span><span style="color:#d98484">4 cut</span><span>OIII 12</span><span>now</span></div>
+</div>
+
+<div style="display:flex;gap:8.4px;padding-top:2px">
+<button style="flex:1;height:40px;border-radius:var(--radius-sm);background:transparent;border:1px solid rgba(233,233,237,.18);color:#b2b6ca;font:500 12px Inter,sans-serif;cursor:pointer" style-hover="border-color:#9184d9;color:#b5abfc">Scrub timeline</button>
+<button style="flex:1;height:40px;border-radius:var(--radius-sm);background:transparent;border:1px solid var(--color-accent);color:var(--color-accent);font:500 12px Inter,sans-serif;cursor:pointer" style-hover="background:rgba(145,132,217,.14)">Jump to spike</button>
+</div>
+</div>
+</div>
+
+</div>
+<p class="dv-next">Try next: "make <a class="dv-oid" href="#1a">1a</a>'s dashboard use the arc from <a class="dv-oid" href="#1b">1b</a>" · "add a gloved-hands one-handed layout" · "show the red-mode screens side by side"</p>
+</section>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1500,&quot;height&quot;:1100}}">
+const PA_SECS = [1, 2, 5, 10];
+const PLAN_CHIPS = ['Up tonight', 'Alt > 40°', 'Narrowband', 'Fits FOV'];
+const TARGETS = [
+  { id: 'NGC 7000', common: 'North America', coords: '20h59m17s +44°31′44″', size: '120′×100′', band: 'Ha', max: 78, peak: '01:12', usable: '4h 22m', fov: 1 },
+  { id: 'IC 1396', common: 'Elephant Trunk', coords: '21h39m06s +57°30′00″', size: '170′×140′', band: 'Ha', max: 81, peak: '01:44', usable: '4h 40m', fov: 0 },
+  { id: 'NGC 6888', common: 'Crescent', coords: '20h12m07s +38°21′18″', size: '18′×12′', band: 'Ha OIII', max: 72, peak: '00:18', usable: '3h 50m', fov: 1 },
+  { id: 'IC 1805', common: 'Heart', coords: '02h32m42s +61°27′00″', size: '150′×150′', band: 'SHO', max: 84, peak: '04:02', usable: '2h 10m', fov: 0 },
+  { id: 'M 31', common: 'Andromeda', coords: '00h42m44s +41°16′09″', size: '190′×60′', band: 'LRGB', max: 76, peak: '02:48', usable: '3h 30m', fov: 0 },
+  { id: 'M 27', common: 'Dumbbell', coords: '19h59m36s +22°43′16″', size: '8′×6′', band: 'LRGB Ha', max: 58, peak: '23:40', usable: '2h 55m', fov: 1 },
+  { id: 'NGC 7380', common: 'Wizard', coords: '22h47m00s +58°06′00″', size: '25′×25′', band: 'SHO', max: 82, peak: '02:26', usable: '4h 05m', fov: 1 },
+  { id: 'IC 5070', common: 'Pelican', coords: '20h50m48s +44°21′00″', size: '60′×50′', band: 'Ha', max: 78, peak: '01:04', usable: '4h 18m', fov: 1 },
+  { id: 'NGC 281', common: 'Pacman', coords: '00h52m59s +56°37′19″', size: '35′×30′', band: 'SHO', max: 83, peak: '03:20', usable: '3h 05m', fov: 1 },
+  { id: 'M 45', common: 'Pleiades', coords: '03h47m24s +24°07′00″', size: '110′×110′', band: 'LRGB', max: 61, peak: '04:10', usable: '1h 20m', fov: 0 },
+];
+const PREF_DEFS = [
+  ['guide', 'Guiding degraded', 'RMS > 1.0″ for 3 subs'],
+  ['cloud', 'Cloud or unsafe weather', 'cloud > 30% · wind > 35 km/h · rain'],
+  ['disconnect', 'Device disconnect', 'any linked device drops'],
+  ['flip', 'Meridian flip', '10 min before, and on completion'],
+  ['frameCut', 'Frame rejected', 'HFR or star count outside limits'],
+  ['seqEnd', 'Sequence finished', 'or paused for any reason'],
+];
+const SCOPES = [
+  { label: '250 mm', note: 'RedCat 51 · 2.72 ″/px · 5.3° × 3.5° FOV' },
+  { label: '550 mm', note: 'ES 80ED + 0.8× · 1.24 ″/px · 2.4° × 1.6° FOV' },
+  { label: '1000 mm', note: 'RC8 · 0.78 ″/px · 1.3° × 0.9° FOV' },
+];
+
+class Component extends DCLogic {
+  state = {
+    tab: 'session', red: false, sheet: null, t: 0, running: true,
+    openBlock: 1, deviceKey: 'mount',
+    focPos: 18422, coolTarget: -10, coolNow: 12.4, snapped: {},
+    rate: 2, slewDir: null, paStep: 0, paAlt: 4.2, paAz: -1.8, land: false, paRate: 1,
+    query: '', chips: [0], targetId: 'NGC 7000', setupStep: 0, scope: 1,
+    profileName: 'Field · 550 mm',
+    prefs: { guide: true, cloud: true, disconnect: true, flip: true, frameCut: false, seqEnd: true },
+    cut: { '017': true, '023': true },
+    devOff: { rotator: false },
+  };
+
+  componentDidMount() {
+    this._iv = setInterval(() => this.setState(s => {
+      const d = s.coolTarget - s.coolNow;
+      const step = Math.max(-1.4, Math.min(1.4, d));
+      const adj = s.sheet === 'pa' && s.paStep === 2 && (s.t % PA_SECS[s.paRate] === 0);
+      const ease = (v) => Math.abs(v) < 0.15 ? 0 : +(v - Math.sign(v) * 0.22).toFixed(2);
+      return {
+        t: s.t + 1, coolNow: Math.abs(d) < 0.05 ? s.coolTarget : s.coolNow + step,
+        paAlt: adj ? ease(s.paAlt) : s.paAlt, paAz: adj ? ease(s.paAz) : s.paAz,
+      };
+    }), 1000);
+  }
+  componentWillUnmount() { clearInterval(this._iv); }
+
+  wiggle(seed, n, amp) {
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const x = i + this.state.t * 0.6 + seed;
+      out.push((Math.sin(x * 0.7) + Math.sin(x * 0.31) * 0.7 + Math.sin(x * 1.9) * 0.35) / 2.05 * amp);
+    }
+    return out;
+  }
+  poly(vals, w, h) {
+    const n = vals.length;
+    return vals.map((v, i) => `${(i / (n - 1) * w).toFixed(1)},${(h / 2 - v).toFixed(1)}`).join(' ');
+  }
+  hhmm(s) { const m = Math.floor(s / 60), r = s % 60; return `${m}:${String(r).padStart(2, '0')}`; }
+
+  renderVals() {
+    const s = this.state;
+    const elapsed = (128 + s.t) % 300;
+    const p = elapsed / 300;
+    const C = 2 * Math.PI * 35;
+    const flipTotal = 2530 - s.t;
+    const ARC = Math.PI * 140;
+    const fNow = 0.485 + s.t / 9000;
+    const pt = (f, r) => [
+      (174 - r * Math.cos(Math.PI * f)).toFixed(1),
+      (178 - r * Math.sin(Math.PI * f)).toFixed(1),
+    ];
+    const setTab = k => () => this.setState({ tab: k, sheet: null });
+    const tabDef = [
+      ['session', 'Session', 'ph-broadcast'], ['plan', 'Plan', 'ph-crosshair'],
+      ['seq', 'Sequence', 'ph-list-checks'], ['frames', 'Frames', 'ph-images-square'],
+      ['gear', 'Gear', 'ph-plugs'],
+    ];
+
+    const frameIds = ['011','012','013','014','015','016','017','018','019','020','021','022'];
+    const hfrs = [2.28,2.31,2.30,2.35,2.41,2.33,2.94,2.44,2.38,2.36,2.29,2.32];
+    const frames = frameIds.map((id, i) => {
+      const cut = !!s.cut[id];
+      return {
+        id, hfr: hfrs[i].toFixed(2), op: cut ? 0.42 : 1,
+        ring: cut ? 'inset 0 0 0 1px rgba(217,132,132,.5)' : 'inset 0 0 0 1px rgba(145,132,217,.45)',
+        hfrColor: hfrs[i] > 2.8 ? '#d98484' : '#b2b6ca',
+        badgeBg: cut ? 'rgba(217,132,132,.9)' : 'rgba(145,132,217,.9)',
+        badgeFg: '#161826',
+        badgeIcon: cut ? 'ph-x' : 'ph-check',
+        onClick: () => this.setState(st => ({ cut: { ...st.cut, [id]: !st.cut[id] } })),
+      };
+    });
+    const rejectCount = frames.filter(f => s.cut[f.id]).length;
+
+    const devs = [
+      { k: 'mount', name: 'EQ6-R Pro', detail: 'tracking · sidereal · W of pier', icon: 'ph-compass-tool', req: 1,
+        cfg: [['Driver', 'EQMOD ASCOM'], ['Port', 'USB · COM4 · 115 200'], ['Site', '52.37 N · 4.89 E · 12 m'], ['Pier side', 'West · flip at +5 min']] },
+      { k: 'cam', name: 'ASI2600MM Pro', detail: '−10.0 °C · cooler 68% · 42 subs', icon: 'ph-camera', req: 1,
+        cfg: [['Driver', 'ZWO ASCOM · native'], ['Set point', '−10.0 °C · cooler 68%'], ['Readout', 'Mode 0 · gain 100 · off 50'], ['Pixel scale', '3.76 µm · 1.24 ″/px @ 550 mm']] },
+      { k: 'efw', name: 'EFW 7×36 mm', detail: 'pos 2 · Ha 3 nm', icon: 'ph-circles-three',
+        cfg: [['Driver', 'ZWO EFW'], ['Slots', 'L · R · G · B · Ha · OIII · SII'], ['Offsets', 'per-filter focus offsets on']] },
+      { k: 'guide', name: 'ASI174MM mini', detail: '2 s · 38 SNR · 0.48″', icon: 'ph-crosshair-simple',
+        cfg: [['Driver', 'PHD2 · localhost:4400'], ['Scope', 'OAG · 550 mm · 4.86 ″/px'], ['Calibration', 'valid · 22:04']] },
+      { k: 'focus', name: 'EAF', detail: '18 422 · −0.6 °C drift', icon: 'ph-arrows-in-line-horizontal',
+        cfg: [['Driver', 'ZWO EAF'], ['Range', '0 → 62 000 · backlash 90'], ['Temp comp', '−12 steps / °C']] },
+      { k: 'rotator', name: 'Rotator', detail: '118.4° · sky PA locked', icon: 'ph-arrows-clockwise',
+        cfg: [['Driver', 'Pegasus Falcon'], ['Sky PA', 'locked to 118.4°'], ['Reverse', 'off']] },
+      { k: 'weather', name: 'Weather + all-sky', detail: 'safe · cloud 4% · wind 6 km/h', icon: 'ph-cloud-sun',
+        cfg: [['Driver', 'Boltwood file watch'], ['Unsafe when', 'cloud > 30% · wind > 35 km/h · rain'], ['On unsafe', 'park + close roof']] },
+    ];
+    const isOn = k => !s.devOff[k];
+    const devices = devs.map(d => ({
+      name: d.name, detail: isOn(d.k) ? d.detail : 'not connected', icon: d.icon,
+      state: isOn(d.k) ? 'LINKED' : (d.req ? 'REQUIRED' : 'OFF'),
+      chipBg: isOn(d.k) ? 'rgba(132,217,164,.14)' : (d.req ? 'rgba(217,132,132,.16)' : 'rgba(233,233,237,.08)'),
+      chipFg: isOn(d.k) ? '#84d9a4' : (d.req ? '#d98484' : '#75798c'),
+      onClick: () => this.setState({ sheet: 'device', deviceKey: d.k }),
+    }));
+    const dev = devs.find(d => d.k === s.deviceKey) || devs[0];
+    const devOn = isOn(dev.k);
+    const ready = isOn('mount') && isOn('cam');
+    const missing = [!isOn('mount') && 'mount', !isOn('cam') && 'camera'].filter(Boolean).join(' + ');
+
+    const blockDefs = [
+      ['Ha', '300 s × 40', '12 done · 2h 00m left', 0.30],
+      ['OIII', '300 s × 30', 'queued · 2h 30m', 0],
+      ['SII', '300 s × 20', 'queued · 1h 40m', 0],
+    ];
+    const blocks = blockDefs.map(([filter, spec, meta, pct], i) => ({
+      filter, spec, meta, pct: `${Math.round(pct * 100)}%`,
+      tagBg: i === 0 ? 'rgba(145,132,217,.2)' : 'rgba(233,233,237,.07)',
+      tagFg: i === 0 ? '#b5abfc' : '#9397ab',
+      open: s.openBlock === i,
+      onToggle: () => this.setState(st => ({ openBlock: st.openBlock === i ? -1 : i })),
+    }));
+
+    const alerts = [
+      ['Meridian flip in 42 min — mount will pause, re-guide, resume', '02:18', '#d9b184', 'ph-arrows-clockwise'],
+      ['Sub 017 cut — HFR 2.94 above 2.80 threshold', '01:06', '#d98484', 'ph-scissors'],
+      ['Cloud passed, guiding recovered after 14 min', '01:18', '#9184d9', 'ph-cloud'],
+      ['Autofocus complete — 18 422, HFR 2.27', '00:41', '#84d9a4', 'ph-check-circle'],
+    ];
+
+    const sheetTitles = {
+      guide: ['Guiding', 'last 2 min'], focus: ['Focus', 'V-curve · 9 points'],
+      alerts: ['Alerts', 'tonight'], summary: ['Session summary', '21:48 → 04:12'],
+      device: [dev.name, dev.req ? 'required for a session' : 'optional'],
+      bench: ['Bench check', 'before you start'],
+      pa: ['Polar alignment', 'three steps'],
+      prefs: ['Alert rules', 'push + on-screen'],
+      setup: ['New rig profile', `step ${s.setupStep + 1} of 4`],
+    };
+    const st = sheetTitles[s.sheet] || ['', ''];
+    const full = s.sheet === 'bench' || s.sheet === 'pa' || s.sheet === 'setup';
+    const q = s.query.trim().toLowerCase();
+    const matches = TARGETS.filter(t => {
+      if (q && !(`${t.id} ${t.common} ${t.coords}`.toLowerCase().includes(q))) return false;
+      if (s.chips.includes(1) && t.max <= 40) return false;
+      if (s.chips.includes(2) && !/Ha|SHO|OIII/.test(t.band)) return false;
+      if (s.chips.includes(3) && !t.fov) return false;
+      return true;
+    });
+    const tgt = TARGETS.find(t => t.id === s.targetId) || TARGETS[0];
+
+    return {
+      devW: s.land ? 892 : 412, devH: s.land ? 412 : 892,
+      toggleLand: () => this.setState(x => ({ land: !x.land })),
+      rotateIcon: s.land ? 'ph-device-mobile' : 'ph-device-rotate',
+      screenDir: s.land ? 'row' : 'column-reverse',
+      navStyle: s.land
+        ? 'display:flex;flex-direction:column;width:74px;flex:none;border-right:1px solid rgba(233,233,237,.08);background:var(--color-bg);padding:4px 3px'
+        : 'display:flex;border-top:1px solid rgba(233,233,237,.08);background:var(--color-bg);padding:6px 4px 8px',
+      headerPad: s.land ? '5px 12px' : '11.2px 16.8px 8.4px',
+      scrollPad: s.land ? '9px 12px 12px' : '11.2px 16.8px 16.8px',
+      arcH: s.land ? 132 : 176, arcBoxH: s.land ? 144 : 188, arcTop: s.land ? 48 : 74,
+      previewH: s.land ? 96 : 196,
+      paneClass: s.land ? 'pane-cols' : '',
+      sheetPaneStyle: s.land ? 'column-count:2;column-gap:16px' : 'display:flex;flex-direction:column;gap:14px',
+      paRowDir: s.land ? 'row' : 'column',
+      paneStyle: s.land ? 'column-count:2;column-gap:14px' : 'display:flex;flex-direction:column;gap:11.2px',
+      redLabel: s.red ? 'RED ON' : 'RED',
+      screenFilter: s.red ? 'grayscale(1) sepia(1) hue-rotate(-32deg) saturate(4.5) brightness(.72)' : 'none',
+      toggleRed: () => this.setState(x => ({ red: !x.red })),
+
+      isSession: s.tab === 'session', isPlan: s.tab === 'plan', isSeq: s.tab === 'seq',
+      isFrames: s.tab === 'frames', isGear: s.tab === 'gear',
+      tabs: tabDef.map(([k, label, icon]) => ({
+        label, icon: (s.tab === k ? 'ph-fill ' : 'ph ') + icon,
+        color: s.tab === k ? '#b5abfc' : '#75798c', onClick: setTab(k),
+      })),
+
+      expRemain: this.hhmm(300 - elapsed),
+      expDash: `${(p * C).toFixed(1)} ${C.toFixed(1)}`,
+      integLabel: '1:00',
+      arcShot: `${(fNow * ARC).toFixed(1)} ${ARC.toFixed(1)}`,
+      arcPlanned: `${(0.78 * ARC).toFixed(1)} ${ARC.toFixed(1)}`,
+      nowX: pt(fNow, 140)[0], nowY: pt(fNow, 140)[1],
+      flipX1: pt(0.62, 126)[0], flipY1: pt(0.62, 126)[1],
+      flipX2: pt(0.62, 155)[0], flipY2: pt(0.62, 155)[1],
+      rms: (0.48 + Math.sin(s.t / 7) * 0.04).toFixed(2),
+      miniTrace: this.poly(this.wiggle(0, 40, 7), 96, 20),
+      raTrace: this.poly(this.wiggle(3, 90, 22), 344, 108),
+      decTrace: this.poly(this.wiggle(41, 90, 14), 344, 108),
+      flipIn: `T−${Math.floor(flipTotal / 60)}:${String(flipTotal % 60).padStart(2, '0')}`,
+
+      frames, keepCount: frames.length - rejectCount + 30, rejectCount, devices, blocks,
+      alerts: alerts.map(([text, time, color, icon]) => ({ text, time, color, icon })),
+      alertCount: alerts.length,
+
+      runLabel: s.running ? 'Pause after this sub' : 'Resume sequence',
+      toggleRun: () => this.setState(x => ({ running: !x.running })),
+
+      ready, notReady: !ready,
+      readyLabel: ready ? 'Ready to image' : `Needs ${missing}`,
+      readyColor: ready ? '#84d9a4' : '#d9b184',
+      readyBg: ready ? 'rgba(132,217,164,.1)' : 'rgba(217,177,132,.1)',
+      readyIcon: ready ? 'ph-check-circle' : 'ph-warning',
+      mountChip: isOn('mount') ? '#84d9a4' : '#d98484',
+      camChip: isOn('cam') ? '#84d9a4' : '#d98484',
+      startLabel: ready ? (s.running ? 'Pause after this sub' : 'Start sequence') : `Blocked — connect ${missing}`,
+      startColor: ready ? 'var(--color-accent)' : '#595d6c',
+      goGear: () => this.setState({ tab: 'gear', sheet: null }),
+
+      isDeviceSheet: s.sheet === 'device',
+      devCfg: dev.cfg.map(([label, value]) => ({ label, value })),
+      devOn, devConnectLabel: devOn ? 'Disconnect' : 'Connect',
+      devStatus: devOn ? 'connected' : 'not connected',
+      devStatusColor: devOn ? '#84d9a4' : (dev.req ? '#d98484' : '#75798c'),
+      devRequired: !!dev.req,
+      toggleDevice: () => this.setState(x => ({ devOff: { ...x.devOff, [dev.k]: !x.devOff[dev.k] } })),
+
+      query: s.query,
+      onQuery: e => this.setState({ query: e.target.value }),
+      clearQuery: () => this.setState({ query: '' }),
+      planChips: PLAN_CHIPS.map((label, i) => {
+        const on = s.chips.includes(i);
+        return {
+          label,
+          bg: on ? 'rgba(145,132,217,.16)' : 'transparent',
+          fg: on ? '#b5abfc' : '#9397ab',
+          bd: on ? 'rgba(145,132,217,.4)' : 'rgba(233,233,237,.16)',
+          onClick: () => this.setState(x => ({
+            chips: x.chips.includes(i) ? x.chips.filter(c => c !== i) : [...x.chips, i],
+          })),
+        };
+      }),
+      results: matches.map(t => ({
+        name: `${t.id} — ${t.common}`, meta: `${t.coords} · ${t.size} · ${t.band}`,
+        alt: `${t.max}° max`, altColor: t.max > 40 ? '#84d9a4' : '#d9b184',
+        bg: t.id === tgt.id ? 'rgba(145,132,217,.12)' : 'transparent',
+        onClick: () => this.setState({ targetId: t.id }),
+      })),
+      resultCount: `${matches.length} of ${TARGETS.length} · tap to frame`,
+      tgtName: tgt.id, tgtCoords: `${tgt.coords} · ${tgt.size}`,
+      tgtUsable: `${tgt.usable} usable`, tgtMax: `max ${tgt.max}° @ ${tgt.peak}`,
+
+      isPrefsSheet: s.sheet === 'prefs',
+      openPrefs: () => this.setState({ sheet: 'prefs' }),
+      prefs: PREF_DEFS.map(([k, label, desc]) => {
+        const on = s.prefs[k];
+        return {
+          label, desc,
+          bg: on ? '#9184d9' : 'rgba(233,233,237,.14)', knob: on ? '21px' : '3px',
+          onClick: () => this.setState(x => ({ prefs: { ...x.prefs, [k]: !x.prefs[k] } })),
+        };
+      }),
+
+      isSetupSheet: s.sheet === 'setup',
+      openSetup: () => this.setState({ sheet: 'setup', setupStep: 0 }),
+      setupSteps: ['Profile', 'Connect', 'Check', 'Done'].map((label, i) => ({
+        label, n: String(i + 1),
+        bg: s.setupStep === i ? '#9184d9' : (s.setupStep > i ? 'rgba(132,217,164,.2)' : 'rgba(233,233,237,.07)'),
+        fg: s.setupStep === i ? '#161826' : (s.setupStep > i ? '#84d9a4' : '#75798c'),
+      })),
+      setup0: s.setupStep === 0, setup1: s.setupStep === 1, setup2: s.setupStep === 2, setup3: s.setupStep === 3,
+      setupFooter: s.setupStep < 3,
+      setupNext: () => this.setState(x => ({ setupStep: Math.min(3, x.setupStep + 1) })),
+      setupBack: () => this.setState(x => (x.setupStep === 0 ? { sheet: null } : { setupStep: x.setupStep - 1 })),
+      setupNextLabel: s.setupStep === 3 ? 'Done' : 'Continue',
+      finishSetup: () => this.setState({ sheet: null, tab: 'session' }),
+      profileName: s.profileName,
+      onProfileName: e => this.setState({ profileName: e.target.value }),
+      scopes: SCOPES.map((o, i) => ({
+        label: o.label,
+        bg: s.scope === i ? 'rgba(145,132,217,.2)' : 'transparent',
+        fg: s.scope === i ? '#b5abfc' : '#9397ab',
+        onClick: () => this.setState({ scope: i }),
+      })),
+      scopeNote: SCOPES[s.scope].note,
+
+      isBenchSheet: s.sheet === 'bench',
+      openBench: () => this.setState({ sheet: 'bench' }),
+      mainSnapped: !!s.snapped.main, guideSnapped: !!s.snapped.guide,
+      mainLabel: s.snapped.main ? '★ 1 482 · HFR 2.31 · ADU 1 093' : 'no test frame yet',
+      guideLabel: s.snapped.guide ? '★ 21 · SNR 38 · ADU 640' : 'no test frame yet',
+      snapMain: () => this.setState(x => ({ snapped: { ...x.snapped, main: true } })),
+      snapGuide: () => this.setState(x => ({ snapped: { ...x.snapped, guide: true } })),
+      coolNow: s.coolNow.toFixed(1), coolTarget: s.coolTarget.toFixed(1),
+      coolPower: `${Math.min(99, Math.round(Math.abs(s.coolNow - 12.4) * 3 + 8))}%`,
+      coolBar: `${Math.max(2, Math.min(100, Math.round((12.4 - s.coolNow) / (12.4 - s.coolTarget) * 100)))}%`,
+      coolState: Math.abs(s.coolNow - s.coolTarget) < 0.2 ? 'at set point' : 'ramping',
+      coolStateColor: Math.abs(s.coolNow - s.coolTarget) < 0.2 ? '#84d9a4' : '#d9b184',
+      coolUp: () => this.setState(x => ({ coolTarget: Math.min(20, x.coolTarget + 1) })),
+      coolDown: () => this.setState(x => ({ coolTarget: Math.max(-25, x.coolTarget - 1) })),
+      focPos: s.focPos.toLocaleString('en-US').replace(/,/g, ' '),
+      jogs: [-1000, -100, -10, 10, 100, 1000].map(d => ({
+        label: (d > 0 ? '+' : '') + d,
+        onClick: () => this.setState(x => ({ focPos: Math.max(0, Math.min(62000, x.focPos + d)) })),
+      })),
+      rates: ['0.5×', '1×', '8×', '64×', 'max'].map((label, i) => ({
+        label,
+        bg: s.rate === i ? 'rgba(145,132,217,.2)' : 'transparent',
+        fg: s.rate === i ? '#b5abfc' : '#9397ab',
+        onClick: () => this.setState({ rate: i }),
+      })),
+      dirs: [['N', 'ph-caret-up'], ['W', 'ph-caret-left'], ['E', 'ph-caret-right'], ['S', 'ph-caret-down']]
+        .map(([k, icon]) => ({
+          k, icon,
+          fg: s.slewDir === k ? '#161826' : '#b2b6ca',
+          bg: s.slewDir === k ? '#9184d9' : 'rgba(233,233,237,.05)',
+          onClick: () => this.setState(x => ({ slewDir: x.slewDir === k ? null : k })),
+        })),
+      slewState: s.slewDir ? `slewing ${s.slewDir} at ${['0.5×','1×','8×','64×','max'][s.rate]}` : 'tracking · sidereal',
+      slewColor: s.slewDir ? '#d9b184' : '#84d9a4',
+      stopSlew: () => this.setState({ slewDir: null }),
+
+      isPaSheet: s.sheet === 'pa',
+      openPa: () => this.setState({ sheet: 'pa', paStep: 0 }),
+      paSteps: ['Point', 'Rotate + capture', 'Adjust knobs'].map((label, i) => ({
+        label, n: String(i + 1),
+        bg: s.paStep === i ? '#9184d9' : (s.paStep > i ? 'rgba(132,217,164,.2)' : 'rgba(233,233,237,.07)'),
+        fg: s.paStep === i ? '#161826' : (s.paStep > i ? '#84d9a4' : '#75798c'),
+      })),
+      paStep0: s.paStep === 0, paStep1: s.paStep === 1, paStep2: s.paStep === 2,
+      paNext: () => this.setState(x => ({ paStep: Math.min(2, x.paStep + 1) })),
+      paTotal: Math.hypot(s.paAlt, s.paAz).toFixed(1),
+      paAlt: Math.abs(s.paAlt).toFixed(1), paAz: Math.abs(s.paAz).toFixed(1),
+      paAltDir: s.paAlt >= 0 ? 'lower altitude knob' : 'raise altitude knob',
+      paAzDir: s.paAz >= 0 ? 'turn azimuth east' : 'turn azimuth west',
+      paColor: Math.hypot(s.paAlt, s.paAz) < 1 ? '#84d9a4' : (Math.hypot(s.paAlt, s.paAz) < 3 ? '#d9b184' : '#d98484'),
+      paVerdict: Math.hypot(s.paAlt, s.paAz) < 1 ? 'good — under 1′' : 'keep adjusting',
+      paDotX: `${50 + s.paAz * 5}%`, paDotY: `${50 - s.paAlt * 5}%`,
+      paTick: (s.t % PA_SECS[s.paRate] === 0) ? 'solving…' : `next in ${PA_SECS[s.paRate] - (s.t % PA_SECS[s.paRate])} s`,
+      paRates: ['1 s', '2 s', '5 s', '10 s'].map((label, i) => ({
+        label,
+        bg: s.paRate === i ? 'rgba(145,132,217,.2)' : 'transparent',
+        fg: s.paRate === i ? '#b5abfc' : '#9397ab',
+        onClick: () => this.setState({ paRate: i }),
+      })),
+      paRateNote: s.paRate <= 1
+        ? 'fast — short exposures, noisier solve; good for coarse knob turns'
+        : 'slow — longer exposures, steadier reading; use for the last arcminute',
+
+      sheetAlign: full ? 'stretch' : 'flex-end',
+      sheetSize: full ? 'height:100%;max-height:100%;border-radius:0' : 'max-height:88%;border-radius:14px 14px 0 0',
+      handleShow: full ? 'none' : 'block',
+      sheetOpen: !!s.sheet, sheetTitle: st[0], sheetMeta: st[1],
+      isGuideSheet: s.sheet === 'guide', isFocusSheet: s.sheet === 'focus',
+      isAlertSheet: s.sheet === 'alerts', isSummarySheet: s.sheet === 'summary',
+      openGuide: () => this.setState({ sheet: 'guide' }),
+      openFocus: () => this.setState({ sheet: 'focus' }),
+      openAlerts: () => this.setState({ sheet: 'alerts' }),
+      openSummary: () => this.setState({ sheet: 'summary' }),
+      closeSheet: () => this.setState({ sheet: null }),
+      backdropClose: e => { if (e.target === e.currentTarget) this.setState({ sheet: null }); },
+      stopBubble: e => e.stopPropagation(),
+    };
+  }
+}
+</script>
+</body>
+</html>
