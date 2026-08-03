@@ -51,23 +51,79 @@ class SimulatedController(private val scope: CoroutineScope) : SessionController
         update { s ->
             when (sheet) {
                 SheetType.PA -> s.copy(sheet = sheet, paStep = 0)
-                SheetType.SETUP -> if (s.ekosRunning) s else s.copy(sheet = sheet, setupStep = 0)
+                SheetType.SETUP -> if (s.ekosRunning) s else s.copy(sheet = sheet)
                 else -> s.copy(sheet = sheet)
             }
         }
     }
 
-    override fun openDevice(key: String) = update { it.copy(sheet = SheetType.DEVICE, deviceKey = key) }
+    override fun openDevice(key: String) = update { it.copy(sheet = SheetType.DEVICE, deviceKey = key, deviceOrigin = it.sheet) }
 
-    override fun closeSheet() = update { it.copy(sheet = null) }
+    override fun closeSheet() = update { s ->
+        if (s.sheet == SheetType.DEVICE && s.deviceOrigin != null) {
+            s.copy(sheet = s.deviceOrigin, deviceOrigin = null)
+        } else {
+            s.copy(sheet = null, deviceOrigin = null)
+        }
+    }
 
     override fun selectTab() = update { it.copy(sheet = null) }
 
     override fun toggleRun() = update { it.copy(running = !it.running) }
 
-    override fun toggleBlock(index: Int) = update { s ->
-        s.copy(openBlock = if (s.openBlock == index) -1 else index)
+    override fun toggleBlock(id: String) = update { s ->
+        s.copy(openBlockId = if (s.openBlockId == id) null else id)
     }
+
+    override fun addBlock() = update { s ->
+        val used = s.blocks.map { it.filter }.toSet()
+        val filter = FILTER_CYCLE.firstOrNull { it !in used } ?: FILTER_CYCLE[s.blockSeq % FILTER_CYCLE.size]
+        val block = Block(
+            id = "b${s.blockSeq}", filter = filter, exposureSec = 300, subCount = 10, doneCount = 0,
+            gain = 100, offset = 50, binning = 1, ditherEvery = 2,
+        )
+        s.copy(blocks = s.blocks + block, blockSeq = s.blockSeq + 1, openBlockId = block.id)
+    }
+
+    override fun removeBlock(id: String) = update { s ->
+        s.copy(
+            blocks = s.blocks.filter { it.id != id },
+            openBlockId = if (s.openBlockId == id) null else s.openBlockId,
+        )
+    }
+
+    override fun moveBlock(id: String, toIndex: Int) = update { s ->
+        val list = s.blocks.toMutableList()
+        val from = list.indexOfFirst { it.id == id }
+        if (from == -1) return@update s
+        val clamped = toIndex.coerceIn(0, list.lastIndex)
+        if (from == clamped) return@update s
+        val item = list.removeAt(from)
+        list.add(clamped, item)
+        s.copy(blocks = list)
+    }
+
+    override fun cycleBlockFilter(id: String) = update { s ->
+        s.mapBlock(id) { b ->
+            val i = FILTER_CYCLE.indexOf(b.filter)
+            b.copy(filter = FILTER_CYCLE[(i + 1).mod(FILTER_CYCLE.size)])
+        }
+    }
+
+    override fun setBlockExposure(id: String, sec: Int) = update { s -> s.mapBlock(id) { it.copy(exposureSec = sec.coerceIn(1, 3600)) } }
+    override fun setBlockSubCount(id: String, count: Int) = update { s -> s.mapBlock(id) { it.copy(subCount = count.coerceIn(0, 999)) } }
+    override fun setBlockGain(id: String, gain: Int) = update { s -> s.mapBlock(id) { it.copy(gain = gain.coerceIn(0, 600)) } }
+    override fun setBlockOffset(id: String, offset: Int) = update { s -> s.mapBlock(id) { it.copy(offset = offset.coerceIn(0, 255)) } }
+    override fun setBlockBinning(id: String, bin: Int) = update { s -> s.mapBlock(id) { it.copy(binning = bin) } }
+    override fun setBlockDither(id: String, n: Int) = update { s -> s.mapBlock(id) { it.copy(ditherEvery = n) } }
+
+    // Stub: flips the local flag only. Actually firing `focus_start` when this
+    // block becomes active needs real capture-state pushes — M2/M3.
+    override fun toggleBlockForceAf(id: String) = update { s -> s.mapBlock(id) { it.copy(forceAfOnStart = !it.forceAfOnStart) } }
+
+    override fun setAutofocusRefocusMin(min: Int) = update { it.copy(afRefocusMin = min.coerceIn(0, 240)) }
+    override fun setAutofocusTempDelta(deltaC: Double) = update { it.copy(afTempDeltaC = deltaC.coerceIn(0.0, 10.0)) }
+    override fun toggleAutofocusOnFilterChange() = update { it.copy(afOnFilterChange = !it.afOnFilterChange) }
 
     override fun toggleChip(index: Int) = update { s ->
         s.copy(chips = if (s.chips.contains(index)) s.chips.filter { it != index } else s.chips + index)
@@ -89,6 +145,21 @@ class SimulatedController(private val scope: CoroutineScope) : SessionController
 
     override fun toggleDevice(key: String) = update { s ->
         s.copy(devOff = if (s.devOff.contains(key)) s.devOff - key else s.devOff + key)
+    }
+
+    override fun selectDeviceName(key: String, name: String) = update { s ->
+        s.copy(
+            selectedDeviceNames = s.selectedDeviceNames + (key to name),
+            devOff = if (name == "None") s.devOff + key else s.devOff - key,
+        )
+    }
+
+    override fun setTrainRole(slot: TrainSlot, role: TrainRole, value: String) = update { s ->
+        s.withTrain(slot, s.train(slot).with(role, value))
+    }
+
+    override fun setTrainReducer(slot: TrainSlot, value: Double) = update { s ->
+        s.withTrain(slot, s.train(slot).copy(reducer = value.coerceIn(0.1, 3.0)))
     }
 
     override fun snapMain() = update { it.copy(snappedMain = true) }
@@ -139,55 +210,51 @@ class SimulatedController(private val scope: CoroutineScope) : SessionController
         if (s.ekosRunning) return@update s
         val p = s.profiles.firstOrNull { it.name == name } ?: return@update s
         s.copy(
-            sheet = SheetType.SETUP, setupStep = 0, setupEditingName = name,
+            sheet = SheetType.SETUP, setupEditingName = name,
             profileName = p.name, opticMm = p.opticMm, guideOpticMm = p.guideOpticMm,
         )
     }
 
     override fun setRotatorAngle(deg: Double) = update { it.copy(rotatorAngle = deg.mod(360.0)) }
+    override fun setDomeOpen(open: Boolean) = update { it.copy(domeOpen = open) }
 
     override fun setIndiSwitch(deviceKey: String, propName: String, selected: Int) = update { s ->
-        s.copy(indiProps = s.indiProps.mapValues { (key, props) ->
-            if (key != deviceKey) props else props.map { p ->
-                if (p is IndiProperty.SwitchProp && p.name == propName) p.copy(selected = selected) else p
-            }
-        })
+        val current = s.indiProps[deviceKey] ?: DRIVER_INDI_PROPS[deviceKey] ?: emptyList()
+        s.copy(indiProps = s.indiProps + (deviceKey to current.map { p ->
+            if (p is IndiProperty.SwitchProp && p.name == propName) p.copy(selected = selected) else p
+        }))
     }
 
     override fun setIndiNumber(deviceKey: String, propName: String, value: Double) = update { s ->
-        s.copy(indiProps = s.indiProps.mapValues { (key, props) ->
-            if (key != deviceKey) props else props.map { p ->
-                if (p is IndiProperty.NumberProp && p.name == propName) p.copy(value = value.coerceIn(p.min, p.max)) else p
-            }
-        })
+        val current = s.indiProps[deviceKey] ?: DRIVER_INDI_PROPS[deviceKey] ?: emptyList()
+        s.copy(indiProps = s.indiProps + (deviceKey to current.map { p ->
+            if (p is IndiProperty.NumberProp && p.name == propName) p.copy(value = value.coerceIn(p.min, p.max)) else p
+        }))
     }
 
     override fun setIndiText(deviceKey: String, propName: String, value: String) = update { s ->
-        s.copy(indiProps = s.indiProps.mapValues { (key, props) ->
-            if (key != deviceKey) props else props.map { p ->
-                if (p is IndiProperty.TextProp && p.name == propName) p.copy(value = value) else p
-            }
-        })
+        val current = s.indiProps[deviceKey] ?: DRIVER_INDI_PROPS[deviceKey] ?: emptyList()
+        s.copy(indiProps = s.indiProps + (deviceKey to current.map { p ->
+            if (p is IndiProperty.TextProp && p.name == propName) p.copy(value = value) else p
+        }))
     }
 
     override fun openBench() = update { it.copy(sheet = SheetType.BENCH) }
     override fun openSetup() = update { s ->
         if (s.ekosRunning) s else s.copy(
-            sheet = SheetType.SETUP, setupStep = 0, setupEditingName = null,
+            sheet = SheetType.SETUP, setupEditingName = null,
             profileName = "New profile", opticMm = 550, guideOpticMm = 240,
         )
     }
-    override fun setupNext() = update { it.copy(setupStep = minOf(3, it.setupStep + 1)) }
-    override fun setupBack() = update { s ->
-        if (s.setupStep == 0) s.copy(sheet = null) else s.copy(setupStep = s.setupStep - 1)
-    }
+    override fun setupBack() = update { it.copy(sheet = null) }
     override fun finishSetup() = update { s ->
         val updatedProfiles = if (s.setupEditingName != null) {
             s.profiles.map { p ->
                 if (p.name == s.setupEditingName) p.copy(name = s.profileName, opticMm = s.opticMm, guideOpticMm = s.guideOpticMm) else p
             }
         } else {
-            s.profiles + RigProfile(s.profileName, s.opticMm, s.guideOpticMm, DEVICES.map { it.key })
+            val chosenKeys = DEVICES.filter { it.key !in s.devOff }.map { it.key }
+            s.profiles + RigProfile(s.profileName, s.opticMm, s.guideOpticMm, chosenKeys)
         }
         s.copy(
             sheet = null,
@@ -198,7 +265,11 @@ class SimulatedController(private val scope: CoroutineScope) : SessionController
             setupEditingName = null,
         )
     }
+    override fun setScopeName(name: String) = update { it.copy(scopeName = name) }
     override fun setOpticMm(mm: Int) = update { it.copy(opticMm = mm.coerceIn(1, 9999)) }
+    override fun setScopeApertureMm(mm: Int) = update { it.copy(scopeApertureMm = mm.coerceIn(1, 999)) }
+    override fun setGuideScopeName(name: String) = update { it.copy(guideScopeName = name) }
     override fun setGuideOpticMm(mm: Int) = update { it.copy(guideOpticMm = mm.coerceIn(1, 9999)) }
+    override fun setGuideScopeApertureMm(mm: Int) = update { it.copy(guideScopeApertureMm = mm.coerceIn(1, 999)) }
     override fun setProfileName(name: String) = update { it.copy(profileName = name) }
 }

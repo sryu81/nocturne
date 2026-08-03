@@ -3,6 +3,7 @@ package com.nocturne.ui.sequence
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,18 +13,37 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
-import com.nocturne.session.BLOCKS
+import androidx.compose.ui.zIndex
+import com.nocturne.session.BINNING_OPTIONS
+import com.nocturne.session.Block
+import com.nocturne.session.DITHER_OPTIONS
 import com.nocturne.session.SessionController
+import com.nocturne.session.SheetType
 import com.nocturne.session.SimState
+import com.nocturne.session.autofocusRuleText
+import com.nocturne.session.meta
 import com.nocturne.session.missing
+import com.nocturne.session.pct
+import com.nocturne.session.spec
 import com.nocturne.session.ready
 import com.nocturne.ui.components.Card
 import com.nocturne.ui.components.HDivider
+import com.nocturne.ui.components.SwitchRow
 import com.nocturne.ui.components.TabItem
 import com.nocturne.ui.components.TabPane
 import com.nocturne.ui.components.TextC
@@ -36,6 +56,7 @@ fun SequenceScreen(
     ctrl: SessionController,
     landscape: Boolean,
     modifier: Modifier = Modifier,
+    onFixInGear: () -> Unit = {},
 ) {
     TabPane(
         landscape = landscape,
@@ -49,7 +70,7 @@ fun SequenceScreen(
                         .fillMaxWidth()
                         .height(42.dp)
                         .border(1.dp, Color(0xFFE9E9ED).copy(alpha = 0.2f), RoundedCornerShape(10.dp))
-                        .clickable { }
+                        .clickable { ctrl.addBlock() }
                         .padding(horizontal = 12.dp),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -67,7 +88,7 @@ fun SequenceScreen(
                         Modifier
                             .fillMaxWidth()
                             .height(38.dp)
-                            .clickable { }
+                            .clickable(onClick = onFixInGear)
                             .padding(horizontal = 12.dp),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -126,18 +147,61 @@ private fun androidx.compose.foundation.layout.RowScope.PlanSeg(width: Float, co
     )
 }
 
+/**
+ * Drag-to-reorder list. No lazy-list here (the tab body itself already
+ * scrolls), so reordering is done by hand: track the dragged block's id and
+ * a running pixel offset, and swap it with a neighbor once the offset passes
+ * that neighbor's measured height/2 — same feel as a lazy-list reorder
+ * without pulling in a dependency for it.
+ */
 @Composable
 private fun BlocksList(state: SimState, ctrl: SessionController) {
+    var draggingId by remember { mutableStateOf<String?>(null) }
+    var dragOffset by remember { mutableStateOf(0f) }
+    val heights = remember { mutableStateMapOf<String, Int>() }
+
     Column(Modifier.fillMaxWidth()) {
-        BLOCKS.forEachIndexed { i, b ->
-            val open = state.openBlock == i
+        state.blocks.forEach { b ->
+            val isDragging = b.id == draggingId
             BlockCard(
-                filter = b.filter,
-                spec = b.spec,
-                meta = b.meta,
-                pct = b.pct,
-                open = open,
-                onToggle = { ctrl.toggleBlock(i) },
+                block = b,
+                open = state.openBlockId == b.id,
+                canRemove = state.blocks.size > 1,
+                onToggle = { ctrl.toggleBlock(b.id) },
+                onRemove = { ctrl.removeBlock(b.id) },
+                ctrl = ctrl,
+                autofocusRule = state.autofocusRuleText,
+                onOpenAutofocusRules = { ctrl.openSheet(SheetType.AUTOFOCUS_RULES) },
+                modifier = Modifier
+                    .onGloballyPositioned { heights[b.id] = it.size.height }
+                    .zIndex(if (isDragging) 1f else 0f)
+                    .graphicsLayer { translationY = if (isDragging) dragOffset else 0f },
+                dragModifier = Modifier.pointerInput(b.id) {
+                    detectDragGestures(
+                        onDragStart = { draggingId = b.id; dragOffset = 0f },
+                        onDragEnd = { draggingId = null; dragOffset = 0f },
+                        onDragCancel = { draggingId = null; dragOffset = 0f },
+                    ) { change, amount ->
+                        change.consume()
+                        dragOffset += amount.y
+                        val curIndex = state.blocks.indexOfFirst { it.id == b.id }
+                        if (dragOffset > 0) {
+                            val belowId = state.blocks.getOrNull(curIndex + 1)?.id
+                            val belowH = belowId?.let { heights[it] } ?: return@detectDragGestures
+                            if (dragOffset > belowH / 2f) {
+                                ctrl.moveBlock(b.id, curIndex + 1)
+                                dragOffset -= belowH
+                            }
+                        } else if (dragOffset < 0) {
+                            val aboveId = state.blocks.getOrNull(curIndex - 1)?.id
+                            val aboveH = aboveId?.let { heights[it] } ?: return@detectDragGestures
+                            if (-dragOffset > aboveH / 2f) {
+                                ctrl.moveBlock(b.id, curIndex - 1)
+                                dragOffset += aboveH
+                            }
+                        }
+                    }
+                },
             )
             Spacer(Modifier.height(11.2.dp))
         }
@@ -146,34 +210,58 @@ private fun BlocksList(state: SimState, ctrl: SessionController) {
 
 @Composable
 private fun BlockCard(
-    filter: String,
-    spec: String,
-    meta: String,
-    pct: Float,
+    block: Block,
     open: Boolean,
+    canRemove: Boolean,
     onToggle: () -> Unit,
+    onRemove: () -> Unit,
+    ctrl: SessionController,
+    autofocusRule: String,
+    onOpenAutofocusRules: () -> Unit,
+    modifier: Modifier = Modifier,
+    dragModifier: Modifier = Modifier,
 ) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
-    val first = filter == "Ha"
-    Card {
+    val first = block.filter == "Ha"
+    Card(modifier = modifier) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Phosphor.Icon(Phosphor.DotsSixVertical, size = 17.dp, tint = c.neutral700)
-            Spacer(Modifier.width(11.2.dp))
+            Box(
+                Modifier
+                    .width(24.dp)
+                    .height(30.dp)
+                    .then(dragModifier),
+                contentAlignment = Alignment.Center,
+            ) {
+                Phosphor.Icon(Phosphor.DotsSixVertical, size = 17.dp, tint = c.neutral700)
+            }
+            Spacer(Modifier.width(5.dp))
             Box(
                 Modifier
                     .background(
                         if (first) c.accent.copy(alpha = 0.2f) else c.divider.copy(alpha = 0.4f),
                         RoundedCornerShape(3.dp),
                     )
+                    .clickable { ctrl.cycleBlockFilter(block.id) }
                     .padding(horizontal = 7.dp, vertical = 3.dp),
             ) {
-                TextC(filter, style = t.MonoSmall, color = if (first) c.accent400 else c.textMuted)
+                TextC(block.filter, style = t.MonoSmall, color = if (first) c.accent400 else c.textMuted)
             }
             Spacer(Modifier.width(11.2.dp))
             Column(Modifier.weight(1f)) {
-                TextC(spec, style = t.Mono14, color = c.text)
-                TextC(meta, style = t.MonoMicro, color = c.textFaint)
+                TextC(block.spec, style = t.Mono14, color = c.text)
+                TextC(block.meta, style = t.MonoMicro, color = c.textFaint)
+            }
+            if (canRemove) {
+                Box(
+                    Modifier
+                        .width(30.dp)
+                        .height(30.dp)
+                        .clickable(onClick = onRemove),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Phosphor.Icon(Phosphor.X, size = 15.dp, tint = c.textMuted)
+                }
             }
             Box(
                 Modifier
@@ -194,7 +282,7 @@ private fun BlockCard(
         ) {
             Box(
                 Modifier
-                    .fillMaxWidth(pct)
+                    .fillMaxWidth(block.pct)
                     .height(4.dp)
                     .background(c.accent, RoundedCornerShape(2.dp)),
             )
@@ -203,55 +291,115 @@ private fun BlockCard(
             Spacer(Modifier.height(9.dp))
             HDivider()
             Spacer(Modifier.height(9.dp))
-            BlockDetails()
+            BlockDetails(block, ctrl, autofocusRule, onOpenAutofocusRules)
         }
     }
 }
 
 @Composable
-private fun BlockDetails() {
+private fun BlockDetails(block: Block, ctrl: SessionController, autofocusRule: String, onOpenAutofocusRules: () -> Unit) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     Row(Modifier.fillMaxWidth()) {
-        Detail("EXPOSURE", "300 s", Modifier.weight(1f))
-        Detail("GAIN / OFF", "100 / 50", Modifier.weight(1f))
-        Detail("BINNING", "1×1", Modifier.weight(1f))
+        NumberField("EXPOSURE", block.exposureSec, "s", Modifier.weight(1f)) { ctrl.setBlockExposure(block.id, it) }
+        Spacer(Modifier.width(8.4.dp))
+        NumberField("SUBS", block.subCount, "×", Modifier.weight(1f)) { ctrl.setBlockSubCount(block.id, it) }
+    }
+    Spacer(Modifier.height(8.4.dp))
+    Row(Modifier.fillMaxWidth()) {
+        NumberField("GAIN", block.gain, "", Modifier.weight(1f)) { ctrl.setBlockGain(block.id, it) }
+        Spacer(Modifier.width(8.4.dp))
+        NumberField("OFFSET", block.offset, "", Modifier.weight(1f)) { ctrl.setBlockOffset(block.id, it) }
+        Spacer(Modifier.width(8.4.dp))
+        Column(Modifier.weight(1f)) {
+            TextC("BINNING", style = t.MicroLabel, color = c.textFaint)
+            Spacer(Modifier.height(3.dp))
+            SegmentedRow(
+                options = BINNING_OPTIONS,
+                selected = block.binning,
+                labelOf = { "${it}×$it" },
+                onSelect = { ctrl.setBlockBinning(block.id, it) },
+            )
+        }
     }
     Spacer(Modifier.height(8.4.dp))
     Row(verticalAlignment = Alignment.CenterVertically) {
         TextC("Dither every", style = t.Caption, color = c.textMuted, modifier = Modifier.weight(1f))
-        Row(
-            Modifier
-                .border(1.dp, c.divider, RoundedCornerShape(10.dp)),
-        ) {
-            listOf(0, 1, 2, 3).forEach { i ->
-                val sel = i == 1
-                Box(
-                    Modifier
-                        .background(if (sel) c.accent.copy(alpha = 0.2f) else Color.Transparent)
-                        .padding(horizontal = 10.dp, vertical = 5.dp),
-                ) {
-                    TextC(listOf("1", "2", "3", "5")[i], style = t.MonoSmall, color = if (sel) c.accent400 else c.textMuted)
-                }
-            }
-        }
-        Spacer(Modifier.width(8.4.dp))
-        TextC("1.5 px", style = t.MonoSmall, color = c.textFaint)
+        SegmentedRow(
+            options = DITHER_OPTIONS,
+            selected = block.ditherEvery,
+            labelOf = { it.toString() },
+            onSelect = { ctrl.setBlockDither(block.id, it) },
+        )
     }
     Spacer(Modifier.height(8.4.dp))
-    Row(verticalAlignment = Alignment.CenterVertically) {
+    SwitchRow(
+        label = "Force autofocus at block start",
+        sub = "in addition to the global rule below",
+        checked = block.forceAfOnStart,
+        onToggle = { ctrl.toggleBlockForceAf(block.id) },
+    )
+    Spacer(Modifier.height(8.4.dp))
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onOpenAutofocusRules),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         TextC("Autofocus", style = t.Caption, color = c.textMuted, modifier = Modifier.weight(1f))
-        TextC("45 min · 1.0 °C · filter change", style = t.MonoSmall, color = c.textDim)
+        TextC(autofocusRule, style = t.MonoSmall, color = c.textDim)
+        Spacer(Modifier.width(6.dp))
+        Phosphor.Icon(Phosphor.CaretRight, size = 12.dp, tint = c.neutral700)
     }
 }
 
+/** Small boxed digits-only field — label above, value + suffix inline. */
 @Composable
-private fun Detail(label: String, value: String, modifier: Modifier) {
+private fun NumberField(label: String, value: Int, suffix: String, modifier: Modifier = Modifier, onChange: (Int) -> Unit) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     Column(modifier) {
         TextC(label, style = t.MicroLabel, color = c.textFaint)
-        TextC(value, style = t.Mono14, color = c.text)
+        Spacer(Modifier.height(3.dp))
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .height(34.dp)
+                .background(c.bg, RoundedCornerShape(4.dp))
+                .border(1.dp, c.divider, RoundedCornerShape(4.dp))
+                .padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            BasicTextField(
+                value = value.toString(),
+                onValueChange = { text -> onChange(text.filter { it.isDigit() }.take(4).toIntOrNull() ?: 0) },
+                singleLine = true,
+                textStyle = t.Mono14.copy(color = c.text),
+                cursorBrush = SolidColor(c.accent),
+                modifier = Modifier.weight(1f),
+            )
+            if (suffix.isNotEmpty()) TextC(suffix, style = t.MonoSmall, color = c.neutral500)
+        }
+    }
+}
+
+/** Shared segmented-button row for binning/dither pickers. */
+@Composable
+private fun <T> SegmentedRow(options: List<T>, selected: T, labelOf: (T) -> String, onSelect: (T) -> Unit) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    Row(Modifier.border(1.dp, c.divider, RoundedCornerShape(10.dp))) {
+        options.forEach { opt ->
+            val sel = opt == selected
+            Box(
+                Modifier
+                    .background(if (sel) c.accent.copy(alpha = 0.2f) else Color.Transparent)
+                    .clickable { onSelect(opt) }
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
+            ) {
+                TextC(labelOf(opt), style = t.MonoSmall, color = if (sel) c.accent400 else c.textMuted)
+            }
+        }
     }
 }
 

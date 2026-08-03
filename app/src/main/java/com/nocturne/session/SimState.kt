@@ -10,7 +10,8 @@ import kotlin.math.sin
 
 /** Which detail sheet is open. */
 enum class SheetType {
-    GUIDE, FOCUS, ALERTS, PREFS, SETUP, BENCH, PA, DEVICE, SUMMARY,
+    GUIDE, FOCUS, ALERTS, PREFS, SETUP, BENCH, PA, DEVICE, SUMMARY, AUTOFOCUS_RULES,
+    OPTICAL_TRAIN,
 }
 
 /** Every mutable field the simulator drives, mirroring the prototype's state. */
@@ -18,8 +19,12 @@ data class SimState(
     val t: Int = 0,
     val sheet: SheetType? = null,
     val running: Boolean = true,
-    val openBlock: Int = 1,
+    val blocks: List<Block> = DEFAULT_BLOCKS,
+    val blockSeq: Int = DEFAULT_BLOCKS.size + 1,
+    val openBlockId: String? = DEFAULT_BLOCKS.getOrNull(1)?.id,
     val deviceKey: String = "mount",
+    /** Sheet to return to when the device sheet closes, e.g. SETUP when opened from the rig wizard's device list. */
+    val deviceOrigin: SheetType? = null,
     val focPos: Int = 18422,
     val coolTarget: Double = -10.0,
     val coolNow: Double = 12.4,
@@ -34,9 +39,13 @@ data class SimState(
     val query: String = "",
     val chips: List<Int> = listOf(0),
     val targetId: String = "NGC 7000",
-    val setupStep: Int = 0,
+    /** Scope/guide-scope are user-entered (name + focal length + aperture), not picked from a catalog. */
+    val scopeName: String = "Field APO",
     val opticMm: Int = 550,
+    val scopeApertureMm: Int = 130,
+    val guideScopeName: String = "OAG",
     val guideOpticMm: Int = 240,
+    val guideScopeApertureMm: Int = 50,
     val profileName: String = "Field · 550 mm",
     val ekosRunning: Boolean = true,
     val activeProfile: String? = "Field · 550 mm",
@@ -44,7 +53,9 @@ data class SimState(
     val selectedProfile: String? = "Field · 550 mm",
     val setupEditingName: String? = null,
     val rotatorAngle: Double = 118.4,
-    val indiProps: Map<String, List<IndiProperty>> = DEFAULT_INDI_PROPS,
+    val domeOpen: Boolean = true,
+    /** User edits only — keyed by catalog device name; unedited defaults come from [DRIVER_INDI_PROPS]. */
+    val indiProps: Map<String, List<IndiProperty>> = emptyMap(),
     val prefs: Map<String, Boolean> = mapOf(
         "guide" to true,
         "cloud" to true,
@@ -54,7 +65,23 @@ data class SimState(
         "seqEnd" to true,
     ),
     val cut: Set<String> = setOf("017", "023"),
-    val devOff: Set<String> = setOf("rotator"),
+    val devOff: Set<String> = setOf("rotator", "dome"),
+    /** Which catalog entry is assigned per device category — key -> chosen name from that [Device.catalog]. */
+    val selectedDeviceNames: Map<String, String> = DEVICES.associate { it.key to it.name },
+    val primaryTrain: TrainAssignment = TrainAssignment(),
+    val secondaryTrain: TrainAssignment = TrainAssignment(
+        camera = "ASI174MM mini", rotator = "None", scope = "OAG",
+        filterWheel = "None", focuser = "None",
+    ),
+    /**
+     * Sequence-wide autofocus trigger rule. Real Ekos enforces this once per
+     * running queue (`enforceRefocusEveryN`/`refocusEveryN`, `maxFocusTemperatureDelta`
+     * via `capture_get_all_settings`) — there's no per-job override on the wire,
+     * so this is deliberately one setting, not per-block.
+     */
+    val afRefocusMin: Int = 45,
+    val afTempDeltaC: Double = 1.0,
+    val afOnFilterChange: Boolean = true,
 )
 
 // ── Catalog data (prototype script constants) ──────────────────────────────
@@ -146,12 +173,108 @@ val DEFAULT_PROFILES = listOf(
 
 val SimState.activeRigProfile: RigProfile? get() = profiles.firstOrNull { it.name == activeProfile }
 
+/**
+ * "1160 mm · f/8.9" — real Ekos's Scopes catalog (`get_scopes`/`scope_add` —
+ * message.cpp:334-350) is user-entered (name + focal length + aperture), not
+ * picked from a fixed list — this just formats the F-ratio from the two.
+ */
+fun fRatio(focalMm: Int, apertureMm: Int): String =
+    if (apertureMm <= 0) "—" else "f/${"%.1f".format(focalMm.toDouble() / apertureMm)}"
+
+/** Which Optical Train slot — Ekos only ever has these two roles. */
+enum class TrainSlot { PRIMARY, SECONDARY }
+
+/** One assignable role within a train — everything but [TrainAssignment.reducer]. */
+enum class TrainRole { MOUNT, CAMERA, ROTATOR, GUIDE_VIA, DUST_CAP, SCOPE, FILTER_WHEEL, FOCUSER, LIGHT_BOX }
+
+/**
+ * One Optical Train's device-role assignments — mirrors `train_get_all`'s
+ * `mount`/`camera`/`guider`/`focuser`/`filterwheel`/`rotator`/`reducer`/
+ * `dustcap`/`lightbox`/`scope` fields (message.cpp:236, `OpticalTrainManager::getOpticalTrains()`).
+ * Each field's picker pool is whatever's currently selected in the rig
+ * profile's device/scope categories — Dust cap and Light box have no backing
+ * category yet, so they stay "None" (matches the real dialog's own idle state
+ * for optional roles with nothing connected).
+ */
+data class TrainAssignment(
+    val mount: String = "EQ6-R Pro",
+    val camera: String = "ASI2600MM Pro",
+    val rotator: String = "None",
+    val guideVia: String = "EQ6-R Pro",
+    val dustCap: String = "None",
+    val scope: String = "Field APO",
+    val filterWheel: String = "EFW 7×36 mm",
+    val focuser: String = "EAF",
+    val reducer: Double = 1.0,
+    val lightBox: String = "None",
+)
+
+fun TrainAssignment.get(role: TrainRole): String = when (role) {
+    TrainRole.MOUNT -> mount
+    TrainRole.CAMERA -> camera
+    TrainRole.ROTATOR -> rotator
+    TrainRole.GUIDE_VIA -> guideVia
+    TrainRole.DUST_CAP -> dustCap
+    TrainRole.SCOPE -> scope
+    TrainRole.FILTER_WHEEL -> filterWheel
+    TrainRole.FOCUSER -> focuser
+    TrainRole.LIGHT_BOX -> lightBox
+}
+
+fun TrainAssignment.with(role: TrainRole, value: String): TrainAssignment = when (role) {
+    TrainRole.MOUNT -> copy(mount = value)
+    TrainRole.CAMERA -> copy(camera = value)
+    TrainRole.ROTATOR -> copy(rotator = value)
+    TrainRole.GUIDE_VIA -> copy(guideVia = value)
+    TrainRole.DUST_CAP -> copy(dustCap = value)
+    TrainRole.SCOPE -> copy(scope = value)
+    TrainRole.FILTER_WHEEL -> copy(filterWheel = value)
+    TrainRole.FOCUSER -> copy(focuser = value)
+    TrainRole.LIGHT_BOX -> copy(lightBox = value)
+}
+
+fun SimState.train(slot: TrainSlot): TrainAssignment = when (slot) {
+    TrainSlot.PRIMARY -> primaryTrain
+    TrainSlot.SECONDARY -> secondaryTrain
+}
+
+fun SimState.withTrain(slot: TrainSlot, train: TrainAssignment): SimState = when (slot) {
+    TrainSlot.PRIMARY -> copy(primaryTrain = train)
+    TrainSlot.SECONDARY -> copy(secondaryTrain = train)
+}
+
+/**
+ * Picker pool for one train role — sourced live from the rig profile's device/
+ * scope category selections, per the design brief ("the dropdown list is from
+ * the devices in the rig profile"). Dust cap/Light box have no backing
+ * category, so they're always just "None".
+ */
+fun SimState.trainRolePool(role: TrainRole): List<String> = when (role) {
+    TrainRole.MOUNT -> listOfNotNull(selectedDeviceNames["mount"])
+    TrainRole.CAMERA -> listOfNotNull(selectedDeviceNames["cam"], selectedDeviceNames["guide"]).distinct()
+    TrainRole.ROTATOR -> (listOf("None") + listOfNotNull(selectedDeviceNames["rotator"])).distinct()
+    TrainRole.GUIDE_VIA -> (listOf("None") + listOfNotNull(selectedDeviceNames["mount"])).distinct()
+    TrainRole.DUST_CAP -> listOf("None")
+    TrainRole.SCOPE -> listOf(scopeName, guideScopeName).distinct()
+    TrainRole.FILTER_WHEEL -> (listOf("None") + listOfNotNull(selectedDeviceNames["efw"])).distinct()
+    TrainRole.FOCUSER -> (listOf("None") + listOfNotNull(selectedDeviceNames["focus"])).distinct()
+    TrainRole.LIGHT_BOX -> listOf("None")
+}
+
+/**
+ * One device role/category a rig profile can assign — mirrors an INDI
+ * `DRIVER_INTERFACE` family (`get_devices`'s `interface` bitmask decides which
+ * role a connected device fills). [catalog] simulates the list of devices
+ * `get_devices` would return for that family; first entry ("None") only for
+ * optional (non-[req]) roles, since a rig doesn't need a dome or rotator.
+ */
 data class Device(
     val key: String,
     val name: String,
     val detail: String,
     val req: Boolean,
     val cfg: List<Pair<String, String>>,
+    val catalog: List<String>,
 )
 
 val DEVICES = listOf(
@@ -160,38 +283,44 @@ val DEVICES = listOf(
         "Port" to "USB · COM4 · 115 200",
         "Site" to "52.37 N · 4.89 E · 12 m",
         "Pier side" to "West · flip at +5 min",
-    )),
+    ), catalog = listOf("EQ6-R Pro", "LX200 OnStep", "iOptron CEM70")),
     Device("cam", "ASI2600MM Pro", "−10.0 °C · cooler 68% · 42 subs", true, listOf(
         "Driver" to "ZWO ASCOM · native",
         "Set point" to "−10.0 °C · cooler 68%",
         "Readout" to "Mode 0 · gain 100 · off 50",
         "Pixel scale" to "3.76 µm · 1.24 ″/px @ 550 mm",
-    )),
-    Device("efw", "EFW 7×36 mm", "pos 2 · Ha 3 nm", false, listOf(
-        "Driver" to "ZWO EFW",
-        "Slots" to "L · R · G · B · Ha · OIII · SII",
-        "Offsets" to "per-filter focus offsets on",
-    )),
+    ), catalog = listOf("ASI2600MM Pro", "ToupTek ATR2600M", "QHY268M")),
     Device("guide", "ASI174MM mini", "2 s · 38 SNR · 0.48″", false, listOf(
         "Driver" to "PHD2 · localhost:4400",
         "Scope" to "OAG · 550 mm · 4.86 ″/px",
         "Calibration" to "valid · 22:04",
-    )),
+    ), catalog = listOf("None", "ASI174MM mini", "ASI120MM mini")),
+    Device("efw", "EFW 7×36 mm", "pos 2 · Ha 3 nm", false, listOf(
+        "Driver" to "ZWO EFW",
+        "Slots" to "L · R · G · B · Ha · OIII · SII",
+        "Offsets" to "per-filter focus offsets on",
+    ), catalog = listOf("None", "EFW 7×36 mm", "ZWO EFW mini")),
     Device("focus", "EAF", "18 422 · −0.6 °C drift", false, listOf(
         "Driver" to "ZWO EAF",
         "Range" to "0 → 62 000 · backlash 90",
         "Temp comp" to "−12 steps / °C",
-    )),
-    Device("rotator", "Rotator", "118.4° · sky PA locked", false, listOf(
-        "Driver" to "Pegasus Falcon",
+    ), catalog = listOf("None", "EAF", "Pegasus FocusCube 3")),
+    Device("rotator", "Optec Pyxis", "118.4° · sky PA locked", false, listOf(
+        "Driver" to "Optec Pyxis",
         "Sky PA" to "locked to 118.4°",
         "Reverse" to "off",
-    )),
-    Device("weather", "Weather + all-sky", "safe · cloud 4% · wind 6 km/h", false, listOf(
-        "Driver" to "Boltwood file watch",
+    ), catalog = listOf("None", "Optec Pyxis")),
+    Device("dome", "None", "not assigned", false, listOf(
+        "Driver" to "—",
+    ), catalog = listOf("None", "MaxDome II", "NexDome")),
+    Device("weather", "AAG CloudWatcher NG", "safe · cloud 4% · wind 6 km/h", false, listOf(
+        "Driver" to "AAG CloudWatcher NG",
         "Unsafe when" to "cloud > 30% · wind > 35 km/h · rain",
         "On unsafe" to "park + close roof",
-    )),
+    ), catalog = listOf("None", "AAG CloudWatcher NG", "Weather Watcher")),
+    Device("powerbox", "Pegasus Ultimate Powerbox v2", "12.1 V · 3.42 A", false, listOf(
+        "Driver" to "Pegasus Ultimate Powerbox v2",
+    ), catalog = listOf("None", "Pegasus Ultimate Powerbox v2", "Pegasus Pocket Powerbox")),
 )
 
 /**
@@ -227,32 +356,156 @@ sealed class IndiProperty {
     ) : IndiProperty()
 }
 
-val DEFAULT_INDI_PROPS: Map<String, List<IndiProperty>> = mapOf(
-    "mount" to listOf(
-        IndiProperty.SwitchProp("TELESCOPE_SLEW_RATE", "Slew rate", "Main Control", listOf("Guide", "Centering", "Find", "Max"), 2),
-        IndiProperty.SwitchProp("TELESCOPE_PARK", "Parking", "Main Control", listOf("Park", "Unpark"), 1),
+/**
+ * Real per-driver property layouts — keyed by catalog device name, not by
+ * role. Sourced from the actual driver code in `~/cc/repo/indi` and
+ * `~/cc/repo/indi-3rdparty` (property names/groups/ranges verified against
+ * source, not invented). Trimmed to the "Main Control"-tier controls a mobile
+ * panel would expose — diagnostics/firmware/alignment tabs are skipped, same
+ * as the old fake per-role set did implicitly.
+ *
+ * Values queried live from the SDK on a real connection (gain ranges, step
+ * counts, etc.) are given plausible fixed defaults here — the shape (which
+ * properties exist, their groups) is what's verified, not every live value.
+ */
+val DRIVER_INDI_PROPS: Map<String, List<IndiProperty>> = mapOf(
+    // Mounts — INDI::Telescope base (EQUATORIAL_EOD_COORD/ON_COORD_SET/etc.) omitted;
+    // Nocturne's Session tab already covers RA/DEC/slew/park at a higher level.
+    "EQ6-R Pro" to listOf(
+        IndiProperty.SwitchProp("TELESCOPE_SLEW_RATE", "Slew Rate", "Motion Control", listOf("1x", "32x", "128x", "800x"), 2),
+        IndiProperty.SwitchProp("TELESCOPE_TRACK_MODE", "Track Mode", "Main Control", listOf("Sidereal", "Solar", "Lunar", "Custom"), 0),
+        IndiProperty.NumberProp("GUIDE_RATE_WE", "Guide rate WE", "Motion Control", 0.5, 0.0, 1.0, 0.1),
+        IndiProperty.NumberProp("GUIDE_RATE_NS", "Guide rate NS", "Motion Control", 0.5, 0.0, 1.0, 0.1),
+        IndiProperty.SwitchProp("REVERSEDEC", "Reverse DEC", "Main Control", listOf("Enable", "Disable"), 1),
     ),
-    "cam" to listOf(
-        IndiProperty.NumberProp("CCD_TEMPERATURE", "CCD temperature", "Main Control", -10.0, -40.0, 20.0, 0.5, "%.1f °C"),
+    "LX200 OnStep" to listOf(
+        IndiProperty.SwitchProp("TELESCOPE_SLEW_RATE", "Slew Rate", "Motion Control", listOf("0.25x", "1x", "8x", "Max"), 2),
+        IndiProperty.SwitchProp("TELESCOPE_TRACK_MODE", "Track Mode", "Main Control", listOf("Sidereal", "Solar", "Lunar", "Custom"), 0),
+        IndiProperty.SwitchProp("COMPENSATION", "Compensation Tracking", "Motion Control", listOf("Full Compensation", "Refraction", "Off"), 2),
+        IndiProperty.SwitchProp("AUTOFLIP", "Meridian Auto Flip", "Motion Control", listOf("Off", "On"), 1),
+        IndiProperty.NumberProp("GUIDE_RATE_WE", "Guide rate WE", "Motion Control", 0.5, 0.0, 1.0, 0.25),
+        IndiProperty.NumberProp("GUIDE_RATE_NS", "Guide rate NS", "Motion Control", 0.5, 0.0, 1.0, 0.25),
+    ),
+    "iOptron CEM70" to listOf(
+        IndiProperty.SwitchProp("TELESCOPE_SLEW_RATE", "Slew Rate", "Motion Control", listOf("1x", "64x", "256x", "MAX"), 1),
+        IndiProperty.SwitchProp("TELESCOPE_TRACK_MODE", "Track Mode", "Main Control", listOf("Sidereal", "Lunar", "Solar"), 0),
+        IndiProperty.SwitchProp("MERIDIAN_ACTION", "Meridian Action", "Meridian Behavior", listOf("Stop", "Flip"), 1),
+        IndiProperty.NumberProp("MERIDIAN_LIMIT", "Meridian limit", "Meridian Behavior", 0.0, 0.0, 10.0, 1.0, "%.0f°"),
+        IndiProperty.NumberProp("RA_GUIDE_RATE", "RA guide rate", "Motion Control", 0.5, 0.01, 0.9, 0.1),
+        IndiProperty.NumberProp("DE_GUIDE_RATE", "DE guide rate", "Motion Control", 0.5, 0.1, 0.99, 0.1),
+    ),
+
+    // Cameras — ZWO ASI (same driver for all three), ToupTek, QHY.
+    "ASI2600MM Pro" to listOf(
         IndiProperty.SwitchProp("CCD_COOLER", "Cooler", "Main Control", listOf("On", "Off"), 0),
-        IndiProperty.NumberProp("CCD_GAIN", "Gain", "Options", 100.0, 0.0, 600.0, 1.0, "%.0f"),
+        IndiProperty.NumberProp("CCD_TEMPERATURE", "CCD temperature", "Main Control", -10.0, -50.0, 50.0, 1.0, "%.1f °C"),
+        IndiProperty.NumberProp("Gain", "Gain", "Controls", 100.0, 0.0, 570.0, 1.0, "%.0f"),
+        IndiProperty.NumberProp("Offset", "Offset", "Controls", 50.0, 0.0, 400.0, 1.0, "%.0f"),
     ),
-    "efw" to listOf(
-        IndiProperty.NumberProp("FILTER_SLOT", "Filter slot", "Main Control", 2.0, 1.0, 7.0, 1.0, "%.0f"),
+    "ASI174MM mini" to listOf(
+        IndiProperty.NumberProp("Gain", "Gain", "Controls", 200.0, 0.0, 570.0, 1.0, "%.0f"),
+        IndiProperty.NumberProp("Offset", "Offset", "Controls", 20.0, 0.0, 400.0, 1.0, "%.0f"),
+        IndiProperty.SwitchProp("FLIP", "Flip", "Main Control", listOf("Horizontal", "Vertical"), -1),
     ),
-    "guide" to listOf(
-        IndiProperty.TextProp("PHD2_HOST", "PHD2 host", "Options", "localhost:4400"),
+    "ASI120MM mini" to listOf(
+        IndiProperty.NumberProp("Gain", "Gain", "Controls", 200.0, 0.0, 600.0, 1.0, "%.0f"),
+        IndiProperty.NumberProp("Offset", "Offset", "Controls", 20.0, 0.0, 400.0, 1.0, "%.0f"),
     ),
-    "focus" to listOf(
-        IndiProperty.NumberProp("FOCUS_SPEED", "Focuser speed", "Main Control", 5.0, 1.0, 10.0, 1.0, "%.0f"),
-        IndiProperty.SwitchProp("FOCUS_MOTION", "Motion", "Main Control", listOf("Inward", "Outward"), 0),
+    "ToupTek ATR2600M" to listOf(
+        IndiProperty.SwitchProp("CCD_COOLER", "Cooler", "Main Control", listOf("On", "Off"), 0),
+        IndiProperty.NumberProp("CCD_TEMPERATURE", "CCD temperature", "Main Control", -10.0, -40.0, 20.0, 1.0, "%.1f °C"),
+        IndiProperty.NumberProp("Gain", "Gain", "Control", 100.0, 0.0, 1000.0, 1.0, "%.0f"),
+        IndiProperty.NumberProp("Contrast", "Contrast", "Control", 0.0, -255.0, 255.0, 1.0, "%.0f"),
+        IndiProperty.NumberProp("Gamma", "Gamma", "Control", 100.0, 20.0, 180.0, 1.0, "%.0f"),
     ),
-    "rotator" to listOf(
-        IndiProperty.NumberProp("ABS_ROTATOR_ANGLE", "Angle", "Main Control", 118.4, 0.0, 360.0, 0.1, "%.1f°"),
-        IndiProperty.SwitchProp("ROTATOR_REVERSE", "Reverse", "Options", listOf("Enabled", "Disabled"), 1),
+    "QHY268M" to listOf(
+        IndiProperty.SwitchProp("CCD_COOLER", "Cooler", "Main Control", listOf("On", "Off"), 0),
+        IndiProperty.NumberProp("CCD_COOLER_POWER", "Cooling power", "Main Control", 68.0, 0.0, 100.0, 5.0, "%.0f %"),
+        IndiProperty.NumberProp("CCD_TEMPERATURE", "CCD temperature", "Main Control", -10.0, -40.0, 20.0, 1.0, "%.1f °C"),
+        IndiProperty.NumberProp("GAIN", "Gain", "Main Control", 30.0, 0.0, 100.0, 1.0, "%.0f"),
+        IndiProperty.NumberProp("OFFSET", "Offset", "Main Control", 20.0, 0.0, 255.0, 1.0, "%.0f"),
     ),
-    "weather" to listOf(
-        IndiProperty.LightProp("WEATHER_STATUS", "Weather status", "Main Control", listOf("Cloud" to 1, "Wind" to 1, "Rain" to 1)),
+
+    // Filter wheel — ZWO EFW driver (asi_wheel.cpp).
+    "EFW 7×36 mm" to listOf(
+        IndiProperty.NumberProp("FILTER_SLOT_VALUE", "Filter", "Filter Wheel", 2.0, 1.0, 7.0, 1.0, "%.0f"),
+        IndiProperty.SwitchProp("FILTER_UNIDIRECTIONAL_MOTION", "Uni Direction", "Main Control", listOf("Enable", "Disable"), 1),
+    ),
+    "ZWO EFW mini" to listOf(
+        IndiProperty.NumberProp("FILTER_SLOT_VALUE", "Filter", "Filter Wheel", 1.0, 1.0, 5.0, 1.0, "%.0f"),
+        IndiProperty.SwitchProp("FILTER_UNIDIRECTIONAL_MOTION", "Uni Direction", "Main Control", listOf("Enable", "Disable"), 1),
+    ),
+
+    // Focusers — ZWO EAF (asi_focuser.cpp), Pegasus FocusCube3.
+    "EAF" to listOf(
+        IndiProperty.SwitchProp("FOCUS_MOTION", "Direction", "Main Control", listOf("Focus In", "Focus Out"), 0),
+        IndiProperty.NumberProp("FOCUS_ABSOLUTE_POSITION", "Absolute position", "Main Control", 18422.0, 0.0, 100000.0, 1000.0, "%.0f"),
+        IndiProperty.SwitchProp("FOCUS_REVERSE_MOTION", "Reverse Motion", "Main Control", listOf("Enabled", "Disabled"), 1),
+        IndiProperty.SwitchProp("FOCUS_BACKLASH_TOGGLE", "Backlash", "Main Control", listOf("Enabled", "Disabled"), 1),
+        IndiProperty.NumberProp("FOCUS_TEMPERATURE", "Temperature", "Main Control", -0.6, -50.0, 70.0, 0.1, "%.1f °C"),
+    ),
+    "Pegasus FocusCube 3" to listOf(
+        IndiProperty.SwitchProp("FOCUS_MOTION", "Direction", "Main Control", listOf("Focus In", "Focus Out"), 0),
+        IndiProperty.NumberProp("FOCUS_ABSOLUTE_POSITION", "Absolute position", "Main Control", 18422.0, 0.0, 1317500.0, 1000.0, "%.0f"),
+        IndiProperty.NumberProp("TEMP", "Temperature", "Settings", -0.6, -40.0, 40.0, 0.1, "%.1f °C"),
+        IndiProperty.NumberProp("MaxSpeed", "Max speed", "Settings", 400.0, 100.0, 1000.0, 100.0, "%.0f"),
+    ),
+
+    // Rotator — Optec Pyxis (core INDI, drivers/rotator/pyxis.cpp).
+    "Optec Pyxis" to listOf(
+        IndiProperty.NumberProp("ANGLE", "Angle", "Main Control", 118.4, 0.0, 360.0, 10.0, "%.2f°"),
+        IndiProperty.SwitchProp("ROTATOR_REVERSE", "Reverse", "Main Control", listOf("Enabled", "Disabled"), 1),
+        IndiProperty.NumberProp("ROTATION_RATE", "Rotation rate", "Settings", 8.0, 0.0, 99.0, 10.0, "%.0f"),
+    ),
+
+    // Domes — NexDome (indi-3rdparty, verified in detail); MaxDome II only
+    // verified to exist (not researched in detail) — uses the shared
+    // INDI::Dome base properties every dome driver inherits.
+    "NexDome" to listOf(
+        IndiProperty.SwitchProp("DOME_SHUTTER", "Shutter", "Main Control", listOf("Open", "Close"), 1),
+        IndiProperty.SwitchProp("DOME_MOTION", "Motion", "Main Control", listOf("Dome CW", "Dome CCW"), -1),
+        IndiProperty.NumberProp("DOME_ABSOLUTE_POSITION", "Absolute position", "Main Control", 0.0, 0.0, 360.0, 1.0, "%.0f°"),
+        IndiProperty.SwitchProp("DOME_PARK", "Parking", "Main Control", listOf("Park", "UnPark"), 1),
+        IndiProperty.SwitchProp("DOME_AUTOSYNC", "Slaving", "Dome Slaving", listOf("Enable", "Disable"), 1),
+    ),
+    "MaxDome II" to listOf(
+        IndiProperty.SwitchProp("DOME_SHUTTER", "Shutter", "Main Control", listOf("Open", "Close"), 1),
+        IndiProperty.SwitchProp("DOME_MOTION", "Motion", "Main Control", listOf("Dome CW", "Dome CCW"), -1),
+        IndiProperty.NumberProp("DOME_ABSOLUTE_POSITION", "Absolute position", "Main Control", 0.0, 0.0, 360.0, 1.0, "%.0f°"),
+        IndiProperty.SwitchProp("DOME_PARK", "Parking", "Main Control", listOf("Park", "UnPark"), 1),
+    ),
+
+    // Weather — AAG CloudWatcher NG (indi-3rdparty, real driver); Weather
+    // Watcher (core INDI, generic file/URL-poll driver).
+    "AAG CloudWatcher NG" to listOf(
+        IndiProperty.LightProp("WEATHER_STATUS", "Status", "Main Control", listOf("Wind" to 1, "Rain" to 1, "Cloud" to 1, "Humidity" to 1)),
+        IndiProperty.NumberProp("WEATHER_WIND_SPEED", "Wind speed", "Parameters", 6.0, 0.0, 30.0, 1.0, "%.1f km/h"),
+        IndiProperty.NumberProp("WEATHER_CLOUD", "Cloud (sky-temp diff)", "Parameters", -20.0, -40.0, 60.0, 1.0, "%.1f °C"),
+        IndiProperty.NumberProp("WEATHER_HUMIDITY", "Humidity", "Parameters", 42.0, 0.0, 100.0, 1.0, "%.0f %"),
+        IndiProperty.NumberProp("WEATHER_RAIN", "Rain (cycles)", "Parameters", 8500.0, 2000.0, 10000.0, 100.0, "%.0f"),
+    ),
+    "Weather Watcher" to listOf(
+        IndiProperty.LightProp("WEATHER_STATUS", "Status", "Main Control", listOf("Rain" to 1, "Wind" to 1, "Clouds" to 1)),
+        IndiProperty.NumberProp("WEATHER_TEMPERATURE", "Temperature", "Parameters", 12.0, -10.0, 30.0, 1.0, "%.1f °C"),
+        IndiProperty.NumberProp("WEATHER_WIND_SPEED", "Wind speed", "Parameters", 6.0, 0.0, 20.0, 1.0, "%.1f km/h"),
+        IndiProperty.NumberProp("WEATHER_HUMIDITY", "Humidity", "Parameters", 42.0, 0.0, 100.0, 1.0, "%.0f %"),
+    ),
+
+    // Powerbox — Pegasus UPB v2 / PPBA (migrated to core indi/drivers/power/).
+    "Pegasus Ultimate Powerbox v2" to listOf(
+        IndiProperty.SwitchProp("POWER_CHANNEL_1", "Power ch. 1", "Power", listOf("On", "Off"), 0),
+        IndiProperty.SwitchProp("POWER_CHANNEL_2", "Power ch. 2", "Power", listOf("On", "Off"), 0),
+        IndiProperty.NumberProp("DEW_A", "Dew A duty cycle", "Dew", 62.0, 0.0, 100.0, 10.0, "%.0f %"),
+        IndiProperty.NumberProp("DEW_B", "Dew B duty cycle", "Dew", 40.0, 0.0, 100.0, 10.0, "%.0f %"),
+        IndiProperty.SwitchProp("AUTO_DEW_CONTROL", "Auto dew", "Dew", listOf("Enable", "Disable"), 0),
+        IndiProperty.NumberProp("SENSOR_VOLTAGE", "Voltage", "Main Control", 12.1, 0.0, 15.0, 0.1, "%.1f V"),
+        IndiProperty.NumberProp("SENSOR_CURRENT", "Current", "Main Control", 3.42, 0.0, 20.0, 0.1, "%.2f A"),
+    ),
+    "Pegasus Pocket Powerbox" to listOf(
+        IndiProperty.SwitchProp("POWER_CHANNELS", "Quad output", "Power", listOf("On", "Off"), 0),
+        IndiProperty.SwitchProp("ADJOUT_VOLTAGE", "Adjustable output", "Power", listOf("Off", "3V", "5V", "8V", "9V", "12V"), 0),
+        IndiProperty.NumberProp("DEW_A", "Dew A duty cycle", "Dew", 50.0, 0.0, 100.0, 10.0, "%.0f %"),
+        IndiProperty.NumberProp("DEW_B", "Dew B duty cycle", "Dew", 30.0, 0.0, 100.0, 10.0, "%.0f %"),
     ),
 )
 
@@ -267,17 +520,54 @@ val FRAME_IDS = listOf("011", "012", "013", "014", "015", "016", "017", "018", "
 val FRAME_HFRS = listOf(2.28, 2.31, 2.30, 2.35, 2.41, 2.33, 2.94, 2.44, 2.38, 2.36, 2.29, 2.32)
 
 data class Block(
+    val id: String,
     val filter: String,
-    val spec: String,
-    val meta: String,
-    val pct: Float,
+    val exposureSec: Int,
+    val subCount: Int,
+    val doneCount: Int,
+    val gain: Int,
+    val offset: Int,
+    val binning: Int,
+    val ditherEvery: Int,
+    /**
+     * App-side override, not an Ekos setting: force one `focus_start` right as
+     * this block begins, layered on top of (not replacing) the global
+     * autofocus rule. Wiring the actual trigger needs real capture-state
+     * pushes to detect "this block just started" — M2/M3; this flag is a
+     * no-op stub under [SimulatedController].
+     */
+    val forceAfOnStart: Boolean = false,
 )
 
-val BLOCKS = listOf(
-    Block("Ha", "300 s × 40", "12 done · 2h 00m left", 0.30f),
-    Block("OIII", "300 s × 30", "queued · 2h 30m", 0f),
-    Block("SII", "300 s × 20", "queued · 1h 40m", 0f),
+val DEFAULT_BLOCKS = listOf(
+    Block("b1", "Ha", 300, 40, 12, 100, 50, 1, 2),
+    Block("b2", "OIII", 300, 30, 0, 100, 50, 1, 2),
+    Block("b3", "SII", 300, 20, 0, 100, 50, 1, 2),
 )
+
+val FILTER_CYCLE = listOf("Ha", "OIII", "SII", "L", "R", "G", "B")
+val BINNING_OPTIONS = listOf(1, 2, 3)
+val DITHER_OPTIONS = listOf(1, 2, 3, 5)
+
+/** "300 s × 40" — collapsed-card headline, derived so an edit is reflected immediately. */
+val Block.spec: String get() = "$exposureSec s × $subCount"
+
+val Block.pct: Float get() = if (subCount == 0) 0f else (doneCount.toFloat() / subCount).coerceIn(0f, 1f)
+
+private fun formatHm(totalSec: Int): String {
+    val h = totalSec / 3600
+    val m = (totalSec % 3600) / 60
+    return "${h}h ${m.toString().padStart(2, '0')}m"
+}
+
+/** "12 done · 2h 20m left" / "queued · 2h 30m" — derived from exposure × remaining subs. */
+val Block.meta: String get() {
+    val remaining = formatHm((subCount - doneCount).coerceAtLeast(0) * exposureSec)
+    return if (doneCount > 0) "$doneCount done · $remaining left" else "queued · $remaining"
+}
+
+internal fun SimState.mapBlock(id: String, f: (Block) -> Block): SimState =
+    copy(blocks = blocks.map { if (it.id == id) f(it) else it })
 
 data class Alert(
     val text: String,
@@ -330,11 +620,24 @@ val SimState.rejectCount: Int get() = frames.count { it.cut }
 val SimState.keepCount: Int get() = 42 - rejectCount
 val SimState.ready: Boolean get() = ekosRunning && isOn("mount") && isOn("cam")
 fun SimState.isOn(key: String): Boolean = ekosRunning && key !in devOff
+
+/** Whether a device is picked for the profile being built — independent of Ekos actually running. */
+fun SimState.isSelected(key: String): Boolean = key !in devOff
 val SimState.missing: String get() {    val parts = buildList {
         if (!isOn("mount")) add("mount")
         if (!isOn("cam")) add("camera")
     }
     return parts.joinToString(" + ")
+}
+
+/** "45 min · 1.0 °C · filter change" — same rule shown on every block, since it's global. */
+val SimState.autofocusRuleText: String get() {
+    val parts = buildList {
+        add("$afRefocusMin min")
+        add("${"%.1f".format(afTempDeltaC)} °C")
+        if (afOnFilterChange) add("filter change")
+    }
+    return parts.joinToString(" · ")
 }
 
 /** The prototype's trace generator: x = i + t*0.6 + seed, summed sines. */

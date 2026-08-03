@@ -46,6 +46,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.nocturne.session.ALERTS
+import com.nocturne.session.SheetType
 import com.nocturne.ui.frames.FramesScreen
 import com.nocturne.ui.gear.GearScreen
 import com.nocturne.ui.icons.Phosphor
@@ -112,6 +114,8 @@ private fun NocturneShell(
                         if (landscape) ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                         else ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
                 },
+                alertCount = ALERTS.size,
+                onOpenAlerts = { ctrl.openSheet(SheetType.ALERTS) },
             )
 
             Row(
@@ -135,7 +139,9 @@ private fun NocturneShell(
                 ) {
                     composable(NocturneTab.Session.route) { SessionScreen(state, ctrl, landscape) }
                     composable(NocturneTab.Plan.route) { PlanScreen(state, ctrl, landscape) }
-                    composable(NocturneTab.Sequence.route) { SequenceScreen(state, ctrl, landscape) }
+                    composable(NocturneTab.Sequence.route) {
+                        SequenceScreen(state, ctrl, landscape, onFixInGear = { navigate(NocturneTab.Gear) })
+                    }
                     composable(NocturneTab.Frames.route) { FramesScreen(state, ctrl, landscape) }
                     composable(NocturneTab.Gear.route) { GearScreen(state, ctrl, landscape) }
                 }
@@ -162,6 +168,8 @@ private fun NocturneHeader(
     landscape: Boolean,
     onToggleRed: () -> Unit,
     onToggleOrientation: () -> Unit,
+    alertCount: Int,
+    onOpenAlerts: () -> Unit,
 ) {
     val colors = NocturneTheme.colors
     Column(
@@ -240,8 +248,8 @@ private fun NocturneHeader(
             HeaderIconButton(
                 icon = Phosphor.Bell,
                 contentDescription = "Alerts",
-                badge = 2,
-                onClick = { },
+                badge = alertCount,
+                onClick = onOpenAlerts,
             )
         }
     }

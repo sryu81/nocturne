@@ -26,6 +26,7 @@ import com.nocturne.session.activeRigProfile
 import com.nocturne.session.SheetType
 import com.nocturne.session.SimState
 import com.nocturne.session.isOn
+import com.nocturne.session.isSelected
 import com.nocturne.session.missing
 import com.nocturne.session.paTotal
 import com.nocturne.session.ready
@@ -47,7 +48,9 @@ private val DEVICE_ICONS: Map<String, ImageVector> = mapOf(
     "guide" to Phosphor.CrosshairSimple,
     "focus" to Phosphor.ArrowsInLineHorizontal,
     "rotator" to Phosphor.ArrowsClockwise,
+    "dome" to Phosphor.Garage,
     "weather" to Phosphor.CloudSun,
+    "powerbox" to Phosphor.Plugs,
 )
 
 @Composable
@@ -73,11 +76,12 @@ fun GearScreen(
         items = listOf(
             TabItem(full = true) { ReadyBanner(state) },
             TabItem(full = true) { RigProfileCard(state, ctrl) },
+            TabItem { OpticalTrainCard(state, ctrl) },
             TabItem { BenchCard(ctrl) },
             TabItem { PaCard(state, ctrl) },
             TabItem(full = true) { DeviceList(state, ctrl) },
-            TabItem(full = true) { PowerDew() },
-            TabItem(full = true) { CloseRoofButton() },
+            TabItem(full = true) { PowerDew(state) },
+            TabItem(full = true) { CloseRoofButton(state, ctrl) },
         ),
     )
 }
@@ -229,6 +233,25 @@ private fun RigProfileCard(state: SimState, ctrl: SessionController) {
 }
 
 @Composable
+private fun OpticalTrainCard(state: SimState, ctrl: SessionController) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(c.surface, RoundedCornerShape(14.dp))
+            .border(1.dp, c.divider, RoundedCornerShape(14.dp))
+            .clickable { ctrl.openSheet(SheetType.OPTICAL_TRAIN) }
+            .padding(12.dp),
+    ) {
+        Phosphor.Icon(Phosphor.CrosshairSimple, size = 20.dp, tint = c.accent400)
+        Spacer(Modifier.height(5.dp))
+        TextC("Optical train", style = t.Body135, color = c.text)
+        TextC("primary ${state.opticMm} mm · secondary ${state.guideOpticMm} mm", style = t.MonoMicro, color = c.textFaint)
+    }
+}
+
+@Composable
 private fun BenchCard(ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
@@ -302,7 +325,7 @@ private fun DeviceList(state: SimState, ctrl: SessionController) {
             val on = state.isOn(d.key)
             DeviceRow(
                 icon = DEVICE_ICONS[d.key] ?: Phosphor.Plugs,
-                name = d.name,
+                name = state.selectedDeviceNames[d.key] ?: d.name,
                 detail = if (on) d.detail else "not connected",
                 state = if (on) "LINKED" else if (d.req) "REQUIRED" else "OFF",
                 stateColor = if (on) c.ok else if (d.req) c.danger else c.textFaint,
@@ -349,28 +372,33 @@ private fun DeviceRow(
     }
 }
 
+/** Only shown when a Powerbox is selected in the rig profile; dims to idle when Ekos isn't running. */
 @Composable
-private fun PowerDew() {
+private fun PowerDew(state: SimState) {
+    if (!state.isSelected("powerbox")) return
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
+    val on = state.ekosRunning
     Card {
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextC("POWER · DEW", style = t.MicroLabel, color = c.textFaint, modifier = Modifier.weight(1f))
-            TextC("3.42 A · 12.1 V", style = t.MonoSmall, color = c.accent400)
+            TextC(if (on) "3.42 A · 12.1 V" else "not connected", style = t.MonoSmall, color = if (on) c.accent400 else c.textFaint)
         }
         Spacer(Modifier.height(11.2.dp))
-        DewRow("Dew · main", 0.62f)
+        DewRow("Dew · main", if (on) 0.62f else 0f, enabled = on)
         Spacer(Modifier.height(11.2.dp))
-        DewRow("Dew · guide", 0.40f)
+        DewRow("Dew · guide", if (on) 0.40f else 0f, enabled = on)
     }
 }
 
 @Composable
-private fun DewRow(label: String, frac: Float) {
+private fun DewRow(label: String, frac: Float, enabled: Boolean) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
+    val barColor = if (enabled) c.accent else c.textFaint
+    val textColor = if (enabled) c.textDim else c.textFaint
     Row(verticalAlignment = Alignment.CenterVertically) {
-        TextC(label, style = t.Caption, color = c.textDim, modifier = Modifier.width(78.dp))
+        TextC(label, style = t.Caption, color = textColor, modifier = Modifier.width(78.dp))
         Canvas(
             Modifier
                 .weight(1f)
@@ -384,35 +412,77 @@ private fun DewRow(label: String, frac: Float) {
                 size = androidx.compose.ui.geometry.Size(size.width, trackH),
                 cornerRadius = androidx.compose.ui.geometry.CornerRadius(trackH / 2),
             )
-            drawRoundRect(
-                color = c.accent,
-                topLeft = androidx.compose.ui.geometry.Offset(0f, y - trackH / 2),
-                size = androidx.compose.ui.geometry.Size(size.width * frac, trackH),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(trackH / 2),
-            )
-            drawCircle(c.text, radius = 7.dp.toPx(), center = androidx.compose.ui.geometry.Offset(size.width * frac, y))
+            if (enabled) {
+                drawRoundRect(
+                    color = barColor,
+                    topLeft = androidx.compose.ui.geometry.Offset(0f, y - trackH / 2),
+                    size = androidx.compose.ui.geometry.Size(size.width * frac, trackH),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(trackH / 2),
+                )
+                drawCircle(c.text, radius = 7.dp.toPx(), center = androidx.compose.ui.geometry.Offset(size.width * frac, y))
+            }
         }
         Spacer(Modifier.width(8.dp))
-        TextC("${(frac * 100).toInt()}%", style = t.Mono13, color = c.text, modifier = Modifier.width(34.dp))
+        TextC(if (enabled) "${(frac * 100).toInt()}%" else "—", style = t.Mono13, color = textColor, modifier = Modifier.width(34.dp))
+    }
+}
+
+/** Only shown when a Dome is selected in the rig profile; disabled when Ekos isn't running. */
+@Composable
+private fun CloseRoofButton(state: SimState, ctrl: SessionController) {
+    if (!state.isSelected("dome")) return
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    val enabled = state.ekosRunning
+    if (!enabled) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(52.dp)
+                .border(1.dp, c.textFaint.copy(alpha = 0.55f), RoundedCornerShape(10.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Phosphor.Icon(Phosphor.Garage, size = 18.dp, tint = c.textFaint)
+                Spacer(Modifier.width(9.dp))
+                TextC("Dome offline — start Ekos", style = t.Button13, color = c.textFaint)
+            }
+        }
+        return
+    }
+    Row(Modifier.fillMaxWidth()) {
+        RoofButton(
+            label = "Open roof",
+            enabled = !state.domeOpen,
+            onClick = { ctrl.setDomeOpen(true) },
+            modifier = Modifier.weight(1f),
+        )
+        Spacer(Modifier.width(8.4.dp))
+        RoofButton(
+            label = "Close roof",
+            enabled = state.domeOpen,
+            onClick = { ctrl.setDomeOpen(false) },
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 
 @Composable
-private fun CloseRoofButton() {
+private fun RoofButton(label: String, enabled: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
+    val color = if (enabled) c.danger else c.textFaint
     Box(
-        Modifier
-            .fillMaxWidth()
+        modifier
             .height(52.dp)
-            .border(1.dp, c.danger.copy(alpha = 0.55f), RoundedCornerShape(10.dp))
-            .clickable { },
+            .border(1.dp, color.copy(alpha = 0.55f), RoundedCornerShape(10.dp))
+            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier),
         contentAlignment = Alignment.Center,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Phosphor.Icon(Phosphor.Garage, size = 18.dp, tint = c.danger)
+            Phosphor.Icon(Phosphor.Garage, size = 18.dp, tint = color)
             Spacer(Modifier.width(9.dp))
-            TextC("Hold to close roof", style = t.Button13, color = c.danger)
+            TextC(label, style = t.Button13, color = color)
         }
     }
 }

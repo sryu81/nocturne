@@ -4,6 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,9 +16,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -28,24 +34,34 @@ import androidx.compose.ui.unit.dp
 import com.nocturne.session.ALERTS
 import com.nocturne.session.AlertIcon
 import com.nocturne.session.DEVICES
+import com.nocturne.session.DRIVER_INDI_PROPS
+import com.nocturne.session.Device
 import com.nocturne.session.IndiProperty
 import com.nocturne.session.PA_SECS
 import com.nocturne.session.PREF_DEFS
 import com.nocturne.session.SessionController
 import com.nocturne.session.SheetType
 import com.nocturne.session.SimState
+import com.nocturne.session.TrainRole
+import com.nocturne.session.TrainSlot
 import com.nocturne.session.coolAtSetPoint
+import com.nocturne.session.fRatio
+import com.nocturne.session.get
 import com.nocturne.session.guideOpticNote
 import com.nocturne.session.opticNote
 import com.nocturne.session.coolBarPct
 import com.nocturne.session.coolPowerPct
 import com.nocturne.session.isOn
+import com.nocturne.session.isSelected
 import com.nocturne.session.missing
 import com.nocturne.session.paTotal
 import com.nocturne.session.ready
 import com.nocturne.session.rms
+import com.nocturne.session.train
+import com.nocturne.session.trainRolePool
 import com.nocturne.session.wiggle
 import com.nocturne.ui.components.GuideTraceChart
+import com.nocturne.ui.components.HDivider
 import com.nocturne.ui.components.HatchBg
 import com.nocturne.ui.components.IconBtn
 import com.nocturne.ui.components.NocturneButton
@@ -91,10 +107,12 @@ fun SheetHost(state: SimState, ctrl: SessionController, landscape: Boolean) {
         SheetType.BENCH -> "Bench check" to "before you start"
         SheetType.PA -> "Polar alignment" to "three steps"
         SheetType.PREFS -> "Alert rules" to "push + on-screen"
-        SheetType.SETUP -> (if (state.setupEditingName != null) "Edit rig profile" else "New rig profile") to "step ${state.setupStep + 1} of 4"
+        SheetType.AUTOFOCUS_RULES -> "Autofocus rules" to "when to refocus"
+        SheetType.SETUP -> (if (state.setupEditingName != null) "Edit rig profile" else "New rig profile") to "name + device connections"
+        SheetType.OPTICAL_TRAIN -> "Optical train" to "primary + secondary"
         SheetType.DEVICE -> {
             val d = DEVICES.firstOrNull { it.key == state.deviceKey } ?: DEVICES[0]
-            d.name to (if (d.req) "required for a session" else "optional")
+            (state.selectedDeviceNames[d.key] ?: d.name) to (if (d.req) "required for a session" else "optional")
         }
     }
 
@@ -112,12 +130,14 @@ fun SheetHost(state: SimState, ctrl: SessionController, landscape: Boolean) {
                 SheetType.BENCH -> BenchSheet(state, ctrl, landscape)
                 SheetType.PA -> PaSheet(state, ctrl, landscape)
                 SheetType.PREFS -> PrefsSheet(state, ctrl)
+                SheetType.AUTOFOCUS_RULES -> AutofocusRulesSheet(state, ctrl)
                 SheetType.SETUP -> SetupBody(state, ctrl)
+                SheetType.OPTICAL_TRAIN -> OpticalTrainSheet(state, ctrl)
                 SheetType.DEVICE -> DeviceSheet(state, ctrl)
             }
         },
-        footer = if (sheet == SheetType.SETUP && state.setupStep < 3) {
-            { SetupFooter(state, ctrl) }
+        footer = if (sheet == SheetType.SETUP) {
+            { SetupFooter(ctrl) }
         } else null,
     )
 }
@@ -266,9 +286,84 @@ private fun PrefsSheet(state: SimState, ctrl: SessionController) {
     }
 }
 
+// ── Autofocus rules ─────────────────────────────────────────────────────────
+
+/**
+ * One rule for the whole running sequence — matches real Ekos, which enforces
+ * refocus/HFR/temperature triggers per-session (`capture_get_all_settings`),
+ * not per-job. Every block shows this same text; edit it here.
+ */
+@Composable
+private fun AutofocusRulesSheet(state: SimState, ctrl: SessionController) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    Column {
+        FieldLabel("Refocus every")
+        Spacer(Modifier.height(5.dp))
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .height(42.dp)
+                .background(c.bg, RoundedCornerShape(4.dp))
+                .border(1.dp, c.divider, RoundedCornerShape(4.dp))
+                .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            BasicTextField(
+                value = state.afRefocusMin.toString(),
+                onValueChange = { text -> ctrl.setAutofocusRefocusMin(text.filter { it.isDigit() }.take(3).toIntOrNull() ?: 0) },
+                singleLine = true,
+                textStyle = t.Body13.copy(color = c.text),
+                cursorBrush = SolidColor(c.accent),
+                modifier = Modifier.weight(1f),
+            )
+            TextC("min", style = t.MonoSmall, color = c.neutral500)
+        }
+        Spacer(Modifier.height(11.2.dp))
+        FieldLabel("Or on temperature drift")
+        Spacer(Modifier.height(5.dp))
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .height(42.dp)
+                .background(c.bg, RoundedCornerShape(4.dp))
+                .border(1.dp, c.divider, RoundedCornerShape(4.dp))
+                .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            BasicTextField(
+                value = "%.1f".format(state.afTempDeltaC),
+                onValueChange = { text ->
+                    text.filter { it.isDigit() || it == '.' }.toDoubleOrNull()?.let(ctrl::setAutofocusTempDelta)
+                },
+                singleLine = true,
+                textStyle = t.Body13.copy(color = c.text),
+                cursorBrush = SolidColor(c.accent),
+                modifier = Modifier.weight(1f),
+            )
+            TextC("°C", style = t.MonoSmall, color = c.neutral500)
+        }
+        Spacer(Modifier.height(11.2.dp))
+        SwitchRow(
+            label = "Refocus on filter change",
+            sub = "run autofocus whenever the active filter changes",
+            checked = state.afOnFilterChange,
+            onToggle = ctrl::toggleAutofocusOnFilterChange,
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(c.bg, RoundedCornerShape(4.dp))
+                .padding(horizontal = 11.2.dp),
+        )
+        Spacer(Modifier.height(11.2.dp))
+        TextC(
+            "Applies to the whole running sequence, not per block — matches how Ekos enforces autofocus triggers.",
+            style = t.MonoMicro, color = c.textMuted,
+        )
+    }
+}
+
 // ── Setup ────────────────────────────────────────────────────────────────
 
-private val SETUP_STEPS = listOf("Profile", "Connect", "Check", "Done")
 private val PA_STEPS = listOf("Point", "Rotate + capture", "Adjust knobs")
 private val DEVICE_ICONS: Map<String, ImageVector> = mapOf(
     "mount" to Phosphor.CompassTool,
@@ -277,29 +372,297 @@ private val DEVICE_ICONS: Map<String, ImageVector> = mapOf(
     "guide" to Phosphor.CrosshairSimple,
     "focus" to Phosphor.ArrowsInLineHorizontal,
     "rotator" to Phosphor.ArrowsClockwise,
+    "dome" to Phosphor.Garage,
     "weather" to Phosphor.CloudSun,
+    "powerbox" to Phosphor.Plugs,
 )
 private val JOGS = listOf(-1000, -100, -10, 10, 100, 1000)
 private val RATES = listOf("0.5×", "1×", "8×", "64×", "max")
 
+/**
+ * Rig profile setup — name + device role picker, one screen, no steps.
+ * Optical train (scope/guide scope) is a separate standalone entry reachable
+ * from the Gear tab, same pattern as Bench check/Polar align.
+ */
 @Composable
 private fun SetupBody(state: SimState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     Column {
-        StepPills(
-            labels = SETUP_STEPS,
-            current = state.setupStep,
+        FieldLabel("Profile name")
+        Spacer(Modifier.height(5.dp))
+        BasicTextField(
+            value = state.profileName,
+            onValueChange = ctrl::setProfileName,
+            singleLine = true,
+            textStyle = t.Body13.copy(color = c.text),
+            cursorBrush = SolidColor(c.accent),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(42.dp)
+                .background(c.bg, RoundedCornerShape(4.dp))
+                .border(1.dp, c.divider, RoundedCornerShape(4.dp))
+                .padding(horizontal = 12.dp),
         )
-        Spacer(Modifier.height(14.dp))
-        when (state.setupStep) {
-            0 -> SetupStep0(state, ctrl)
-            1 -> SetupStep1(state, ctrl)
-            2 -> SetupStep2(ctrl)
-            else -> SetupStep3(state, ctrl)
+        Spacer(Modifier.height(11.2.dp))
+        TextC(
+            "Mount and camera are required; the rest can come later.",
+            style = t.MonoSmall, color = c.neutral500,
+        )
+        Spacer(Modifier.height(8.4.dp))
+        DEVICES.forEach { d ->
+            val selected = state.isSelected(d.key)
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .background(c.bg, RoundedCornerShape(4.dp))
+                    .clickable { ctrl.openDevice(d.key) }
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Phosphor.Icon(DEVICE_ICONS[d.key] ?: Phosphor.Plugs, size = 18.dp, tint = c.neutral500)
+                Spacer(Modifier.width(11.2.dp))
+                TextC(state.selectedDeviceNames[d.key] ?: d.name, style = t.Body13, color = c.text, modifier = Modifier.weight(1f))
+                TextC(
+                    if (selected) "SELECTED" else if (d.req) "REQUIRED" else "OFF",
+                    style = t.MonoMicro,
+                    color = if (selected) c.ok else if (d.req) c.danger else c.textFaint,
+                    modifier = Modifier
+                        .background(
+                            if (selected) c.ok.copy(alpha = 0.14f) else if (d.req) c.danger.copy(alpha = 0.16f) else c.divider.copy(alpha = 0.4f),
+                            RoundedCornerShape(3.dp),
+                        )
+                        .padding(horizontal = 7.dp, vertical = 3.dp),
+                )
+            }
+            Spacer(Modifier.height(8.4.dp))
+        }
+        ScopeInputFields(
+            label = "Scope",
+            name = state.scopeName, onNameChange = ctrl::setScopeName,
+            focalMm = state.opticMm, onFocalChange = ctrl::setOpticMm,
+            apertureMm = state.scopeApertureMm, onApertureChange = ctrl::setScopeApertureMm,
+            note = opticNote(state.opticMm),
+        )
+        Spacer(Modifier.height(11.2.dp))
+        ScopeInputFields(
+            label = "Guide scope",
+            name = state.guideScopeName, onNameChange = ctrl::setGuideScopeName,
+            focalMm = state.guideOpticMm, onFocalChange = ctrl::setGuideOpticMm,
+            apertureMm = state.guideScopeApertureMm, onApertureChange = ctrl::setGuideScopeApertureMm,
+            note = guideOpticNote(state.guideOpticMm),
+        )
+    }
+}
+
+/** Scope/guide-scope entry — name + focal length + aperture, matching real Ekos's Scopes catalog fields (`scope_add`). */
+@Composable
+private fun ScopeInputFields(
+    label: String,
+    name: String, onNameChange: (String) -> Unit,
+    focalMm: Int, onFocalChange: (Int) -> Unit,
+    apertureMm: Int, onApertureChange: (Int) -> Unit,
+    note: String,
+) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    FieldLabel(label)
+    Spacer(Modifier.height(5.dp))
+    BasicTextField(
+        value = name,
+        onValueChange = onNameChange,
+        singleLine = true,
+        textStyle = t.Body13.copy(color = c.text),
+        cursorBrush = SolidColor(c.accent),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(42.dp)
+            .background(c.bg, RoundedCornerShape(4.dp))
+            .border(1.dp, c.divider, RoundedCornerShape(4.dp))
+            .padding(horizontal = 12.dp),
+    )
+    Spacer(Modifier.height(5.dp))
+    Row(Modifier.fillMaxWidth()) {
+        MmField("Focal length", focalMm, Modifier.weight(1f), onFocalChange)
+        Spacer(Modifier.width(8.4.dp))
+        MmField("Aperture", apertureMm, Modifier.weight(1f), onApertureChange)
+    }
+    Spacer(Modifier.height(5.dp))
+    TextC("$note · ${fRatio(focalMm, apertureMm)}", style = t.MonoMicro, color = c.textMuted)
+}
+
+/** Small labeled digits-only mm field, used for scope focal length/aperture. */
+@Composable
+private fun MmField(label: String, mm: Int, modifier: Modifier, onChange: (Int) -> Unit) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    Column(modifier) {
+        TextC(label, style = t.MicroLabel, color = c.textFaint)
+        Spacer(Modifier.height(3.dp))
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .height(38.dp)
+                .background(c.bg, RoundedCornerShape(4.dp))
+                .border(1.dp, c.divider, RoundedCornerShape(4.dp))
+                .padding(horizontal = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            BasicTextField(
+                value = mm.toString(),
+                onValueChange = { text -> onChange(text.filter { it.isDigit() }.take(4).toIntOrNull() ?: 0) },
+                singleLine = true,
+                textStyle = t.Body13.copy(color = c.text),
+                cursorBrush = SolidColor(c.accent),
+                modifier = Modifier.weight(1f),
+            )
+            TextC("mm", style = t.MonoSmall, color = c.neutral500)
         }
     }
 }
+
+@Composable
+private fun SetupFooter(ctrl: SessionController) {
+    Row(Modifier.fillMaxWidth()) {
+        NocturneButton(
+            text = "Cancel",
+            onClick = ctrl::setupBack,
+            style = com.nocturne.ui.components.BtnStyle.SUBTLE,
+            modifier = Modifier.weight(1f).height(44.dp),
+        )
+        Spacer(Modifier.width(8.4.dp))
+        NocturneButton(
+            text = "Save profile & open session",
+            onClick = ctrl::finishSetup,
+            style = com.nocturne.ui.components.BtnStyle.OUTLINE,
+            modifier = Modifier.weight(1f).height(44.dp),
+        )
+    }
+}
+
+/**
+ * Standalone entry point (from Gear tab) — the real Optical Trains dialog:
+ * Primary/Secondary (fixed, no add/remove — matches the design brief, not the
+ * desktop dialog's +/− train list), each with the same 10 roles as
+ * `train_get_all` (message.cpp:236, `OpticalTrainManager::getOpticalTrains()`):
+ * Mount/Camera/Rotator/Guide via/Dust cap/Scope/Filter wheel/Focuser/
+ * Reducer/Light box. Every dropdown's pool is whatever's currently selected
+ * in the rig profile's device/scope categories — Reducer is the one field
+ * that isn't a device pick, just a per-train multiplier.
+ */
+@Composable
+private fun OpticalTrainSheet(state: SimState, ctrl: SessionController) {
+    var slot by remember { mutableStateOf(TrainSlot.PRIMARY) }
+    Column {
+        Row(Modifier.border(1.dp, NocturneTheme.colors.divider, RoundedCornerShape(10.dp))) {
+            listOf(TrainSlot.PRIMARY to "Primary", TrainSlot.SECONDARY to "Secondary").forEach { (s, label) ->
+                val sel = s == slot
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .background(if (sel) NocturneTheme.colors.accent.copy(alpha = 0.2f) else Color.Transparent)
+                        .clickable { slot = s }
+                        .padding(vertical = 9.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    TextC(label, style = NocturneTheme.type.MonoSmall, color = if (sel) NocturneTheme.colors.accent400 else NocturneTheme.colors.textMuted)
+                }
+            }
+        }
+        Spacer(Modifier.height(11.2.dp))
+        TrainForm(state, ctrl, slot)
+    }
+}
+
+private val TRAIN_ROLE_LABELS = listOf(
+    TrainRole.MOUNT to "Mount",
+    TrainRole.CAMERA to "Camera",
+    TrainRole.ROTATOR to "Rotator",
+    TrainRole.GUIDE_VIA to "Guide via",
+    TrainRole.DUST_CAP to "Dust cap",
+    TrainRole.SCOPE to "Scope/Lens",
+    TrainRole.FILTER_WHEEL to "Filter wheel",
+    TrainRole.FOCUSER to "Focuser",
+    TrainRole.LIGHT_BOX to "Light box",
+)
+
+@Composable
+private fun TrainForm(state: SimState, ctrl: SessionController, slot: TrainSlot) {
+    val train = state.train(slot)
+    Column {
+        TRAIN_ROLE_LABELS.forEach { (role, label) ->
+            val pool = state.trainRolePool(role)
+            RoleRow(
+                label = label,
+                options = pool,
+                selected = train.get(role),
+                onSelect = { ctrl.setTrainRole(slot, role, it) },
+            )
+            Spacer(Modifier.height(8.4.dp))
+        }
+        FieldLabel("Reducer/Barlow")
+        Spacer(Modifier.height(5.dp))
+        ReducerField(value = train.reducer, onChange = { ctrl.setTrainReducer(slot, it) })
+    }
+}
+
+/** One role's picker — horizontally-scrolling chip row, since a pool can be 1-3 wide. */
+@Composable
+private fun RoleRow(label: String, options: List<String>, selected: String, onSelect: (String) -> Unit) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    Column {
+        TextC(label, style = t.MicroLabel, color = c.textFaint)
+        Spacer(Modifier.height(4.dp))
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .border(1.dp, c.divider, RoundedCornerShape(4.dp)),
+        ) {
+            options.forEach { opt ->
+                val sel = opt == selected
+                Box(
+                    Modifier
+                        .background(if (sel) c.accent.copy(alpha = 0.2f) else Color.Transparent)
+                        .clickable { onSelect(opt) }
+                        .padding(horizontal = 11.dp, vertical = 9.dp),
+                ) {
+                    TextC(opt, style = t.MonoSmall, color = if (sel) c.accent400 else c.textMuted)
+                }
+            }
+        }
+    }
+}
+
+/** Numeric reducer/barlow multiplier — plain digits+dot field, "1.00x" style. */
+@Composable
+private fun ReducerField(value: Double, onChange: (Double) -> Unit) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(42.dp)
+            .background(c.bg, RoundedCornerShape(4.dp))
+            .border(1.dp, c.divider, RoundedCornerShape(4.dp))
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        BasicTextField(
+            value = "%.2f".format(value),
+            onValueChange = { text ->
+                text.filter { it.isDigit() || it == '.' }.toDoubleOrNull()?.let(onChange)
+            },
+            singleLine = true,
+            textStyle = t.Body13.copy(color = c.text),
+            cursorBrush = SolidColor(c.accent),
+            modifier = Modifier.weight(1f),
+        )
+        TextC("x", style = t.MonoSmall, color = c.neutral500)
+    }
+}
+
 
 @Composable
 private fun StepPills(labels: List<String>, current: Int) {
@@ -336,216 +699,6 @@ private fun StepPills(labels: List<String>, current: Int) {
             }
             if (i < labels.lastIndex) Spacer(Modifier.width(6.dp))
         }
-    }
-}
-
-@Composable
-private fun SetupStep0(state: SimState, ctrl: SessionController) {
-    val c = NocturneTheme.colors
-    val t = NocturneTheme.type
-    Column {
-        FieldLabel("Profile name")
-        Spacer(Modifier.height(5.dp))
-        BasicTextField(
-            value = state.profileName,
-            onValueChange = ctrl::setProfileName,
-            singleLine = true,
-            textStyle = t.Body13.copy(color = c.text),
-            cursorBrush = SolidColor(c.accent),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(42.dp)
-                .background(c.bg, RoundedCornerShape(4.dp))
-                .border(1.dp, c.divider, RoundedCornerShape(4.dp))
-                .padding(horizontal = 12.dp),
-        )
-        Spacer(Modifier.height(11.2.dp))
-        FieldLabel("Optics")
-        Spacer(Modifier.height(5.dp))
-        FocalLengthField(mm = state.opticMm, onMmChange = ctrl::setOpticMm)
-        Spacer(Modifier.height(5.dp))
-        TextC(opticNote(state.opticMm), style = t.MonoMicro, color = c.textMuted)
-        Spacer(Modifier.height(11.2.dp))
-        FieldLabel("Guide optics")
-        Spacer(Modifier.height(5.dp))
-        FocalLengthField(mm = state.guideOpticMm, onMmChange = ctrl::setGuideOpticMm)
-        Spacer(Modifier.height(5.dp))
-        TextC(guideOpticNote(state.guideOpticMm), style = t.MonoMicro, color = c.textMuted)
-        Spacer(Modifier.height(11.2.dp))
-        FieldLabel("Site")
-        Spacer(Modifier.height(5.dp))
-        Panel {
-            TextC("52.37 N · 4.89 E · 12 m — from phone GPS", style = t.MonoMid, color = c.neutral400)
-        }
-    }
-}
-
-/** Numeric mm input — plain text field, digits only. */
-@Composable
-private fun FocalLengthField(mm: Int, onMmChange: (Int) -> Unit) {
-    val c = NocturneTheme.colors
-    val t = NocturneTheme.type
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .height(42.dp)
-            .background(c.bg, RoundedCornerShape(4.dp))
-            .border(1.dp, c.divider, RoundedCornerShape(4.dp))
-            .padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        BasicTextField(
-            value = mm.toString(),
-            onValueChange = { text -> onMmChange(text.filter { it.isDigit() }.take(4).toIntOrNull() ?: 0) },
-            singleLine = true,
-            textStyle = t.Body13.copy(color = c.text),
-            cursorBrush = SolidColor(c.accent),
-            modifier = Modifier.weight(1f),
-        )
-        TextC("mm", style = t.MonoSmall, color = c.neutral500)
-    }
-}
-
-@Composable
-private fun SetupStep1(state: SimState, ctrl: SessionController) {
-    val c = NocturneTheme.colors
-    val t = NocturneTheme.type
-    Column {
-        TextC(
-            "Mount and camera are required; the rest can come later.",
-            style = t.MonoSmall, color = c.neutral500,
-        )
-        Spacer(Modifier.height(8.4.dp))
-        DEVICES.forEach { d ->
-            val on = state.isOn(d.key)
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .background(c.bg, RoundedCornerShape(4.dp))
-                    .clickable { ctrl.openDevice(d.key) }
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Phosphor.Icon(DEVICE_ICONS[d.key] ?: Phosphor.Plugs, size = 18.dp, tint = c.neutral500)
-                Spacer(Modifier.width(11.2.dp))
-                TextC(d.name, style = t.Body13, color = c.text, modifier = Modifier.weight(1f))
-                TextC(
-                    if (on) "LINKED" else if (d.req) "REQUIRED" else "OFF",
-                    style = t.MonoMicro,
-                    color = if (on) c.ok else if (d.req) c.danger else c.textFaint,
-                    modifier = Modifier
-                        .background(
-                            if (on) c.ok.copy(alpha = 0.14f) else if (d.req) c.danger.copy(alpha = 0.16f) else c.divider.copy(alpha = 0.4f),
-                            RoundedCornerShape(3.dp),
-                        )
-                        .padding(horizontal = 7.dp, vertical = 3.dp),
-                )
-            }
-            Spacer(Modifier.height(8.4.dp))
-        }
-    }
-}
-
-@Composable
-private fun SetupStep2(ctrl: SessionController) {
-    val c = NocturneTheme.colors
-    val t = NocturneTheme.type
-    Column {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .background(c.bg, RoundedCornerShape(4.dp))
-                .clickable { ctrl.openSheet(SheetType.BENCH) }
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Phosphor.Icon(Phosphor.TestTube, size = 20.dp, tint = c.accent400)
-            Spacer(Modifier.width(11.2.dp))
-            Column(Modifier.weight(1f)) {
-                TextC("Bench check", style = t.Body135, color = c.text)
-                TextC("test frames · cooler · focuser · slew", style = t.MonoMicro, color = c.textMuted)
-            }
-            Phosphor.Icon(Phosphor.CaretRight, size = 15.dp, tint = c.neutral700)
-        }
-        Spacer(Modifier.height(8.4.dp))
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .background(c.bg, RoundedCornerShape(4.dp))
-                .clickable { ctrl.openSheet(SheetType.PA) }
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Phosphor.Icon(Phosphor.Target, size = 20.dp, tint = c.accent400)
-            Spacer(Modifier.width(11.2.dp))
-            Column(Modifier.weight(1f)) {
-                TextC("Polar align", style = t.Body135, color = c.text)
-                TextC("3.2′ total error", style = t.MonoMicro, color = c.ok)
-            }
-            Phosphor.Icon(Phosphor.CaretRight, size = 15.dp, tint = c.neutral700)
-        }
-        Spacer(Modifier.height(11.2.dp))
-        TextC(
-            "Both are optional to save the profile, but a session won't start clean without them.",
-            style = t.MonoMicro, color = c.textMuted,
-        )
-    }
-}
-
-@Composable
-private fun SetupStep3(state: SimState, ctrl: SessionController) {
-    val c = NocturneTheme.colors
-    val t = NocturneTheme.type
-    Column {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .background(c.bg, RoundedCornerShape(4.dp))
-                .padding(14.dp),
-        ) {
-            TextC(state.profileName, style = t.Mono15, color = c.text)
-            TextC(
-                "${state.opticMm} mm · ${opticNote(state.opticMm)}",
-                style = t.MonoSmall, color = c.neutral500, modifier = Modifier.padding(top = 6.dp),
-            )
-            TextC(
-                if (state.ready) "Ready to image" else "Needs ${state.missing}" + " · polar ${String.format("%.1f", state.paTotal)}′",
-                style = t.MonoSmall, color = if (state.ready) c.ok else c.warn,
-                modifier = Modifier.padding(top = 6.dp),
-            )
-        }
-        Spacer(Modifier.height(11.2.dp))
-        TextC(
-            "Saved. Next time this profile loads in one tap and every device reconnects with these settings.",
-            style = t.Mono115, color = c.textMuted,
-        )
-        Spacer(Modifier.height(11.2.dp))
-        NocturneButton(
-            text = "Save profile & open session",
-            onClick = ctrl::finishSetup,
-            style = com.nocturne.ui.components.BtnStyle.OUTLINE,
-            modifier = Modifier.fillMaxWidth().height(48.dp),
-        )
-    }
-}
-
-@Composable
-private fun SetupFooter(state: SimState, ctrl: SessionController) {
-    val c = NocturneTheme.colors
-    Row(Modifier.fillMaxWidth()) {
-        NocturneButton(
-            text = "Back",
-            onClick = ctrl::setupBack,
-            style = com.nocturne.ui.components.BtnStyle.SUBTLE,
-            modifier = Modifier.weight(1f).height(44.dp),
-        )
-        Spacer(Modifier.width(8.4.dp))
-        NocturneButton(
-            text = if (state.setupStep == 3) "Done" else "Continue",
-            onClick = ctrl::setupNext,
-            style = com.nocturne.ui.components.BtnStyle.OUTLINE,
-            modifier = Modifier.weight(1f).height(44.dp),
-        )
     }
 }
 
@@ -1047,9 +1200,13 @@ private fun PaDial(state: SimState) {
 
 @Composable
 private fun DeviceSheet(state: SimState, ctrl: SessionController) {
+    val d = DEVICES.firstOrNull { it.key == state.deviceKey } ?: DEVICES[0]
+    if (!state.ekosRunning) {
+        DevicePickerBody(state, ctrl, d)
+        return
+    }
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
-    val d = DEVICES.firstOrNull { it.key == state.deviceKey } ?: DEVICES[0]
     val on = state.isOn(d.key)
     Column {
         Row(
@@ -1074,7 +1231,9 @@ private fun DeviceSheet(state: SimState, ctrl: SessionController) {
             }
         }
         Spacer(Modifier.height(11.2.dp))
-        d.cfg.forEach { (label, value) ->
+        val liveDriverName = state.selectedDeviceNames[d.key] ?: d.name
+        d.cfg.forEach { (label, staticValue) ->
+            val value = if (label == "Driver") liveDriverName else staticValue
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -1110,7 +1269,78 @@ private fun DeviceSheet(state: SimState, ctrl: SessionController) {
             "Saved to profile “${state.activeProfile ?: state.profileName}” — ${state.profiles.size} profiles",
             style = t.Mono115, color = c.textMuted,
         )
-        IndiPropertyPanel(deviceKey = d.key, props = state.indiProps[d.key] ?: emptyList(), ctrl = ctrl)
+        val driverName = state.selectedDeviceNames[d.key] ?: d.name
+        IndiPropertyPanel(deviceKey = driverName, props = state.indiProps[driverName] ?: DRIVER_INDI_PROPS[driverName] ?: emptyList(), ctrl = ctrl)
+    }
+}
+
+/**
+ * Device sheet body shown before Ekos is running (rig setup / profile edit) —
+ * nothing is actually connected yet, so this is just a selection toggle, not
+ * live connect/configure controls.
+ */
+@Composable
+private fun DevicePickerBody(state: SimState, ctrl: SessionController, d: Device) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    val selected = state.isSelected(d.key)
+    val current = state.selectedDeviceNames[d.key] ?: d.name
+    Column {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .background(c.bg, RoundedCornerShape(4.dp))
+                .padding(11.2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(7.dp).background(if (selected) c.ok else if (d.req) c.danger else c.textMuted, RoundedCornerShape(50)))
+            Spacer(Modifier.width(9.dp))
+            TextC(
+                if (selected) "selected for this profile" else "not selected",
+                style = t.MonoMid,
+                color = if (selected) c.ok else if (d.req) c.danger else c.textMuted,
+                modifier = Modifier.weight(1f),
+            )
+            if (d.req) {
+                TextC(
+                    "REQUIRED",
+                    style = t.MonoMini,
+                    color = c.accent400,
+                    modifier = Modifier
+                        .background(c.accent.copy(alpha = 0.18f), RoundedCornerShape(3.dp))
+                        .padding(horizontal = 7.dp, vertical = 3.dp),
+                )
+            }
+        }
+        Spacer(Modifier.height(11.2.dp))
+        TextC("AVAILABLE DEVICES", style = t.MicroLabel, color = c.textFaint)
+        Spacer(Modifier.height(5.dp))
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .border(1.dp, c.divider, RoundedCornerShape(4.dp)),
+        ) {
+            d.catalog.forEachIndexed { i, name ->
+                val sel = name == current
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(if (sel) c.accent.copy(alpha = 0.14f) else Color.Transparent)
+                        .clickable { ctrl.selectDeviceName(d.key, name) }
+                        .padding(horizontal = 12.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextC(name, style = t.Body13, color = if (sel) c.accent400 else c.text, modifier = Modifier.weight(1f))
+                    if (sel) Phosphor.Icon(Phosphor.Check, size = 14.dp, tint = c.accent400)
+                }
+                if (i < d.catalog.lastIndex) HDivider()
+            }
+        }
+        Spacer(Modifier.height(11.2.dp))
+        TextC(
+            "Connect and configure once Ekos is running for this profile.",
+            style = t.Mono115, color = c.textMuted,
+        )
     }
 }
 

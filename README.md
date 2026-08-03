@@ -221,3 +221,14 @@ app/
   column split per tab during M0.
 - **Export format** (log + FITS list) and **session summary contents** —
   confirm with user before M4.
+- **Autofocus rules are global in real Ekos, not per-job.** `capture_get_all_settings`/
+  `capture_set_all_settings` (message.cpp:542,546) has no job index and explicitly
+  "writes through to global `Options`" — `enforceAutofocusHFR`, `enforceRefocusEveryN`,
+  `hFRDeviation`, `maxFocusTemperatureDelta` etc. apply once for the whole running
+  queue. The Sequence tab models this correctly as one `Autofocus rules` sheet, not
+  per-block fields. The per-block `forceAfOnStart` toggle on each block is a
+  deliberate **Nocturne-only** addition on top of that — not an Ekos setting — meant
+  to fire a standalone `focus_start` (message.cpp:720) right as that block begins.
+  It's a no-op stub under `SimulatedController`; wiring it for real needs M2/M3
+  transport to detect "this block just started" from `new_capture_state` pushes
+  cross-referenced with `capture_get_sequences`'s current job index.

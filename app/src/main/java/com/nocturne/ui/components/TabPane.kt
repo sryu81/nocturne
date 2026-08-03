@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -51,6 +52,7 @@ fun TabPane(
             modifier = modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
+                .imePadding()
                 .padding(horizontal = 16.8.dp, vertical = 11.2.dp),
             verticalArrangement = Arrangement.spacedBy(11.2.dp),
         ) {
