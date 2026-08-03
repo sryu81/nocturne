@@ -10,8 +10,11 @@ guiding, focusing, polar alignment, frames review, session summary.
 
 The UI is a pixel-faithful Android port of the design handoff in
 `project/Session Control.dc.html` (5 tabs: Session / Plan / Sequence / Frames /
-Gear, plus detail sheets and a 4-step rig setup wizard), themed by the Nocturne
-design system in `project/nocturne.css`.
+Gear, plus detail sheets), themed by the Nocturne design system in
+`project/nocturne.css`. The original prototype's 4-step rig setup wizard was
+reworked during M1 into a single-screen device-role picker (Rig profile) plus
+a separate Optical Train screen (Primary/Secondary, 10 real train roles each)
+— see §7a for why.
 
 ### Source of truth
 
@@ -160,12 +163,13 @@ Two implementations:
 | Plan tab — catalog search, chips, altitude chart, framing box | `astro_search_objects`, `astro_get_object_info`, `astro_get_objects_observability`, `astro_get_objects_riseset` (`altitudes[]` → chart), `get_scopes`/`scope` for pixel-scale/rotator |
 | Sequence tab — night plan bar, blocks, exposure/gain/binning/dither/AF | `capture_get_sequences`, `capture_add_sequence`, `capture_set_all_settings`, `capture_get_all_settings`, `capture_start/stop/loop`; night bar from sequence + `new_capture_state` |
 | Frames tab — sub grid, keep/cut, HFR across run | media frames (HFR from header), local Room verdicts, capture progress |
-| Gear tab — readiness, new profile, bench, PA, device list, power/dew, roof | `get_profiles`, `profile_add/start/stop`, `get_devices`, `device_get`, `device_property_get/set/subscribe`, `new_temperature`, `new_notification` |
+| Gear tab — readiness, rig profile, optical train, bench, PA, device list, power/dew, roof | `get_profiles`, `profile_add/start/stop`, `get_devices`, `device_get`, `device_property_get/set/subscribe`, `new_temperature`, `new_notification`. Power/dew and roof cards only render when Powerbox/Dome are selected in the rig profile, and dim to an idle state when Ekos isn't running; roof control is separate Open/Close buttons, not a single toggle. |
 | Guide sheet | `new_guide_state`, `guide_get_all_settings`, media `+G` frames |
 | Focus sheet | `new_focus_state`, `focus_get_all_settings`, `focus_in/out`, media `+F` frames |
 | Alerts sheet | `new_notification`, `option_get/set` for rules |
 | Prefs sheet | `option_set` (alert rules, quiet hours) — app-local mirrors of Ekos options |
-| Setup wizard (4 steps) | step 1 profile name/optics/site → `astro_get_location` (or phone GPS); step 2 connect devices → `profile_add` + `device_*`; step 3 bench/PA links; step 4 `profile_start` |
+| Rig profile (single screen) | profile name + device-role picker (mount/CCD/guide CCD/EFW/EAF/rotator/dome/weather/powerbox + scope/guide scope as free-typed name+focal+aperture) → `profile_add`/`profile_update` + `device_*`; Save calls `profile_start` |
+| Optical Train sheet | Primary/Secondary, 10 roles each (mount/camera/rotator/guide via/dust cap/scope/filter wheel/focuser/reducer/light box) → `train_get_all`/`train_add`/`train_update`, pools sourced from the rig profile's device/scope picks |
 | Bench sheet | `capture_preview`, `focus_in/out`, `mount_set_motion`, cooler via `device_property_set` |
 | PA sheet | `new_polar_state` (`stage`/`enabled`/`message`), `polar_start/refresh/set_algorithm`, media `+A` frames |
 | Device sheet | `device_get` properties, `device_property_set`, `device_property_subscribe`, connect/disconnect |
@@ -200,6 +204,47 @@ app/
 | M3 | Profiles/devices/Plan/Sequence live: profile start/stop, device list + property sheets, `astro_*` lookups, capture sequences | Plan + Sequence tabs operate real Ekos end-to-end |
 | M4 | Media channel → preview + Frames grid, HFR from JPEG header, keep/cut persistence, live guide/focus/PA/bench, alerts + prefs, summary + export | Full session runnable from a phone; export produces log + FITS list |
 
+## 7a. Current status
+
+**M0 — done.** Gradle scaffold, Nocturne Compose theme, 5-tab nav shell (bottom
+nav + landscape rail), rotate + red-mode overlay all build and work.
+
+**M1 — in progress, past the pixel-port stage into a UI audit/fix pass on top
+of `SimulatedController`:**
+
+- Session/Plan/Frames tabs: pixel-ported from the prototype, not yet
+  re-audited past the initial port.
+- Sequence tab: reworked past the initial port — blocks are now real
+  (add/remove/drag-reorder), block fields (exposure/subs/gain/offset/
+  binning/dither) are editable and derive the header spec/progress instead of
+  static text, autofocus is a sequence-wide rules sheet (matches real Ekos —
+  see §8) plus a per-block force-autofocus override, and the header alerts
+  bell + "Fix in Gear" banner are wired instead of dead.
+- Gear tab: rig profile setup collapsed from the prototype's 4-step wizard to
+  a single device-role picker (9 categories: mount/CCD/guide CCD/EFW/EAF/
+  rotator/dome/weather/powerbox, each picked from a simulated multi-option
+  catalog) + scope/guide-scope as free-typed name+focal+aperture fields. A
+  separate Optical Train screen models Primary/Secondary trains with the real
+  10 Ekos roles each, sourced live from the rig profile's picks. Powerbox/roof
+  cards only show when that category is selected, dim to idle when Ekos isn't
+  running, and roof control is Open/Close, not one toggle.
+- Device control panels: replaced with real per-driver INDI property layouts
+  (not a generic per-role stand-in) for every catalog device, sourced from
+  `~/cc/repo/indi`/`indi-3rdparty` driver source — see §8 for the 3 catalog
+  entries that turned out not to correspond to any real driver and were
+  swapped. **This 19-device catalog is a demo sample of several hundred real
+  drivers, not a comprehensive list — §8 has a ⚠️ entry on why it must not
+  carry forward into M2/M3 as-is.**
+- Cross-cutting fixes: keyboard no longer covers focused text fields
+  (`imePadding` — edge-to-edge + targetSdk 35 stopped honoring
+  `windowSoftInputMode`), device-sheet nav returns to where it was opened from
+  instead of closing everything, emulator GPU-selection issue documented in
+  `docs/emulator-troubleshooting.md`.
+
+**Not started:** M2 (transport), M3, M4. `SessionController` still has exactly
+one implementation (`SimulatedController`); the interface is the seam M2 swaps
+behind.
+
 ## 8. Risks & decisions to confirm
 
 - **Push-driven state.** Broadcast semantics → no request/response correlation;
@@ -232,3 +277,48 @@ app/
   It's a no-op stub under `SimulatedController`; wiring it for real needs M2/M3
   transport to detect "this block just started" from `new_capture_state` pushes
   cross-referenced with `capture_get_sequences`'s current job index.
+- **Simulated device catalog is modeled on verified real drivers, not
+  invented ones — but the local `indi-3rdparty` checkout is incomplete.**
+  `~/cc/repo/indi-3rdparty` (a squashed rpi5-builder snapshot) has no
+  `indi-pegasusastro` directory — Pegasus's rotator (Falcon) genuinely isn't
+  present in either local repo, so it was dropped from the rotator category
+  rather than faked. `ScopeDome` and `Boltwood` were also fake (no such driver
+  exists in either repo, confirmed via full git history) and were swapped for
+  real ones: dome → MaxDome II/NexDome, weather → AAG CloudWatcher NG/Weather
+  Watcher. Pegasus's power (`indi-upb`/`indi-ppba`) and focuser
+  (`pegasus_focuscube3`) drivers *did* turn up, but migrated into core `indi`
+  (`drivers/power/`, `drivers/focuser/`), not `indi-3rdparty` — worth knowing
+  before assuming a driver's absence from 3rdparty means it doesn't exist.
+  `DRIVER_INDI_PROPS` in `SimState.kt` documents the source file per driver;
+  extending the catalog should cite real source the same way, not guess.
+- **⚠️ The 19-device catalog is a tiny demo sample, not close to comprehensive
+  — read this before M2/M3, don't carry the M1 catalog model forward
+  unquestioned.** Real INDI driver counts, from this repo checkout alone:
+  `indi-3rdparty` has **60 driver packages** (`indi-asi`, `indi-qhy`, etc. —
+  many bundle several drivers each, e.g. ZWO's package covers camera + EFW +
+  EAF); core `indi/drivers/` alone has telescope 54, focuser 52, rotator 15,
+  dome 17, weather 12, power 13, filter_wheel 13, ccd 4 — roughly **180 files**
+  across just those 8 categories. Total realistic driver count is in the
+  **several hundreds**. Nocturne's `DEVICES`/`DRIVER_INDI_PROPS` catalog
+  covers 19 named devices total — it exists only so `SimulatedController` has
+  *something* concrete to render per role while there's no real Pi to talk to.
+  **Two consequences for M2/M3, don't skip these:**
+  1. **Stop hand-maintaining a device list once transport exists.** M2's
+     `get_devices` (message.cpp:275) returns whatever's *actually connected*
+     — `{name, connected, version, interface}` — with the INDI
+     `DRIVER_INTERFACE` bitmask on `interface` deciding which role(s) a
+     device fills (a camera can report both CCD + guider interface bits,
+     etc.). `EkosRemoteController` must bucket real devices by that bitmask,
+     not by matching against `DEVICES.catalog` string lists — those lists
+     have no future past M1's simulator.
+  2. **Stop hardcoding per-driver property panels by device name.** The
+     `DRIVER_INDI_PROPS` map (19 entries, hand-transcribed from driver source
+     during M1) cannot scale to "whatever's actually connected" — a real rig
+     might report a driver never seen during this pass. M3's device sheet
+     must render `device_get`/`device_property_get`'s response generically
+     (already exactly what `IndiProperty`'s sealed Switch/Number/Text/Light
+     shape was designed for — reuse the type, not the hardcoded data) rather
+     than looking up a fixed Kotlin map by name. Treat `DRIVER_INDI_PROPS` as
+     what it is — M1 fixture data proving the panel *rendering* code works —
+     and delete it once real `device_get` responses replace it, don't keep
+     extending it toward "eventually cover everything."
