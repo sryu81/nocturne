@@ -16,6 +16,8 @@ interface SessionController {
     fun selectTab()
     fun openSubPreview()
     fun closeSubPreview()
+    fun expandFrame(id: String)
+    fun closeFrameExpand()
     fun requestDeferFlip()
     fun requestFlipNow()
     fun confirmFlipAction()

@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -31,6 +32,7 @@ import com.nocturne.session.rejectCount
 import com.nocturne.ui.components.Card
 import com.nocturne.ui.components.HatchBg
 import com.nocturne.ui.components.HfrRunChart
+import com.nocturne.ui.components.IconBtn
 import com.nocturne.ui.components.TabItem
 import com.nocturne.ui.components.TabPane
 import com.nocturne.ui.components.TextC
@@ -69,7 +71,7 @@ private fun FilterChips(state: SimState) {
                 .background(c.accent.copy(alpha = 0.16f), RoundedCornerShape(50))
                 .padding(horizontal = 10.dp, vertical = 5.dp),
         ) {
-            TextC("All 42", style = t.Button12, color = c.accent400)
+            TextC("All ${state.frames.size}", style = t.Button12, color = c.accent400)
         }
         Spacer(Modifier.width(5.6.dp))
         OutlinePill("${state.keepCount} keep", Modifier)
@@ -93,19 +95,26 @@ private fun OutlinePill(text: String, modifier: Modifier) {
     }
 }
 
+private const val FRAMES_PER_ROW = 2
+
 @Composable
 private fun FrameGrid(state: SimState, ctrl: SessionController) {
-    val c = NocturneTheme.colors
-    val t = NocturneTheme.type
-    Row(Modifier.fillMaxWidth()) {
-        state.frames.chunked(3).forEachIndexed { rowIdx, rowFrames ->
-            Column(Modifier.weight(1f)) {
+    val rows = state.frames.chunked(FRAMES_PER_ROW)
+    Column(Modifier.fillMaxWidth()) {
+        rows.forEach { rowFrames ->
+            Row(Modifier.fillMaxWidth()) {
                 rowFrames.forEach { f ->
-                    FrameCell(f, onClick = { ctrl.toggleCut(f.id) }, modifier = Modifier.fillMaxWidth())
-                    if (f != rowFrames.last()) Spacer(Modifier.height(6.dp))
+                    FrameCell(
+                        frame = f,
+                        onToggleCut = { ctrl.toggleCut(f.id) },
+                        onExpand = { ctrl.expandFrame(f.id) },
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (f != rowFrames.last()) Spacer(Modifier.width(10.dp))
                 }
+                repeat(FRAMES_PER_ROW - rowFrames.size) { Spacer(Modifier.weight(1f)) }
             }
-            if (rowIdx < 3) Spacer(Modifier.width(6.dp))
+            if (rowFrames != rows.last()) Spacer(Modifier.height(10.dp))
         }
     }
 }
@@ -113,7 +122,8 @@ private fun FrameGrid(state: SimState, ctrl: SessionController) {
 @Composable
 private fun FrameCell(
     frame: com.nocturne.session.Frame,
-    onClick: () -> Unit,
+    onToggleCut: () -> Unit,
+    onExpand: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val c = NocturneTheme.colors
@@ -122,39 +132,91 @@ private fun FrameCell(
     Box(
         modifier
             .aspectRatio(1f)
-            .clip(RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(14.dp))
             .background(c.surfaceDeep)
             .border(
                 1.dp,
                 if (cut) c.danger.copy(alpha = 0.5f) else c.accent.copy(alpha = 0.45f),
-                RoundedCornerShape(10.dp),
+                RoundedCornerShape(14.dp),
             )
             .alpha(if (cut) 0.42f else 1f)
-            .clickable(onClick = onClick),
+            .clickable(onClick = onExpand),
     ) {
         HatchBg(Modifier.fillMaxSize(), color = Color(0xFF2B2D38))
         TextC(
-            frame.id, style = t.MonoMicro, color = c.textFaint,
-            modifier = Modifier.align(Alignment.TopStart).padding(start = 5.dp, top = 4.dp),
+            frame.id, style = t.Mono14, color = c.textFaint,
+            modifier = Modifier.align(Alignment.TopStart).padding(start = 8.dp, top = 6.dp),
         )
         TextC(
-            String.format("%.2f", frame.hfr), style = t.MonoMid,
+            String.format("%.2f", frame.hfr), style = t.Mono21,
             color = if (frame.hfr > 2.8) c.danger else c.textDim,
-            modifier = Modifier.align(Alignment.BottomStart).padding(start = 5.dp, bottom = 4.dp),
+            modifier = Modifier.align(Alignment.BottomStart).padding(start = 8.dp, bottom = 6.dp),
         )
         Box(
             Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 4.dp, bottom = 3.dp)
-                .size(18.dp)
-                .background(if (cut) c.danger else c.accent, CircleShape),
+                .padding(end = 7.dp, bottom = 6.dp)
+                .size(30.dp)
+                .background(if (cut) c.danger else c.accent, CircleShape)
+                .clickable(onClick = onToggleCut),
             contentAlignment = Alignment.Center,
         ) {
             Phosphor.Icon(
                 if (cut) Phosphor.XFill else Phosphor.CheckFill,
-                size = 11.dp,
+                size = 17.dp,
                 tint = c.surfaceDeep,
             )
+        }
+    }
+}
+
+/** Full-screen frame preview — tap anywhere, the close button, or system back dismisses it. */
+@Composable
+fun FrameExpandOverlay(state: SimState, ctrl: SessionController) {
+    val frame = state.frames.firstOrNull { it.id == state.expandedFrameId } ?: return
+    androidx.activity.compose.BackHandler(onBack = ctrl::closeFrameExpand)
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    val cut = frame.cut
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(c.surfaceDeep)
+            .clickable(
+                indication = null,
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                onClick = ctrl::closeFrameExpand,
+            ),
+    ) {
+        HatchBg(Modifier.fillMaxSize(), color = Color(0xFF2B2D38))
+        TextC(
+            "sub_${frame.id}.fits", style = t.Mono17, color = c.textFaint,
+            modifier = Modifier.align(Alignment.TopStart).padding(16.dp),
+        )
+        IconBtn(
+            icon = Phosphor.X,
+            onClick = ctrl::closeFrameExpand,
+            size = 34,
+            modifier = Modifier.align(Alignment.TopEnd).padding(16.dp),
+        )
+        Row(
+            Modifier.align(Alignment.BottomStart).padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TextC(
+                "HFR ${String.format("%.2f", frame.hfr)}", style = t.Mono34,
+                color = if (frame.hfr > 2.8) c.danger else c.text,
+            )
+            Spacer(Modifier.width(16.dp))
+            Box(
+                Modifier
+                    .size(44.dp)
+                    .background(if (cut) c.danger else c.accent, CircleShape)
+                    .clickable { ctrl.toggleCut(frame.id) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Phosphor.Icon(if (cut) Phosphor.XFill else Phosphor.CheckFill, size = 24.dp, tint = c.surfaceDeep)
+            }
         }
     }
 }
@@ -168,12 +230,12 @@ private fun HfrRunCard() {
             TextC("HFR ACROSS THE RUN", style = t.MicroLabel, color = c.textFaint, modifier = Modifier.weight(1f))
             TextC("cut > 2.80", style = t.MonoMicro, color = c.textMuted)
         }
-        Spacer(Modifier.height(9.dp))
+        Spacer(Modifier.height(13.dp))
         HfrRunChart(
             values = HFR_RUN_POINTS,
-            modifier = Modifier.fillMaxWidth().height(60.dp),
+            modifier = Modifier.fillMaxWidth().height(90.dp),
         )
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(9.dp))
         Row(Modifier.fillMaxWidth()) {
             TextC("22:10", style = t.MonoMicro, color = c.textFaint, modifier = Modifier.weight(1f))
             TextC("seeing spike 01:04", style = t.MonoMicro, color = c.danger)

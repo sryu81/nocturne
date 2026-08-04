@@ -23,6 +23,8 @@ data class SimState(
     val sheet: SheetType? = null,
     /** Session tab's sub preview expanded to a full-screen overlay. */
     val subPreviewExpanded: Boolean = false,
+    /** Frames tab: id of the frame expanded to a full-screen overlay, if any. */
+    val expandedFrameId: String? = null,
     /** Cumulative seconds the meridian flip countdown has been pushed back via DEFER. */
     val flipDeferSec: Int = 0,
     /** Flip/defer action awaiting user confirmation on the Session tab. */
@@ -715,7 +717,7 @@ val SimState.frames: List<Frame> get() = FRAME_IDS.mapIndexed { i, id ->
     Frame(id, FRAME_HFRS[i], cut.contains(id))
 }
 val SimState.rejectCount: Int get() = frames.count { it.cut }
-val SimState.keepCount: Int get() = 42 - rejectCount
+val SimState.keepCount: Int get() = frames.size - rejectCount
 val SimState.ready: Boolean get() = ekosRunning && isOn("mount") && isOn("cam")
 fun SimState.isOn(key: String): Boolean = ekosRunning && key !in devOff
 

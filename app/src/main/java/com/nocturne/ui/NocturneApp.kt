@@ -170,6 +170,10 @@ private fun NocturneShell(
             SubPreviewOverlay(onDismiss = ctrl::closeSubPreview)
         }
 
+        if (state.expandedFrameId != null) {
+            com.nocturne.ui.frames.FrameExpandOverlay(state = state, ctrl = ctrl)
+        }
+
         state.pendingFlipConfirm?.let { pending ->
             val isNow = pending == FlipConfirm.NOW
             com.nocturne.ui.components.ConfirmDialog(

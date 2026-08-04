@@ -71,6 +71,8 @@ class SimulatedController(private val scope: CoroutineScope) : SessionController
 
     override fun openSubPreview() = update { it.copy(subPreviewExpanded = true) }
     override fun closeSubPreview() = update { it.copy(subPreviewExpanded = false) }
+    override fun expandFrame(id: String) = update { it.copy(expandedFrameId = id) }
+    override fun closeFrameExpand() = update { it.copy(expandedFrameId = null) }
 
     override fun requestDeferFlip() = update { it.copy(pendingFlipConfirm = FlipConfirm.DEFER) }
     override fun requestFlipNow() = update { it.copy(pendingFlipConfirm = FlipConfirm.NOW) }
