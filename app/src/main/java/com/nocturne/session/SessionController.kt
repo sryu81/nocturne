@@ -16,6 +16,10 @@ interface SessionController {
     fun selectTab()
     fun openSubPreview()
     fun closeSubPreview()
+    fun requestDeferFlip()
+    fun requestFlipNow()
+    fun confirmFlipAction()
+    fun cancelFlipConfirm()
 
     fun addToSequence(targetId: String)
     fun removeJob(jobId: String)

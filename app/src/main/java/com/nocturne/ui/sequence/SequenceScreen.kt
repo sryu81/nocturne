@@ -143,9 +143,9 @@ private fun JobCard(state: SimState, job: SequenceJob, onOpen: () -> Unit, onRem
                 TextC(if (job.running) "running" else "paused", style = t.MonoMicro, color = if (job.running) c.accent400 else c.textMuted)
             }
             Spacer(Modifier.width(8.dp))
-            IconBtn(icon = Phosphor.X, onClick = onRemove, size = 28, tint = c.danger)
-            Spacer(Modifier.width(6.dp))
-            IconBtn(icon = Phosphor.CaretRight, onClick = onOpen, size = 28)
+            IconBtn(icon = Phosphor.X, onClick = onRemove, size = 40, iconSize = 20.dp, tint = c.danger)
+            Spacer(Modifier.width(8.dp))
+            IconBtn(icon = Phosphor.CaretRight, onClick = onOpen, size = 40, iconSize = 20.dp)
         }
         Spacer(Modifier.height(6.dp))
         TextC("$doneTotal / $subTotal subs done", style = t.MonoMicro, color = c.textFaint)
@@ -212,15 +212,19 @@ private fun JobDetailHeader(state: SimState, job: SequenceJob, onBack: () -> Uni
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val target = state.findTarget(job.targetId)
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onBack),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Phosphor.Icon(Phosphor.CaretLeft, size = 17.dp, tint = c.textMuted)
-        Spacer(Modifier.width(8.dp))
-        TextC(target?.displayName ?: job.targetId, style = t.Body135, color = c.text)
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier
+                .clickable(onClick = onBack)
+                .padding(vertical = 10.dp, horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Phosphor.Icon(Phosphor.CaretLeft, size = 22.dp, tint = c.accent400)
+            Spacer(Modifier.width(6.dp))
+            TextC("Back to list", style = t.Body13, color = c.accent400)
+        }
+        Spacer(Modifier.height(4.dp))
+        TextC(target?.displayName ?: job.targetId, style = t.CardTitle, color = c.text)
     }
 }
 
@@ -230,14 +234,14 @@ private fun NightPlanBar() {
     val t = NocturneTheme.type
     Card {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TextC("NIGHT PLAN", style = t.MicroLabel, color = c.textFaint, modifier = Modifier.weight(1f))
-            TextC("21:48 → 04:12", style = t.MonoMicro, color = c.textMuted)
+            TextC("NIGHT PLAN", style = t.Caption, color = c.textFaint, modifier = Modifier.weight(1f))
+            TextC("21:48 → 04:12", style = t.Mono13, color = c.textMuted)
         }
-        Spacer(Modifier.height(8.4.dp))
+        Spacer(Modifier.height(12.6.dp))
         Row(
             Modifier
                 .fillMaxWidth()
-                .height(26.dp)
+                .height(39.dp)
                 .background(Color.Transparent, RoundedCornerShape(4.dp)),
         ) {
             PlanSeg(0.12f, Color(0xFF5D5294))
@@ -246,13 +250,13 @@ private fun NightPlanBar() {
             PlanSeg(0.33f, c.accentMuted)
             PlanSeg(0.18f, c.accent800)
         }
-        Spacer(Modifier.height(8.4.dp))
+        Spacer(Modifier.height(12.6.dp))
         Row(Modifier.fillMaxWidth()) {
-            TextC("cal", style = t.MonoMicro, color = c.textFaint, modifier = Modifier.weight(1f))
-            TextC("Ha · now", style = t.MonoMicro, color = c.text, modifier = Modifier.weight(1f))
-            TextC("flip", style = t.MonoMicro, color = c.warn, modifier = Modifier.weight(1f))
-            TextC("OIII", style = t.MonoMicro, color = c.textFaint, modifier = Modifier.weight(1f))
-            TextC("SII", style = t.MonoMicro, color = c.textFaint, modifier = Modifier.weight(1f))
+            TextC("cal", style = t.Mono13, color = c.textFaint, modifier = Modifier.weight(1f))
+            TextC("Ha · now", style = t.Mono13, color = c.text, modifier = Modifier.weight(1f))
+            TextC("flip", style = t.Mono13, color = c.warn, modifier = Modifier.weight(1f))
+            TextC("OIII", style = t.Mono13, color = c.textFaint, modifier = Modifier.weight(1f))
+            TextC("SII", style = t.Mono13, color = c.textFaint, modifier = Modifier.weight(1f))
         }
     }
 }

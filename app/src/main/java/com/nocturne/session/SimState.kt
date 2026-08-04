@@ -14,12 +14,19 @@ enum class SheetType {
     OPTICAL_TRAIN,
 }
 
+/** Which meridian-flip action is awaiting confirmation. */
+enum class FlipConfirm { DEFER, NOW }
+
 /** Every mutable field the simulator drives, mirroring the prototype's state. */
 data class SimState(
     val t: Int = 0,
     val sheet: SheetType? = null,
     /** Session tab's sub preview expanded to a full-screen overlay. */
     val subPreviewExpanded: Boolean = false,
+    /** Cumulative seconds the meridian flip countdown has been pushed back via DEFER. */
+    val flipDeferSec: Int = 0,
+    /** Flip/defer action awaiting user confirmation on the Session tab. */
+    val pendingFlipConfirm: FlipConfirm? = null,
     val jobs: List<SequenceJob> = DEFAULT_JOBS,
     /** Which job's block editor is drilled into on the Sequence tab; null = job-list view. */
     val activeJobId: String? = DEFAULT_JOBS.firstOrNull()?.id,
@@ -690,8 +697,8 @@ private fun hhmm(s: Int): String {
 val SimState.elapsed: Int get() = (128 + t) % 300
 val SimState.expRemain: String get() = hhmm(300 - elapsed)
 val SimState.flipIn: String get() {
-    val total = 2530 - t
-    val m = floor(total / 60.0).toInt()
+    val total = (2530 + flipDeferSec - t).coerceAtLeast(0)
+    val m = total / 60
     val r = total % 60
     return "T−$m:${r.toString().padStart(2, '0')}"
 }

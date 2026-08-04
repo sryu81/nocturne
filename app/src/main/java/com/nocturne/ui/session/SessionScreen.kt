@@ -57,7 +57,7 @@ fun SessionScreen(
             TabItem(full = true) { NightArcCard(state) },
             TabItem(full = true) { SubPreview(ctrl) },
             TabItem { StatsRow(state, ctrl) },
-            TabItem(full = true) { FlipBanner(state) },
+            TabItem(full = true) { FlipBanner(state, ctrl) },
             TabItem(full = true) { SkySite() },
             TabItem(full = true) {
                 NocturneButton(
@@ -288,7 +288,7 @@ private fun MiniStat(
 }
 
 @Composable
-private fun FlipBanner(state: SimState) {
+private fun FlipBanner(state: SimState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     Row(
@@ -307,8 +307,17 @@ private fun FlipBanner(state: SimState) {
         }
         Box(
             Modifier
+                .border(1.dp, c.warn, RoundedCornerShape(8.dp))
+                .clickable { ctrl.requestFlipNow() }
+                .padding(horizontal = 9.dp, vertical = 6.dp),
+        ) {
+            TextC("FLIP NOW", style = t.Button12, color = c.warn)
+        }
+        Spacer(Modifier.width(8.dp))
+        Box(
+            Modifier
                 .border(1.dp, c.warn.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-                .clickable { }
+                .clickable { ctrl.requestDeferFlip() }
                 .padding(horizontal = 9.dp, vertical = 6.dp),
         ) {
             TextC("DEFER", style = t.Button12, color = c.warn)

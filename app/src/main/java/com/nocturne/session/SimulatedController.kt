@@ -72,6 +72,23 @@ class SimulatedController(private val scope: CoroutineScope) : SessionController
     override fun openSubPreview() = update { it.copy(subPreviewExpanded = true) }
     override fun closeSubPreview() = update { it.copy(subPreviewExpanded = false) }
 
+    override fun requestDeferFlip() = update { it.copy(pendingFlipConfirm = FlipConfirm.DEFER) }
+    override fun requestFlipNow() = update { it.copy(pendingFlipConfirm = FlipConfirm.NOW) }
+    override fun cancelFlipConfirm() = update { it.copy(pendingFlipConfirm = null) }
+
+    override fun confirmFlipAction() = update { s ->
+        val applied = when (s.pendingFlipConfirm) {
+            // Matches real Ekos's meridian-flip delay — push the deadline back 10 min.
+            FlipConfirm.DEFER -> s.copy(flipDeferSec = s.flipDeferSec + 600)
+            // No manual-trigger command exists on the real wire (executeMeridianFlip is
+            // an enable/disable setting, not an RPC) — Nocturne-only, same as
+            // forceAfOnStart. Zeroes the countdown; no real flip sequence fires.
+            FlipConfirm.NOW -> s.copy(flipDeferSec = s.t - 2530)
+            null -> s
+        }
+        applied.copy(pendingFlipConfirm = null)
+    }
+
     override fun addToSequence(targetId: String) {
         val existing = _state.value.jobs.firstOrNull { it.targetId == targetId }
         if (existing != null) {

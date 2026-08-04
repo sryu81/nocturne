@@ -47,6 +47,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.nocturne.session.ALERTS
+import com.nocturne.session.FlipConfirm
 import com.nocturne.session.SheetType
 import com.nocturne.session.SimState
 import com.nocturne.session.contractJob
@@ -167,6 +168,23 @@ private fun NocturneShell(
 
         if (state.subPreviewExpanded) {
             SubPreviewOverlay(onDismiss = ctrl::closeSubPreview)
+        }
+
+        state.pendingFlipConfirm?.let { pending ->
+            val isNow = pending == FlipConfirm.NOW
+            com.nocturne.ui.components.ConfirmDialog(
+                title = if (isNow) "Flip now?" else "Defer flip by 10 min?",
+                message = if (isNow) {
+                    "Triggers the meridian flip immediately. In the simulator this only " +
+                        "resets the countdown — no real mount/guide action fires yet."
+                } else {
+                    "Pushes the flip deadline back 10 minutes."
+                },
+                confirmText = if (isNow) "Flip now" else "Defer",
+                confirmStyle = if (isNow) com.nocturne.ui.components.BtnStyle.DANGER else com.nocturne.ui.components.BtnStyle.SOLID,
+                onConfirm = ctrl::confirmFlipAction,
+                onDismiss = ctrl::cancelFlipConfirm,
+            )
         }
     }
 }

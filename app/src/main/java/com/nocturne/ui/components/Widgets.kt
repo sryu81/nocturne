@@ -27,6 +27,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.Text
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -103,6 +104,7 @@ fun IconBtn(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     size: Int = 34,
+    iconSize: Dp = 16.dp,
     tint: Color? = null,
     enabled: Boolean = true,
     dot: Boolean = false,
@@ -117,7 +119,7 @@ fun IconBtn(
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Phosphor.Icon(icon, size = 16.dp, tint = tint ?: c.textMuted)
+        Phosphor.Icon(icon, size = iconSize, tint = tint ?: c.textMuted)
         if (dot) {
             Box(
                 Modifier
