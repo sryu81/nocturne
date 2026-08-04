@@ -32,9 +32,11 @@ import androidx.compose.ui.zIndex
 import com.nocturne.session.BINNING_OPTIONS
 import com.nocturne.session.Block
 import com.nocturne.session.DITHER_OPTIONS
+import com.nocturne.session.SequenceJob
 import com.nocturne.session.SessionController
 import com.nocturne.session.SheetType
 import com.nocturne.session.SimState
+import com.nocturne.session.TARGETS
 import com.nocturne.session.autofocusRuleText
 import com.nocturne.session.meta
 import com.nocturne.session.missing
@@ -43,6 +45,7 @@ import com.nocturne.session.spec
 import com.nocturne.session.ready
 import com.nocturne.ui.components.Card
 import com.nocturne.ui.components.HDivider
+import com.nocturne.ui.components.IconBtn
 import com.nocturne.ui.components.SwitchRow
 import com.nocturne.ui.components.TabItem
 import com.nocturne.ui.components.TabPane
@@ -58,19 +61,116 @@ fun SequenceScreen(
     modifier: Modifier = Modifier,
     onFixInGear: () -> Unit = {},
 ) {
+    val activeJob = state.jobs.firstOrNull { it.id == state.activeJobId }
+    if (activeJob != null) {
+        JobDetailScreen(state, ctrl, activeJob, landscape, modifier, onFixInGear)
+    } else {
+        JobListScreen(state, ctrl, landscape, modifier)
+    }
+}
+
+@Composable
+private fun JobListScreen(
+    state: SimState,
+    ctrl: SessionController,
+    landscape: Boolean,
+    modifier: Modifier,
+) {
     TabPane(
         landscape = landscape,
         modifier = modifier,
         items = listOf(
             TabItem(full = true) { NightPlanBar() },
-            TabItem(full = true) { BlocksList(state, ctrl) },
+            TabItem(full = true) { JobList(state, ctrl) },
+        ),
+    )
+}
+
+@Composable
+private fun JobList(state: SimState, ctrl: SessionController) {
+    if (state.jobs.isEmpty()) {
+        EmptyJobListCard()
+        return
+    }
+    Column(Modifier.fillMaxWidth()) {
+        state.jobs.forEach { job ->
+            JobCard(
+                job = job,
+                onOpen = { ctrl.openJob(job.id) },
+                onRemove = { ctrl.removeJob(job.id) },
+            )
+            Spacer(Modifier.height(11.2.dp))
+        }
+    }
+}
+
+@Composable
+private fun EmptyJobListCard() {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    Card {
+        TextC(
+            "No targets queued — add one from the Plan tab.",
+            style = t.Body13, color = c.textMuted,
+        )
+    }
+}
+
+@Composable
+private fun JobCard(job: SequenceJob, onOpen: () -> Unit, onRemove: () -> Unit) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    val target = TARGETS.firstOrNull { it.id == job.targetId }
+    val doneTotal = job.blocks.sumOf { it.doneCount }
+    val subTotal = job.blocks.sumOf { it.subCount }
+    Card {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                TextC(target?.let { "${it.id} — ${it.common}" } ?: job.targetId, style = t.Body135, color = c.text)
+                TextC(
+                    "${job.blocks.size} ${if (job.blocks.size == 1) "block" else "blocks"} · ${job.blocks.joinToString(", ") { it.filter }}",
+                    style = t.MonoMicro, color = c.textFaint,
+                )
+            }
+            Box(
+                Modifier
+                    .background(if (job.running) c.accent.copy(alpha = 0.16f) else c.divider.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 7.dp, vertical = 3.dp),
+            ) {
+                TextC(if (job.running) "running" else "paused", style = t.MonoMicro, color = if (job.running) c.accent400 else c.textMuted)
+            }
+            Spacer(Modifier.width(8.dp))
+            IconBtn(icon = Phosphor.X, onClick = onRemove, size = 28, tint = c.danger)
+            Spacer(Modifier.width(6.dp))
+            IconBtn(icon = Phosphor.CaretRight, onClick = onOpen, size = 28)
+        }
+        Spacer(Modifier.height(6.dp))
+        TextC("$doneTotal / $subTotal subs done", style = t.MonoMicro, color = c.textFaint)
+    }
+}
+
+@Composable
+private fun JobDetailScreen(
+    state: SimState,
+    ctrl: SessionController,
+    job: SequenceJob,
+    landscape: Boolean,
+    modifier: Modifier,
+    onFixInGear: () -> Unit,
+) {
+    TabPane(
+        landscape = landscape,
+        modifier = modifier,
+        items = listOf(
+            TabItem(full = true) { JobDetailHeader(job, onBack = ctrl::closeJob) },
+            TabItem(full = true) { BlocksList(state, ctrl, job) },
             TabItem(full = true) {
                 Box(
                     Modifier
                         .fillMaxWidth()
                         .height(42.dp)
                         .border(1.dp, Color(0xFFE9E9ED).copy(alpha = 0.2f), RoundedCornerShape(10.dp))
-                        .clickable { ctrl.addBlock() }
+                        .clickable { ctrl.addBlock(job.id) }
                         .padding(horizontal = 12.dp),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -81,7 +181,7 @@ fun SequenceScreen(
                     }
                 }
             },
-            TabItem(full = true) { StartButton(state, ctrl) },
+            TabItem(full = true) { StartButton(state, ctrl, job) },
             TabItem(full = true) {
                 if (!state.ready) {
                     Box(
@@ -102,6 +202,23 @@ fun SequenceScreen(
             },
         ),
     )
+}
+
+@Composable
+private fun JobDetailHeader(job: SequenceJob, onBack: () -> Unit) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    val target = TARGETS.firstOrNull { it.id == job.targetId }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onBack),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Phosphor.Icon(Phosphor.CaretLeft, size = 17.dp, tint = c.textMuted)
+        Spacer(Modifier.width(8.dp))
+        TextC(target?.let { "${it.id} — ${it.common}" } ?: job.targetId, style = t.Body135, color = c.text)
+    }
 }
 
 @Composable
@@ -155,21 +272,22 @@ private fun androidx.compose.foundation.layout.RowScope.PlanSeg(width: Float, co
  * without pulling in a dependency for it.
  */
 @Composable
-private fun BlocksList(state: SimState, ctrl: SessionController) {
+private fun BlocksList(state: SimState, ctrl: SessionController, job: SequenceJob) {
     var draggingId by remember { mutableStateOf<String?>(null) }
     var dragOffset by remember { mutableStateOf(0f) }
     val heights = remember { mutableStateMapOf<String, Int>() }
 
     Column(Modifier.fillMaxWidth()) {
-        state.blocks.forEach { b ->
+        job.blocks.forEach { b ->
             val isDragging = b.id == draggingId
             BlockCard(
                 block = b,
                 open = state.openBlockId == b.id,
-                canRemove = state.blocks.size > 1,
-                onToggle = { ctrl.toggleBlock(b.id) },
-                onRemove = { ctrl.removeBlock(b.id) },
+                canRemove = job.blocks.size > 1,
+                onToggle = { ctrl.toggleBlock(job.id, b.id) },
+                onRemove = { ctrl.removeBlock(job.id, b.id) },
                 ctrl = ctrl,
+                jobId = job.id,
                 autofocusRule = state.autofocusRuleText,
                 onOpenAutofocusRules = { ctrl.openSheet(SheetType.AUTOFOCUS_RULES) },
                 modifier = Modifier
@@ -184,19 +302,19 @@ private fun BlocksList(state: SimState, ctrl: SessionController) {
                     ) { change, amount ->
                         change.consume()
                         dragOffset += amount.y
-                        val curIndex = state.blocks.indexOfFirst { it.id == b.id }
+                        val curIndex = job.blocks.indexOfFirst { it.id == b.id }
                         if (dragOffset > 0) {
-                            val belowId = state.blocks.getOrNull(curIndex + 1)?.id
+                            val belowId = job.blocks.getOrNull(curIndex + 1)?.id
                             val belowH = belowId?.let { heights[it] } ?: return@detectDragGestures
                             if (dragOffset > belowH / 2f) {
-                                ctrl.moveBlock(b.id, curIndex + 1)
+                                ctrl.moveBlock(job.id, b.id, curIndex + 1)
                                 dragOffset -= belowH
                             }
                         } else if (dragOffset < 0) {
-                            val aboveId = state.blocks.getOrNull(curIndex - 1)?.id
+                            val aboveId = job.blocks.getOrNull(curIndex - 1)?.id
                             val aboveH = aboveId?.let { heights[it] } ?: return@detectDragGestures
                             if (-dragOffset > aboveH / 2f) {
-                                ctrl.moveBlock(b.id, curIndex - 1)
+                                ctrl.moveBlock(job.id, b.id, curIndex - 1)
                                 dragOffset += aboveH
                             }
                         }
@@ -216,6 +334,7 @@ private fun BlockCard(
     onToggle: () -> Unit,
     onRemove: () -> Unit,
     ctrl: SessionController,
+    jobId: String,
     autofocusRule: String,
     onOpenAutofocusRules: () -> Unit,
     modifier: Modifier = Modifier,
@@ -242,7 +361,7 @@ private fun BlockCard(
                         if (first) c.accent.copy(alpha = 0.2f) else c.divider.copy(alpha = 0.4f),
                         RoundedCornerShape(3.dp),
                     )
-                    .clickable { ctrl.cycleBlockFilter(block.id) }
+                    .clickable { ctrl.cycleBlockFilter(jobId, block.id) }
                     .padding(horizontal = 7.dp, vertical = 3.dp),
             ) {
                 TextC(block.filter, style = t.MonoSmall, color = if (first) c.accent400 else c.textMuted)
@@ -291,25 +410,25 @@ private fun BlockCard(
             Spacer(Modifier.height(9.dp))
             HDivider()
             Spacer(Modifier.height(9.dp))
-            BlockDetails(block, ctrl, autofocusRule, onOpenAutofocusRules)
+            BlockDetails(block, ctrl, jobId, autofocusRule, onOpenAutofocusRules)
         }
     }
 }
 
 @Composable
-private fun BlockDetails(block: Block, ctrl: SessionController, autofocusRule: String, onOpenAutofocusRules: () -> Unit) {
+private fun BlockDetails(block: Block, ctrl: SessionController, jobId: String, autofocusRule: String, onOpenAutofocusRules: () -> Unit) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     Row(Modifier.fillMaxWidth()) {
-        NumberField("EXPOSURE", block.exposureSec, "s", Modifier.weight(1f)) { ctrl.setBlockExposure(block.id, it) }
+        NumberField("EXPOSURE", block.exposureSec, "s", Modifier.weight(1f)) { ctrl.setBlockExposure(jobId, block.id, it) }
         Spacer(Modifier.width(8.4.dp))
-        NumberField("SUBS", block.subCount, "×", Modifier.weight(1f)) { ctrl.setBlockSubCount(block.id, it) }
+        NumberField("SUBS", block.subCount, "×", Modifier.weight(1f)) { ctrl.setBlockSubCount(jobId, block.id, it) }
     }
     Spacer(Modifier.height(8.4.dp))
     Row(Modifier.fillMaxWidth()) {
-        NumberField("GAIN", block.gain, "", Modifier.weight(1f)) { ctrl.setBlockGain(block.id, it) }
+        NumberField("GAIN", block.gain, "", Modifier.weight(1f)) { ctrl.setBlockGain(jobId, block.id, it) }
         Spacer(Modifier.width(8.4.dp))
-        NumberField("OFFSET", block.offset, "", Modifier.weight(1f)) { ctrl.setBlockOffset(block.id, it) }
+        NumberField("OFFSET", block.offset, "", Modifier.weight(1f)) { ctrl.setBlockOffset(jobId, block.id, it) }
         Spacer(Modifier.width(8.4.dp))
         Column(Modifier.weight(1f)) {
             TextC("BINNING", style = t.MicroLabel, color = c.textFaint)
@@ -318,7 +437,7 @@ private fun BlockDetails(block: Block, ctrl: SessionController, autofocusRule: S
                 options = BINNING_OPTIONS,
                 selected = block.binning,
                 labelOf = { "${it}×$it" },
-                onSelect = { ctrl.setBlockBinning(block.id, it) },
+                onSelect = { ctrl.setBlockBinning(jobId, block.id, it) },
             )
         }
     }
@@ -329,7 +448,7 @@ private fun BlockDetails(block: Block, ctrl: SessionController, autofocusRule: S
             options = DITHER_OPTIONS,
             selected = block.ditherEvery,
             labelOf = { it.toString() },
-            onSelect = { ctrl.setBlockDither(block.id, it) },
+            onSelect = { ctrl.setBlockDither(jobId, block.id, it) },
         )
     }
     Spacer(Modifier.height(8.4.dp))
@@ -337,7 +456,7 @@ private fun BlockDetails(block: Block, ctrl: SessionController, autofocusRule: S
         label = "Force autofocus at block start",
         sub = "in addition to the global rule below",
         checked = block.forceAfOnStart,
-        onToggle = { ctrl.toggleBlockForceAf(block.id) },
+        onToggle = { ctrl.toggleBlockForceAf(jobId, block.id) },
     )
     Spacer(Modifier.height(8.4.dp))
     Row(
@@ -404,11 +523,11 @@ private fun <T> SegmentedRow(options: List<T>, selected: T, labelOf: (T) -> Stri
 }
 
 @Composable
-private fun StartButton(state: SimState, ctrl: SessionController) {
+private fun StartButton(state: SimState, ctrl: SessionController, job: SequenceJob) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val ready = state.ready
-    val running = state.running
+    val running = job.running
     val color = if (ready) c.accent else c.neutral700
     val label = when {
         !ready -> "Blocked — connect ${state.missing}"
@@ -420,7 +539,7 @@ private fun StartButton(state: SimState, ctrl: SessionController) {
             .fillMaxWidth()
             .height(48.dp)
             .border(1.dp, color, RoundedCornerShape(10.dp))
-            .clickable { ctrl.toggleRun() },
+            .clickable { ctrl.toggleJobRun(job.id) },
         contentAlignment = Alignment.Center,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {

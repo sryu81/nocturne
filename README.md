@@ -142,6 +142,39 @@ Two implementations:
 - `EkosRemoteController` — **M2+**. Same interface over the transport. The
   simulator and the real driver are swappable behind a settings toggle.
 
+### 4.3a Terminology — job / sequence / session
+
+Introduced with the M1 Sequence-tab rework (§7a); "sequence" gets used three
+different ways across this doc and the code, so pin it down here:
+
+- **Sequence** — the ordered list of exposure recipes for *one* target:
+  filter/exposure/subs/gain/offset/binning/dither. In code:
+  `SequenceJob.blocks: List<Block>`. Maps to one Ekos `.esq` file / the
+  Capture module's queue (`capture_*` commands).
+- **Job** (`SequenceJob`) — one target + its one sequence + run state (`id`,
+  `targetId`, `blocks`, `running`). Always one target ↔ one sequence.
+  Mirrors Ekos's `SchedulerJob` (`scheduler_*` commands) — named `SequenceJob`
+  rather than bare `Job` to avoid colliding with `kotlinx.coroutines.Job`,
+  already used for the simulator's ticker. `SimState.jobs: List<SequenceJob>`
+  is the whole night's queue — what the Sequence tab lists.
+- **Session** — not a class, no dedicated data object; the implicit "what's
+  happening right now" across the whole app — `SimState` as a whole, viewed
+  through the **contract job** (`SimState.contractJob`: the running job, else
+  the first queued job, else null — see §7a). Session tab is a window onto
+  whichever job is currently the contract job. "End session" stops that
+  contract job and opens a choice: resume it, advance to the next queued job,
+  or finish the night (clear the queue, park mount, cooler off).
+
+So: a **sequence** is data (a list of blocks) owned by a **job** (target +
+that sequence + running flag); a **session** is the live, whole-app view of
+the job queue, not a stored thing itself.
+
+Note the "Sequence" name is still overloaded in casual use — the *Sequence
+tab* (the job-list screen), a *job's sequence* (its blocks), and the wire
+concept `.esq`/`capture_*` (Ekos's own "sequence") are three different things
+that happen to share a word. No code-level collision, just keep the three
+apart in conversation and in future docs.
+
 ### 4.4 UI
 
 - Compose screens per tab, `ModalBottomSheet` for the detail sheets, adaptive
@@ -161,7 +194,7 @@ Two implementations:
 |---|---|
 | Session tab — night arc, integ label, sub preview, HFR/RMS/SNR cards, flip banner, sky & site, end-session | `new_capture_state`, `new_focus_state`, `new_guide_state`, `new_mount_state`, `new_temperature`, media capture frames (`hfr` from header), `astro_get_almanac` for night span |
 | Plan tab — catalog search, chips, altitude chart, framing box | `astro_search_objects`, `astro_get_object_info`, `astro_get_objects_observability`, `astro_get_objects_riseset` (`altitudes[]` → chart), `get_scopes`/`scope` for pixel-scale/rotator |
-| Sequence tab — night plan bar, blocks, exposure/gain/binning/dither/AF | `capture_get_sequences`, `capture_add_sequence`, `capture_set_all_settings`, `capture_get_all_settings`, `capture_start/stop/loop`; night bar from sequence + `new_capture_state` |
+| Sequence tab — job queue (one target ↔ one sequence, list + drill-down) | Job-queue membership (list/add/remove/select which job is queued) → `scheduler_get_jobs`/`scheduler_add_jobs`/`scheduler_remove_jobs`/`scheduler_start_job`, each `SequenceJob` maps to one `SchedulerJob`. A job's own block list (exposure/gain/binning/dither/AF, drilled into per job) → `capture_get_sequences`/`capture_add_sequence`/`capture_set_all_settings`/`capture_get_all_settings`/`capture_start/stop/loop`, and becomes the `.esq` file the owning `SchedulerJob.sequence` field points at (see §8). Night bar from the currently-running job + `new_capture_state`/`new_scheduler_state` |
 | Frames tab — sub grid, keep/cut, HFR across run | media frames (HFR from header), local Room verdicts, capture progress |
 | Gear tab — readiness, rig profile, optical train, bench, PA, device list, power/dew, roof | `get_profiles`, `profile_add/start/stop`, `get_devices`, `device_get`, `device_property_get/set/subscribe`, `new_temperature`, `new_notification`. Power/dew and roof cards only render when Powerbox/Dome are selected in the rig profile, and dim to an idle state when Ekos isn't running; roof control is separate Open/Close buttons, not a single toggle. |
 | Guide sheet | `new_guide_state`, `guide_get_all_settings`, media `+G` frames |
@@ -219,7 +252,15 @@ of `SimulatedController`:**
   binning/dither) are editable and derive the header spec/progress instead of
   static text, autofocus is a sequence-wide rules sheet (matches real Ekos —
   see §8) plus a per-block force-autofocus override, and the header alerts
-  bell + "Fix in Gear" banner are wired instead of dead.
+  bell + "Fix in Gear" banner are wired instead of dead. Reworked again to a
+  **multi-target job queue**: the tab is now a list of `SequenceJob`s (one
+  target ↔ one sequence each, matching real Ekos's Scheduler module rather
+  than Capture's single flat sequence — see §8), tap-through to the existing
+  block editor scoped per job. Fed from the Plan tab's previously-dead "Add
+  to sequence" button (find-or-create a job for the selected target, seed one
+  block, jump to Sequence tab). This means **Scheduler**, not just Capture,
+  is now in scope for M2/M3 wiring — see §8's `SequenceJob`→`SchedulerJob`
+  bullet.
 - Gear tab: rig profile setup collapsed from the prototype's 4-step wizard to
   a single device-role picker (9 categories: mount/CCD/guide CCD/EFW/EAF/
   rotator/dome/weather/powerbox, each picked from a simulated multi-option
@@ -277,6 +318,22 @@ behind.
   It's a no-op stub under `SimulatedController`; wiring it for real needs M2/M3
   transport to detect "this block just started" from `new_capture_state` pushes
   cross-referenced with `capture_get_sequences`'s current job index.
+- **`SequenceJob` → `SchedulerJob` mapping needs research against real Ekos
+  source before M2 — the `.esq` round-trip isn't a single atomic call.**
+  Nocturne's job queue (one target ↔ one sequence, M1 §7a) is designed to map
+  onto Ekos's Scheduler module (`scheduler_get_jobs`/`scheduler_add_jobs`/
+  `scheduler_remove_jobs`/`scheduler_start_job`), not Capture's flat
+  `capture_add_sequence`. But `scheduler_add_jobs`'s wire request is *empty* —
+  it adds a job "from whatever's currently in the Scheduler's own form
+  fields" (message.cpp:973), and each `SchedulerJob`'s `sequence` field is a
+  path to a `.esq` file, not inline block data. So the real M2/M3 flow is
+  likely: build the block list client-side (as today) → serialize it to
+  whatever XML shape a real `.esq` file has → `scheduler_save_sequence_file`
+  (`{"filedata": string, "path": string}`) to write it → populate the
+  Scheduler's target/constraint form fields → `scheduler_add_jobs` → poll
+  `scheduler_get_jobs` to confirm the job landed — not one atomic "create job
+  with this target + sequence" call. The `.esq` XML shape itself is
+  unresearched; confirm against real Ekos source before M2 starts.
 - **Simulated device catalog is modeled on verified real drivers, not
   invented ones — but the local `indi-3rdparty` checkout is incomplete.**
   `~/cc/repo/indi-3rdparty` (a squashed rpi5-builder snapshot) has no

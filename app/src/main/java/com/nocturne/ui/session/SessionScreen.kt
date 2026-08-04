@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import com.nocturne.session.SessionController
 import com.nocturne.session.SimState
 import com.nocturne.session.SheetType
+import com.nocturne.session.contractJob
 import com.nocturne.session.expRemain
 import com.nocturne.session.fNow
 import com.nocturne.session.flipIn
@@ -44,6 +45,10 @@ fun SessionScreen(
     landscape: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    if (state.contractJob == null) {
+        IdleSessionCard(state, modifier)
+        return
+    }
     TabPane(
         landscape = landscape,
         modifier = modifier,
@@ -56,7 +61,7 @@ fun SessionScreen(
             TabItem(full = true) {
                 NocturneButton(
                     text = "End session & review",
-                    onClick = { ctrl.openSheet(SheetType.SUMMARY) },
+                    onClick = { ctrl.endSession() },
                     icon = Phosphor.FlagCheckered,
                     modifier = Modifier.fillMaxWidth().height(44.dp),
                     style = com.nocturne.ui.components.BtnStyle.OUTLINE,
@@ -64,6 +69,21 @@ fun SessionScreen(
             },
         ),
     )
+}
+
+@Composable
+private fun IdleSessionCard(state: SimState, modifier: Modifier) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    Column(modifier.fillMaxWidth().padding(NocturneTheme.spacing.s4)) {
+        Card {
+            TextC("No job running — add a target to the sequence from the Plan tab.", style = t.Body13, color = c.textMuted)
+            if (state.mountParked) {
+                Spacer(Modifier.height(6.dp))
+                TextC("Mount parked · cooler off", style = t.MonoMicro, color = c.textFaint)
+            }
+        }
+    }
 }
 
 @Composable

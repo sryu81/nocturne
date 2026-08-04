@@ -69,57 +69,105 @@ class SimulatedController(private val scope: CoroutineScope) : SessionController
 
     override fun selectTab() = update { it.copy(sheet = null) }
 
-    override fun toggleRun() = update { it.copy(running = !it.running) }
-
-    override fun toggleBlock(id: String) = update { s ->
-        s.copy(openBlockId = if (s.openBlockId == id) null else id)
+    override fun addToSequence(targetId: String) {
+        val existing = _state.value.jobs.firstOrNull { it.targetId == targetId }
+        if (existing != null) {
+            update { it.copy(activeJobId = existing.id, openBlockId = null) }
+            return
+        }
+        update { s ->
+            val block = Block(
+                id = "b1", filter = FILTER_CYCLE.first(), exposureSec = 300, subCount = 10, doneCount = 0,
+                gain = 100, offset = 50, binning = 1, ditherEvery = 2,
+            )
+            val job = SequenceJob(id = "j${s.jobSeq}", targetId = targetId, blocks = listOf(block), blockSeq = 2, running = false)
+            s.copy(jobs = s.jobs + job, jobSeq = s.jobSeq + 1, activeJobId = job.id, openBlockId = null)
+        }
     }
 
-    override fun addBlock() = update { s ->
-        val used = s.blocks.map { it.filter }.toSet()
-        val filter = FILTER_CYCLE.firstOrNull { it !in used } ?: FILTER_CYCLE[s.blockSeq % FILTER_CYCLE.size]
+    override fun removeJob(jobId: String) = update { s ->
+        s.copy(
+            jobs = s.jobs.filter { it.id != jobId },
+            activeJobId = if (s.activeJobId == jobId) null else s.activeJobId,
+            openBlockId = if (s.activeJobId == jobId) null else s.openBlockId,
+        )
+    }
+
+    override fun openJob(jobId: String) = update { it.copy(activeJobId = jobId, openBlockId = null) }
+    override fun closeJob() = update { it.copy(activeJobId = null, openBlockId = null) }
+
+    override fun toggleJobRun(jobId: String) = update { s -> s.mapJob(jobId) { it.copy(running = !it.running) } }
+
+    override fun endSession() = update { s ->
+        val contract = s.jobs.firstOrNull { it.running } ?: s.jobs.firstOrNull()
+        val stopped = if (contract != null) s.mapJob(contract.id) { it.copy(running = false) } else s
+        stopped.copy(sheet = SheetType.SUMMARY, lastEndedJobId = contract?.id)
+    }
+
+    override fun resumeSession() = update { s ->
+        val id = s.lastEndedJobId ?: return@update s.copy(sheet = null)
+        s.mapJob(id) { it.copy(running = true) }.copy(sheet = null, lastEndedJobId = null)
+    }
+
+    override fun startNextJob() = update { s ->
+        val next = s.jobs.firstOrNull { it.id != s.lastEndedJobId } ?: return@update s
+        s.mapJob(next.id) { it.copy(running = true) }.copy(sheet = null, lastEndedJobId = null)
+    }
+
+    override fun finishNight() = update { s ->
+        s.copy(jobs = emptyList(), coolTarget = 20.0, mountParked = true, sheet = null, lastEndedJobId = null)
+    }
+
+    override fun toggleBlock(jobId: String, blockId: String) = update { s ->
+        s.copy(openBlockId = if (s.openBlockId == blockId) null else blockId)
+    }
+
+    override fun addBlock(jobId: String) = update { s ->
+        val job = s.jobs.firstOrNull { it.id == jobId } ?: return@update s
+        val used = job.blocks.map { it.filter }.toSet()
+        val filter = FILTER_CYCLE.firstOrNull { it !in used } ?: FILTER_CYCLE[job.blockSeq % FILTER_CYCLE.size]
         val block = Block(
-            id = "b${s.blockSeq}", filter = filter, exposureSec = 300, subCount = 10, doneCount = 0,
+            id = "b${job.blockSeq}", filter = filter, exposureSec = 300, subCount = 10, doneCount = 0,
             gain = 100, offset = 50, binning = 1, ditherEvery = 2,
         )
-        s.copy(blocks = s.blocks + block, blockSeq = s.blockSeq + 1, openBlockId = block.id)
+        s.mapJob(jobId) { it.copy(blocks = it.blocks + block, blockSeq = it.blockSeq + 1) }.copy(openBlockId = block.id)
     }
 
-    override fun removeBlock(id: String) = update { s ->
-        s.copy(
-            blocks = s.blocks.filter { it.id != id },
-            openBlockId = if (s.openBlockId == id) null else s.openBlockId,
-        )
+    override fun removeBlock(jobId: String, blockId: String) = update { s ->
+        s.mapJob(jobId) { it.copy(blocks = it.blocks.filter { b -> b.id != blockId }) }
+            .copy(openBlockId = if (s.openBlockId == blockId) null else s.openBlockId)
     }
 
-    override fun moveBlock(id: String, toIndex: Int) = update { s ->
-        val list = s.blocks.toMutableList()
-        val from = list.indexOfFirst { it.id == id }
-        if (from == -1) return@update s
-        val clamped = toIndex.coerceIn(0, list.lastIndex)
-        if (from == clamped) return@update s
-        val item = list.removeAt(from)
-        list.add(clamped, item)
-        s.copy(blocks = list)
+    override fun moveBlock(jobId: String, blockId: String, toIndex: Int) = update { s ->
+        s.mapJob(jobId) { job ->
+            val list = job.blocks.toMutableList()
+            val from = list.indexOfFirst { it.id == blockId }
+            if (from == -1) return@mapJob job
+            val clamped = toIndex.coerceIn(0, list.lastIndex)
+            if (from == clamped) return@mapJob job
+            val item = list.removeAt(from)
+            list.add(clamped, item)
+            job.copy(blocks = list)
+        }
     }
 
-    override fun cycleBlockFilter(id: String) = update { s ->
-        s.mapBlock(id) { b ->
+    override fun cycleBlockFilter(jobId: String, blockId: String) = update { s ->
+        s.mapJobBlock(jobId, blockId) { b ->
             val i = FILTER_CYCLE.indexOf(b.filter)
             b.copy(filter = FILTER_CYCLE[(i + 1).mod(FILTER_CYCLE.size)])
         }
     }
 
-    override fun setBlockExposure(id: String, sec: Int) = update { s -> s.mapBlock(id) { it.copy(exposureSec = sec.coerceIn(1, 3600)) } }
-    override fun setBlockSubCount(id: String, count: Int) = update { s -> s.mapBlock(id) { it.copy(subCount = count.coerceIn(0, 999)) } }
-    override fun setBlockGain(id: String, gain: Int) = update { s -> s.mapBlock(id) { it.copy(gain = gain.coerceIn(0, 600)) } }
-    override fun setBlockOffset(id: String, offset: Int) = update { s -> s.mapBlock(id) { it.copy(offset = offset.coerceIn(0, 255)) } }
-    override fun setBlockBinning(id: String, bin: Int) = update { s -> s.mapBlock(id) { it.copy(binning = bin) } }
-    override fun setBlockDither(id: String, n: Int) = update { s -> s.mapBlock(id) { it.copy(ditherEvery = n) } }
+    override fun setBlockExposure(jobId: String, blockId: String, sec: Int) = update { s -> s.mapJobBlock(jobId, blockId) { it.copy(exposureSec = sec.coerceIn(1, 3600)) } }
+    override fun setBlockSubCount(jobId: String, blockId: String, count: Int) = update { s -> s.mapJobBlock(jobId, blockId) { it.copy(subCount = count.coerceIn(0, 999)) } }
+    override fun setBlockGain(jobId: String, blockId: String, gain: Int) = update { s -> s.mapJobBlock(jobId, blockId) { it.copy(gain = gain.coerceIn(0, 600)) } }
+    override fun setBlockOffset(jobId: String, blockId: String, offset: Int) = update { s -> s.mapJobBlock(jobId, blockId) { it.copy(offset = offset.coerceIn(0, 255)) } }
+    override fun setBlockBinning(jobId: String, blockId: String, bin: Int) = update { s -> s.mapJobBlock(jobId, blockId) { it.copy(binning = bin) } }
+    override fun setBlockDither(jobId: String, blockId: String, n: Int) = update { s -> s.mapJobBlock(jobId, blockId) { it.copy(ditherEvery = n) } }
 
     // Stub: flips the local flag only. Actually firing `focus_start` when this
     // block becomes active needs real capture-state pushes — M2/M3.
-    override fun toggleBlockForceAf(id: String) = update { s -> s.mapBlock(id) { it.copy(forceAfOnStart = !it.forceAfOnStart) } }
+    override fun toggleBlockForceAf(jobId: String, blockId: String) = update { s -> s.mapJobBlock(jobId, blockId) { it.copy(forceAfOnStart = !it.forceAfOnStart) } }
 
     override fun setAutofocusRefocusMin(min: Int) = update { it.copy(afRefocusMin = min.coerceIn(0, 240)) }
     override fun setAutofocusTempDelta(deltaC: Double) = update { it.copy(afTempDeltaC = deltaC.coerceIn(0.0, 10.0)) }

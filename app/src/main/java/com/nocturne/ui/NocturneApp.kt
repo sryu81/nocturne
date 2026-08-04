@@ -48,6 +48,10 @@ import androidx.navigation.compose.rememberNavController
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.nocturne.session.ALERTS
 import com.nocturne.session.SheetType
+import com.nocturne.session.SimState
+import com.nocturne.session.TARGETS
+import com.nocturne.session.contractJob
+import com.nocturne.session.currentBlockIndex
 import com.nocturne.ui.frames.FramesScreen
 import com.nocturne.ui.gear.GearScreen
 import com.nocturne.ui.icons.Phosphor
@@ -105,6 +109,7 @@ private fun NocturneShell(
         Column(Modifier.fillMaxSize()) {
             NocturneHeader(
                 tab = currentTab,
+                state = state,
                 redMode = redMode,
                 landscape = landscape,
                 onToggleRed = onToggleRed,
@@ -138,7 +143,9 @@ private fun NocturneShell(
                         .fillMaxHeight(),
                 ) {
                     composable(NocturneTab.Session.route) { SessionScreen(state, ctrl, landscape) }
-                    composable(NocturneTab.Plan.route) { PlanScreen(state, ctrl, landscape) }
+                    composable(NocturneTab.Plan.route) {
+                        PlanScreen(state, ctrl, landscape, onGoToSequence = { navigate(NocturneTab.Sequence) })
+                    }
                     composable(NocturneTab.Sequence.route) {
                         SequenceScreen(state, ctrl, landscape, onFixInGear = { navigate(NocturneTab.Gear) })
                     }
@@ -164,6 +171,7 @@ private fun NocturneShell(
 @Composable
 private fun NocturneHeader(
     tab: NocturneTab,
+    state: SimState,
     redMode: Boolean,
     landscape: Boolean,
     onToggleRed: () -> Unit,
@@ -172,6 +180,8 @@ private fun NocturneHeader(
     onOpenAlerts: () -> Unit,
 ) {
     val colors = NocturneTheme.colors
+    val contractJob = state.contractJob
+    val contractTarget = contractJob?.let { j -> TARGETS.firstOrNull { it.id == j.targetId } }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -189,26 +199,33 @@ private fun NocturneHeader(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
-                if (tab == NocturneTab.Session) {
+                if (tab == NocturneTab.Session && contractJob != null) {
+                    val statusColor = if (contractJob.running) colors.ok else colors.warn
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             modifier = Modifier
                                 .size(6.dp)
-                                .background(colors.ok, RoundedCornerShape(3.dp)),
+                                .background(statusColor, RoundedCornerShape(3.dp)),
                         )
-                        Spacer(Modifier.width(NocturneTheme.spacing.s2))
-                        Text("Imaging", style = NocturneTheme.type.StatusLabel, color = colors.ok)
                         Spacer(Modifier.width(NocturneTheme.spacing.s2))
                         Text(
-                            "· blk 2/5",
-                            style = NocturneTheme.type.TelemetryTiny,
-                            color = colors.neutral600,
+                            if (contractJob.running) "Imaging" else "Paused",
+                            style = NocturneTheme.type.StatusLabel, color = statusColor,
                         )
+                        val blockIndex = contractJob.currentBlockIndex
+                        if (blockIndex != null) {
+                            Spacer(Modifier.width(NocturneTheme.spacing.s2))
+                            Text(
+                                "· blk ${blockIndex + 1}/${contractJob.blocks.size}",
+                                style = NocturneTheme.type.TelemetryTiny,
+                                color = colors.neutral600,
+                            )
+                        }
                     }
                     Spacer(Modifier.height(1.dp))
                 }
                 Text(
-                    if (tab == NocturneTab.Session) "NGC 7000" else tab.label,
+                    if (tab == NocturneTab.Session) (contractTarget?.id ?: "No target queued") else tab.label,
                     style = NocturneTheme.type.HeaderTitle,
                     color = colors.text,
                 )

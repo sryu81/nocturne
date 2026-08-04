@@ -126,7 +126,7 @@ fun SheetHost(state: SimState, ctrl: SessionController, landscape: Boolean) {
                 SheetType.GUIDE -> GuideSheet(state)
                 SheetType.FOCUS -> FocusSheet(state)
                 SheetType.ALERTS -> AlertsSheet(ctrl)
-                SheetType.SUMMARY -> SummarySheet()
+                SheetType.SUMMARY -> SummarySheet(state, ctrl)
                 SheetType.BENCH -> BenchSheet(state, ctrl, landscape)
                 SheetType.PA -> PaSheet(state, ctrl, landscape)
                 SheetType.PREFS -> PrefsSheet(state, ctrl)
@@ -1439,9 +1439,11 @@ private fun IndiPropertyPanel(deviceKey: String, props: List<IndiProperty>, ctrl
 // ── Summary ──────────────────────────────────────────────────────────────
 
 @Composable
-private fun SummarySheet() {
+private fun SummarySheet(state: SimState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
+    val canResume = state.lastEndedJobId != null
+    val hasNext = state.jobs.any { it.id != state.lastEndedJobId }
     Column {
         Row(Modifier.fillMaxWidth()) {
             SumStat("KEPT", "3h 10m", Modifier.weight(1f))
@@ -1473,6 +1475,31 @@ private fun SummarySheet() {
             text = "Export log + FITS list",
             onClick = {},
             style = com.nocturne.ui.components.BtnStyle.OUTLINE,
+            modifier = Modifier.fillMaxWidth().height(44.dp),
+        )
+        if (canResume) {
+            Spacer(Modifier.height(8.4.dp))
+            NocturneButton(
+                text = "Back to session",
+                onClick = ctrl::resumeSession,
+                style = com.nocturne.ui.components.BtnStyle.SOLID,
+                modifier = Modifier.fillMaxWidth().height(44.dp),
+            )
+        }
+        if (hasNext) {
+            Spacer(Modifier.height(8.4.dp))
+            NocturneButton(
+                text = "Next job?",
+                onClick = ctrl::startNextJob,
+                style = com.nocturne.ui.components.BtnStyle.OUTLINE,
+                modifier = Modifier.fillMaxWidth().height(44.dp),
+            )
+        }
+        Spacer(Modifier.height(8.4.dp))
+        NocturneButton(
+            text = "Finish — park mount, cooler off",
+            onClick = ctrl::finishNight,
+            style = com.nocturne.ui.components.BtnStyle.DANGER,
             modifier = Modifier.fillMaxWidth().height(44.dp),
         )
     }

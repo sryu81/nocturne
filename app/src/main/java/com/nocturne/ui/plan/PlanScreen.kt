@@ -44,6 +44,7 @@ fun PlanScreen(
     ctrl: SessionController,
     landscape: Boolean,
     modifier: Modifier = Modifier,
+    onGoToSequence: () -> Unit = {},
 ) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
@@ -87,7 +88,10 @@ fun PlanScreen(
                 Row(Modifier.fillMaxWidth()) {
                     com.nocturne.ui.components.NocturneButton(
                         text = "Add to sequence",
-                        onClick = {},
+                        onClick = {
+                            ctrl.addToSequence(tgt.id)
+                            onGoToSequence()
+                        },
                         modifier = Modifier.weight(1f).height(44.dp),
                         style = com.nocturne.ui.components.BtnStyle.OUTLINE,
                     )

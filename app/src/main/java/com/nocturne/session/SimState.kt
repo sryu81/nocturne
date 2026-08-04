@@ -18,10 +18,16 @@ enum class SheetType {
 data class SimState(
     val t: Int = 0,
     val sheet: SheetType? = null,
-    val running: Boolean = true,
-    val blocks: List<Block> = DEFAULT_BLOCKS,
-    val blockSeq: Int = DEFAULT_BLOCKS.size + 1,
+    val jobs: List<SequenceJob> = DEFAULT_JOBS,
+    /** Which job's block editor is drilled into on the Sequence tab; null = job-list view. */
+    val activeJobId: String? = DEFAULT_JOBS.firstOrNull()?.id,
+    /** Monotonic job id counter — survives removals, unlike jobs.size + 1. */
+    val jobSeq: Int = DEFAULT_JOBS.size + 1,
+    /** Which block card is expanded — global scalar is fine, only one job is ever drilled into at a time. */
     val openBlockId: String? = DEFAULT_BLOCKS.getOrNull(1)?.id,
+    /** The job [endSession] stopped, pending a Back-to-session/Next-job/Finish choice on the Summary sheet. */
+    val lastEndedJobId: String? = null,
+    val mountParked: Boolean = false,
     val deviceKey: String = "mount",
     /** Sheet to return to when the device sheet closes, e.g. SETUP when opened from the rig wizard's device list. */
     val deviceOrigin: SheetType? = null,
@@ -545,6 +551,38 @@ val DEFAULT_BLOCKS = listOf(
     Block("b3", "SII", 300, 20, 0, 100, 50, 1, 2),
 )
 
+/**
+ * One queued target's capture plan — Nocturne's counterpart to Ekos's
+ * `SchedulerJob` (`scheduler_get_jobs`/`scheduler_add_jobs`): one target, one
+ * sequence (`blocks`), queued alongside other jobs rather than Capture's flat
+ * single-sequence model. Named `SequenceJob`, not `Job`, to avoid colliding
+ * with `kotlinx.coroutines.Job` already used in [SimulatedController].
+ */
+data class SequenceJob(
+    val id: String,
+    val targetId: String,
+    val blocks: List<Block> = DEFAULT_BLOCKS,
+    val blockSeq: Int = DEFAULT_BLOCKS.size + 1,
+    val running: Boolean = false,
+)
+
+val DEFAULT_JOBS = listOf(
+    SequenceJob(id = "j1", targetId = "NGC 7000", blocks = DEFAULT_BLOCKS, blockSeq = DEFAULT_BLOCKS.size + 1, running = true),
+)
+
+/**
+ * Which job the Session tab reflects: the running one, or the first queued
+ * job if none is running, or null if the queue is empty. Session tab's own
+ * telemetry (night arc, HFR/RMS/SNR) stays the decoupled simulator fixture
+ * it always was — only the header (target name, block progress) is wired to
+ * this job.
+ */
+val SimState.contractJob: SequenceJob? get() = jobs.firstOrNull { it.running } ?: jobs.firstOrNull()
+
+/** First not-yet-complete block, or the last block if all are done. */
+val SequenceJob.currentBlockIndex: Int? get() =
+    if (blocks.isEmpty()) null else blocks.indexOfFirst { it.doneCount < it.subCount }.let { if (it == -1) blocks.lastIndex else it }
+
 val FILTER_CYCLE = listOf("Ha", "OIII", "SII", "L", "R", "G", "B")
 val BINNING_OPTIONS = listOf(1, 2, 3)
 val DITHER_OPTIONS = listOf(1, 2, 3, 5)
@@ -566,8 +604,11 @@ val Block.meta: String get() {
     return if (doneCount > 0) "$doneCount done · $remaining left" else "queued · $remaining"
 }
 
-internal fun SimState.mapBlock(id: String, f: (Block) -> Block): SimState =
-    copy(blocks = blocks.map { if (it.id == id) f(it) else it })
+internal fun SimState.mapJob(jobId: String, f: (SequenceJob) -> SequenceJob): SimState =
+    copy(jobs = jobs.map { if (it.id == jobId) f(it) else it })
+
+internal fun SimState.mapJobBlock(jobId: String, blockId: String, f: (Block) -> Block): SimState =
+    mapJob(jobId) { job -> job.copy(blocks = job.blocks.map { if (it.id == blockId) f(it) else it }) }
 
 data class Alert(
     val text: String,
