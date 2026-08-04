@@ -69,6 +69,9 @@ class SimulatedController(private val scope: CoroutineScope) : SessionController
 
     override fun selectTab() = update { it.copy(sheet = null) }
 
+    override fun openSubPreview() = update { it.copy(subPreviewExpanded = true) }
+    override fun closeSubPreview() = update { it.copy(subPreviewExpanded = false) }
+
     override fun addToSequence(targetId: String) {
         val existing = _state.value.jobs.firstOrNull { it.targetId == targetId }
         if (existing != null) {

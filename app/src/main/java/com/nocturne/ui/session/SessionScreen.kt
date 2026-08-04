@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,7 +55,7 @@ fun SessionScreen(
         modifier = modifier,
         items = listOf(
             TabItem(full = true) { NightArcCard(state) },
-            TabItem(full = true) { SubPreview() },
+            TabItem(full = true) { SubPreview(ctrl) },
             TabItem { StatsRow(state, ctrl) },
             TabItem(full = true) { FlipBanner(state) },
             TabItem(full = true) { SkySite() },
@@ -141,7 +142,7 @@ private fun NightArcCard(state: SimState) {
 }
 
 @Composable
-private fun SubPreview() {
+private fun SubPreview(ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     Box(
@@ -170,8 +171,48 @@ private fun SubPreview() {
             verticalAlignment = Alignment.Bottom,
         ) {
             TextC("★ 1 482 · HFR 2.31 · ADU 1 093", style = t.MonoMid, color = c.textDim, modifier = Modifier.weight(1f))
-            IconBtn(icon = Phosphor.ArrowsOut, onClick = {}, size = 30)
+            IconBtn(icon = Phosphor.ArrowsOut, onClick = ctrl::openSubPreview, size = 30)
         }
+    }
+}
+
+/** Full-screen sub preview — tap anywhere or the system back button dismisses it. */
+@Composable
+fun SubPreviewOverlay(onDismiss: () -> Unit) {
+    androidx.activity.compose.BackHandler(onBack = onDismiss)
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(c.surfaceDeep)
+            .clickable(
+                indication = null,
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                onClick = onDismiss,
+            ),
+    ) {
+        HatchBg(Modifier.fillMaxSize())
+        Row(
+            Modifier
+                .align(Alignment.TopStart)
+                .padding(16.dp),
+        ) {
+            ChipTag("SUB 013", accent = true)
+            Spacer(Modifier.width(6.dp))
+            ChipTag("Ha 300s g100", accent = false)
+        }
+        IconBtn(
+            icon = Phosphor.X,
+            onClick = onDismiss,
+            size = 34,
+            modifier = Modifier.align(Alignment.TopEnd).padding(16.dp),
+        )
+        TextC(
+            "★ 1 482 · HFR 2.31 · ADU 1 093",
+            style = t.Mono17, color = c.textDim,
+            modifier = Modifier.align(Alignment.BottomStart).padding(16.dp),
+        )
     }
 }
 

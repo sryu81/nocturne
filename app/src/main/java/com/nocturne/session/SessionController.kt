@@ -14,6 +14,8 @@ interface SessionController {
     fun openDevice(key: String)
     fun closeSheet()
     fun selectTab()
+    fun openSubPreview()
+    fun closeSubPreview()
 
     fun addToSequence(targetId: String)
     fun removeJob(jobId: String)

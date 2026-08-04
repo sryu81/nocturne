@@ -61,6 +61,7 @@ import com.nocturne.ui.sequence.SequenceScreen
 import com.nocturne.ui.session.SessionScreen
 import com.nocturne.ui.session.SessionViewModel
 import com.nocturne.ui.session.SheetHost
+import com.nocturne.ui.session.SubPreviewOverlay
 import com.nocturne.ui.theme.NocturneTheme
 
 /** App root. Red mode is hoisted above the theme so toggling re-themes everything. */
@@ -163,6 +164,10 @@ private fun NocturneShell(
         }
 
         SheetHost(state = state, ctrl = ctrl, landscape = landscape)
+
+        if (state.subPreviewExpanded) {
+            SubPreviewOverlay(onDismiss = ctrl::closeSubPreview)
+        }
     }
 }
 

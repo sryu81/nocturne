@@ -18,6 +18,8 @@ enum class SheetType {
 data class SimState(
     val t: Int = 0,
     val sheet: SheetType? = null,
+    /** Session tab's sub preview expanded to a full-screen overlay. */
+    val subPreviewExpanded: Boolean = false,
     val jobs: List<SequenceJob> = DEFAULT_JOBS,
     /** Which job's block editor is drilled into on the Sequence tab; null = job-list view. */
     val activeJobId: String? = DEFAULT_JOBS.firstOrNull()?.id,
