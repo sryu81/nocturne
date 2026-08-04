@@ -53,12 +53,16 @@ import com.nocturne.session.SimState
 import com.nocturne.session.contractJob
 import com.nocturne.session.currentBlockIndex
 import com.nocturne.session.findTarget
+import com.nocturne.transport.ConnectionState
+import com.nocturne.transport.ConnectionStatus
+import com.nocturne.ui.connect.ConnectScreen
 import com.nocturne.ui.frames.FramesScreen
 import com.nocturne.ui.gear.GearScreen
 import com.nocturne.ui.icons.Phosphor
 import com.nocturne.ui.nav.NocturneTab
 import com.nocturne.ui.plan.PlanScreen
 import com.nocturne.ui.sequence.SequenceScreen
+import com.nocturne.ui.session.ConnectionMode
 import com.nocturne.ui.session.SessionScreen
 import com.nocturne.ui.session.SessionViewModel
 import com.nocturne.ui.session.SheetHost
@@ -70,24 +74,54 @@ import com.nocturne.ui.theme.NocturneTheme
 fun NocturneApp() {
     var redMode by rememberSaveable { mutableStateOf(false) }
     NocturneTheme(redMode = redMode) {
-        NocturneShell(
-            redMode = redMode,
-            onToggleRed = { redMode = !redMode },
-        )
+        val vm: SessionViewModel = viewModel()
+        val connectionMode by vm.connectionMode.collectAsState()
+
+        when (val mode = connectionMode) {
+            is ConnectionMode.NeedsConnect -> ConnectScreen(
+                status = ConnectionStatus(ConnectionState.DISCONNECTED, vm.savedHost),
+                savedHost = vm.savedHost,
+                savedPort = vm.savedPort,
+                onConnect = vm::connect,
+                onUseSimulator = vm::useSimulator,
+            )
+            is ConnectionMode.Connecting -> ConnectScreen(
+                status = mode.status,
+                savedHost = vm.savedHost,
+                savedPort = vm.savedPort,
+                onConnect = vm::connect,
+                onUseSimulator = vm::useSimulator,
+            )
+            is ConnectionMode.Simulated -> NocturneShell(
+                vm = vm,
+                redMode = redMode,
+                onToggleRed = { redMode = !redMode },
+                reconnecting = false,
+            )
+            is ConnectionMode.Connected -> NocturneShell(
+                vm = vm,
+                redMode = redMode,
+                onToggleRed = { redMode = !redMode },
+                // Session tab reached ONLINE at least once — a subsequent drop stays
+                // on this shell with a reconnecting banner, never a forced ConnectScreen.
+                reconnecting = mode.status.state != ConnectionState.ONLINE,
+            )
+        }
     }
 }
 
 @Composable
 private fun NocturneShell(
+    vm: SessionViewModel,
     redMode: Boolean,
     onToggleRed: () -> Unit,
+    reconnecting: Boolean,
 ) {
     val colors = NocturneTheme.colors
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentTab = NocturneTab.entries.firstOrNull { it.route == backStackEntry?.destination?.route } ?: NocturneTab.Session
 
-    val vm: SessionViewModel = viewModel()
     val state by vm.ctrl.state.collectAsState()
     val ctrl = vm.ctrl
 
@@ -109,6 +143,23 @@ private fun NocturneShell(
             .background(colors.bg),
     ) {
         Column(Modifier.fillMaxSize()) {
+            if (reconnecting) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(colors.warn.copy(alpha = 0.14f))
+                        .padding(horizontal = NocturneTheme.spacing.s4, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Phosphor.Icon(Phosphor.Warning, size = 13.dp, tint = colors.warn)
+                    Spacer(Modifier.width(7.dp))
+                    Text(
+                        "Reconnecting to rig…",
+                        style = NocturneTheme.type.Caption,
+                        color = colors.warn,
+                    )
+                }
+            }
             NocturneHeader(
                 tab = currentTab,
                 state = state,

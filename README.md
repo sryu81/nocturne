@@ -212,19 +212,24 @@ App-local data (kept in Room): frame keep/cut verdicts, session log, profile
 display cache, alert rule overrides. Ekos/INDI remains master for sequences,
 profiles, options.
 
-## 6. Repository layout (proposed)
+## 6. Repository layout
 
 ```
 app/
   src/main/java/com/nocturne/
-    transport/     EkosRemoteClient, MessageChannel, MediaChannel, reconnect
-    protocol/      commands, models, codec (serialization), EkosEvent
-    session/       SessionController, SimulatedController, EkosRemoteController
+    transport/     EkosRemoteClient, MessageChannel, ConnectionState — built (M2)
+                   MediaChannel — stub only, TODO("M4")
+    protocol/      Envelope, Commands, EkosEvent, EkosEventCodec — built (M2)
+    session/       SessionController, AbstractLocalSessionController (shared
+                   pure-local-state base), SimulatedController,
+                   EkosRemoteController — built (M2)
     ui/            theme/ (tokens), nav/, session/, plan/, sequence/, frames/,
-                   gear/, sheets/ (guide, focus, alerts, prefs, setup, bench,
-                   pa, device, summary), components/ (charts, cards, chips)
-    data/          Room (frames, session log), DataStore prefs, connect history
-  src/test/java/   transport+codec tests, simulator determinism tests
+                   gear/, connect/ (ConnectScreen — M2), sheets/ (guide, focus,
+                   alerts, prefs, setup, bench, pa, device, summary),
+                   components/ (charts, cards, chips)
+    data/          ConnectionSettings/ConnectionRepository (DataStore Preferences)
+                   — built (M2). Room (frames, session log) — not started.
+  src/test/java/   transport+codec tests, simulator determinism tests — not started
 ```
 
 ## 7. Milestones
@@ -282,17 +287,78 @@ of `SimulatedController`:**
   instead of closing everything, emulator GPU-selection issue documented in
   `docs/emulator-troubleshooting.md`.
 
-**Not started:** M2 (transport), M3, M4. `SessionController` still has exactly
-one implementation (`SimulatedController`); the interface is the seam M2 swaps
-behind.
+**M2 — done, scoped narrowly per the milestone table's own exit criteria
+("connects to EkosRemote Pi; Session tab driven by live pushes"):**
+
+- `protocol/` (`Envelope`, `Commands`, `EkosEvent`, `EkosEventCodec`) and
+  `transport/` (`MessageChannel`, `EkosRemoteClient`, `ConnectionState`) built
+  on OkHttp — envelope codec round-trips the 7 push types M2 needs, falling
+  back to `Raw` on anything unrecognized rather than crashing.
+- `SessionController` now has two implementations sharing one base:
+  `AbstractLocalSessionController` holds the ~85 pure local-UI-state methods
+  (sheet nav, job/block editing, prefs, device picker, rig wizard, etc.);
+  `SimulatedController` adds only its 1 Hz ticker on top, `EkosRemoteController`
+  adds only real-push → `SimState` wire-mirror-field translation on top
+  (`wireCaptureStatus`/`wireMountStatus`/etc. — additive, never touching the
+  simulator's own fields). Verified end-to-end against a local mock EkosRemote
+  server: `set_client_state`→`get_connection`→(`online`)→`get_states`/
+  `get_devices`/`get_profiles` bootstrap fires in the documented order, and a
+  killed connection triggers exponential backoff + auto-recovery with a
+  "Reconnecting to rig…" banner over the still-navigable tab UI (never a
+  forced drop back to the connect screen — see §8).
+- New `ui/connect/ConnectScreen` (manual host/port entry, always-visible
+  no-auth trust-boundary warning, "Use simulator instead" escape hatch) and
+  `data/ConnectionSettings`/`ConnectionRepository` (DataStore Preferences) for
+  persisting the last-used host/port and the simulator opt-in across launches.
+  Fresh install defaults to the connect screen, never straight to the
+  simulator.
+- `SessionViewModel` now owns a `ConnectionMode` state machine
+  (`NeedsConnect`/`Connecting`/`Simulated`/`Connected`) that `NocturneApp`
+  branches on at the top level.
+- **Explicitly deferred, matching the milestone table's split with M3/M4:**
+  mDNS discovery (manual IP only — service-type advertising by the Pi/KStars
+  fork wasn't confirmed in the docs read so far); the Media channel (`/media/
+  ekos` — stub class, `TODO("M4")`); every real command-send (profile start/
+  stop, device property setters, mount/focus/PA action buttons, etc. — all
+  ~85 shared methods still do the same optimistic local-only update as
+  `SimulatedController`, inherited unchanged, wired for real in M3); the
+  `AbstractLocalSessionController` refactor's own scope (mechanical
+  relocation only, no behavior change); `get_profiles`/`get_devices` typed
+  models (decoded as `Raw`, ignored — M3's job).
+
+**Not started:** M3, M4.
 
 ## 8. Risks & decisions to confirm
 
 - **Push-driven state.** Broadcast semantics → no request/response correlation;
   ViewModels must derive UI from pushed state, not correlate last request.
-  Mitigated by `get_states` burst on every reconnect.
+  Mitigated by `get_states` burst on every reconnect. **Write-side implication
+  for M3** (confirmed in M2, no correlation mechanism was added): `EkosRemoteController`
+  must never await a reply to a sent command — there isn't one to correlate.
+  The only valid pattern for M3's command-sending work is optimistic local
+  update immediately, then reconcile silently against whatever the next
+  matching push actually says, same as every method inherited from
+  `AbstractLocalSessionController` already does today for its (currently
+  wire-inert) local state.
 - **No auth / trusted LAN.** App should refuse/flag non-local connections and
-  surface the trust boundary on the connect screen.
+  surface the trust boundary on the connect screen. **Landed in M2**: the
+  connect screen shows an always-visible, non-dismissible warning; no
+  connection-attempt gating on IP range was added (manual entry only, no
+  enforcement that the address is actually RFC1918 — revisit if this proves
+  too permissive).
+- **Cleartext WS on Android 9+ (M2).** `usesCleartextTraffic="true"` was added
+  at the `<application>` level rather than a narrower `network_security_config.xml`
+  scoped to private IP ranges — simplest fix that unblocked `ws://` (no TLS,
+  per protocol) against a real RFC1918 address in on-device testing. Revisit
+  with a scoped NSC only if this proves too permissive for how the app is
+  actually distributed.
+- **No dead-socket detection beyond OkHttp's own callbacks (M2, accepted gap).**
+  The wire has no ping/pong and no formal error envelope, so
+  `EkosRemoteClient` relies entirely on OkHttp's `onFailure`/`onClosed` to
+  notice a dropped connection — there's no app-level staleness timer for a
+  socket that's open but has gone silent (e.g. the Pi loses network without a
+  clean TCP close). Not solved in M2; the reconnect/backoff verified in
+  testing only covers the closed/failed-callback path.
 - **PAH requires star selection + solves.** Simulator fakes the 3-step flow; the
   real flow needs the align module and the `polar_star_select_done` /
   `polar_slew_done` round-trip — build behind the simulator contract, wire last.

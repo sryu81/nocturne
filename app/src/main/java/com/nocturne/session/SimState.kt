@@ -129,6 +129,24 @@ data class SimState(
     val mountAz: Double = 71.6,
     /** Cleared whenever the mount slews — a solve is only valid until the mount moves again. */
     val mountSolved: Boolean = false,
+    /**
+     * Wire-mirror fields (M2): raw `new_*_state` payload fields from a real
+     * EkosRemote connection, populated only by [EkosRemoteController] and
+     * never read or written by [SimulatedController]. Additive and separate
+     * from the simulator's own fields above rather than reusing them —
+     * e.g. `new_mount_state` has no alt/az, so [mountAlt]/[mountAz] stay at
+     * their simulator defaults on a real connection rather than being
+     * fabricated. Null until the corresponding push has arrived at least once.
+     */
+    val wireCaptureStatus: String? = null,
+    val wireMountStatus: String? = null,
+    val wireMountTarget: String? = null,
+    val wireMountSlewRate: Int? = null,
+    val wireMountPierSide: Int? = null,
+    val wireFocusStatus: String? = null,
+    val wireGuideStatus: String? = null,
+    val wireAlignStatus: String? = null,
+    val wirePolarStage: String? = null,
 )
 
 // ── Catalog data (prototype script constants) ──────────────────────────────
