@@ -334,6 +334,23 @@ behind.
   `scheduler_get_jobs` to confirm the job landed — not one atomic "create job
   with this target + sequence" call. The `.esq` XML shape itself is
   unresearched; confirm against real Ekos source before M2 starts.
+- **Session tab's "Sky & Site" card is a fan-in dashboard, not a 1:1 device
+  card — needs a Weather device, a Dome device, and a device category that
+  doesn't exist yet, before it can be wired for real.** Unlike most cards
+  (one card, one device/module), Sky & Site aggregates: AMB/CLOUD from a
+  Weather device (`AAG CloudWatcher NG`'s `WEATHER_CLOUD` + humidity), roof
+  open/shutter from a Dome device (`DOME_SHUTTER`), and "safe" from a
+  combination of weather safety + other monitors in real Ekos, not one
+  property. DEW is not a device-reported value at all — real dew point is
+  computed from temperature + humidity, not read directly. SQM has no
+  backing device category in `DEVICES`/`DRIVER_INDI_PROPS` — a Sky Quality
+  Meter would need to be added as a new device type first. Left as the
+  fixture placeholder it always was (all 4 stats + roof state are hardcoded
+  literals in `SkySite()`, no state params at all) rather than partially
+  wiring the easy half (weather/roof) while DEW/SQM stay fake — a
+  half-live card is worse than an honestly-fake one. Needs the Weather +
+  Dome + new-SQM-category work done first, then a small aggregation layer,
+  not a single-device lookup like other cards.
 - **Simulated device catalog is modeled on verified real drivers, not
   invented ones — but the local `indi-3rdparty` checkout is incomplete.**
   `~/cc/repo/indi-3rdparty` (a squashed rpi5-builder snapshot) has no

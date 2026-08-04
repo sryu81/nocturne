@@ -12,12 +12,19 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
@@ -29,14 +36,22 @@ import androidx.compose.ui.unit.dp
 import com.nocturne.session.SessionController
 import com.nocturne.session.SimState
 import com.nocturne.session.TARGETS
+import com.nocturne.session.Target
+import com.nocturne.session.displayName
+import com.nocturne.session.findTarget
 import com.nocturne.ui.components.AltitudeChart
 import com.nocturne.ui.components.HatchBg
+import com.nocturne.ui.components.IconBtn
 import com.nocturne.ui.components.PlanChip
 import com.nocturne.ui.components.TabItem
 import com.nocturne.ui.components.TabPane
 import com.nocturne.ui.components.TextC
 import com.nocturne.ui.icons.Phosphor
 import com.nocturne.ui.theme.NocturneTheme
+
+/** Results list rows are capped to roughly this many visible before scrolling internally. */
+private const val VISIBLE_RESULT_ROWS = 5
+private val RESULT_ROW_HEIGHT = 54.dp
 
 @Composable
 fun PlanScreen(
@@ -51,12 +66,15 @@ fun PlanScreen(
     val q = state.query.trim().lowercase()
     val matches = TARGETS.filter { tg ->
         if (q.isNotEmpty() && !"${tg.id} ${tg.common} ${tg.coords}".lowercase().contains(q)) return@filter false
-        if (state.chips.contains(1) && tg.max <= 40) return@filter false
-        if (state.chips.contains(2) && !Regex("Ha|SHO|OIII").containsMatchIn(tg.band)) return@filter false
+        if (state.chips.contains(1) && (tg.max ?: 0) <= 40) return@filter false
+        if (state.chips.contains(2) && !Regex("Ha|SHO|OIII").containsMatchIn(tg.band ?: "")) return@filter false
         if (state.chips.contains(3) && tg.fov == 0) return@filter false
         true
     }
-    val tgt = TARGETS.firstOrNull { it.id == state.targetId } ?: TARGETS[0]
+    val tgt = state.findTarget(state.targetId) ?: TARGETS[0]
+    val userMatches = state.userTargets.filter { tg ->
+        q.isEmpty() || "${tg.common} ${tg.coords}".lowercase().contains(q)
+    }
 
     TabPane(
         landscape = landscape,
@@ -82,6 +100,7 @@ fun PlanScreen(
                 }
             },
             TabItem(full = true) { ResultsList(state, ctrl, matches) },
+            TabItem(full = true) { UserCatalogSection(state, ctrl, userMatches) },
             TabItem(full = true) { TargetCard(tgt) },
             TabItem(full = true) { FramingCard(state, ctrl) },
             TabItem(full = true) {
@@ -158,7 +177,7 @@ private fun SearchBar(
 private fun ResultsList(
     state: SimState,
     ctrl: SessionController,
-    matches: List<com.nocturne.session.Target>,
+    matches: List<Target>,
 ) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
@@ -168,31 +187,16 @@ private fun ResultsList(
             .background(c.surface, RoundedCornerShape(14.dp))
             .border(1.dp, c.divider, RoundedCornerShape(14.dp)),
     ) {
-        matches.forEach { tg ->
-            val selected = tg.id == state.targetId
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .background(if (selected) c.accent.copy(alpha = 0.12f) else Color.Transparent)
-                    .clickable { ctrl.selectTarget(tg.id) }
-                    .padding(horizontal = 12.dp, vertical = 9.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    TextC("${tg.id} — ${tg.common}", style = t.Body13, color = c.text)
-                    TextC(
-                        "${tg.coords} · ${tg.size} · ${tg.band}",
-                        style = t.MonoMicro, color = c.textFaint,
-                    )
+        Column(
+            Modifier
+                .heightIn(max = RESULT_ROW_HEIGHT * VISIBLE_RESULT_ROWS)
+                .verticalScroll(rememberScrollState()),
+        ) {
+            matches.forEach { tg ->
+                TargetRow(tg, selected = tg.id == state.targetId, onClick = { ctrl.selectTarget(tg.id) })
+                if (tg != matches.last()) {
+                    Box(Modifier.fillMaxWidth().height(1.dp).background(c.divider.copy(alpha = 0.6f)))
                 }
-                Spacer(Modifier.width(8.dp))
-                TextC(
-                    "${tg.max}° max",
-                    style = t.MonoMicro, color = if (tg.max > 40) c.ok else c.warn,
-                )
-            }
-            if (tg != matches.last()) {
-                Box(Modifier.fillMaxWidth().height(1.dp).background(c.divider.copy(alpha = 0.6f)))
             }
         }
         TextC(
@@ -204,16 +208,45 @@ private fun ResultsList(
 }
 
 @Composable
-private fun TargetCard(tgt: com.nocturne.session.Target) {
+private fun TargetRow(tg: Target, selected: Boolean, onClick: () -> Unit) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(RESULT_ROW_HEIGHT)
+            .background(if (selected) c.accent.copy(alpha = 0.12f) else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            TextC(tg.displayName, style = t.Body13, color = c.text)
+            val meta = listOfNotNull(tg.coords, tg.size, tg.band).joinToString(" · ")
+            TextC(meta, style = t.MonoMicro, color = c.textFaint)
+        }
+        Spacer(Modifier.width(8.dp))
+        TextC(
+            tg.max?.let { "$it° max" } ?: "—",
+            style = t.MonoMicro, color = tg.max?.let { if (it > 40) c.ok else c.warn } ?: c.textFaint,
+        )
+    }
+}
+
+@Composable
+private fun TargetCard(tgt: Target) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     com.nocturne.ui.components.Card {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                TextC(tgt.id, style = t.CardTitle, color = c.text)
-                TextC("${tgt.coords} · ${tgt.size}", style = t.MonoMicro, color = c.textFaint)
+                TextC(tgt.displayName, style = t.CardTitle, color = c.text)
+                TextC(
+                    listOfNotNull(tgt.coords, tgt.size).joinToString(" · "),
+                    style = t.MonoMicro, color = c.textFaint,
+                )
             }
-            TextC("${tgt.usable} usable", style = t.MonoMicro, color = c.accent400)
+            TextC("${tgt.usable ?: "—"} usable", style = t.MonoMicro, color = c.accent400)
         }
         Spacer(Modifier.height(4.dp))
         Box(
@@ -227,8 +260,183 @@ private fun TargetCard(tgt: com.nocturne.session.Target) {
             TextC("flip", style = t.MonoMicro, color = c.warn, modifier = Modifier.align(Alignment.BottomStart).padding(start = 186.dp))
             TextC("04:12", style = t.MonoMicro, color = c.textFaint, modifier = Modifier.align(Alignment.BottomEnd))
             TextC(
-                "max ${tgt.max}° @ ${tgt.peak}", style = t.MonoMicro, color = c.textMuted,
+                "max ${tgt.max?.let { "$it°" } ?: "—"} @ ${tgt.peak ?: "—"}", style = t.MonoMicro, color = c.textMuted,
                 modifier = Modifier.align(Alignment.TopEnd),
+            )
+        }
+    }
+}
+
+/**
+ * The user catalogue — exactly one, name is editable inline, no add/remove
+ * catalogues (only one ever exists). Targets within it are freely CRUD-able,
+ * minimal fields (name + coords only — no astro engine to compute the rest
+ * from yet, see [Target]).
+ */
+@Composable
+private fun UserCatalogSection(state: SimState, ctrl: SessionController, matches: List<Target>) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(c.surface, RoundedCornerShape(14.dp))
+            .border(1.dp, c.divider, RoundedCornerShape(14.dp))
+            .padding(12.dp),
+    ) {
+        BasicTextField(
+            value = state.userCatalogName,
+            onValueChange = ctrl::setUserCatalogName,
+            singleLine = true,
+            textStyle = t.Body135.copy(color = c.text),
+            cursorBrush = SolidColor(c.accent),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(8.dp))
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(max = RESULT_ROW_HEIGHT * VISIBLE_RESULT_ROWS)
+                .verticalScroll(rememberScrollState()),
+        ) {
+            matches.forEach { tg ->
+                UserTargetRow(
+                    tg = tg,
+                    selected = tg.id == state.targetId,
+                    editing = state.editingUserTargetId == tg.id,
+                    onSelect = { ctrl.selectTarget(tg.id) },
+                    onToggleEdit = { ctrl.toggleEditUserTarget(tg.id) },
+                    onSave = { name, coords -> ctrl.editUserTarget(tg.id, name, coords) },
+                    onRemove = { ctrl.removeUserTarget(tg.id) },
+                )
+                Spacer(Modifier.height(6.dp))
+            }
+        }
+        if (state.addingUserTarget) {
+            AddUserTargetForm(onAdd = ctrl::addUserTarget, onCancel = ctrl::cancelAddUserTarget)
+        } else {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, c.divider, RoundedCornerShape(4.dp))
+                    .clickable { ctrl.startAddUserTarget() }
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Phosphor.Icon(Phosphor.Plus, size = 15.dp, tint = c.accent400)
+                Spacer(Modifier.width(8.dp))
+                TextC("Add custom target", style = t.Body13, color = c.accent400)
+            }
+        }
+    }
+}
+
+@Composable
+private fun UserTargetRow(
+    tg: Target,
+    selected: Boolean,
+    editing: Boolean,
+    onSelect: () -> Unit,
+    onToggleEdit: () -> Unit,
+    onSave: (name: String, coords: String) -> Unit,
+    onRemove: () -> Unit,
+) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(if (selected) c.accent.copy(alpha = 0.12f) else c.bg, RoundedCornerShape(4.dp)),
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onSelect)
+                .padding(horizontal = 12.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                TextC(tg.common, style = t.Body13, color = c.text)
+                TextC(tg.coords, style = t.MonoMicro, color = c.textFaint)
+            }
+            IconBtn(icon = Phosphor.X, onClick = onRemove, size = 28, tint = c.danger)
+            Spacer(Modifier.width(6.dp))
+            IconBtn(icon = if (editing) Phosphor.CaretUp else Phosphor.CaretDown, onClick = onToggleEdit, size = 28)
+        }
+        if (editing) {
+            var name by remember(tg.id) { mutableStateOf(tg.common) }
+            var coords by remember(tg.id) { mutableStateOf(tg.coords) }
+            Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp)) {
+                EditableField("NAME", name) { name = it }
+                Spacer(Modifier.height(8.dp))
+                EditableField("COORDS", coords) { coords = it }
+                Spacer(Modifier.height(8.dp))
+                com.nocturne.ui.components.NocturneButton(
+                    text = "Save",
+                    onClick = { onSave(name, coords) },
+                    style = com.nocturne.ui.components.BtnStyle.OUTLINE,
+                    modifier = Modifier.fillMaxWidth().height(38.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AddUserTargetForm(onAdd: (name: String, coords: String) -> Unit, onCancel: () -> Unit) {
+    var name by remember { mutableStateOf("") }
+    var coords by remember { mutableStateOf("") }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(NocturneTheme.colors.bg, RoundedCornerShape(4.dp))
+            .padding(12.dp),
+    ) {
+        EditableField("NAME", name) { name = it }
+        Spacer(Modifier.height(8.dp))
+        EditableField("COORDS", coords) { coords = it }
+        Spacer(Modifier.height(8.dp))
+        Row(Modifier.fillMaxWidth()) {
+            com.nocturne.ui.components.NocturneButton(
+                text = "Cancel",
+                onClick = onCancel,
+                style = com.nocturne.ui.components.BtnStyle.SUBTLE,
+                modifier = Modifier.weight(1f).height(38.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            com.nocturne.ui.components.NocturneButton(
+                text = "Add",
+                onClick = { onAdd(name, coords) },
+                style = com.nocturne.ui.components.BtnStyle.OUTLINE,
+                modifier = Modifier.weight(1f).height(38.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun EditableField(label: String, value: String, onChange: (String) -> Unit) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    Column {
+        TextC(label, style = t.MicroLabel, color = c.textFaint)
+        Spacer(Modifier.height(3.dp))
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(34.dp)
+                .background(c.surface, RoundedCornerShape(4.dp))
+                .border(1.dp, c.divider, RoundedCornerShape(4.dp))
+                .padding(horizontal = 8.dp),
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            BasicTextField(
+                value = value,
+                onValueChange = onChange,
+                singleLine = true,
+                textStyle = t.Mono14.copy(color = c.text),
+                cursorBrush = SolidColor(c.accent),
+                modifier = Modifier.fillMaxWidth(),
             )
         }
     }

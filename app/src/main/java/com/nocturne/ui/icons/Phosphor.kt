@@ -204,6 +204,10 @@ object Phosphor {
         )
     }
 
+    val Play: ImageVector by lazy {
+        icon("Play", f("M72,40 L200,128 L72,216 Z"))
+    }
+
     val ArrowsClockwise: ImageVector by lazy {
         icon("ArrowsClockwise",
             s(poly("168,96 216,96 216,48")),

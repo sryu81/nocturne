@@ -45,7 +45,10 @@ import com.nocturne.session.SimState
 import com.nocturne.session.TrainRole
 import com.nocturne.session.TrainSlot
 import com.nocturne.session.coolAtSetPoint
+import com.nocturne.session.doneSpec
+import com.nocturne.session.endedJob
 import com.nocturne.session.fRatio
+import com.nocturne.session.formatHm
 import com.nocturne.session.get
 import com.nocturne.session.guideOpticNote
 import com.nocturne.session.opticNote
@@ -53,9 +56,13 @@ import com.nocturne.session.coolBarPct
 import com.nocturne.session.coolPowerPct
 import com.nocturne.session.isOn
 import com.nocturne.session.isSelected
+import com.nocturne.session.keepCount
+import com.nocturne.session.medHfr
 import com.nocturne.session.missing
 import com.nocturne.session.paTotal
+import com.nocturne.session.pct
 import com.nocturne.session.ready
+import com.nocturne.session.rejectCount
 import com.nocturne.session.rms
 import com.nocturne.session.train
 import com.nocturne.session.trainRolePool
@@ -1444,13 +1451,18 @@ private fun SummarySheet(state: SimState, ctrl: SessionController) {
     val t = NocturneTheme.type
     val canResume = state.lastEndedJobId != null
     val hasNext = state.jobs.any { it.id != state.lastEndedJobId }
+    val job = state.endedJob
+    // Frames carry no per-sub exposure/filter of their own (fixture list, §8) — approximate
+    // using the ended job's first block's exposure, same assumption the export report makes.
+    val exposureSec = job?.blocks?.firstOrNull()?.exposureSec ?: 0
+    val barColors = listOf(Color(0xFF9184D9), Color(0xFF796CBF), Color(0xFF5D5294), c.accentMuted, c.accent800)
     Column {
         Row(Modifier.fillMaxWidth()) {
-            SumStat("KEPT", "3h 10m", Modifier.weight(1f))
+            SumStat("KEPT", formatHm(state.keepCount * exposureSec), Modifier.weight(1f))
             Spacer(Modifier.width(8.4.dp))
-            SumStat("DISCARDED", "20m", Modifier.weight(1f))
+            SumStat("DISCARDED", formatHm(state.rejectCount * exposureSec), Modifier.weight(1f))
             Spacer(Modifier.width(8.4.dp))
-            SumStat("MED HFR", "2.34", Modifier.weight(1f))
+            SumStat("MED HFR", "%.2f".format(state.medHfr), Modifier.weight(1f))
         }
         Spacer(Modifier.height(11.2.dp))
         Column(
@@ -1461,9 +1473,13 @@ private fun SummarySheet(state: SimState, ctrl: SessionController) {
         ) {
             TextC("INTEGRATION BY FILTER", style = t.MicroLabel, color = c.textMuted)
             Spacer(Modifier.height(9.dp))
-            SumBar("Ha", 0.74f, Color(0xFF9184D9), "2h 05m")
-            SumBar("OIII", 0.38f, Color(0xFF796CBF), "1h 05m")
-            SumBar("SII", 0.08f, Color(0xFF5D5294), "0h 20m")
+            if (job == null || job.blocks.isEmpty()) {
+                TextC("No sequence data for this session.", style = t.MonoSmall, color = c.neutral500)
+            } else {
+                job.blocks.forEachIndexed { i, b ->
+                    SumBar(b.filter, b.pct, barColors[i % barColors.size], b.doneSpec)
+                }
+            }
         }
         Spacer(Modifier.height(11.2.dp))
         TextC(
@@ -1471,9 +1487,10 @@ private fun SummarySheet(state: SimState, ctrl: SessionController) {
             style = t.MonoSmall, color = c.neutral500,
         )
         Spacer(Modifier.height(11.2.dp))
+        val context = androidx.compose.ui.platform.LocalContext.current
         NocturneButton(
             text = "Export log + FITS list",
-            onClick = {},
+            onClick = { com.nocturne.export.exportSessionReport(context, state) },
             style = com.nocturne.ui.components.BtnStyle.OUTLINE,
             modifier = Modifier.fillMaxWidth().height(44.dp),
         )

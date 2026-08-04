@@ -23,6 +23,14 @@ data class SimState(
     val activeJobId: String? = DEFAULT_JOBS.firstOrNull()?.id,
     /** Monotonic job id counter — survives removals, unlike jobs.size + 1. */
     val jobSeq: Int = DEFAULT_JOBS.size + 1,
+    /**
+     * Last job that was actually started (running set true) — the Session
+     * tab's fallback when nothing is currently running, so pausing the job
+     * you're looking at doesn't jump you to some other job by list position.
+     * Only [contractJob] should read this; everything else should keep using
+     * `jobs`.
+     */
+    val lastActiveJobId: String? = DEFAULT_JOBS.firstOrNull { it.running }?.id,
     /** Which block card is expanded — global scalar is fine, only one job is ever drilled into at a time. */
     val openBlockId: String? = DEFAULT_BLOCKS.getOrNull(1)?.id,
     /** The job [endSession] stopped, pending a Back-to-session/Next-job/Finish choice on the Summary sheet. */
@@ -45,6 +53,17 @@ data class SimState(
     val query: String = "",
     val chips: List<Int> = listOf(0),
     val targetId: String = "NGC 7000",
+    /**
+     * The user catalogue — exactly one, always exists, name is the only thing
+     * about the catalogue itself the user can change (no add/remove catalogues,
+     * no second one). Targets within it are freely add/edit/remove-able.
+     */
+    val userCatalogName: String = "My targets",
+    val userTargets: List<Target> = emptyList(),
+    /** Monotonic id counter for custom targets — survives removals. */
+    val userTargetSeq: Int = 1,
+    val editingUserTargetId: String? = null,
+    val addingUserTarget: Boolean = false,
     /** Scope/guide-scope are user-entered (name + focal length + aperture), not picked from a catalog. */
     val scopeName: String = "Field APO",
     val opticMm: Int = 550,
@@ -95,18 +114,27 @@ data class SimState(
 val PA_SECS = listOf(1, 2, 5, 10)
 val PLAN_CHIPS = listOf("Up tonight", "Alt > 40°", "Narrowband", "Fits FOV")
 
+/**
+ * [size]/[band]/[max]/[peak]/[usable]/[fov] are precomputed fixture display
+ * values for the well-known catalog below — there's no real astro engine in
+ * M1 (that's `astro_get_object_info` etc., M2/M3). They're nullable because
+ * user-catalogue [custom] targets only ever get [id]/[common]/[coords] —
+ * there's nothing to compute those fields from yet.
+ */
 data class Target(
     val id: String,
     val common: String,
     val coords: String,
-    val size: String,
-    val band: String,
-    val max: Int,
-    val peak: String,
-    val usable: String,
-    val fov: Int,
+    val size: String? = null,
+    val band: String? = null,
+    val max: Int? = null,
+    val peak: String? = null,
+    val usable: String? = null,
+    val fov: Int? = null,
+    val custom: Boolean = false,
 )
 
+/** Well-known catalog — read-only, bundled with the app. Kept at 10 fixture entries for M1. */
 val TARGETS = listOf(
     Target("NGC 7000", "North America", "20h59m17s +44°31′44″", "120′×100′", "Ha", 78, "01:12", "4h 22m", 1),
     Target("IC 1396", "Elephant Trunk", "21h39m06s +57°30′00″", "170′×140′", "Ha", 81, "01:44", "4h 40m", 0),
@@ -577,14 +605,31 @@ val DEFAULT_JOBS = listOf(
  * it always was — only the header (target name, block progress) is wired to
  * this job.
  */
-val SimState.contractJob: SequenceJob? get() = jobs.firstOrNull { it.running } ?: jobs.firstOrNull()
+val SimState.contractJob: SequenceJob? get() =
+    jobs.firstOrNull { it.running } ?: jobs.firstOrNull { it.id == lastActiveJobId } ?: jobs.firstOrNull()
+
+/** The job [endSession] stopped — what the Summary sheet and its export report are about. */
+val SimState.endedJob: SequenceJob? get() = jobs.firstOrNull { it.id == lastEndedJobId }
+
+/** Looks up a target by id across both catalogs — well-known first, then the user catalogue. */
+fun SimState.findTarget(id: String): Target? =
+    TARGETS.firstOrNull { it.id == id } ?: userTargets.firstOrNull { it.id == id }
+
+/** "NGC 7000 — North America" for the well-known catalog; just the name for custom targets (no catalog id to show). */
+val Target.displayName: String get() = if (custom) common else "$id — $common"
+
+/** Median of the frame HFR list — real per-frame data, not fixture. */
+val SimState.medHfr: Double get() {
+    val sorted = frames.map { it.hfr }.sorted()
+    return if (sorted.isEmpty()) 0.0 else sorted[sorted.size / 2]
+}
 
 /** First not-yet-complete block, or the last block if all are done. */
 val SequenceJob.currentBlockIndex: Int? get() =
     if (blocks.isEmpty()) null else blocks.indexOfFirst { it.doneCount < it.subCount }.let { if (it == -1) blocks.lastIndex else it }
 
 val FILTER_CYCLE = listOf("Ha", "OIII", "SII", "L", "R", "G", "B")
-val BINNING_OPTIONS = listOf(1, 2, 3)
+val BINNING_OPTIONS = listOf(1, 2, 3, 4)
 val DITHER_OPTIONS = listOf(1, 2, 3, 5)
 
 /** "300 s × 40" — collapsed-card headline, derived so an edit is reflected immediately. */
@@ -592,11 +637,14 @@ val Block.spec: String get() = "$exposureSec s × $subCount"
 
 val Block.pct: Float get() = if (subCount == 0) 0f else (doneCount.toFloat() / subCount).coerceIn(0f, 1f)
 
-private fun formatHm(totalSec: Int): String {
+internal fun formatHm(totalSec: Int): String {
     val h = totalSec / 3600
     val m = (totalSec % 3600) / 60
     return "${h}h ${m.toString().padStart(2, '0')}m"
 }
+
+/** Integration time actually captured for this block: doneCount × exposureSec. */
+val Block.doneSpec: String get() = formatHm(doneCount * exposureSec)
 
 /** "12 done · 2h 20m left" / "queued · 2h 30m" — derived from exposure × remaining subs. */
 val Block.meta: String get() {

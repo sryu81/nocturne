@@ -90,32 +90,37 @@ class SimulatedController(private val scope: CoroutineScope) : SessionController
             jobs = s.jobs.filter { it.id != jobId },
             activeJobId = if (s.activeJobId == jobId) null else s.activeJobId,
             openBlockId = if (s.activeJobId == jobId) null else s.openBlockId,
+            lastActiveJobId = if (s.lastActiveJobId == jobId) null else s.lastActiveJobId,
         )
     }
 
     override fun openJob(jobId: String) = update { it.copy(activeJobId = jobId, openBlockId = null) }
     override fun closeJob() = update { it.copy(activeJobId = null, openBlockId = null) }
 
-    override fun toggleJobRun(jobId: String) = update { s -> s.mapJob(jobId) { it.copy(running = !it.running) } }
+    override fun toggleJobRun(jobId: String) = update { s ->
+        val running = !(s.jobs.firstOrNull { it.id == jobId }?.running ?: false)
+        s.mapJob(jobId) { it.copy(running = running) }
+            .copy(lastActiveJobId = if (running) jobId else s.lastActiveJobId)
+    }
 
     override fun endSession() = update { s ->
-        val contract = s.jobs.firstOrNull { it.running } ?: s.jobs.firstOrNull()
+        val contract = s.contractJob
         val stopped = if (contract != null) s.mapJob(contract.id) { it.copy(running = false) } else s
         stopped.copy(sheet = SheetType.SUMMARY, lastEndedJobId = contract?.id)
     }
 
     override fun resumeSession() = update { s ->
         val id = s.lastEndedJobId ?: return@update s.copy(sheet = null)
-        s.mapJob(id) { it.copy(running = true) }.copy(sheet = null, lastEndedJobId = null)
+        s.mapJob(id) { it.copy(running = true) }.copy(sheet = null, lastEndedJobId = null, lastActiveJobId = id)
     }
 
     override fun startNextJob() = update { s ->
         val next = s.jobs.firstOrNull { it.id != s.lastEndedJobId } ?: return@update s
-        s.mapJob(next.id) { it.copy(running = true) }.copy(sheet = null, lastEndedJobId = null)
+        s.mapJob(next.id) { it.copy(running = true) }.copy(sheet = null, lastEndedJobId = null, lastActiveJobId = next.id)
     }
 
     override fun finishNight() = update { s ->
-        s.copy(jobs = emptyList(), coolTarget = 20.0, mountParked = true, sheet = null, lastEndedJobId = null)
+        s.copy(jobs = emptyList(), coolTarget = 20.0, mountParked = true, sheet = null, lastEndedJobId = null, lastActiveJobId = null)
     }
 
     override fun toggleBlock(jobId: String, blockId: String) = update { s ->
@@ -175,6 +180,36 @@ class SimulatedController(private val scope: CoroutineScope) : SessionController
 
     override fun toggleChip(index: Int) = update { s ->
         s.copy(chips = if (s.chips.contains(index)) s.chips.filter { it != index } else s.chips + index)
+    }
+
+    override fun setUserCatalogName(name: String) = update { it.copy(userCatalogName = name) }
+
+    override fun addUserTarget(name: String, coords: String) = update { s ->
+        if (name.isBlank()) return@update s
+        val target = Target(id = "custom_${s.userTargetSeq}", common = name, coords = coords, custom = true)
+        s.copy(
+            userTargets = s.userTargets + target,
+            userTargetSeq = s.userTargetSeq + 1,
+            addingUserTarget = false,
+        )
+    }
+
+    override fun editUserTarget(id: String, name: String, coords: String) = update { s ->
+        s.copy(userTargets = s.userTargets.map { if (it.id == id) it.copy(common = name, coords = coords) else it })
+    }
+
+    override fun removeUserTarget(id: String) = update { s ->
+        s.copy(
+            userTargets = s.userTargets.filter { it.id != id },
+            editingUserTargetId = if (s.editingUserTargetId == id) null else s.editingUserTargetId,
+        )
+    }
+
+    override fun startAddUserTarget() = update { it.copy(addingUserTarget = true, editingUserTargetId = null) }
+    override fun cancelAddUserTarget() = update { it.copy(addingUserTarget = false) }
+
+    override fun toggleEditUserTarget(id: String) = update { s ->
+        s.copy(editingUserTargetId = if (s.editingUserTargetId == id) null else id, addingUserTarget = false)
     }
 
     override fun setQuery(text: String) = update { it.copy(query = text) }

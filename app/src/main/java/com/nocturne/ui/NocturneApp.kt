@@ -49,9 +49,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.nocturne.session.ALERTS
 import com.nocturne.session.SheetType
 import com.nocturne.session.SimState
-import com.nocturne.session.TARGETS
 import com.nocturne.session.contractJob
 import com.nocturne.session.currentBlockIndex
+import com.nocturne.session.findTarget
 import com.nocturne.ui.frames.FramesScreen
 import com.nocturne.ui.gear.GearScreen
 import com.nocturne.ui.icons.Phosphor
@@ -181,7 +181,7 @@ private fun NocturneHeader(
 ) {
     val colors = NocturneTheme.colors
     val contractJob = state.contractJob
-    val contractTarget = contractJob?.let { j -> TARGETS.firstOrNull { it.id == j.targetId } }
+    val contractTarget = contractJob?.let { j -> state.findTarget(j.targetId) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -225,7 +225,9 @@ private fun NocturneHeader(
                     Spacer(Modifier.height(1.dp))
                 }
                 Text(
-                    if (tab == NocturneTab.Session) (contractTarget?.id ?: "No target queued") else tab.label,
+                    if (tab == NocturneTab.Session) {
+                        contractTarget?.let { if (it.custom) it.common else it.id } ?: "No target queued"
+                    } else tab.label,
                     style = NocturneTheme.type.HeaderTitle,
                     color = colors.text,
                 )

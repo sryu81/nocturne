@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -36,8 +37,9 @@ import com.nocturne.session.SequenceJob
 import com.nocturne.session.SessionController
 import com.nocturne.session.SheetType
 import com.nocturne.session.SimState
-import com.nocturne.session.TARGETS
 import com.nocturne.session.autofocusRuleText
+import com.nocturne.session.displayName
+import com.nocturne.session.findTarget
 import com.nocturne.session.meta
 import com.nocturne.session.missing
 import com.nocturne.session.pct
@@ -95,6 +97,7 @@ private fun JobList(state: SimState, ctrl: SessionController) {
     Column(Modifier.fillMaxWidth()) {
         state.jobs.forEach { job ->
             JobCard(
+                state = state,
                 job = job,
                 onOpen = { ctrl.openJob(job.id) },
                 onRemove = { ctrl.removeJob(job.id) },
@@ -117,16 +120,16 @@ private fun EmptyJobListCard() {
 }
 
 @Composable
-private fun JobCard(job: SequenceJob, onOpen: () -> Unit, onRemove: () -> Unit) {
+private fun JobCard(state: SimState, job: SequenceJob, onOpen: () -> Unit, onRemove: () -> Unit) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
-    val target = TARGETS.firstOrNull { it.id == job.targetId }
+    val target = state.findTarget(job.targetId)
     val doneTotal = job.blocks.sumOf { it.doneCount }
     val subTotal = job.blocks.sumOf { it.subCount }
     Card {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                TextC(target?.let { "${it.id} — ${it.common}" } ?: job.targetId, style = t.Body135, color = c.text)
+                TextC(target?.displayName ?: job.targetId, style = t.Body135, color = c.text)
                 TextC(
                     "${job.blocks.size} ${if (job.blocks.size == 1) "block" else "blocks"} · ${job.blocks.joinToString(", ") { it.filter }}",
                     style = t.MonoMicro, color = c.textFaint,
@@ -162,7 +165,7 @@ private fun JobDetailScreen(
         landscape = landscape,
         modifier = modifier,
         items = listOf(
-            TabItem(full = true) { JobDetailHeader(job, onBack = ctrl::closeJob) },
+            TabItem(full = true) { JobDetailHeader(state, job, onBack = ctrl::closeJob) },
             TabItem(full = true) { BlocksList(state, ctrl, job) },
             TabItem(full = true) {
                 Box(
@@ -205,10 +208,10 @@ private fun JobDetailScreen(
 }
 
 @Composable
-private fun JobDetailHeader(job: SequenceJob, onBack: () -> Unit) {
+private fun JobDetailHeader(state: SimState, job: SequenceJob, onBack: () -> Unit) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
-    val target = TARGETS.firstOrNull { it.id == job.targetId }
+    val target = state.findTarget(job.targetId)
     Row(
         Modifier
             .fillMaxWidth()
@@ -217,7 +220,7 @@ private fun JobDetailHeader(job: SequenceJob, onBack: () -> Unit) {
     ) {
         Phosphor.Icon(Phosphor.CaretLeft, size = 17.dp, tint = c.textMuted)
         Spacer(Modifier.width(8.dp))
-        TextC(target?.let { "${it.id} — ${it.common}" } ?: job.targetId, style = t.Body135, color = c.text)
+        TextC(target?.displayName ?: job.targetId, style = t.Body135, color = c.text)
     }
 }
 
@@ -357,14 +360,18 @@ private fun BlockCard(
             Spacer(Modifier.width(5.dp))
             Box(
                 Modifier
+                    .height(30.dp)
+                    .defaultMinSize(minWidth = 44.dp)
                     .background(
-                        if (first) c.accent.copy(alpha = 0.2f) else c.divider.copy(alpha = 0.4f),
-                        RoundedCornerShape(3.dp),
+                        if (first) c.accent.copy(alpha = 0.2f) else c.surfaceRaised,
+                        RoundedCornerShape(6.dp),
                     )
+                    .border(1.dp, if (first) c.accent.copy(alpha = 0.6f) else c.divider, RoundedCornerShape(6.dp))
                     .clickable { ctrl.cycleBlockFilter(jobId, block.id) }
-                    .padding(horizontal = 7.dp, vertical = 3.dp),
+                    .padding(horizontal = 10.dp),
+                contentAlignment = Alignment.Center,
             ) {
-                TextC(block.filter, style = t.MonoSmall, color = if (first) c.accent400 else c.textMuted)
+                TextC(block.filter, style = t.Mono14, color = if (first) c.accent400 else c.text)
             }
             Spacer(Modifier.width(11.2.dp))
             Column(Modifier.weight(1f)) {
@@ -429,21 +436,20 @@ private fun BlockDetails(block: Block, ctrl: SessionController, jobId: String, a
         NumberField("GAIN", block.gain, "", Modifier.weight(1f)) { ctrl.setBlockGain(jobId, block.id, it) }
         Spacer(Modifier.width(8.4.dp))
         NumberField("OFFSET", block.offset, "", Modifier.weight(1f)) { ctrl.setBlockOffset(jobId, block.id, it) }
-        Spacer(Modifier.width(8.4.dp))
-        Column(Modifier.weight(1f)) {
-            TextC("BINNING", style = t.MicroLabel, color = c.textFaint)
-            Spacer(Modifier.height(3.dp))
-            SegmentedRow(
-                options = BINNING_OPTIONS,
-                selected = block.binning,
-                labelOf = { "${it}×$it" },
-                onSelect = { ctrl.setBlockBinning(jobId, block.id, it) },
-            )
-        }
     }
     Spacer(Modifier.height(8.4.dp))
     Row(verticalAlignment = Alignment.CenterVertically) {
-        TextC("Dither every", style = t.Caption, color = c.textMuted, modifier = Modifier.weight(1f))
+        TextC("Binning", style = t.Body135, color = c.text, modifier = Modifier.weight(1f))
+        SegmentedRow(
+            options = BINNING_OPTIONS,
+            selected = block.binning,
+            labelOf = { "${it}×$it" },
+            onSelect = { ctrl.setBlockBinning(jobId, block.id, it) },
+        )
+    }
+    Spacer(Modifier.height(8.4.dp))
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        TextC("Dither every", style = t.Body135, color = c.text, modifier = Modifier.weight(1f))
         SegmentedRow(
             options = DITHER_OPTIONS,
             selected = block.ditherEvery,
@@ -465,8 +471,8 @@ private fun BlockDetails(block: Block, ctrl: SessionController, jobId: String, a
             .clickable(onClick = onOpenAutofocusRules),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        TextC("Autofocus", style = t.Caption, color = c.textMuted, modifier = Modifier.weight(1f))
-        TextC(autofocusRule, style = t.MonoSmall, color = c.textDim)
+        TextC("Autofocus", style = t.Body135, color = c.text, modifier = Modifier.weight(1f))
+        TextC(autofocusRule, style = t.Mono14, color = c.textMuted)
         Spacer(Modifier.width(6.dp))
         Phosphor.Icon(Phosphor.CaretRight, size = 12.dp, tint = c.neutral700)
     }
@@ -543,7 +549,7 @@ private fun StartButton(state: SimState, ctrl: SessionController, job: SequenceJ
         contentAlignment = Alignment.Center,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Phosphor.Icon(Phosphor.Pause, size = 17.dp, tint = color)
+            Phosphor.Icon(if (running) Phosphor.Pause else Phosphor.Play, size = 17.dp, tint = color)
             Spacer(Modifier.width(8.dp))
             TextC(label, style = t.Button14, color = color)
         }
