@@ -25,6 +25,7 @@ import com.nocturne.session.SessionController
 import com.nocturne.session.activeRigProfile
 import com.nocturne.session.SheetType
 import com.nocturne.session.SimState
+import com.nocturne.session.indiNumber
 import com.nocturne.session.isOn
 import com.nocturne.session.isSelected
 import com.nocturne.session.missing
@@ -379,15 +380,25 @@ private fun PowerDew(state: SimState) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val on = state.ekosRunning
+    val deviceName = state.selectedDeviceNames["powerbox"]
+    val current = deviceName?.let { state.indiNumber(it, "SENSOR_CURRENT") }
+    val voltage = deviceName?.let { state.indiNumber(it, "SENSOR_VOLTAGE") }
+    val dewMain = deviceName?.let { state.indiNumber(it, "DEW_A") } ?: 0.0
+    val dewGuide = deviceName?.let { state.indiNumber(it, "DEW_B") } ?: 0.0
     Card {
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextC("POWER · DEW", style = t.MicroLabel, color = c.textFaint, modifier = Modifier.weight(1f))
-            TextC(if (on) "3.42 A · 12.1 V" else "not connected", style = t.MonoSmall, color = if (on) c.accent400 else c.textFaint)
+            val readout = when {
+                !on -> "not connected"
+                current != null && voltage != null -> "%.2f A · %.1f V".format(current, voltage)
+                else -> "—"
+            }
+            TextC(readout, style = t.MonoSmall, color = if (on) c.accent400 else c.textFaint)
         }
         Spacer(Modifier.height(11.2.dp))
-        DewRow("Dew · main", if (on) 0.62f else 0f, enabled = on)
+        DewRow("Dew · main", if (on) (dewMain / 100.0).toFloat() else 0f, enabled = on)
         Spacer(Modifier.height(11.2.dp))
-        DewRow("Dew · guide", if (on) 0.40f else 0f, enabled = on)
+        DewRow("Dew · guide", if (on) (dewGuide / 100.0).toFloat() else 0f, enabled = on)
     }
 }
 

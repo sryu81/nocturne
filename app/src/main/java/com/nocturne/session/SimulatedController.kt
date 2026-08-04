@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+import kotlin.math.sin
 
 /**
  * M1 session driver. Reproduces the prototype's `data-dc-script` behavior
@@ -35,11 +36,27 @@ class SimulatedController(private val scope: CoroutineScope) : SessionController
         val coolNow = if (abs(d) < 0.05) s.coolTarget else s.coolNow + step
 
         val paAdjust = s.sheet == SheetType.PA && s.paStep == 2 && s.t % PA_SECS[s.paRate] == 0
+
+        // Bench sheet's D-pad — modest per-tick step, not a real slew rate; just needs to visibly move.
+        val rateStep = listOf(0.02, 0.05, 0.2, 0.6, 1.2).getOrElse(s.rate) { 0.2 }
+        val mountAlt = when (s.slewDir) {
+            "N" -> (s.mountAlt + rateStep).coerceIn(0.0, 90.0)
+            "S" -> (s.mountAlt - rateStep).coerceIn(0.0, 90.0)
+            else -> s.mountAlt
+        }
+        val mountAz = when (s.slewDir) {
+            "E" -> (s.mountAz + rateStep).mod(360.0)
+            "W" -> (s.mountAz - rateStep).mod(360.0)
+            else -> s.mountAz
+        }
+
         return s.copy(
             t = s.t + 1,
             coolNow = coolNow,
             paAlt = if (paAdjust) ease(s.paAlt) else s.paAlt,
             paAz = if (paAdjust) ease(s.paAz) else s.paAz,
+            mountAlt = mountAlt,
+            mountAz = mountAz,
         )
     }
 
@@ -244,6 +261,8 @@ class SimulatedController(private val scope: CoroutineScope) : SessionController
         s.copy(prefs = s.prefs + (key to !(s.prefs[key] ?: false)))
     }
 
+    override fun toggleQuietHours() = update { it.copy(quietHoursEnabled = !it.quietHoursEnabled) }
+
     override fun toggleCut(id: String) = update { s ->
         s.copy(cut = if (s.cut.contains(id)) s.cut - id else s.cut + id)
     }
@@ -277,13 +296,31 @@ class SimulatedController(private val scope: CoroutineScope) : SessionController
     override fun setRate(index: Int) = update { it.copy(rate = index) }
 
     override fun setSlewDir(key: String) = update { s ->
-        s.copy(slewDir = if (s.slewDir == key) null else key)
+        s.copy(slewDir = if (s.slewDir == key) null else key, mountSolved = false)
     }
 
     override fun stopSlew() = update { it.copy(slewDir = null) }
 
     override fun coolUp() = update { it.copy(coolTarget = (it.coolTarget + 1).coerceAtMost(20.0)) }
     override fun coolDown() = update { it.copy(coolTarget = (it.coolTarget - 1).coerceAtLeast(-25.0)) }
+
+    // Deterministic-but-ticking, same style as `rms`/`fNow` — not a real focus sweep,
+    // but reactive rather than a frozen literal.
+    override fun runAutofocusNow() = update { s ->
+        val newHfr = 2.2 + abs(sin(s.t / 13.0)) * 0.15
+        s.copy(
+            focusLastBestPos = s.focPos,
+            focusLastHfr = newHfr,
+            focusLastAfAt = s.t,
+            focusTempAtLastAf = s.eafTemp,
+        )
+    }
+
+    override fun unparkMount() = update {
+        it.copy(mountParked = false, mountAlt = 49.2, mountAz = 71.6, slewDir = null, mountSolved = false)
+    }
+
+    override fun plateSolveHere() = update { it.copy(mountSolved = true) }
 
     override fun openPa() = update { it.copy(sheet = SheetType.PA, paStep = 0) }
     override fun paNext() = update { it.copy(paStep = minOf(2, it.paStep + 1)) }

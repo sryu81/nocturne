@@ -59,6 +59,7 @@ interface SessionController {
     fun clearQuery()
     fun selectTarget(id: String)
     fun togglePref(key: String)
+    fun toggleQuietHours()
     fun toggleCut(id: String)
     fun toggleDevice(key: String)
     fun selectDeviceName(key: String, name: String)
@@ -73,6 +74,9 @@ interface SessionController {
     fun stopSlew()
     fun coolUp()
     fun coolDown()
+    fun runAutofocusNow()
+    fun unparkMount()
+    fun plateSolveHere()
 
     fun startProfile(name: String)
     fun stopProfile()

@@ -63,6 +63,9 @@ import com.nocturne.session.paTotal
 import com.nocturne.session.pct
 import com.nocturne.session.ready
 import com.nocturne.session.rejectCount
+import com.nocturne.session.eafTemp
+import com.nocturne.session.focusNextAfMin
+import com.nocturne.session.guideStarSnr
 import com.nocturne.session.rms
 import com.nocturne.session.train
 import com.nocturne.session.trainRolePool
@@ -131,7 +134,7 @@ fun SheetHost(state: SimState, ctrl: SessionController, landscape: Boolean) {
         content = {
             when (sheet) {
                 SheetType.GUIDE -> GuideSheet(state)
-                SheetType.FOCUS -> FocusSheet(state)
+                SheetType.FOCUS -> FocusSheet(state, ctrl)
                 SheetType.ALERTS -> AlertsSheet(ctrl)
                 SheetType.SUMMARY -> SummarySheet(state, ctrl)
                 SheetType.BENCH -> BenchSheet(state, ctrl, landscape)
@@ -155,11 +158,17 @@ fun SheetHost(state: SimState, ctrl: SessionController, landscape: Boolean) {
 private fun GuideSheet(state: SimState) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
+    val raTrace = wiggle(state.t, 3, 90, 22.0)
+    val decTrace = wiggle(state.t, 41, 90, 14.0)
+    // wiggle()'s amplitude is chart-pixel space (GuideTraceChart's 108-unit viewBox,
+    // center-to-edge = 54 units), calibrated to the chart's own "±2″ scale" label —
+    // convert to arcsec before treating it as a real stat, not a raw pixel deviation.
+    val peak = (raTrace + decTrace).maxOf { kotlin.math.abs(it) } * (2.0 / 54.0)
     Column {
         Panel {
             GuideTraceChart(
-                ra = wiggle(state.t, 3, 90, 22.0),
-                dec = wiggle(state.t, 41, 90, 14.0),
+                ra = raTrace,
+                dec = decTrace,
                 modifier = Modifier.fillMaxWidth().height(108.dp),
             )
             Row(Modifier.padding(top = 6.dp)) {
@@ -174,9 +183,9 @@ private fun GuideSheet(state: SimState) {
         Row(Modifier.fillMaxWidth()) {
             Stat("TOTAL RMS", String.format("%.2f", state.rms) + "″", Modifier.weight(1f))
             Spacer(Modifier.width(8.4.dp))
-            Stat("PEAK", "1.42″", Modifier.weight(1f))
+            Stat("PEAK", String.format("%.2f", peak) + "″", Modifier.weight(1f))
             Spacer(Modifier.width(8.4.dp))
-            Stat("STAR SNR", "38", Modifier.weight(1f))
+            Stat("STAR SNR", String.format("%.0f", state.guideStarSnr), Modifier.weight(1f))
         }
         Spacer(Modifier.height(11.2.dp))
         TextC(
@@ -189,30 +198,40 @@ private fun GuideSheet(state: SimState) {
 // ── Focus ────────────────────────────────────────────────────────────────
 
 @Composable
-private fun FocusSheet(state: SimState) {
+private fun FocusSheet(state: SimState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
+    val tempDelta = state.eafTemp - state.focusTempAtLastAf
     Column {
         Panel {
             VCurve(modifier = Modifier.fillMaxWidth().height(130.dp))
             Box(Modifier.fillMaxWidth().padding(top = 4.dp)) {
-                TextC("18 180", style = t.MonoMicro, color = c.textMuted, modifier = Modifier.align(Alignment.CenterStart))
-                TextC("best 18 422 · HFR 2.27", style = t.MonoMicro, color = c.text, modifier = Modifier.align(Alignment.Center))
-                TextC("18 660", style = t.MonoMicro, color = c.textMuted, modifier = Modifier.align(Alignment.CenterEnd))
+                TextC(
+                    "${state.focusLastBestPos - 240}", style = t.MonoMicro, color = c.textMuted,
+                    modifier = Modifier.align(Alignment.CenterStart),
+                )
+                TextC(
+                    "best ${state.focusLastBestPos} · HFR ${"%.2f".format(state.focusLastHfr)}",
+                    style = t.MonoMicro, color = c.text, modifier = Modifier.align(Alignment.Center),
+                )
+                TextC(
+                    "${state.focusLastBestPos + 240}", style = t.MonoMicro, color = c.textMuted,
+                    modifier = Modifier.align(Alignment.CenterEnd),
+                )
             }
         }
         Spacer(Modifier.height(11.2.dp))
         Row(Modifier.fillMaxWidth()) {
             Stat("POSITION", "${state.focPos}", Modifier.weight(1f))
             Spacer(Modifier.width(8.4.dp))
-            Stat("TEMP Δ", "−0.6°", Modifier.weight(1f))
+            Stat("TEMP Δ", "${if (tempDelta >= 0) "+" else ""}${"%.1f".format(tempDelta)}°", Modifier.weight(1f))
             Spacer(Modifier.width(8.4.dp))
-            Stat("NEXT AF", "28 m", Modifier.weight(1f))
+            Stat("NEXT AF", "${state.focusNextAfMin} m", Modifier.weight(1f))
         }
         Spacer(Modifier.height(11.2.dp))
         NocturneButton(
             text = "Run autofocus now",
-            onClick = {},
+            onClick = ctrl::runAutofocusNow,
             style = com.nocturne.ui.components.BtnStyle.OUTLINE,
             modifier = Modifier.fillMaxWidth().height(44.dp),
         )
@@ -275,16 +294,16 @@ private fun PrefsSheet(state: SimState, ctrl: SessionController) {
             )
             Spacer(Modifier.height(8.4.dp))
         }
-        Row(
-            Modifier
+        SwitchRow(
+            label = "Quiet hours",
+            sub = "mute non-critical push while imaging",
+            checked = state.quietHoursEnabled,
+            onToggle = ctrl::toggleQuietHours,
+            modifier = Modifier
                 .fillMaxWidth()
                 .background(c.bg, RoundedCornerShape(4.dp))
-                .padding(horizontal = 11.2.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            TextC("Quiet hours", style = t.Body13, color = c.text, modifier = Modifier.weight(1f))
-            TextC("off while imaging", style = t.Mono115, color = c.accent400)
-        }
+                .padding(horizontal = 11.2.dp),
+        )
         Spacer(Modifier.height(8.4.dp))
         TextC(
             "Critical alerts (unsafe weather, disconnect, mount fault) always sound, even in quiet hours.",
@@ -885,7 +904,8 @@ private fun MountCard(state: SimState, ctrl: SessionController) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextC("MOUNT · MANUAL", style = t.MicroLabel, color = c.textMuted, modifier = Modifier.weight(1f))
             TextC(
-                state.slewDir?.let { "slewing $it at ${RATES[state.rate]}" } ?: "tracking · sidereal",
+                state.slewDir?.let { "slewing $it at ${RATES[state.rate]}" }
+                    ?: (if (state.mountSolved) "tracking · sidereal · solved" else "tracking · sidereal"),
                 style = t.Mono115,
                 color = if (state.slewDir != null) c.warn else c.ok,
             )
@@ -916,7 +936,8 @@ private fun MountCard(state: SimState, ctrl: SessionController) {
                 }
                 Spacer(Modifier.height(6.dp))
                 TextC(
-                    "RA 20h59m12s\nDEC +44°31′08″\nalt 49.2° · az 71.6°",
+                    "alt ${"%.1f".format(state.mountAlt)}° · az ${"%.1f".format(state.mountAz)}°" +
+                        if (state.mountSolved) "\nsolved — re-solve after moving" else "\nnot solved",
                     style = t.Mono115, color = c.neutral500,
                 )
             }
@@ -925,14 +946,14 @@ private fun MountCard(state: SimState, ctrl: SessionController) {
         Row(Modifier.fillMaxWidth()) {
             NocturneButton(
                 text = "Unpark / home",
-                onClick = {},
+                onClick = ctrl::unparkMount,
                 style = com.nocturne.ui.components.BtnStyle.SUBTLE,
                 modifier = Modifier.weight(1f).height(38.dp),
             )
             Spacer(Modifier.width(8.4.dp))
             NocturneButton(
                 text = "Plate solve here",
-                onClick = {},
+                onClick = ctrl::plateSolveHere,
                 style = com.nocturne.ui.components.BtnStyle.SUBTLE,
                 modifier = Modifier.weight(1f).height(38.dp),
             )
@@ -1246,31 +1267,20 @@ private fun DeviceSheet(state: SimState, ctrl: SessionController) {
                     .fillMaxWidth()
                     .background(c.bg, RoundedCornerShape(4.dp))
                     .border(1.dp, c.text.copy(alpha = 0.06f), RoundedCornerShape(4.dp))
-                    .clickable { }
                     .padding(horizontal = 11.2.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TextC(label, style = t.Caption, color = c.textMuted, modifier = Modifier.width(88.dp))
                 TextC(value, style = t.MonoMid, color = c.text, modifier = Modifier.weight(1f))
-                Phosphor.Icon(Phosphor.CaretRight, size = 14.dp, tint = c.neutral700)
             }
             Spacer(Modifier.height(8.4.dp))
         }
-        Row(Modifier.fillMaxWidth()) {
-            NocturneButton(
-                text = "Swap hardware",
-                onClick = {},
-                style = com.nocturne.ui.components.BtnStyle.SUBTLE,
-                modifier = Modifier.weight(1f).height(44.dp),
-            )
-            Spacer(Modifier.width(8.4.dp))
-            NocturneButton(
-                text = if (on) "Disconnect" else "Connect",
-                onClick = { ctrl.toggleDevice(d.key) },
-                style = com.nocturne.ui.components.BtnStyle.OUTLINE,
-                modifier = Modifier.weight(1f).height(44.dp),
-            )
-        }
+        NocturneButton(
+            text = if (on) "Disconnect" else "Connect",
+            onClick = { ctrl.toggleDevice(d.key) },
+            style = com.nocturne.ui.components.BtnStyle.OUTLINE,
+            modifier = Modifier.fillMaxWidth().height(44.dp),
+        )
         Spacer(Modifier.height(8.4.dp))
         TextC(
             "Saved to profile “${state.activeProfile ?: state.profileName}” — ${state.profiles.size} profiles",

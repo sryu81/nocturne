@@ -118,6 +118,17 @@ data class SimState(
     val afRefocusMin: Int = 45,
     val afTempDeltaC: Double = 1.0,
     val afOnFilterChange: Boolean = true,
+    /** Focus sheet: snapshot from the last "Run autofocus now" tap. */
+    val focusLastBestPos: Int = 18422,
+    val focusLastHfr: Double = 2.27,
+    val focusLastAfAt: Int = 0,
+    val focusTempAtLastAf: Double = -0.6,
+    val quietHoursEnabled: Boolean = true,
+    /** Bench sheet: live mount pointing, driven by the D-pad in [SimulatedController.tick]. */
+    val mountAlt: Double = 49.2,
+    val mountAz: Double = 71.6,
+    /** Cleared whenever the mount slews — a solve is only valid until the mount moves again. */
+    val mountSolved: Boolean = false,
 )
 
 // ── Catalog data (prototype script constants) ──────────────────────────────
@@ -399,6 +410,12 @@ sealed class IndiProperty {
         override val name: String, override val label: String, override val group: String,
         val elements: List<Pair<String, Int>>,
     ) : IndiProperty()
+}
+
+/** Looks up a NumberProp's live value by property name — user's own edit first, else the driver fixture default. */
+fun SimState.indiNumber(deviceName: String, propName: String): Double? {
+    val props = indiProps[deviceName] ?: DRIVER_INDI_PROPS[deviceName] ?: emptyList()
+    return (props.firstOrNull { it.name == propName } as? IndiProperty.NumberProp)?.value
 }
 
 /**
@@ -705,7 +722,14 @@ val SimState.flipIn: String get() {
     return "T−$m:${r.toString().padStart(2, '0')}"
 }
 val SimState.rms: Double get() = 0.48 + sin(t / 7.0) * 0.04
+val SimState.guideStarSnr: Double get() = 38.0 + sin(t / 11.0) * 4.0
 val SimState.fNow: Double get() = 0.485 + t / 9000.0
+
+/** Minutes until the next scheduled autofocus — real countdown off [afRefocusMin] and the last run's timestamp. */
+val SimState.focusNextAfMin: Int get() = (afRefocusMin - (t - focusLastAfAt) / 60).coerceAtLeast(0)
+
+/** Live EAF focuser temperature — reads the user's own edits first, falls back to the driver fixture default. */
+val SimState.eafTemp: Double get() = indiNumber("EAF", "FOCUS_TEMPERATURE") ?: -0.6
 val SimState.paTotal: Double get() = hypot(paAlt, paAz)
 val SimState.coolAtSetPoint: Boolean get() = abs(coolNow - coolTarget) < 0.2
 val SimState.coolBarPct: Int get() {
