@@ -219,17 +219,26 @@ app/
   src/main/java/com/nocturne/
     transport/     EkosRemoteClient, MessageChannel, ConnectionState — built (M2)
                    MediaChannel — stub only, TODO("M4")
-    protocol/      Envelope, Commands, EkosEvent, EkosEventCodec — built (M2)
+    protocol/      Envelope, Commands, EkosEvent, EkosEventCodec — built (M2),
+                   extended (M3) with Profiles/Devices/DeviceProperty(ies)/
+                   Trains/AstroSearchResult/AstroObjectsInfo/
+                   AstroObjectsRiseset/SchedulerJobs + the WireProperty/
+                   WireProfile/WireDevice/WireTrain/WireAstroObject/
+                   WireRiseset/WireSchedulerJob shapes and DeviceRole bitmask
     session/       SessionController, AbstractLocalSessionController (shared
                    pure-local-state base), SimulatedController,
-                   EkosRemoteController — built (M2)
+                   EkosRemoteController — built (M2); M3 adds EsqWriter.kt
+                   (pure `.esq` XML serializer) and gives EkosRemoteController
+                   its first dozen real command-sending overrides
     ui/            theme/ (tokens), nav/, session/, plan/, sequence/, frames/,
                    gear/, connect/ (ConnectScreen — M2), sheets/ (guide, focus,
                    alerts, prefs, setup, bench, pa, device, summary),
                    components/ (charts, cards, chips)
     data/          ConnectionSettings/ConnectionRepository (DataStore Preferences)
                    — built (M2). Room (frames, session log) — not started.
-  src/test/java/   transport+codec tests, simulator determinism tests — not started
+  src/test/java/   transport+codec tests, EsqWriter round-trip test,
+                   simulator determinism tests — not started (no test source
+                   set/JUnit dependency exists in this repo yet as of M3)
 ```
 
 ## 7. Milestones
@@ -326,7 +335,58 @@ of `SimulatedController`:**
   relocation only, no behavior change); `get_profiles`/`get_devices` typed
   models (decoded as `Raw`, ignored — M3's job).
 
-**Not started:** M3, M4.
+**M3 — done, scoped per the milestone table's exit criteria ("Plan +
+Sequence tabs operate real Ekos end-to-end"):**
+
+- `EkosRemoteController` sends its first real wire commands — 12 methods now
+  override their `AbstractLocalSessionController` inherited no-op, each
+  still following the optimistic-local-then-reconcile pattern §8 requires
+  (there's no reply to await; every send is followed by the same local
+  `_state.update` the simulator would make, reconciled silently against
+  whatever push/`get_*` reply lands later).
+- **Devices/property sheets** (`toggleDevice`, `setIndiSwitch/Number/Text`):
+  `get_devices`' real `interface` bitmask is bucketed into `DeviceRole` (§8's
+  M1 catalog-scale warning, now acted on) — Gear tab lists real devices
+  instead of the fixed 9-category `DEVICES` catalog when connected.
+  `device_get` (non-compact, real bounds) seeds `indiProps` per connected
+  device, `device_property_subscribe` keeps it live; `IndiPropertyPanel`
+  needed zero changes (already generically shape-driven, per §8's own past
+  instruction). `SimulatedController`'s fixture catalog/`DRIVER_INDI_PROPS`
+  are untouched, still the demo's only data source.
+- **Profiles + Optical Train**: `RigProfile` shrinks to what a real Ekos
+  Profile is (name + driver selection) — `opticMm`/`guideOpticMm` moved onto
+  `TrainAssignment.scope`/`.reducer`, matching real `train_get_all`.
+  `startProfile`/`stopProfile`/`finishSetup`/`deleteProfile` send
+  `profile_start`/`stop`/`add`/`update`/`delete`; the documented silent
+  refusal (deleting `"Simulators"` or the active profile) is detected by
+  diffing the next `get_profiles` push and surfaced in the UI, not silently
+  swallowed. Added the missing `ADAPTIVE_OPTICS` train role.
+- **Plan tab**: search bar/chips drive `astro_search_objects` →
+  `astro_get_objects_info`/`astro_get_objects_riseset`. Discovered mid-build:
+  the command has no free-text field at all (only `type`/`direction`/
+  `maxMagnitude`/`minAlt`/`minDuration`/`minFOV`) — the typed query is
+  applied client-side against the returned name list instead. `type` is
+  also single-valued server-side, so the "Narrowband" chip (locally "any of
+  Ha/SHO/OIII") only approximates to one `SkyObject::TYPE`.
+- **Sequence tab**: `toggleJobRun` on a not-yet-synced job writes a real
+  `.esq` (new `EsqWriter`), points the Scheduler's form at it
+  (`scheduler_set_all_settings`, minimum viable field set — not the full
+  ~40-field form), `scheduler_add_jobs`, then `scheduler_get_jobs` to
+  confirm + capture `wireIndex` (matched by the `nameEdit` string sent,
+  since add has no direct reply). The block editor locks while `synced`;
+  stopping removes the job from the real Scheduler and unlocks it again —
+  there's no edit-a-synced-job wire primitive, so stop→edit→restart-fresh
+  is the only path. Per-block progress is approximated by waterfall-filling
+  a busy job's `completedCount` across its blocks (real per-block progress
+  needs `capture_get_sequences`, still undocumented — see §8).
+- **Explicitly deferred, matching the milestone table's split with M4**:
+  `capture_get_sequences`-based real per-sub progress; `scheduler_set_all_settings`'s
+  full form beyond the minimum set; mDNS (still N/A, per M2); the Media
+  channel (still M4); an automated test suite (no JUnit/test source set
+  exists in this repo yet — flagged, not silently added, since M1/M2 also
+  shipped without one).
+
+**Not started:** M4.
 
 ## 8. Risks & decisions to confirm
 
@@ -462,3 +522,51 @@ of `SimulatedController`:**
      what it is — M1 fixture data proving the panel *rendering* code works —
      and delete it once real `device_get` responses replace it, don't keep
      extending it toward "eventually cover everything."
+     **Done in M3** — `get_devices`' `interface` bitmask decodes via
+     `DeviceRole`/`bitmaskToRoles` (`protocol/EkosEvent.kt`), confirmed
+     against `~/cc/repo/indi/libs/indidevice/basedevice.h`, not assumed;
+     `DRIVER_INDI_PROPS`/`DEVICES` are kept exactly as-is but now
+     exclusively as `SimulatedController`'s fixture data source, never read
+     by `EkosRemoteController`.
+- **`.esq` sequence-file schema — confirmed against real source, not
+  guessed (M3).** `EkosRemote-Command-Reference.md` documents every
+  `scheduler_*`/`device_*` command's JSON shape but explicitly leaves the
+  `.esq` XML itself unresearched (§ above, carried over from the M2 planning
+  pass). Confirmed by reading `kstars/ekos/capture/sequencequeue.cpp`
+  (`SequenceQueue::load`/`save`, format version 2.6) and `sequencejob.cpp`
+  (`SequenceJob`'s per-`<Job>` field parser) directly, plus diffing against
+  the real `Tests/ekos/scheduler/9filters.esq` fixture. Key finding: every
+  per-Job field is its own independent optional `else if` in the parser — an
+  absent field just keeps the constructor default, not an error — so
+  `EsqWriter` only writes fields Nocturne has real data for and omits the
+  rest (`FITSDirectory`/`HFRCheck`/`Frame`/`Temperature`/`PlaceholderSuffix`)
+  rather than writing a guessed or blank value for them.
+- **Profile vs Optical Train split (M3, user-decided).** A real Ekos
+  `ProfileInfo` (`get_profiles`/`profile_add`, verified schema) is only
+  name + driver selection + connection mode — it carries no optics at all.
+  Nocturne's M1/M2 `RigProfile` had bolted `opticMm`/`guideOpticMm` onto it
+  anyway (there was nowhere else to put them yet). M3 moves both onto the
+  already-existing `TrainAssignment.scope`/`.reducer` fields, which do match
+  the real `train_get_all` shape (`scope`, `reducer` are real per-train
+  fields) — chosen over inventing a new concept because the Optical Train
+  model already existed and already had the right shape, it just wasn't
+  wired to focal length/aperture yet.
+- **Job edit lock (M3, user-decided).** Once a `SequenceJob` is `synced` to
+  the real Scheduler, its block editor goes read-only — matches real Ekos,
+  which has no live-edit-a-running-job wire primitive either (only
+  add-from-current-form-state + remove-by-index exist). Stopping the job
+  removes it from the real Scheduler and clears `synced` locally, which is
+  the only way to "edit" it again — stop, edit, restart fresh (re-syncs from
+  scratch, doesn't try to patch the old entry). Deliberately keyed off
+  `synced`, not `running` — `SimulatedController`'s demo job ships with
+  `running = true` by default and must never lock, since `synced` stays
+  `false` forever there.
+- **`doneCount`/per-block progress is an approximation pending
+  `capture_get_sequences` (M3, accepted gap).** `scheduler_get_jobs`'
+  `completedCount` is a per-job total (subs done across the *whole*
+  sequence), not per-block — Nocturne waterfall-fills it across a job's
+  blocks in declaration order (fill block 1 to its `subCount`, spill the
+  remainder into block 2, etc.) to show forward progress without inventing
+  data. Real per-block progress needs `capture_get_sequences`, which the M2
+  codebase survey already flagged as having an undocumented reply shape —
+  still true, still deferred.
