@@ -1,6 +1,9 @@
 package com.nocturne.ui.session
 
 import android.app.Application
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.nocturne.data.ConnectionRepository
@@ -44,9 +47,12 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
     private val _connectionMode = MutableStateFlow<ConnectionMode>(ConnectionMode.NeedsConnect)
     val connectionMode: StateFlow<ConnectionMode> = _connectionMode.asStateFlow()
 
-    var savedHost: String? = null
+    // Compose State, not a plain var — ConnectScreen composes off ConnectionMode alone (which
+    // is already NeedsConnect at construction, before repo.current() resolves), so a plain var
+    // set later inside init's coroutine would never trigger a recomposition to pick it up.
+    var savedHost: String? by mutableStateOf(null)
         private set
-    var savedPort: Int = 9000
+    var savedPort: Int by mutableStateOf(9000)
         private set
 
     init {

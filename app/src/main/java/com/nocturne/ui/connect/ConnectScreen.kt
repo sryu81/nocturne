@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.clickable
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,8 +50,16 @@ fun ConnectScreen(
 ) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
-    var host by remember { mutableStateOf(savedHost ?: "") }
-    var portText by remember { mutableStateOf(savedPort.toString()) }
+    var host by remember { mutableStateOf("") }
+    var portText by remember { mutableStateOf("") }
+    // savedHost/savedPort resolve asynchronously (a DataStore read in SessionViewModel.init) —
+    // this composable can render its first frame before that finishes, so `remember`'s
+    // initializer above would latch onto "" permanently. Backfill once savedHost arrives,
+    // but only if the user hasn't already started typing in the meantime.
+    LaunchedEffect(savedHost, savedPort) {
+        if (host.isEmpty()) savedHost?.let { host = it }
+        if (portText.isEmpty()) portText = savedPort.toString()
+    }
 
     val connecting = status.state == ConnectionState.CONNECTING || status.state == ConnectionState.SOCKET_OPEN
 
