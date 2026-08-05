@@ -7,6 +7,7 @@ import com.nocturne.protocol.WireDevice
 import com.nocturne.protocol.WireProfile
 import com.nocturne.protocol.WireProperty
 import com.nocturne.protocol.WireRiseset
+import com.nocturne.protocol.SchedulerJobStatus
 import com.nocturne.protocol.bitmaskToRoles
 import com.nocturne.transport.EkosRemoteClient
 import kotlinx.coroutines.CoroutineScope
@@ -48,6 +49,16 @@ class EkosRemoteController(
     private var lastAstroObjects: List<WireAstroObject> = emptyList()
     private var lastRiseset: List<WireRiseset> = emptyList()
     private var pendingSearchQuery: String = ""
+
+    /**
+     * Job/target name a `scheduler_add_jobs` sync was just sent for (M3 §5)
+     * — matched against the next `scheduler_get_jobs` reply's `name` field
+     * (the same string sent as `nameEdit`) to capture the new job's real
+     * `wireIndex` and flip `synced`. There's no other correlation available
+     * — `scheduler_add_jobs` has no direct reply of its own.
+     */
+    private var pendingSyncJobId: String? = null
+    private var pendingSyncName: String? = null
 
     init {
         scope.launch {
@@ -93,7 +104,7 @@ class EkosRemoteController(
             )
         }
         is EkosEvent.Trains -> s.copy(wireTrains = event.trains)
-        is EkosEvent.SchedulerJobs -> s
+        is EkosEvent.SchedulerJobs -> applySchedulerJobs(s, event)
 
         // A fresh astro_search_objects reply clears prior results (loading state) — the
         // follow-up astro_get_objects_info/riseset calls (sendFollowUpCommands below)
@@ -118,6 +129,51 @@ class EkosRemoteController(
 
     private fun buildSearchResults(): List<Target> =
         lastAstroObjects.map { it.toTarget(lastRiseset.firstOrNull { rs -> rs.name == it.name }) }
+
+    /**
+     * `scheduler_get_jobs` reply — always stored as-is, plus two derived effects:
+     * 1. If a sync is pending ([pendingSyncJobId]), find the just-added job by
+     *    the `nameEdit` we sent (matching [WireSchedulerJob.name]) and capture
+     *    its `wireIndex`, flipping `synced = true`.
+     * 2. Whichever synced job is currently `SCHEDJOB_BUSY` gets its blocks'
+     *    `doneCount` approximated from the wire job's `completedCount` — a
+     *    per-job total, not per-block, so it's waterfall-filled across blocks
+     *    in order (real per-block progress needs `capture_get_sequences`,
+     *    undocumented shape, deferred past M3 — see plan §"Protocol facts").
+     */
+    private fun applySchedulerJobs(s: SimState, event: EkosEvent.SchedulerJobs): SimState {
+        var next = s.copy(wireSchedulerJobs = event.jobs)
+
+        val syncJobId = pendingSyncJobId
+        val syncName = pendingSyncName
+        if (syncJobId != null && syncName != null) {
+            val idx = event.jobs.indexOfLast { it.name == syncName }
+            if (idx >= 0) {
+                next = next.mapJob(syncJobId) { it.copy(synced = true, wireIndex = idx) }
+                pendingSyncJobId = null
+                pendingSyncName = null
+            }
+        }
+
+        val busyIndex = event.jobs.indexOfFirst { it.state == SchedulerJobStatus.BUSY }
+        if (busyIndex >= 0) {
+            val busyJobId = next.jobs.firstOrNull { it.wireIndex == busyIndex }?.id
+            if (busyJobId != null) {
+                val completed = event.jobs[busyIndex].completedCount
+                next = next.mapJob(busyJobId) { it.copy(blocks = distributeCompleted(it.blocks, completed)) }
+            }
+        }
+        return next
+    }
+
+    private fun distributeCompleted(blocks: List<Block>, completed: Int): List<Block> {
+        var remaining = completed
+        return blocks.map { b ->
+            val done = minOf(b.subCount, remaining).coerceAtLeast(0)
+            remaining = (remaining - done).coerceAtLeast(0)
+            b.copy(doneCount = done)
+        }
+    }
 
     /**
      * Side effects that follow a push rather than mutate [SimState] directly
@@ -320,6 +376,59 @@ class EkosRemoteController(
             put("minDuration", if (s.chips.contains(0)) 3600 else 0)
             put("minFOV", if (s.chips.contains(3)) 1.0 else 0.0)
         })
+    }
+
+    // ── Sequence tab — Scheduler + .esq (M3 §5) ─────────────────────────
+
+    /**
+     * Real Ekos has no "edit a synced job" wire primitive — `scheduler_add_jobs`
+     * only ever adds from the Scheduler's current form state, there's no
+     * update. So: starting a not-yet-synced job writes its `.esq`, points the
+     * Scheduler's form at it, and adds it (`synced` flips true once
+     * `scheduler_get_jobs` confirms it — see [applySchedulerJobs]). Stopping a
+     * synced job removes it from the real Scheduler entirely and clears
+     * `synced`/`wireIndex` locally, unlocking the block editor again — the
+     * only way to "edit" a synced job is stop, edit, restart fresh.
+     */
+    override fun toggleJobRun(jobId: String) {
+        val job = _state.value.jobs.firstOrNull { it.id == jobId } ?: return
+        if (job.running) {
+            if (job.synced && job.wireIndex != null) {
+                client.sendCommand(Commands.SCHEDULER_REMOVE_JOBS, buildJsonObject { put("index", job.wireIndex) })
+            }
+            super.toggleJobRun(jobId)
+            update { s -> s.mapJob(jobId) { it.copy(synced = false, wireIndex = null) } }
+            return
+        }
+
+        val s = _state.value
+        val target = s.findTarget(job.targetId)
+        val targetName = target?.common ?: target?.id ?: job.targetId
+        val path = "nocturne_$jobId.esq"
+        client.sendCommand(Commands.SCHEDULER_SAVE_SEQUENCE_FILE, buildJsonObject {
+            put("filedata", EsqWriter.write(job, targetName, s.afRefocusMin, s.afTempDeltaC))
+            put("path", path)
+        })
+        // Minimum viable field set (plan §"Protocol facts") — not the full ~40-field scheduler form.
+        client.sendCommand(Commands.SCHEDULER_SET_ALL_SETTINGS, buildJsonObject {
+            put("nameEdit", targetName)
+            put("sequenceEdit", path)
+            put("startupTimeConditionR", 0) // ASAP
+            put("schedulerAltitude", false)
+        })
+        client.sendCommand(Commands.SCHEDULER_ADD_JOBS)
+        pendingSyncJobId = jobId
+        pendingSyncName = targetName
+        client.sendCommand(Commands.SCHEDULER_GET_JOBS) // confirms + captures wireIndex, see applySchedulerJobs
+        super.toggleJobRun(jobId) // optimistic running=true; synced flips true once the reply above lands
+    }
+
+    override fun removeJob(jobId: String) {
+        val job = _state.value.jobs.firstOrNull { it.id == jobId }
+        if (job?.synced == true && job.wireIndex != null) {
+            client.sendCommand(Commands.SCHEDULER_REMOVE_JOBS, buildJsonObject { put("index", job.wireIndex) })
+        }
+        super.removeJob(jobId)
     }
 }
 

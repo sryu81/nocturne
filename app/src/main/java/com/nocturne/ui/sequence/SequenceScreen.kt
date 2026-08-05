@@ -23,6 +23,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
@@ -168,19 +169,27 @@ private fun JobDetailScreen(
             TabItem(full = true) { JobDetailHeader(state, job, onBack = ctrl::closeJob) },
             TabItem(full = true) { BlocksList(state, ctrl, job) },
             TabItem(full = true) {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(42.dp)
-                        .border(1.dp, Color(0xFFE9E9ED).copy(alpha = 0.2f), RoundedCornerShape(10.dp))
-                        .clickable { ctrl.addBlock(job.id) }
-                        .padding(horizontal = 12.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Phosphor.Icon(Phosphor.Plus, size = 15.dp, tint = NocturneTheme.colors.textMuted)
-                        Spacer(Modifier.width(8.dp))
-                        TextC("Add block", style = NocturneTheme.type.Button12, color = NocturneTheme.colors.textMuted)
+                if (job.synced) {
+                    TextC(
+                        "Synced to Ekos Scheduler — stop the sequence to edit blocks again",
+                        style = NocturneTheme.type.MonoMicro, color = NocturneTheme.colors.textFaint,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    )
+                } else {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(42.dp)
+                            .border(1.dp, Color(0xFFE9E9ED).copy(alpha = 0.2f), RoundedCornerShape(10.dp))
+                            .clickable { ctrl.addBlock(job.id) }
+                            .padding(horizontal = 12.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Phosphor.Icon(Phosphor.Plus, size = 15.dp, tint = NocturneTheme.colors.textMuted)
+                            Spacer(Modifier.width(8.dp))
+                            TextC("Add block", style = NocturneTheme.type.Button12, color = NocturneTheme.colors.textMuted)
+                        }
                     }
                 }
             },
@@ -284,6 +293,7 @@ private fun BlocksList(state: SimState, ctrl: SessionController, job: SequenceJo
     var dragOffset by remember { mutableStateOf(0f) }
     val heights = remember { mutableStateMapOf<String, Int>() }
 
+    val locked = job.synced
     Column(Modifier.fillMaxWidth()) {
         job.blocks.forEach { b ->
             val isDragging = b.id == draggingId
@@ -291,6 +301,7 @@ private fun BlocksList(state: SimState, ctrl: SessionController, job: SequenceJo
                 block = b,
                 open = state.openBlockId == b.id,
                 canRemove = job.blocks.size > 1,
+                locked = locked,
                 onToggle = { ctrl.toggleBlock(job.id, b.id) },
                 onRemove = { ctrl.removeBlock(job.id, b.id) },
                 ctrl = ctrl,
@@ -301,7 +312,7 @@ private fun BlocksList(state: SimState, ctrl: SessionController, job: SequenceJo
                     .onGloballyPositioned { heights[b.id] = it.size.height }
                     .zIndex(if (isDragging) 1f else 0f)
                     .graphicsLayer { translationY = if (isDragging) dragOffset else 0f },
-                dragModifier = Modifier.pointerInput(b.id) {
+                dragModifier = if (locked) Modifier else Modifier.pointerInput(b.id) {
                     detectDragGestures(
                         onDragStart = { draggingId = b.id; dragOffset = 0f },
                         onDragEnd = { draggingId = null; dragOffset = 0f },
@@ -338,6 +349,7 @@ private fun BlockCard(
     block: Block,
     open: Boolean,
     canRemove: Boolean,
+    locked: Boolean,
     onToggle: () -> Unit,
     onRemove: () -> Unit,
     ctrl: SessionController,
@@ -359,7 +371,7 @@ private fun BlockCard(
                     .then(dragModifier),
                 contentAlignment = Alignment.Center,
             ) {
-                Phosphor.Icon(Phosphor.DotsSixVertical, size = 17.dp, tint = c.neutral700)
+                Phosphor.Icon(Phosphor.DotsSixVertical, size = 17.dp, tint = if (locked) c.neutral700.copy(alpha = 0.3f) else c.neutral700)
             }
             Spacer(Modifier.width(5.dp))
             Box(
@@ -371,7 +383,7 @@ private fun BlockCard(
                         RoundedCornerShape(6.dp),
                     )
                     .border(1.dp, if (first) c.accent.copy(alpha = 0.6f) else c.divider, RoundedCornerShape(6.dp))
-                    .clickable { ctrl.cycleBlockFilter(jobId, block.id) }
+                    .then(if (locked) Modifier else Modifier.clickable { ctrl.cycleBlockFilter(jobId, block.id) })
                     .padding(horizontal = 10.dp),
                 contentAlignment = Alignment.Center,
             ) {
@@ -382,7 +394,7 @@ private fun BlockCard(
                 TextC(block.spec, style = t.Mono14, color = c.text)
                 TextC(block.meta, style = t.MonoMicro, color = c.textFaint)
             }
-            if (canRemove) {
+            if (canRemove && !locked) {
                 Box(
                     Modifier
                         .width(30.dp)
@@ -421,25 +433,32 @@ private fun BlockCard(
             Spacer(Modifier.height(9.dp))
             HDivider()
             Spacer(Modifier.height(9.dp))
-            BlockDetails(block, ctrl, jobId, autofocusRule, onOpenAutofocusRules)
+            BlockDetails(block, ctrl, jobId, autofocusRule, onOpenAutofocusRules, locked)
         }
     }
 }
 
+/**
+ * `locked` (M3, `job.synced`) — once a job is synced to the real Scheduler
+ * there's no live-edit-a-running-job wire primitive, so every mutating
+ * control here becomes a no-op and dims; stop the sequence to unlock it
+ * again (`EkosRemoteController.toggleJobRun` clears `synced` on stop).
+ */
 @Composable
-private fun BlockDetails(block: Block, ctrl: SessionController, jobId: String, autofocusRule: String, onOpenAutofocusRules: () -> Unit) {
+private fun BlockDetails(block: Block, ctrl: SessionController, jobId: String, autofocusRule: String, onOpenAutofocusRules: () -> Unit, locked: Boolean = false) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
+    Column(Modifier.then(if (locked) Modifier.alpha(0.45f) else Modifier)) {
     Row(Modifier.fillMaxWidth()) {
-        NumberField("EXPOSURE", block.exposureSec, "s", Modifier.weight(1f)) { ctrl.setBlockExposure(jobId, block.id, it) }
+        NumberField("EXPOSURE", block.exposureSec, "s", Modifier.weight(1f)) { if (!locked) ctrl.setBlockExposure(jobId, block.id, it) }
         Spacer(Modifier.width(8.4.dp))
-        NumberField("SUBS", block.subCount, "×", Modifier.weight(1f)) { ctrl.setBlockSubCount(jobId, block.id, it) }
+        NumberField("SUBS", block.subCount, "×", Modifier.weight(1f)) { if (!locked) ctrl.setBlockSubCount(jobId, block.id, it) }
     }
     Spacer(Modifier.height(8.4.dp))
     Row(Modifier.fillMaxWidth()) {
-        NumberField("GAIN", block.gain, "", Modifier.weight(1f)) { ctrl.setBlockGain(jobId, block.id, it) }
+        NumberField("GAIN", block.gain, "", Modifier.weight(1f)) { if (!locked) ctrl.setBlockGain(jobId, block.id, it) }
         Spacer(Modifier.width(8.4.dp))
-        NumberField("OFFSET", block.offset, "", Modifier.weight(1f)) { ctrl.setBlockOffset(jobId, block.id, it) }
+        NumberField("OFFSET", block.offset, "", Modifier.weight(1f)) { if (!locked) ctrl.setBlockOffset(jobId, block.id, it) }
     }
     Spacer(Modifier.height(8.4.dp))
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -448,7 +467,7 @@ private fun BlockDetails(block: Block, ctrl: SessionController, jobId: String, a
             options = BINNING_OPTIONS,
             selected = block.binning,
             labelOf = { "${it}×$it" },
-            onSelect = { ctrl.setBlockBinning(jobId, block.id, it) },
+            onSelect = { if (!locked) ctrl.setBlockBinning(jobId, block.id, it) },
         )
     }
     Spacer(Modifier.height(8.4.dp))
@@ -458,7 +477,7 @@ private fun BlockDetails(block: Block, ctrl: SessionController, jobId: String, a
             options = DITHER_OPTIONS,
             selected = block.ditherEvery,
             labelOf = { it.toString() },
-            onSelect = { ctrl.setBlockDither(jobId, block.id, it) },
+            onSelect = { if (!locked) ctrl.setBlockDither(jobId, block.id, it) },
         )
     }
     Spacer(Modifier.height(8.4.dp))
@@ -466,7 +485,7 @@ private fun BlockDetails(block: Block, ctrl: SessionController, jobId: String, a
         label = "Force autofocus at block start",
         sub = "in addition to the global rule below",
         checked = block.forceAfOnStart,
-        onToggle = { ctrl.toggleBlockForceAf(jobId, block.id) },
+        onToggle = { if (!locked) ctrl.toggleBlockForceAf(jobId, block.id) },
     )
     Spacer(Modifier.height(8.4.dp))
     Row(
@@ -479,6 +498,7 @@ private fun BlockDetails(block: Block, ctrl: SessionController, jobId: String, a
         TextC(autofocusRule, style = t.Mono14, color = c.textMuted)
         Spacer(Modifier.width(6.dp))
         Phosphor.Icon(Phosphor.CaretRight, size = 12.dp, tint = c.neutral700)
+    }
     }
 }
 
