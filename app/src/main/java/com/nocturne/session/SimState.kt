@@ -1,6 +1,8 @@
 package com.nocturne.session
 
 import com.nocturne.protocol.DeviceRole
+import com.nocturne.protocol.WireSchedulerJob
+import com.nocturne.protocol.WireTrain
 import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.hypot
@@ -155,6 +157,25 @@ data class SimState(
      * this, same discipline as every other wire-mirror field above.
      */
     val wireDevices: List<LiveDevice>? = null,
+    /** `train_get_all` translated (M3) — read by `OpticalTrainCard` when present instead of [trainRolePool]. */
+    val wireTrains: List<WireTrain>? = null,
+    /**
+     * Name of a `profile_delete` that came back refused (M3) — real Ekos
+     * silently refuses to delete `"Simulators"` or the active profile, with
+     * no error sent; [EkosRemoteController] detects this by diffing the next
+     * `get_profiles` push against the pre-delete list, and surfaces it here
+     * rather than leaving the UI to silently do nothing.
+     */
+    val profileDeleteRefused: String? = null,
+    /**
+     * `astro_search_objects` → `astro_get_objects_info`/`astro_get_objects_riseset`
+     * pipeline result (M3) — read by `PlanScreen`'s `matches` instead of
+     * filtering the fixture [TARGETS] list when non-null. Null = no search
+     * run yet (or [SimulatedController], which never touches this).
+     */
+    val wireSearchResults: List<Target>? = null,
+    /** `scheduler_get_jobs` translated (M3) — cross-referenced for progress; see [SequenceJob.synced]. */
+    val wireSchedulerJobs: List<WireSchedulerJob>? = null,
 )
 
 /** One `get_devices` entry, decoded to the roles its `interface` bitmask ORs together. */
@@ -183,6 +204,16 @@ data class Target(
     val usable: String? = null,
     val fov: Int? = null,
     val custom: Boolean = false,
+    /**
+     * Resolved J2000 coords/magnitude (M3) — populated only for
+     * [SimState.wireSearchResults] entries (from `astro_get_objects_info`),
+     * carried through to [addToSequence]/`SequenceJob.targetRA/DEC`. Null for
+     * every fixture/user-catalogue target, which never resolves against the
+     * real astro engine.
+     */
+    val ra0: Double? = null,
+    val de0: Double? = null,
+    val magnitude: Double? = null,
 )
 
 /** Well-known catalog — read-only, bundled with the app. Kept at 10 fixture entries for M1. */
@@ -241,19 +272,23 @@ fun guideOpticNote(focalMm: Int): String {
     return "${"%.2f".format(px)} ″/px · ${"%.1f".format(fovW)}° × ${"%.1f".format(fovH)}° FOV"
 }
 
-/** A saved equipment profile (`get_profiles`/`profile_add` per the wire protocol). */
+/**
+ * A saved equipment profile (`get_profiles`/`profile_add` per the wire
+ * protocol) — what a real Ekos Profile actually is: name + driver selection
+ * + connection mode. Focal length/aperture (`opticMm`/`guideOpticMm`, M1/M2)
+ * moved to [TrainAssignment.scope]/[TrainAssignment.reducer] (M3) — a real
+ * Profile carries no optics, that's the Optical Train's job.
+ */
 data class RigProfile(
     val name: String,
-    val opticMm: Int,
-    val guideOpticMm: Int,
     val deviceKeys: List<String>,
 )
 
 val DEFAULT_PROFILES = listOf(
-    RigProfile("Field · 550 mm", 550, 240, listOf("mount", "cam", "efw", "guide", "focus", "rotator", "weather")),
-    RigProfile("Wide field · 250 mm", 250, 240, listOf("mount", "cam", "efw", "focus", "weather")),
-    RigProfile("RC8 imaging · 1000 mm", 1000, 550, listOf("mount", "cam", "efw", "guide", "focus", "rotator", "weather")),
-    RigProfile("Bench test · 550 mm", 550, 240, listOf("mount", "cam")),
+    RigProfile("Field · 550 mm", listOf("mount", "cam", "efw", "guide", "focus", "rotator", "weather")),
+    RigProfile("Wide field · 250 mm", listOf("mount", "cam", "efw", "focus", "weather")),
+    RigProfile("RC8 imaging · 1000 mm", listOf("mount", "cam", "efw", "guide", "focus", "rotator", "weather")),
+    RigProfile("Bench test · 550 mm", listOf("mount", "cam")),
 )
 
 val SimState.activeRigProfile: RigProfile? get() = profiles.firstOrNull { it.name == activeProfile }
@@ -270,7 +305,7 @@ fun fRatio(focalMm: Int, apertureMm: Int): String =
 enum class TrainSlot { PRIMARY, SECONDARY }
 
 /** One assignable role within a train — everything but [TrainAssignment.reducer]. */
-enum class TrainRole { MOUNT, CAMERA, ROTATOR, GUIDE_VIA, DUST_CAP, SCOPE, FILTER_WHEEL, FOCUSER, LIGHT_BOX }
+enum class TrainRole { MOUNT, CAMERA, ROTATOR, GUIDE_VIA, DUST_CAP, SCOPE, FILTER_WHEEL, FOCUSER, LIGHT_BOX, ADAPTIVE_OPTICS }
 
 /**
  * One Optical Train's device-role assignments — mirrors `train_get_all`'s
@@ -292,6 +327,7 @@ data class TrainAssignment(
     val focuser: String = "EAF",
     val reducer: Double = 1.0,
     val lightBox: String = "None",
+    val adaptiveOptics: String = "None",
 )
 
 fun TrainAssignment.get(role: TrainRole): String = when (role) {
@@ -304,6 +340,7 @@ fun TrainAssignment.get(role: TrainRole): String = when (role) {
     TrainRole.FILTER_WHEEL -> filterWheel
     TrainRole.FOCUSER -> focuser
     TrainRole.LIGHT_BOX -> lightBox
+    TrainRole.ADAPTIVE_OPTICS -> adaptiveOptics
 }
 
 fun TrainAssignment.with(role: TrainRole, value: String): TrainAssignment = when (role) {
@@ -316,6 +353,7 @@ fun TrainAssignment.with(role: TrainRole, value: String): TrainAssignment = when
     TrainRole.FILTER_WHEEL -> copy(filterWheel = value)
     TrainRole.FOCUSER -> copy(focuser = value)
     TrainRole.LIGHT_BOX -> copy(lightBox = value)
+    TrainRole.ADAPTIVE_OPTICS -> copy(adaptiveOptics = value)
 }
 
 fun SimState.train(slot: TrainSlot): TrainAssignment = when (slot) {
@@ -328,22 +366,49 @@ fun SimState.withTrain(slot: TrainSlot, train: TrainAssignment): SimState = when
     TrainSlot.SECONDARY -> copy(secondaryTrain = train)
 }
 
+/** Which [DeviceRole] bit(s) a train role's real-device pool should draw from — [SCOPE] has none, it's the Scopes catalog, not a device. */
+private val TRAIN_ROLE_DEVICE_ROLES: Map<TrainRole, Set<DeviceRole>> = mapOf(
+    TrainRole.MOUNT to setOf(DeviceRole.TELESCOPE),
+    TrainRole.CAMERA to setOf(DeviceRole.CCD, DeviceRole.GUIDER),
+    TrainRole.ROTATOR to setOf(DeviceRole.ROTATOR),
+    TrainRole.GUIDE_VIA to setOf(DeviceRole.TELESCOPE),
+    TrainRole.DUST_CAP to setOf(DeviceRole.DUSTCAP),
+    TrainRole.FILTER_WHEEL to setOf(DeviceRole.FILTER),
+    TrainRole.FOCUSER to setOf(DeviceRole.FOCUSER),
+    TrainRole.LIGHT_BOX to setOf(DeviceRole.LIGHTBOX),
+    TrainRole.ADAPTIVE_OPTICS to setOf(DeviceRole.AO),
+)
+
 /**
- * Picker pool for one train role — sourced live from the rig profile's device/
- * scope category selections, per the design brief ("the dropdown list is from
- * the devices in the rig profile"). Dust cap/Light box have no backing
- * category, so they're always just "None".
+ * Picker pool for one train role. Real connection ([wireDevices] non-null):
+ * every connected device whose `interface` bitmask ORs in this role's
+ * [DeviceRole] — [TrainRole.SCOPE] has no device backing (it's the Scopes
+ * catalog, `get_scopes`/`scope_add`, not an INDI device) so it always falls
+ * through to the fixture pool below regardless of connection mode.
+ * [SimulatedController] pool (fixture): sourced from the rig profile's
+ * device/scope category selections, per the design brief ("the dropdown
+ * list is from the devices in the rig profile"). Dust cap/Light box/AO have
+ * no backing category there, so they're always just "None".
  */
-fun SimState.trainRolePool(role: TrainRole): List<String> = when (role) {
-    TrainRole.MOUNT -> listOfNotNull(selectedDeviceNames["mount"])
-    TrainRole.CAMERA -> listOfNotNull(selectedDeviceNames["cam"], selectedDeviceNames["guide"]).distinct()
-    TrainRole.ROTATOR -> (listOf("None") + listOfNotNull(selectedDeviceNames["rotator"])).distinct()
-    TrainRole.GUIDE_VIA -> (listOf("None") + listOfNotNull(selectedDeviceNames["mount"])).distinct()
-    TrainRole.DUST_CAP -> listOf("None")
-    TrainRole.SCOPE -> listOf(scopeName, guideScopeName).distinct()
-    TrainRole.FILTER_WHEEL -> (listOf("None") + listOfNotNull(selectedDeviceNames["efw"])).distinct()
-    TrainRole.FOCUSER -> (listOf("None") + listOfNotNull(selectedDeviceNames["focus"])).distinct()
-    TrainRole.LIGHT_BOX -> listOf("None")
+fun SimState.trainRolePool(role: TrainRole): List<String> {
+    val live = wireDevices
+    val deviceRoles = TRAIN_ROLE_DEVICE_ROLES[role]
+    if (live != null && deviceRoles != null) {
+        val names = live.filter { d -> d.roles.any { it in deviceRoles } }.map { it.name }
+        return if (role == TrainRole.MOUNT || role == TrainRole.CAMERA) names else (listOf("None") + names).distinct()
+    }
+    return when (role) {
+        TrainRole.MOUNT -> listOfNotNull(selectedDeviceNames["mount"])
+        TrainRole.CAMERA -> listOfNotNull(selectedDeviceNames["cam"], selectedDeviceNames["guide"]).distinct()
+        TrainRole.ROTATOR -> (listOf("None") + listOfNotNull(selectedDeviceNames["rotator"])).distinct()
+        TrainRole.GUIDE_VIA -> (listOf("None") + listOfNotNull(selectedDeviceNames["mount"])).distinct()
+        TrainRole.DUST_CAP -> listOf("None")
+        TrainRole.ADAPTIVE_OPTICS -> listOf("None")
+        TrainRole.SCOPE -> listOf(scopeName, guideScopeName).distinct()
+        TrainRole.FILTER_WHEEL -> (listOf("None") + listOfNotNull(selectedDeviceNames["efw"])).distinct()
+        TrainRole.FOCUSER -> (listOf("None") + listOfNotNull(selectedDeviceNames["focus"])).distinct()
+        TrainRole.LIGHT_BOX -> listOf("None")
+    }
 }
 
 /**
@@ -661,6 +726,16 @@ data class SequenceJob(
     val blocks: List<Block> = DEFAULT_BLOCKS,
     val blockSeq: Int = DEFAULT_BLOCKS.size + 1,
     val running: Boolean = false,
+    /**
+     * True once this job has been pushed to the real Scheduler (M3) —
+     * `scheduler_add_jobs` was sent and confirmed via a `scheduler_get_jobs`
+     * round-trip. The block editor goes read-only while true (matches real
+     * Ekos — there's no live-edit-a-running-job wire primitive). Stays
+     * `false` forever under [SimulatedController].
+     */
+    val synced: Boolean = false,
+    /** This job's index in the last `scheduler_get_jobs` reply — needed for `scheduler_remove_jobs {index}`. */
+    val wireIndex: Int? = null,
 )
 
 val DEFAULT_JOBS = listOf(

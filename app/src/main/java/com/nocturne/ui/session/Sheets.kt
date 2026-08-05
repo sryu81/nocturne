@@ -611,6 +611,7 @@ private val TRAIN_ROLE_LABELS = listOf(
     TrainRole.FILTER_WHEEL to "Filter wheel",
     TrainRole.FOCUSER to "Focuser",
     TrainRole.LIGHT_BOX to "Light box",
+    TrainRole.ADAPTIVE_OPTICS to "Adaptive optics",
 )
 
 @Composable

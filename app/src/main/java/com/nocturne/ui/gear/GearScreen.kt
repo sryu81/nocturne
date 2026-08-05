@@ -210,6 +210,13 @@ private fun RigProfileCard(state: SimState, ctrl: SessionController) {
                 }
                 Spacer(Modifier.height(6.dp))
             }
+            if (state.profileDeleteRefused != null) {
+                TextC(
+                    "Can't delete “${state.profileDeleteRefused}” — active or built-in profile",
+                    style = t.MonoMicro, color = c.danger,
+                )
+                Spacer(Modifier.height(6.dp))
+            }
             Row(
                 Modifier
                     .fillMaxWidth()

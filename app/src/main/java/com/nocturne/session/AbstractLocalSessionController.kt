@@ -294,8 +294,8 @@ abstract class AbstractLocalSessionController : SessionController {
     override fun setPaRate(index: Int) = update { it.copy(paRate = index) }
 
     override open fun startProfile(name: String) = update { s ->
-        val p = s.profiles.firstOrNull { it.name == name } ?: return@update s
-        s.copy(ekosRunning = true, activeProfile = name, selectedProfile = name, opticMm = p.opticMm, guideOpticMm = p.guideOpticMm)
+        if (s.profiles.none { it.name == name }) return@update s
+        s.copy(ekosRunning = true, activeProfile = name, selectedProfile = name)
     }
 
     override open fun stopProfile() = update { it.copy(ekosRunning = false, activeProfile = null) }
@@ -318,10 +318,7 @@ abstract class AbstractLocalSessionController : SessionController {
     override fun editProfile(name: String) = update { s ->
         if (s.ekosRunning) return@update s
         val p = s.profiles.firstOrNull { it.name == name } ?: return@update s
-        s.copy(
-            sheet = SheetType.SETUP, setupEditingName = name,
-            profileName = p.name, opticMm = p.opticMm, guideOpticMm = p.guideOpticMm,
-        )
+        s.copy(sheet = SheetType.SETUP, setupEditingName = name, profileName = p.name)
     }
 
     override fun setRotatorAngle(deg: Double) = update { it.copy(rotatorAngle = deg.mod(360.0)) }
@@ -358,12 +355,10 @@ abstract class AbstractLocalSessionController : SessionController {
     override fun setupBack() = update { it.copy(sheet = null) }
     override open fun finishSetup() = update { s ->
         val updatedProfiles = if (s.setupEditingName != null) {
-            s.profiles.map { p ->
-                if (p.name == s.setupEditingName) p.copy(name = s.profileName, opticMm = s.opticMm, guideOpticMm = s.guideOpticMm) else p
-            }
+            s.profiles.map { p -> if (p.name == s.setupEditingName) p.copy(name = s.profileName) else p }
         } else {
             val chosenKeys = DEVICES.filter { it.key !in s.devOff }.map { it.key }
-            s.profiles + RigProfile(s.profileName, s.opticMm, s.guideOpticMm, chosenKeys)
+            s.profiles + RigProfile(s.profileName, chosenKeys)
         }
         s.copy(
             sheet = null,

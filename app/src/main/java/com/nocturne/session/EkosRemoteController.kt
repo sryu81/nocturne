@@ -3,16 +3,19 @@ package com.nocturne.session
 import com.nocturne.protocol.Commands
 import com.nocturne.protocol.EkosEvent
 import com.nocturne.protocol.WireDevice
+import com.nocturne.protocol.WireProfile
 import com.nocturne.protocol.WireProperty
 import com.nocturne.protocol.bitmaskToRoles
 import com.nocturne.transport.EkosRemoteClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.putJsonObject
 
 /**
  * M3 session driver for a real EkosRemote connection. Runs no ticker — `t`
@@ -31,6 +34,9 @@ class EkosRemoteController(
     private val client: EkosRemoteClient,
     scope: CoroutineScope,
 ) : AbstractLocalSessionController() {
+
+    /** Name a `profile_delete` was just sent for — checked against the next [EkosEvent.Profiles]. */
+    private var pendingProfileDelete: String? = null
 
     init {
         scope.launch {
@@ -62,9 +68,20 @@ class EkosRemoteController(
         is EkosEvent.DeviceProperties -> event.properties.fold(s) { acc, prop -> acc.withProperty(event.device, prop) }
         is EkosEvent.DeviceProperty -> s.withProperty(event.property.device, event.property)
 
-        // M3 §3/§4/§5 — profiles/trains/scheduler/astro apply here next.
-        is EkosEvent.Profiles -> s
-        is EkosEvent.Trains -> s
+        // `state.profiles` is directly overwritten, not additive — get_profiles is always
+        // the authoritative full list (plan §3). Diffed against the *old* s.profiles (still
+        // pre-delete at this point) to catch profile_delete's documented silent refusal.
+        is EkosEvent.Profiles -> {
+            val attemptedDelete = pendingProfileDelete
+            pendingProfileDelete = null
+            val refused = attemptedDelete != null && event.profiles.any { it.name == attemptedDelete }
+            s.copy(
+                profiles = event.profiles.map { it.toRigProfile() },
+                selectedProfile = event.selectedProfile ?: s.selectedProfile,
+                profileDeleteRefused = if (refused) attemptedDelete else null,
+            )
+        }
+        is EkosEvent.Trains -> s.copy(wireTrains = event.trains)
         is EkosEvent.SchedulerJobs -> s
         is EkosEvent.AstroSearchResult -> s
         is EkosEvent.AstroObjectsInfo -> s
@@ -153,7 +170,104 @@ class EkosRemoteController(
     private inline fun <reified T : IndiProperty> currentIndiProp(deviceKey: String, propName: String): T? =
         (_state.value.indiProps[deviceKey] ?: DRIVER_INDI_PROPS[deviceKey] ?: emptyList())
             .firstOrNull { it.name == propName } as? T
+
+    // ── Profiles / Optical Train (M3 §3) ────────────────────────────────
+
+    override fun startProfile(name: String) {
+        client.sendCommand(Commands.PROFILE_START, buildJsonObject { put("name", name) })
+        super.startProfile(name) // optimistic; new_connection_state.online is the real confirmation
+    }
+
+    override fun stopProfile() {
+        client.sendCommand(Commands.PROFILE_STOP)
+        super.stopProfile()
+    }
+
+    override fun deleteProfile(name: String) {
+        pendingProfileDelete = name
+        client.sendCommand(Commands.PROFILE_DELETE, buildJsonObject { put("name", name) })
+        // No optimistic local removal — get_profiles (always authoritative, see applyEvent)
+        // arrives moments later and is the only source of truth here either way.
+    }
+
+    override fun finishSetup() {
+        val s = _state.value
+        val drivers: Map<String, List<String>> = DEVICES.filter { it.key !in s.devOff }
+            .groupBy({ CATEGORY_TO_DRIVER_FAMILY[it.key] ?: "Aux" }, { s.selectedDeviceNames[it.key] ?: it.name })
+        val payload = buildJsonObject {
+            put("name", s.profileName)
+            put("auto_connect", true)
+            put("port_selector", false)
+            put("mode", "local")
+            put("use_web_manager", false)
+            put("guiding", 0)
+            putJsonObject("drivers") { drivers.forEach { (family, labels) -> putJsonArray(family) { labels.forEach { add(it) } } } }
+        }
+        client.sendCommand(if (s.setupEditingName != null) Commands.PROFILE_UPDATE else Commands.PROFILE_ADD, payload)
+        super.finishSetup() // optimistic; get_profiles auto-reply reconciles
+    }
+
+    override fun setTrainRole(slot: TrainSlot, role: TrainRole, value: String) {
+        super.setTrainRole(slot, role, value)
+        sendTrainUpdate(slot)
+    }
+
+    override fun setTrainReducer(slot: TrainSlot, value: Double) {
+        super.setTrainReducer(slot, value)
+        sendTrainUpdate(slot)
+    }
+
+    /**
+     * `train_add`/`train_update` payload shape is undocumented (plan §"Protocol
+     * facts") — sends every field `train_get_all` reports back, keyed by [id]
+     * when a matching real train is already known, else falls back to
+     * `train_add`. Either way a `train_get_all` auto-push reconciles whatever
+     * the server actually accepted.
+     */
+    private fun sendTrainUpdate(slot: TrainSlot) {
+        val s = _state.value
+        val t = s.train(slot)
+        val wireTrain = s.wireTrains?.getOrNull(if (slot == TrainSlot.PRIMARY) 0 else 1)
+        val payload = buildJsonObject {
+            wireTrain?.let { put("id", it.id) }
+            put("name", wireTrain?.name ?: if (slot == TrainSlot.PRIMARY) "Primary" else "Secondary")
+            put("mount", t.mount)
+            put("camera", t.camera)
+            put("guider", t.guideVia)
+            put("focuser", t.focuser)
+            put("filterwheel", t.filterWheel)
+            put("rotator", t.rotator)
+            put("reducer", t.reducer.toString())
+            put("dustcap", t.dustCap)
+            put("lightbox", t.lightBox)
+            put("scope", t.scope)
+            put("adaptiveoptics", t.adaptiveOptics)
+        }
+        client.sendCommand(if (wireTrain != null) Commands.TRAIN_UPDATE else Commands.TRAIN_ADD, payload)
+    }
 }
+
+/**
+ * `ProfileInfo.drivers` family keys (`EkosRemote-Command-Reference.md` §3
+ * confirms `"Telescopes"`/`"CCDs"`/`"Focusers"`/`"Filter Wheels"` only — the
+ * rest are this app's best-effort guess at the remaining `INDI::DriverInterface`
+ * family names Ekos's own driver-selection combo uses, unverified against
+ * source. `finishSetup`'s wire payload is fire-and-refresh either way
+ * (auto-replies with a fresh `get_profiles`), so a wrong family key here
+ * just means that device lands under "Aux" until corrected in real Ekos.
+ */
+private val CATEGORY_TO_DRIVER_FAMILY = mapOf(
+    "mount" to "Telescopes",
+    "cam" to "CCDs",
+    "guide" to "Guiders",
+    "efw" to "Filter Wheels",
+    "focus" to "Focusers",
+    "rotator" to "Rotators",
+    "dome" to "Domes",
+    "weather" to "Weather",
+)
+
+private fun WireProfile.toRigProfile() = RigProfile(name = name, deviceKeys = drivers.values.flatten())
 
 private fun WireDevice.toLiveDevice() = LiveDevice(name = name, connected = connected, roles = bitmaskToRoles(interfaceMask))
 
