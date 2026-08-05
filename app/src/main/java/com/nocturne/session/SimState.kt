@@ -1,5 +1,6 @@
 package com.nocturne.session
 
+import com.nocturne.protocol.DeviceRole
 import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.hypot
@@ -147,7 +148,17 @@ data class SimState(
     val wireGuideStatus: String? = null,
     val wireAlignStatus: String? = null,
     val wirePolarStage: String? = null,
+    /**
+     * `get_devices` translated to app-friendly shape — null until the first
+     * push arrives (still showing the fixture [DEVICES] catalog), populated
+     * only by [EkosRemoteController]. [SimulatedController] never touches
+     * this, same discipline as every other wire-mirror field above.
+     */
+    val wireDevices: List<LiveDevice>? = null,
 )
+
+/** One `get_devices` entry, decoded to the roles its `interface` bitmask ORs together. */
+data class LiveDevice(val name: String, val connected: Boolean, val roles: Set<DeviceRole>)
 
 // ── Catalog data (prototype script constants) ──────────────────────────────
 
@@ -411,16 +422,28 @@ sealed class IndiProperty {
         override val name: String, override val label: String, override val group: String,
         val options: List<String>,
         val selected: Int,
+        /**
+         * Real element name per option (M3) — defaults to [options] so all 19
+         * [DRIVER_INDI_PROPS] fixture entries keep compiling/rendering
+         * unchanged. A real device's `device_property_set` needs the actual
+         * INDI element name (`elementNames[index]`), which isn't always the
+         * same string as the display label.
+         */
+        val elementNames: List<String> = options,
     ) : IndiProperty()
 
     data class NumberProp(
         override val name: String, override val label: String, override val group: String,
         val value: Double, val min: Double, val max: Double, val step: Double, val format: String = "%.1f",
+        /** Real INDI element name within this vector (M3) — see [SwitchProp.elementNames]. */
+        val elementName: String = name,
     ) : IndiProperty()
 
     data class TextProp(
         override val name: String, override val label: String, override val group: String,
         val value: String,
+        /** Real INDI element name within this vector (M3) — see [SwitchProp.elementNames]. */
+        val elementName: String = name,
     ) : IndiProperty()
 
     /** Read-only — IPState per element: 0 Idle, 1 Ok, 2 Busy, 3 Alert. */

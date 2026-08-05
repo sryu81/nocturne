@@ -37,6 +37,7 @@ import com.nocturne.session.DEVICES
 import com.nocturne.session.DRIVER_INDI_PROPS
 import com.nocturne.session.Device
 import com.nocturne.session.IndiProperty
+import com.nocturne.session.LiveDevice
 import com.nocturne.session.PA_SECS
 import com.nocturne.session.PREF_DEFS
 import com.nocturne.session.SessionController
@@ -1228,6 +1229,11 @@ private fun PaDial(state: SimState) {
 
 @Composable
 private fun DeviceSheet(state: SimState, ctrl: SessionController) {
+    val live = state.wireDevices?.firstOrNull { it.name == state.deviceKey }
+    if (live != null) {
+        RealDeviceSheetBody(state, ctrl, live)
+        return
+    }
     val d = DEVICES.firstOrNull { it.key == state.deviceKey } ?: DEVICES[0]
     if (!state.ekosRunning) {
         DevicePickerBody(state, ctrl, d)
@@ -1288,6 +1294,44 @@ private fun DeviceSheet(state: SimState, ctrl: SessionController) {
         )
         val driverName = state.selectedDeviceNames[d.key] ?: d.name
         IndiPropertyPanel(deviceKey = driverName, props = state.indiProps[driverName] ?: DRIVER_INDI_PROPS[driverName] ?: emptyList(), ctrl = ctrl)
+    }
+}
+
+/**
+ * Real-connection device sheet (M3) — `state.wireDevices` present means a
+ * real EkosRemote link, so this shows the actual device's connect toggle +
+ * live INDI property panel instead of the fixture [Device] catalog's
+ * static `cfg` rows.
+ */
+@Composable
+private fun RealDeviceSheetBody(state: SimState, ctrl: SessionController, d: LiveDevice) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    Column {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .background(c.bg, RoundedCornerShape(4.dp))
+                .padding(11.2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(7.dp).background(if (d.connected) c.ok else c.textMuted, RoundedCornerShape(50)))
+            Spacer(Modifier.width(9.dp))
+            TextC(
+                if (d.connected) "connected" else "not connected",
+                style = t.MonoMid, color = if (d.connected) c.ok else c.textMuted,
+                modifier = Modifier.weight(1f),
+            )
+            TextC(d.roles.joinToString(" · ") { it.name.lowercase() }, style = t.MonoMicro, color = c.textFaint)
+        }
+        Spacer(Modifier.height(11.2.dp))
+        NocturneButton(
+            text = if (d.connected) "Disconnect" else "Connect",
+            onClick = { ctrl.toggleDevice(d.name) },
+            style = com.nocturne.ui.components.BtnStyle.OUTLINE,
+            modifier = Modifier.fillMaxWidth().height(44.dp),
+        )
+        IndiPropertyPanel(deviceKey = d.name, props = state.indiProps[d.name] ?: emptyList(), ctrl = ctrl)
     }
 }
 

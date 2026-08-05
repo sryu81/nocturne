@@ -20,7 +20,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import com.nocturne.protocol.DeviceRole
 import com.nocturne.session.DEVICES
+import com.nocturne.session.LiveDevice
 import com.nocturne.session.SessionController
 import com.nocturne.session.activeRigProfile
 import com.nocturne.session.SheetType
@@ -314,6 +316,12 @@ private fun DeviceList(state: SimState, ctrl: SessionController) {
         return
     }
 
+    val live = state.wireDevices
+    if (live != null) {
+        RealDeviceList(live, ctrl)
+        return
+    }
+
     val activeKeys = state.activeRigProfile?.deviceKeys ?: emptyList()
     val devices = DEVICES.filter { it.key in activeKeys }
     Column(
@@ -332,6 +340,42 @@ private fun DeviceList(state: SimState, ctrl: SessionController) {
                 stateColor = if (on) c.ok else if (d.req) c.danger else c.textFaint,
                 stateBg = if (on) c.ok.copy(alpha = 0.14f) else if (d.req) c.danger.copy(alpha = 0.16f) else c.divider.copy(alpha = 0.4f),
                 onClick = { ctrl.openDevice(d.key) },
+            )
+            if (i < devices.lastIndex) HDivider()
+        }
+    }
+}
+
+/** Real `get_devices` list (M3) — bucketed by [DeviceRole] icon instead of the fixed 9-category catalog. */
+private val ROLE_ICONS: Map<DeviceRole, ImageVector> = mapOf(
+    DeviceRole.TELESCOPE to Phosphor.CompassTool,
+    DeviceRole.CCD to Phosphor.Camera,
+    DeviceRole.GUIDER to Phosphor.CrosshairSimple,
+    DeviceRole.FOCUSER to Phosphor.ArrowsInLineHorizontal,
+    DeviceRole.FILTER to Phosphor.CirclesThree,
+    DeviceRole.DOME to Phosphor.Garage,
+    DeviceRole.WEATHER to Phosphor.CloudSun,
+    DeviceRole.ROTATOR to Phosphor.ArrowsClockwise,
+)
+
+@Composable
+private fun RealDeviceList(devices: List<LiveDevice>, ctrl: SessionController) {
+    val c = NocturneTheme.colors
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(c.surface, RoundedCornerShape(14.dp))
+            .border(1.dp, c.divider, RoundedCornerShape(14.dp)),
+    ) {
+        devices.forEachIndexed { i, d ->
+            DeviceRow(
+                icon = d.roles.firstNotNullOfOrNull { ROLE_ICONS[it] } ?: Phosphor.Plugs,
+                name = d.name,
+                detail = if (d.connected) d.roles.joinToString(" · ") { it.name.lowercase() } else "not connected",
+                state = if (d.connected) "LINKED" else "OFF",
+                stateColor = if (d.connected) c.ok else c.textFaint,
+                stateBg = if (d.connected) c.ok.copy(alpha = 0.14f) else c.divider.copy(alpha = 0.4f),
+                onClick = { ctrl.openDevice(d.name) },
             )
             if (i < devices.lastIndex) HDivider()
         }

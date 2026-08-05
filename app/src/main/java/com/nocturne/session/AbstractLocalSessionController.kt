@@ -90,7 +90,7 @@ abstract class AbstractLocalSessionController : SessionController {
         }
     }
 
-    override fun removeJob(jobId: String) = update { s ->
+    override open fun removeJob(jobId: String) = update { s ->
         s.copy(
             jobs = s.jobs.filter { it.id != jobId },
             activeJobId = if (s.activeJobId == jobId) null else s.activeJobId,
@@ -102,7 +102,7 @@ abstract class AbstractLocalSessionController : SessionController {
     override fun openJob(jobId: String) = update { it.copy(activeJobId = jobId, openBlockId = null) }
     override fun closeJob() = update { it.copy(activeJobId = null, openBlockId = null) }
 
-    override fun toggleJobRun(jobId: String) = update { s ->
+    override open fun toggleJobRun(jobId: String) = update { s ->
         val running = !(s.jobs.firstOrNull { it.id == jobId }?.running ?: false)
         s.mapJob(jobId) { it.copy(running = running) }
             .copy(lastActiveJobId = if (running) jobId else s.lastActiveJobId)
@@ -217,7 +217,7 @@ abstract class AbstractLocalSessionController : SessionController {
         s.copy(editingUserTargetId = if (s.editingUserTargetId == id) null else id, addingUserTarget = false)
     }
 
-    override fun setQuery(text: String) = update { it.copy(query = text) }
+    override open fun setQuery(text: String) = update { it.copy(query = text) }
 
     override fun clearQuery() = update { it.copy(query = "") }
 
@@ -233,7 +233,7 @@ abstract class AbstractLocalSessionController : SessionController {
         s.copy(cut = if (s.cut.contains(id)) s.cut - id else s.cut + id)
     }
 
-    override fun toggleDevice(key: String) = update { s ->
+    override open fun toggleDevice(key: String) = update { s ->
         s.copy(devOff = if (s.devOff.contains(key)) s.devOff - key else s.devOff + key)
     }
 
@@ -244,11 +244,11 @@ abstract class AbstractLocalSessionController : SessionController {
         )
     }
 
-    override fun setTrainRole(slot: TrainSlot, role: TrainRole, value: String) = update { s ->
+    override open fun setTrainRole(slot: TrainSlot, role: TrainRole, value: String) = update { s ->
         s.withTrain(slot, s.train(slot).with(role, value))
     }
 
-    override fun setTrainReducer(slot: TrainSlot, value: Double) = update { s ->
+    override open fun setTrainReducer(slot: TrainSlot, value: Double) = update { s ->
         s.withTrain(slot, s.train(slot).copy(reducer = value.coerceIn(0.1, 3.0)))
     }
 
@@ -293,12 +293,12 @@ abstract class AbstractLocalSessionController : SessionController {
     override fun paNext() = update { it.copy(paStep = minOf(2, it.paStep + 1)) }
     override fun setPaRate(index: Int) = update { it.copy(paRate = index) }
 
-    override fun startProfile(name: String) = update { s ->
+    override open fun startProfile(name: String) = update { s ->
         val p = s.profiles.firstOrNull { it.name == name } ?: return@update s
         s.copy(ekosRunning = true, activeProfile = name, selectedProfile = name, opticMm = p.opticMm, guideOpticMm = p.guideOpticMm)
     }
 
-    override fun stopProfile() = update { it.copy(ekosRunning = false, activeProfile = null) }
+    override open fun stopProfile() = update { it.copy(ekosRunning = false, activeProfile = null) }
 
     override fun selectProfile(name: String) = update { it.copy(selectedProfile = name) }
 
@@ -307,7 +307,7 @@ abstract class AbstractLocalSessionController : SessionController {
         if (_state.value.ekosRunning) stopProfile() else name?.let { startProfile(it) }
     }
 
-    override fun deleteProfile(name: String) = update { s ->
+    override open fun deleteProfile(name: String) = update { s ->
         val remaining = s.profiles.filter { it.name != name }
         s.copy(
             profiles = remaining,
@@ -327,21 +327,21 @@ abstract class AbstractLocalSessionController : SessionController {
     override fun setRotatorAngle(deg: Double) = update { it.copy(rotatorAngle = deg.mod(360.0)) }
     override fun setDomeOpen(open: Boolean) = update { it.copy(domeOpen = open) }
 
-    override fun setIndiSwitch(deviceKey: String, propName: String, selected: Int) = update { s ->
+    override open fun setIndiSwitch(deviceKey: String, propName: String, selected: Int) = update { s ->
         val current = s.indiProps[deviceKey] ?: DRIVER_INDI_PROPS[deviceKey] ?: emptyList()
         s.copy(indiProps = s.indiProps + (deviceKey to current.map { p ->
             if (p is IndiProperty.SwitchProp && p.name == propName) p.copy(selected = selected) else p
         }))
     }
 
-    override fun setIndiNumber(deviceKey: String, propName: String, value: Double) = update { s ->
+    override open fun setIndiNumber(deviceKey: String, propName: String, value: Double) = update { s ->
         val current = s.indiProps[deviceKey] ?: DRIVER_INDI_PROPS[deviceKey] ?: emptyList()
         s.copy(indiProps = s.indiProps + (deviceKey to current.map { p ->
             if (p is IndiProperty.NumberProp && p.name == propName) p.copy(value = value.coerceIn(p.min, p.max)) else p
         }))
     }
 
-    override fun setIndiText(deviceKey: String, propName: String, value: String) = update { s ->
+    override open fun setIndiText(deviceKey: String, propName: String, value: String) = update { s ->
         val current = s.indiProps[deviceKey] ?: DRIVER_INDI_PROPS[deviceKey] ?: emptyList()
         s.copy(indiProps = s.indiProps + (deviceKey to current.map { p ->
             if (p is IndiProperty.TextProp && p.name == propName) p.copy(value = value) else p
@@ -356,7 +356,7 @@ abstract class AbstractLocalSessionController : SessionController {
         )
     }
     override fun setupBack() = update { it.copy(sheet = null) }
-    override fun finishSetup() = update { s ->
+    override open fun finishSetup() = update { s ->
         val updatedProfiles = if (s.setupEditingName != null) {
             s.profiles.map { p ->
                 if (p.name == s.setupEditingName) p.copy(name = s.profileName, opticMm = s.opticMm, guideOpticMm = s.guideOpticMm) else p
