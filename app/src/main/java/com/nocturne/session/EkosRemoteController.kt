@@ -373,7 +373,12 @@ class EkosRemoteController(
             if (guiderLabel != null) put("guider", guiderLabel)
         }
         client.sendCommand(if (s.setupEditingName != null) Commands.PROFILE_UPDATE else Commands.PROFILE_ADD, payload)
-        super.finishSetup() // optimistic; get_profiles auto-reply reconciles
+        // Deliberately not super.finishSetup() — its ekosRunning = true/activeProfile = ... is
+        // SimulatedController fiction ("saving a profile starts a session"). This only ever sent
+        // profile_add/update, never profile_start, so claiming Ekos is now running would be a
+        // false optimistic update, not an accurate one. Just close the sheet; the real
+        // profiles/selectedProfile list reconciles from the auto get_profiles reply moments later.
+        update { it.copy(sheet = null, setupEditingName = null) }
     }
 
     override fun setTrainRole(slot: TrainSlot, role: TrainRole, value: String) {

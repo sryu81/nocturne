@@ -545,7 +545,7 @@ private fun SetupFooter(ctrl: SessionController) {
         )
         Spacer(Modifier.width(8.4.dp))
         NocturneButton(
-            text = "Save profile & open session",
+            text = "Save profile",
             onClick = ctrl::finishSetup,
             style = com.nocturne.ui.components.BtnStyle.OUTLINE,
             modifier = Modifier.weight(1f).height(44.dp),
