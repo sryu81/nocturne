@@ -64,7 +64,9 @@ fun PlanScreen(
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val q = state.query.trim().lowercase()
-    val matches = TARGETS.filter { tg ->
+    // M3: a real connection's search bar drives astro_search_objects/astro_get_objects_info
+    // (EkosRemoteController) instead of filtering the fixture catalog — see SimState.wireSearchResults.
+    val matches = state.wireSearchResults ?: TARGETS.filter { tg ->
         if (q.isNotEmpty() && !"${tg.id} ${tg.common} ${tg.coords}".lowercase().contains(q)) return@filter false
         if (state.chips.contains(1) && (tg.max ?: 0) <= 40) return@filter false
         if (state.chips.contains(2) && !Regex("Ha|SHO|OIII").containsMatchIn(tg.band ?: "")) return@filter false
@@ -99,7 +101,7 @@ fun PlanScreen(
                     }
                 }
             },
-            TabItem(full = true) { ResultsList(state, ctrl, matches) },
+            TabItem(full = true) { ResultsList(state, ctrl, matches, live = state.wireSearchResults != null) },
             TabItem(full = true) { UserCatalogSection(state, ctrl, userMatches) },
             TabItem(full = true) { TargetCard(tgt) },
             TabItem(full = true) { FramingCard(state, ctrl) },
@@ -178,6 +180,7 @@ private fun ResultsList(
     state: SimState,
     ctrl: SessionController,
     matches: List<Target>,
+    live: Boolean,
 ) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
@@ -200,7 +203,7 @@ private fun ResultsList(
             }
         }
         TextC(
-            "${matches.size} of ${TARGETS.size} · tap to frame",
+            if (live) "${matches.size} results · tap to frame" else "${matches.size} of ${TARGETS.size} · tap to frame",
             style = t.MonoMicro, color = c.textFaint,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
         )

@@ -2,9 +2,11 @@ package com.nocturne.session
 
 import com.nocturne.protocol.Commands
 import com.nocturne.protocol.EkosEvent
+import com.nocturne.protocol.WireAstroObject
 import com.nocturne.protocol.WireDevice
 import com.nocturne.protocol.WireProfile
 import com.nocturne.protocol.WireProperty
+import com.nocturne.protocol.WireRiseset
 import com.nocturne.protocol.bitmaskToRoles
 import com.nocturne.transport.EkosRemoteClient
 import kotlinx.coroutines.CoroutineScope
@@ -37,6 +39,15 @@ class EkosRemoteController(
 
     /** Name a `profile_delete` was just sent for — checked against the next [EkosEvent.Profiles]. */
     private var pendingProfileDelete: String? = null
+
+    // Plan tab search bookkeeping (M3 §4) — astro_get_objects_info/riseset can reply in
+    // either order, so the latest of each is kept here and merged into wireSearchResults
+    // whichever arrives; see buildSearchResults(). pendingSearchQuery is the free-text query
+    // astro_search_objects itself has no field for (it only filters by type/alt/mag/FOV) — the
+    // reply's flat name list is client-side substring-filtered against it before resolving.
+    private var lastAstroObjects: List<WireAstroObject> = emptyList()
+    private var lastRiseset: List<WireRiseset> = emptyList()
+    private var pendingSearchQuery: String = ""
 
     init {
         scope.launch {
@@ -83,12 +94,30 @@ class EkosRemoteController(
         }
         is EkosEvent.Trains -> s.copy(wireTrains = event.trains)
         is EkosEvent.SchedulerJobs -> s
-        is EkosEvent.AstroSearchResult -> s
-        is EkosEvent.AstroObjectsInfo -> s
-        is EkosEvent.AstroObjectsRiseset -> s
+
+        // A fresh astro_search_objects reply clears prior results (loading state) — the
+        // follow-up astro_get_objects_info/riseset calls (sendFollowUpCommands below)
+        // repopulate wireSearchResults once they land, merged via lastAstroObjects/lastRiseset
+        // since the two replies can arrive in either order.
+        is EkosEvent.AstroSearchResult -> {
+            lastAstroObjects = emptyList()
+            lastRiseset = emptyList()
+            s.copy(wireSearchResults = emptyList())
+        }
+        is EkosEvent.AstroObjectsInfo -> {
+            lastAstroObjects = event.objects
+            s.copy(wireSearchResults = buildSearchResults())
+        }
+        is EkosEvent.AstroObjectsRiseset -> {
+            lastRiseset = event.entries
+            s.copy(wireSearchResults = buildSearchResults())
+        }
 
         is EkosEvent.Raw -> s
     }
+
+    private fun buildSearchResults(): List<Target> =
+        lastAstroObjects.map { it.toTarget(lastRiseset.firstOrNull { rs -> rs.name == it.name }) }
 
     /**
      * Side effects that follow a push rather than mutate [SimState] directly
@@ -99,10 +128,24 @@ class EkosRemoteController(
      * live from then on.
      */
     private fun sendFollowUpCommands(event: EkosEvent) {
-        if (event !is EkosEvent.Devices) return
-        event.devices.filter { it.connected }.forEach { device ->
-            client.sendCommand(Commands.DEVICE_GET, buildJsonObject { put("device", device.name) })
-            client.sendCommand(Commands.DEVICE_PROPERTY_SUBSCRIBE, buildJsonObject { put("device", device.name) })
+        when (event) {
+            is EkosEvent.Devices -> event.devices.filter { it.connected }.forEach { device ->
+                client.sendCommand(Commands.DEVICE_GET, buildJsonObject { put("device", device.name) })
+                client.sendCommand(Commands.DEVICE_PROPERTY_SUBSCRIBE, buildJsonObject { put("device", device.name) })
+            }
+            // astro_search_objects carries no free-text field — the query is applied here,
+            // client-side, against the flat name list before resolving the (usually much
+            // smaller) matching subset's coordinates/riseset.
+            is EkosEvent.AstroSearchResult -> {
+                val q = pendingSearchQuery
+                val matchingNames = if (q.isBlank()) event.names else event.names.filter { it.contains(q, ignoreCase = true) }
+                if (matchingNames.isNotEmpty()) {
+                    val namesPayload = buildJsonObject { putJsonArray("names") { matchingNames.forEach { add(it) } } }
+                    client.sendCommand(Commands.ASTRO_GET_OBJECTS_INFO, namesPayload)
+                    client.sendCommand(Commands.ASTRO_GET_OBJECTS_RISESET, namesPayload)
+                }
+            }
+            else -> {}
         }
     }
 
@@ -245,6 +288,39 @@ class EkosRemoteController(
         }
         client.sendCommand(if (wireTrain != null) Commands.TRAIN_UPDATE else Commands.TRAIN_ADD, payload)
     }
+
+    // ── Plan tab astro_* search (M3 §4) ─────────────────────────────────
+
+    override fun setQuery(text: String) {
+        super.setQuery(text)
+        runSearch()
+    }
+
+    override fun toggleChip(index: Int) {
+        super.toggleChip(index)
+        runSearch()
+    }
+
+    /**
+     * `astro_search_objects` has no free-text field — only `type`/`direction`/
+     * `maxMagnitude`/`minAlt`/`minDuration`/`minFOV` — so [SimState.chips]
+     * (which map fairly directly) drive the wire call, while the typed query
+     * is applied client-side once names come back ([sendFollowUpCommands]).
+     * `type` is a single-value filter server-side (`SkyObject::TYPE`), so the
+     * "Narrowband" chip — which locally means "any of Ha/SHO/OIII" — can only
+     * approximate to one type (`GASEOUS_NEBULA`); a real multi-type OR isn't
+     * expressible in one call.
+     */
+    private fun runSearch() {
+        val s = _state.value
+        pendingSearchQuery = s.query.trim()
+        client.sendCommand(Commands.ASTRO_SEARCH_OBJECTS, buildJsonObject {
+            put("type", if (s.chips.contains(2)) 5 else 8) // 5=GASEOUS_NEBULA, 8=GALAXY (default)
+            put("minAlt", if (s.chips.contains(1)) 40.0 else 15.0)
+            put("minDuration", if (s.chips.contains(0)) 3600 else 0)
+            put("minFOV", if (s.chips.contains(3)) 1.0 else 0.0)
+        })
+    }
 }
 
 /**
@@ -333,4 +409,42 @@ private fun WireProperty.toIndiProperty(existing: IndiProperty?): IndiProperty =
         group = group ?: existing?.group ?: "",
         elements = lights.map { it.name to it.state },
     )
+}
+
+/**
+ * Translates one `astro_get_objects_info` entry (+ its matching riseset entry,
+ * if that reply has landed yet) into the app's [Target] shape. `size`/`band`/
+ * `usable`/`fov` stay null — the wire has no equivalent for the fixture
+ * catalog's precomputed display values.
+ */
+private fun WireAstroObject.toTarget(riseset: WireRiseset?): Target = Target(
+    id = name,
+    common = name,
+    coords = "${formatRaHours(ra0)} ${formatDecDegrees(de0)}",
+    max = riseset?.altitudes?.maxOrNull()?.let { kotlin.math.round(it).toInt() },
+    peak = riseset?.transit,
+    custom = false,
+    ra0 = ra0,
+    de0 = de0,
+    magnitude = magnitude,
+)
+
+/** J2000 RA hours → "20h59m17s". */
+private fun formatRaHours(hours: Double): String {
+    val h = hours.toInt()
+    val remMin = (hours - h) * 60
+    val m = remMin.toInt()
+    val sec = ((remMin - m) * 60).let { if (it < 0) 0.0 else it }
+    return "%02dh%02dm%02ds".format(h, m, sec.toInt())
+}
+
+/** J2000 Dec degrees → "+44°31′44″". */
+private fun formatDecDegrees(deg: Double): String {
+    val sign = if (deg < 0) "-" else "+"
+    val a = kotlin.math.abs(deg)
+    val d = a.toInt()
+    val remMin = (a - d) * 60
+    val m = remMin.toInt()
+    val sec = ((remMin - m) * 60).let { if (it < 0) 0.0 else it }
+    return "$sign%02d°%02d′%02d″".format(d, m, sec.toInt())
 }

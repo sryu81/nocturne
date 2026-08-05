@@ -755,9 +755,10 @@ val SimState.contractJob: SequenceJob? get() =
 /** The job [endSession] stopped — what the Summary sheet and its export report are about. */
 val SimState.endedJob: SequenceJob? get() = jobs.firstOrNull { it.id == lastEndedJobId }
 
-/** Looks up a target by id across both catalogs — well-known first, then the user catalogue. */
+/** Looks up a target by id across both catalogs, then the live search results if any (M3). */
 fun SimState.findTarget(id: String): Target? =
     TARGETS.firstOrNull { it.id == id } ?: userTargets.firstOrNull { it.id == id }
+        ?: wireSearchResults?.firstOrNull { it.id == id }
 
 /** "NGC 7000 — North America" for the well-known catalog; just the name for custom targets (no catalog id to show). */
 val Target.displayName: String get() = if (custom) common else "$id — $common"
