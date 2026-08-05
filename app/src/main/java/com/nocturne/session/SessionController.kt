@@ -65,6 +65,8 @@ interface SessionController {
     fun selectDeviceName(key: String, name: String)
     fun setTrainRole(slot: TrainSlot, role: TrainRole, value: String)
     fun setTrainReducer(slot: TrainSlot, value: Double)
+    /** Assigns which real train (by name) one Ekos module uses — real `train_set` mechanism, see [SimState.moduleTrainAssignments]. */
+    fun setModuleTrain(module: String, trainName: String)
 
     fun snapMain()
     fun snapGuide()

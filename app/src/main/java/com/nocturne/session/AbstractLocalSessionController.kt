@@ -252,6 +252,10 @@ abstract class AbstractLocalSessionController : SessionController {
         s.withTrain(slot, s.train(slot).copy(reducer = value.coerceIn(0.1, 3.0)))
     }
 
+    override open fun setModuleTrain(module: String, trainName: String) = update { s ->
+        s.copy(moduleTrainAssignments = (s.moduleTrainAssignments ?: emptyMap()) + (module to trainName))
+    }
+
     override fun snapMain() = update { it.copy(snappedMain = true) }
     override fun snapGuide() = update { it.copy(snappedGuide = true) }
 

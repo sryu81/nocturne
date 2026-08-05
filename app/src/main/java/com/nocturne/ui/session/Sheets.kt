@@ -588,6 +588,26 @@ private fun OpticalTrainSheet(state: SimState, ctrl: SessionController) {
         )
         Spacer(Modifier.height(11.2.dp))
         HDivider()
+        // Real per-active-profile module→train assignment (ProfileSettings, confirmed against
+        // profilesettings.cpp/opticaltrainmanager.cpp) — only meaningful once real trains exist,
+        // no fixture equivalent (SimulatedController never sets wireTrains), so this section is
+        // simply absent there rather than showing a decorative stand-in.
+        if (state.wireTrains != null) {
+            Spacer(Modifier.height(11.2.dp))
+            TextC("MODULE ASSIGNMENTS", style = NocturneTheme.type.MicroLabel, color = NocturneTheme.colors.textFaint)
+            Spacer(Modifier.height(5.dp))
+            val trainNames = state.wireTrains.map { it.name }
+            MODULE_ASSIGNMENT_LABELS.forEach { (moduleKey, label) ->
+                RoleRow(
+                    label = label,
+                    options = trainNames,
+                    selected = state.moduleTrainAssignments?.get(moduleKey) ?: "",
+                    onSelect = { ctrl.setModuleTrain(moduleKey, it) },
+                )
+                Spacer(Modifier.height(8.4.dp))
+            }
+            HDivider()
+        }
         Spacer(Modifier.height(11.2.dp))
         Row(Modifier.border(1.dp, NocturneTheme.colors.divider, RoundedCornerShape(10.dp))) {
             listOf(TrainSlot.PRIMARY to "Primary", TrainSlot.SECONDARY to "Secondary").forEach { (s, label) ->
@@ -608,6 +628,16 @@ private fun OpticalTrainSheet(state: SimState, ctrl: SessionController) {
         TrainForm(state, ctrl, slot)
     }
 }
+
+/** Real `train_set` module keys + display labels — the 6 Ekos modules that each independently pick a train. */
+private val MODULE_ASSIGNMENT_LABELS = listOf(
+    "capture" to "Capture",
+    "focus" to "Focus",
+    "mount" to "Mount",
+    "guide" to "Guide",
+    "align" to "Align",
+    "darklibrary" to "Dark Library",
+)
 
 private val TRAIN_ROLE_LABELS = listOf(
     TrainRole.MOUNT to "Mount",

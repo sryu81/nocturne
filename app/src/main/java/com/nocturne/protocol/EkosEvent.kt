@@ -102,6 +102,19 @@ sealed interface EkosEvent {
     @Serializable
     data class Trains(val trains: List<WireTrain>) : EkosEvent
 
+    /**
+     * `train_get_profiles` reply — `ProfileSettings::getSettings()`, the real
+     * per-*active-profile* mapping of which train each Ekos module currently
+     * uses (confirmed against `profilesettings.cpp`/`opticaltrainmanager.cpp`
+     * — not guessed). Bare flat object on the wire, keyed by the *stringified
+     * ordinal* of `ProfileSettings::Settings` (`profilesettings.h`) — `"0"`
+     * Primary, `"1"` Capture, `"2"` Focus, `"3"` Mount, `"4"` Guide, `"5"`
+     * Align, `"6"` DarkLibrary — valued by a train **ID** (resolve against
+     * [WireTrain.id] to get a name; this reply carries IDs, not names).
+     */
+    @Serializable
+    data class TrainProfiles(val assignments: Map<String, Int>) : EkosEvent
+
     /** Anything not decoded above — unrecognized `type`, or a shape that failed to parse. */
     data class Raw(val type: String, val payload: JsonElement) : EkosEvent
 }
@@ -347,4 +360,32 @@ data class WireTrain(
     val lightbox: String = "",
     val scope: String = "",
     val adaptiveoptics: String = "",
+)
+
+/**
+ * `ProfileSettings::Settings` enum ordinals (`profilesettings.h`) — keys of a
+ * [EkosEvent.TrainProfiles] reply. `PRIMARY` isn't a real assignable module
+ * (there's no `train_set {module: "primary"}` — confirmed against
+ * `message.cpp`'s `processTrainCommands`, only capture/focus/mount/guide/
+ * align/darklibrary are accepted), it's just the fallback ID new trains
+ * default everything else to (`opticaltrainmanager.cpp`).
+ */
+object ProfileTrainSetting {
+    const val PRIMARY = "0"
+    const val CAPTURE = "1"
+    const val FOCUS = "2"
+    const val MOUNT = "3"
+    const val GUIDE = "4"
+    const val ALIGN = "5"
+    const val DARK_LIBRARY = "6"
+}
+
+/** The real `train_set` module strings (`message.cpp`'s `processTrainCommands`) each [ProfileTrainSetting] ordinal maps to — `PRIMARY` has none. */
+val MODULE_KEY_BY_TRAIN_SETTING: Map<String, String> = mapOf(
+    ProfileTrainSetting.CAPTURE to "capture",
+    ProfileTrainSetting.FOCUS to "focus",
+    ProfileTrainSetting.MOUNT to "mount",
+    ProfileTrainSetting.GUIDE to "guide",
+    ProfileTrainSetting.ALIGN to "align",
+    ProfileTrainSetting.DARK_LIBRARY to "darklibrary",
 )

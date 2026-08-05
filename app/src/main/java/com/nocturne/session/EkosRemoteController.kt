@@ -8,6 +8,7 @@ import com.nocturne.protocol.WireProfile
 import com.nocturne.protocol.WireProperty
 import com.nocturne.protocol.WireRiseset
 import com.nocturne.protocol.WireTrain
+import com.nocturne.protocol.MODULE_KEY_BY_TRAIN_SETTING
 import com.nocturne.protocol.SchedulerJobStatus
 import com.nocturne.protocol.bitmaskToRoles
 import com.nocturne.transport.EkosRemoteClient
@@ -50,6 +51,9 @@ class EkosRemoteController(
     private var lastAstroObjects: List<WireAstroObject> = emptyList()
     private var lastRiseset: List<WireRiseset> = emptyList()
     private var pendingSearchQuery: String = ""
+
+    /** Raw `train_get_profiles` reply (ordinal → train ID) — see [resolveModuleTrainAssignments]. */
+    private var lastTrainProfileAssignments: Map<String, Int>? = null
 
     /**
      * Job/target name a `scheduler_add_jobs` sync was just sent for (M3 §5)
@@ -136,7 +140,15 @@ class EkosRemoteController(
             wireTrains = event.trains,
             primaryTrain = event.trains.getOrNull(0)?.toTrainAssignment() ?: s.primaryTrain,
             secondaryTrain = event.trains.getOrNull(1)?.toTrainAssignment() ?: s.secondaryTrain,
+            moduleTrainAssignments = resolveModuleTrainAssignments(event.trains) ?: s.moduleTrainAssignments,
         )
+        // train_get_profiles carries train IDs, not names — and can arrive before or after
+        // train_get_all — so the raw ordinal→ID map is kept separately and re-resolved to
+        // names against whichever wireTrains is current whichever reply lands second.
+        is EkosEvent.TrainProfiles -> {
+            lastTrainProfileAssignments = event.assignments
+            s.copy(moduleTrainAssignments = resolveModuleTrainAssignments(s.wireTrains) ?: s.moduleTrainAssignments)
+        }
         is EkosEvent.SchedulerJobs -> applySchedulerJobs(s, event)
 
         // A fresh astro_search_objects reply clears prior results (loading state) — the
@@ -162,6 +174,17 @@ class EkosRemoteController(
 
     private fun buildSearchResults(): List<Target> =
         lastAstroObjects.map { it.toTarget(lastRiseset.firstOrNull { rs -> rs.name == it.name }) }
+
+    /** Resolves the raw ordinal→trainID map against [trains] into module-key→train-name. Null if either half hasn't arrived yet. */
+    private fun resolveModuleTrainAssignments(trains: List<WireTrain>?): Map<String, String>? {
+        val raw = lastTrainProfileAssignments ?: return null
+        if (trains == null) return null
+        return raw.mapNotNull { (ordinal, trainId) ->
+            val module = MODULE_KEY_BY_TRAIN_SETTING[ordinal] ?: return@mapNotNull null
+            val name = trains.firstOrNull { it.id == trainId }?.name ?: return@mapNotNull null
+            module to name
+        }.toMap()
+    }
 
     /**
      * `scheduler_get_jobs` reply — always stored as-is, plus two derived effects:
@@ -389,6 +412,20 @@ class EkosRemoteController(
     override fun setTrainReducer(slot: TrainSlot, value: Double) {
         super.setTrainReducer(slot, value)
         sendTrainUpdate(slot)
+    }
+
+    /**
+     * The real per-module assignment mechanism (`train_set`, confirmed
+     * against `message.cpp`'s `processTrainCommands` — each module's own
+     * `setOpticalTrain(name)` persists it to `ProfileSettings` for whichever
+     * profile is currently active). No direct reply, so `train_get_profiles`
+     * is re-sent to confirm — same fire-and-refresh pattern as everywhere
+     * else on this wire.
+     */
+    override fun setModuleTrain(module: String, trainName: String) {
+        client.sendCommand(Commands.TRAIN_SET, buildJsonObject { put("module", module); put("name", trainName) })
+        client.sendCommand(Commands.TRAIN_GET_PROFILES)
+        super.setModuleTrain(module, trainName) // optimistic; confirmed reply reconciles above
     }
 
     /**

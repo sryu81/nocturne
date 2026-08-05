@@ -51,6 +51,7 @@ object EkosEventCodec {
                 "astro_get_objects_riseset" -> EkosEvent.AstroObjectsRiseset(protocolJson.decodeFromJsonElement(envelope.payload))
                 "scheduler_get_jobs" -> protocolJson.decodeFromJsonElement<EkosEvent.SchedulerJobs>(envelope.payload)
                 "train_get_all" -> EkosEvent.Trains(protocolJson.decodeFromJsonElement(envelope.payload))
+                "train_get_profiles" -> EkosEvent.TrainProfiles(protocolJson.decodeFromJsonElement(envelope.payload))
                 else -> EkosEvent.Raw(envelope.type, envelope.payload)
             }
         } catch (e: SerializationException) {

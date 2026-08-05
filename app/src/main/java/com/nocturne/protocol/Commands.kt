@@ -41,6 +41,7 @@ object Commands {
 
     // M3 — optical trains.
     const val TRAIN_GET_ALL = "train_get_all"
+    const val TRAIN_GET_PROFILES = "train_get_profiles"
     const val TRAIN_SET = "train_set"
     const val TRAIN_ADD = "train_add"
     const val TRAIN_UPDATE = "train_update"

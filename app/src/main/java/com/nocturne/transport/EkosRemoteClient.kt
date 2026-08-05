@@ -108,6 +108,10 @@ class EkosRemoteClient(
                 // actually started, unlike profiles/devices which the server happily reports
                 // pre-online too. Gated the same way GET_DEVICES/GET_PROFILES are.
                 sendCommand(Commands.TRAIN_GET_ALL)
+                // Per-active-profile module→train assignment (ProfileSettings) — needs the
+                // trains above to resolve IDs to names, but no ordering dependency in sending;
+                // the reply is applied once both have arrived (see EkosRemoteController).
+                sendCommand(Commands.TRAIN_GET_PROFILES)
             }
         }
         _events.tryEmit(event)

@@ -160,6 +160,17 @@ data class SimState(
     /** `train_get_all` translated (M3) — read by `OpticalTrainCard` when present instead of [trainRolePool]. */
     val wireTrains: List<WireTrain>? = null,
     /**
+     * Which real train (by name) each Ekos module currently uses (M3) — the
+     * real `ProfileSettings` mechanism (`train_get_profiles`/`train_set`)
+     * that actually connects an active Profile to its Optical Trains, kept
+     * per-active-profile server-side. Keys are the module strings `train_set`
+     * itself accepts: `"capture"`, `"focus"`, `"mount"`, `"guide"`, `"align"`,
+     * `"darklibrary"`. Null until the first `train_get_profiles` reply —
+     * [SimulatedController] never sets this, no fixture default either,
+     * since there's no fixture equivalent of "which module uses which train."
+     */
+    val moduleTrainAssignments: Map<String, String>? = null,
+    /**
      * Every driver label ever saved across any profile on this Pi, unioned
      * from every `get_profiles` reply's `drivers` maps and keyed by the same
      * family strings as [CATEGORY_TO_DRIVER_FAMILY] (M3) — see
