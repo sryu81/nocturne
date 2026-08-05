@@ -127,6 +127,17 @@ data class WireProfile(
     val use_web_manager: Boolean = false,
     val drivers: Map<String, List<String>> = emptyMap(),
     val scripts: String? = null,
+    /**
+     * Legacy per-role convenience field — real Ekos has no separate
+     * "Guiders" driver family; a guide camera is just a second entry in
+     * `drivers["CCDs"]`, disambiguated from the main imaging camera only by
+     * this field (confirmed live: a real profile's `drivers["CCDs"]` held
+     * both `["Sony DSLR","ZWO CCD"]` with `guider: "ZWO CCD"` naming which
+     * one). Kept even though the rest of the legacy per-role fields
+     * (`mount`/`ccd`/`focuser`/...) are dropped — there's no other way to
+     * resolve which CCD is the guider.
+     */
+    val guider: String = "",
 )
 
 /** One `get_devices` entry — `interface` is a reserved Kotlin word, mapped via [SerialName]. */

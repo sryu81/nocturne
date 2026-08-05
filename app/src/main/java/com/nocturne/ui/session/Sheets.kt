@@ -39,6 +39,7 @@ import com.nocturne.session.Device
 import com.nocturne.session.IndiProperty
 import com.nocturne.session.LiveDevice
 import com.nocturne.session.PA_SECS
+import com.nocturne.session.realDeviceOptions
 import com.nocturne.session.PREF_DEFS
 import com.nocturne.session.SessionController
 import com.nocturne.session.SheetType
@@ -464,21 +465,6 @@ private fun SetupBody(state: SimState, ctrl: SessionController) {
             }
             Spacer(Modifier.height(8.4.dp))
         }
-        ScopeInputFields(
-            label = "Scope",
-            name = state.scopeName, onNameChange = ctrl::setScopeName,
-            focalMm = state.opticMm, onFocalChange = ctrl::setOpticMm,
-            apertureMm = state.scopeApertureMm, onApertureChange = ctrl::setScopeApertureMm,
-            note = opticNote(state.opticMm),
-        )
-        Spacer(Modifier.height(11.2.dp))
-        ScopeInputFields(
-            label = "Guide scope",
-            name = state.guideScopeName, onNameChange = ctrl::setGuideScopeName,
-            focalMm = state.guideOpticMm, onFocalChange = ctrl::setGuideOpticMm,
-            apertureMm = state.guideScopeApertureMm, onApertureChange = ctrl::setGuideScopeApertureMm,
-            note = guideOpticNote(state.guideOpticMm),
-        )
     }
 }
 
@@ -581,6 +567,28 @@ private fun SetupFooter(ctrl: SessionController) {
 private fun OpticalTrainSheet(state: SimState, ctrl: SessionController) {
     var slot by remember { mutableStateOf(TrainSlot.PRIMARY) }
     Column {
+        // Scope/guide-scope definitions (name + focal length + aperture) — global, shared by
+        // both slots below, not per-profile. Real Ekos keeps these in its own Scopes catalog
+        // (`get_scopes`/`scope_add`), reachable from the Optical Train dialog, not the Profile
+        // editor — moved here to match (was bundled into the rig-setup wizard through M1/M2).
+        ScopeInputFields(
+            label = "Scope",
+            name = state.scopeName, onNameChange = ctrl::setScopeName,
+            focalMm = state.opticMm, onFocalChange = ctrl::setOpticMm,
+            apertureMm = state.scopeApertureMm, onApertureChange = ctrl::setScopeApertureMm,
+            note = opticNote(state.opticMm),
+        )
+        Spacer(Modifier.height(11.2.dp))
+        ScopeInputFields(
+            label = "Guide scope",
+            name = state.guideScopeName, onNameChange = ctrl::setGuideScopeName,
+            focalMm = state.guideOpticMm, onFocalChange = ctrl::setGuideOpticMm,
+            apertureMm = state.guideScopeApertureMm, onApertureChange = ctrl::setGuideScopeApertureMm,
+            note = guideOpticNote(state.guideOpticMm),
+        )
+        Spacer(Modifier.height(11.2.dp))
+        HDivider()
+        Spacer(Modifier.height(11.2.dp))
         Row(Modifier.border(1.dp, NocturneTheme.colors.divider, RoundedCornerShape(10.dp))) {
             listOf(TrainSlot.PRIMARY to "Primary", TrainSlot.SECONDARY to "Secondary").forEach { (s, label) ->
                 val sel = s == slot
@@ -1377,12 +1385,13 @@ private fun DevicePickerBody(state: SimState, ctrl: SessionController, d: Device
         Spacer(Modifier.height(11.2.dp))
         TextC("AVAILABLE DEVICES", style = t.MicroLabel, color = c.textFaint)
         Spacer(Modifier.height(5.dp))
+        val options = state.realDeviceOptions(d.key) ?: d.catalog
         Column(
             Modifier
                 .fillMaxWidth()
                 .border(1.dp, c.divider, RoundedCornerShape(4.dp)),
         ) {
-            d.catalog.forEachIndexed { i, name ->
+            options.forEachIndexed { i, name ->
                 val sel = name == current
                 Row(
                     Modifier
@@ -1395,7 +1404,7 @@ private fun DevicePickerBody(state: SimState, ctrl: SessionController, d: Device
                     TextC(name, style = t.Body13, color = if (sel) c.accent400 else c.text, modifier = Modifier.weight(1f))
                     if (sel) Phosphor.Icon(Phosphor.Check, size = 14.dp, tint = c.accent400)
                 }
-                if (i < d.catalog.lastIndex) HDivider()
+                if (i < options.lastIndex) HDivider()
             }
         }
         Spacer(Modifier.height(11.2.dp))

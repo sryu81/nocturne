@@ -160,6 +160,13 @@ data class SimState(
     /** `train_get_all` translated (M3) — read by `OpticalTrainCard` when present instead of [trainRolePool]. */
     val wireTrains: List<WireTrain>? = null,
     /**
+     * Every driver label ever saved across any profile on this Pi, unioned
+     * from every `get_profiles` reply's `drivers` maps and keyed by the same
+     * family strings as [CATEGORY_TO_DRIVER_FAMILY] (M3) — see
+     * [realDeviceOptions]. Null until the first `get_profiles` reply.
+     */
+    val wireKnownDrivers: Map<String, List<String>>? = null,
+    /**
      * Name of a `profile_delete` that came back refused (M3) — real Ekos
      * silently refuses to delete `"Simulators"` or the active profile, with
      * no error sent; [EkosRemoteController] detects this by diffing the next
@@ -291,6 +298,8 @@ data class RigProfile(
      * a different thing entirely (see the doc above `DEFAULT_PROFILES`).
      */
     val drivers: Map<String, List<String>> = emptyMap(),
+    /** Which entry in `drivers["CCDs"]` (if any) is the guide camera — see [WireProfile.guider]. */
+    val guider: String = "",
 )
 
 val DEFAULT_PROFILES = listOf(
@@ -481,6 +490,80 @@ val DEVICES = listOf(
         "Driver" to "Pegasus Ultimate Powerbox v2",
     ), catalog = listOf("None", "Pegasus Ultimate Powerbox v2", "Pegasus Pocket Powerbox")),
 )
+
+/** Which [DeviceRole] bit(s) a rig-setup category's real-device pool should draw from. */
+private val CATEGORY_DEVICE_ROLES: Map<String, Set<DeviceRole>> = mapOf(
+    "mount" to setOf(DeviceRole.TELESCOPE),
+    "cam" to setOf(DeviceRole.CCD),
+    "guide" to setOf(DeviceRole.CCD, DeviceRole.GUIDER),
+    "efw" to setOf(DeviceRole.FILTER),
+    "focus" to setOf(DeviceRole.FOCUSER),
+    "rotator" to setOf(DeviceRole.ROTATOR),
+    "dome" to setOf(DeviceRole.DOME),
+    "weather" to setOf(DeviceRole.WEATHER),
+    "powerbox" to setOf(DeviceRole.AUX),
+)
+
+/**
+ * `ProfileInfo.drivers` family keys (`EkosRemote-Command-Reference.md` §3
+ * confirms `"Telescopes"`/`"CCDs"`/`"Focusers"`/`"Filter Wheels"` only — the
+ * rest are this app's best-effort guess at the remaining `INDI::DriverInterface`
+ * family names Ekos's own driver-selection combo uses, unverified against
+ * source. `finishSetup`'s wire payload is fire-and-refresh either way
+ * (auto-replies with a fresh `get_profiles`), so a wrong family key here
+ * just means that device lands under "Aux" until corrected in real Ekos.
+ * Shared by [EkosRemoteController]'s profile_add/update translation and by
+ * [realDeviceOptions] below.
+ *
+ * `"guide"` deliberately maps to the *same* family as `"cam"` — confirmed
+ * live, real Ekos has no separate "Guiders" family; a guide camera is just
+ * a second `"CCDs"` entry, disambiguated only by the legacy `guider` field
+ * ([WireProfile.guider]/[RigProfile.guider]), not by `drivers` map structure
+ * at all. Only used for building the *pool* here — resolving which value is
+ * actually *selected* for `"guide"` must read `.guider` directly, never this
+ * family lookup (which would just return the main camera).
+ */
+val CATEGORY_TO_DRIVER_FAMILY = mapOf(
+    "mount" to "Telescopes",
+    "cam" to "CCDs",
+    "guide" to "CCDs",
+    "efw" to "Filter Wheels",
+    "focus" to "Focusers",
+    "rotator" to "Rotators",
+    "dome" to "Domes",
+    "weather" to "Weather",
+)
+
+/**
+ * Real-device options for one rig-setup category (M3) — [DevicePickerBody]
+ * (the New/Edit rig profile wizard) reads this instead of [Device.catalog]'s
+ * fixed fixture list whenever connected, same discipline as the Gear tab's
+ * device list/Optical Train already following [wireDevices] over fixtures.
+ *
+ * There's no wire command to list installed-but-not-running drivers (only
+ * `get_devices` — currently connected — and each profile's own saved
+ * selections) — a real Profile Editor sources that from a local drivers.xml
+ * this protocol never exposes. So the pool here is the union of two real
+ * (not invented) sources: whatever's *currently connected* ([wireDevices],
+ * empty/absent until Ekos is actually running) and every driver label
+ * *ever saved* across any profile on this Pi ([wireKnownDrivers], available
+ * as soon as `get_profiles` replies — even before Ekos starts, which is
+ * exactly the case a rig-setup wizard needs). Null only when neither source
+ * has arrived yet at all, i.e. not connected — falls back to the fixture
+ * catalog then.
+ */
+fun SimState.realDeviceOptions(key: String): List<String>? {
+    val family = CATEGORY_TO_DRIVER_FAMILY[key]
+    val connected = wireDevices?.let { live ->
+        val roles = CATEGORY_DEVICE_ROLES[key] ?: return@let emptyList()
+        live.filter { d -> d.roles.any { it in roles } }.map { it.name }
+    }
+    val everConfigured = family?.let { wireKnownDrivers?.get(it) }
+    if (connected == null && everConfigured == null) return null
+    val names = ((connected ?: emptyList()) + (everConfigured ?: emptyList())).distinct()
+    val required = DEVICES.firstOrNull { it.key == key }?.req ?: false
+    return if (required) names else (listOf("None") + names).distinct()
+}
 
 /**
  * Generic INDI property vector — mirrors the wire protocol's `device_get`/

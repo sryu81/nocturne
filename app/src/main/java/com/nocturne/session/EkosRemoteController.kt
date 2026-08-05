@@ -119,6 +119,12 @@ class EkosRemoteController(
                 profiles = event.profiles.map { it.toRigProfile() },
                 selectedProfile = event.selectedProfile ?: s.selectedProfile,
                 profileDeleteRefused = if (refused) attemptedDelete else null,
+                // Every driver label ever saved across any profile on this Pi, unioned — see
+                // SimState.realDeviceOptions. Available pre-online, unlike wireDevices.
+                wireKnownDrivers = event.profiles
+                    .flatMap { it.drivers.entries }
+                    .groupBy({ it.key }, { it.value })
+                    .mapValues { (_, lists) -> lists.flatten().distinct() },
             )
         }
         // Nocturne's UI only ever models 2 train slots (Primary/Secondary) — a real rig can
@@ -332,7 +338,10 @@ class EkosRemoteController(
         update { s ->
             if (s.setupEditingName != name) return@update s // base declined (Ekos running) — nothing to seed
             val selected = DEVICES.associate { d ->
-                val label = CATEGORY_TO_DRIVER_FAMILY[d.key]?.let { family -> p.drivers[family]?.firstOrNull() }
+                // "guide" has no real family of its own — it's a second entry in drivers["CCDs"],
+                // named only by the legacy `guider` field (see CATEGORY_TO_DRIVER_FAMILY's doc).
+                val label = if (d.key == "guide") p.guider.ifBlank { null }
+                else CATEGORY_TO_DRIVER_FAMILY[d.key]?.let { family -> p.drivers[family]?.firstOrNull() }
                 d.key to (label ?: "None")
             }
             s.copy(
@@ -344,16 +353,24 @@ class EkosRemoteController(
 
     override fun finishSetup() {
         val s = _state.value
+        // "guide" shares the "CCDs" family with "cam" (see CATEGORY_TO_DRIVER_FAMILY) — a guide
+        // camera is a second entry in drivers["CCDs"], with the explicit "guider" field as the
+        // only real signal for which entry that is. Confirmed via a live round-trip against the
+        // "Simulators" profile: sending "guider" alongside "drivers" in the same profile_update
+        // persisted both correctly — the docs' "legacy fields only consulted if drivers absent"
+        // caveat does not apply to this field.
         val drivers: Map<String, List<String>> = DEVICES.filter { it.key !in s.devOff }
             .groupBy({ CATEGORY_TO_DRIVER_FAMILY[it.key] ?: "Aux" }, { s.selectedDeviceNames[it.key] ?: it.name })
+        val guiderLabel = s.selectedDeviceNames["guide"]?.takeIf { "guide" !in s.devOff }
         val payload = buildJsonObject {
             put("name", s.profileName)
             put("auto_connect", true)
             put("port_selector", false)
             put("mode", "local")
             put("use_web_manager", false)
-            put("guiding", 0)
+            put("guiding", 0) // guider-type enum, unconfirmed meaning — leave at the known-safe default
             putJsonObject("drivers") { drivers.forEach { (family, labels) -> putJsonArray(family) { labels.forEach { add(it) } } } }
+            if (guiderLabel != null) put("guider", guiderLabel)
         }
         client.sendCommand(if (s.setupEditingName != null) Commands.PROFILE_UPDATE else Commands.PROFILE_ADD, payload)
         super.finishSetup() // optimistic; get_profiles auto-reply reconciles
@@ -485,27 +502,7 @@ class EkosRemoteController(
     }
 }
 
-/**
- * `ProfileInfo.drivers` family keys (`EkosRemote-Command-Reference.md` §3
- * confirms `"Telescopes"`/`"CCDs"`/`"Focusers"`/`"Filter Wheels"` only — the
- * rest are this app's best-effort guess at the remaining `INDI::DriverInterface`
- * family names Ekos's own driver-selection combo uses, unverified against
- * source. `finishSetup`'s wire payload is fire-and-refresh either way
- * (auto-replies with a fresh `get_profiles`), so a wrong family key here
- * just means that device lands under "Aux" until corrected in real Ekos.
- */
-private val CATEGORY_TO_DRIVER_FAMILY = mapOf(
-    "mount" to "Telescopes",
-    "cam" to "CCDs",
-    "guide" to "Guiders",
-    "efw" to "Filter Wheels",
-    "focus" to "Focusers",
-    "rotator" to "Rotators",
-    "dome" to "Domes",
-    "weather" to "Weather",
-)
-
-private fun WireProfile.toRigProfile() = RigProfile(name = name, deviceKeys = drivers.values.flatten(), drivers = drivers)
+private fun WireProfile.toRigProfile() = RigProfile(name = name, deviceKeys = drivers.values.flatten(), drivers = drivers, guider = guider)
 
 private fun WireDevice.toLiveDevice() = LiveDevice(name = name, connected = connected, roles = bitmaskToRoles(interfaceMask))
 
