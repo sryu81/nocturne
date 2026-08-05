@@ -54,11 +54,11 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
             val settings = repo.current()
             savedHost = settings.host
             savedPort = settings.port
-            when {
-                settings.useSimulator -> useSimulator()
-                settings.host != null -> connect(settings.host, settings.port)
-                else -> _connectionMode.value = ConnectionMode.NeedsConnect
-            }
+            // A saved host only pre-fills ConnectScreen's fields (via savedHost/savedPort
+            // above) — it must never auto-dial on its own. Only useSimulator is an explicit
+            // past opt-in and is the sole case that skips the screen automatically; a saved
+            // host is not a confirmation to connect, it's just what was typed last time.
+            if (settings.useSimulator) useSimulator() else _connectionMode.value = ConnectionMode.NeedsConnect
         }
     }
 
