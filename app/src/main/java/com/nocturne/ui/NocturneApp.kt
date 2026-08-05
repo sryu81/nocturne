@@ -85,18 +85,33 @@ fun NocturneApp() {
                 onConnect = vm::connect,
                 onUseSimulator = vm::useSimulator,
             )
-            is ConnectionMode.Connecting -> ConnectScreen(
-                status = mode.status,
-                savedHost = vm.savedHost,
-                savedPort = vm.savedPort,
-                onConnect = vm::connect,
-                onUseSimulator = vm::useSimulator,
-            )
+            // SOCKET_OPEN means the WebSocket handshake succeeded and get_profiles/get_devices
+            // are already flowing — there's a real, useful app to show. Only the pre-socket
+            // dial phase (CONNECTING) still needs ConnectScreen's own status text; waiting on
+            // Ekos itself to start is the shell's problem to show a banner for, not a reason to
+            // trap the user behind the connect form — Gear tab's Start Ekos is how you'd ever
+            // get past this in the first place (profile_start), so it must be reachable now.
+            is ConnectionMode.Connecting -> if (mode.status.state == ConnectionState.SOCKET_OPEN) {
+                NocturneShell(
+                    vm = vm,
+                    redMode = redMode,
+                    onToggleRed = { redMode = !redMode },
+                    banner = "Connected — waiting for Ekos to start…",
+                )
+            } else {
+                ConnectScreen(
+                    status = mode.status,
+                    savedHost = vm.savedHost,
+                    savedPort = vm.savedPort,
+                    onConnect = vm::connect,
+                    onUseSimulator = vm::useSimulator,
+                )
+            }
             is ConnectionMode.Simulated -> NocturneShell(
                 vm = vm,
                 redMode = redMode,
                 onToggleRed = { redMode = !redMode },
-                reconnecting = false,
+                banner = null,
             )
             is ConnectionMode.Connected -> NocturneShell(
                 vm = vm,
@@ -104,7 +119,7 @@ fun NocturneApp() {
                 onToggleRed = { redMode = !redMode },
                 // Session tab reached ONLINE at least once — a subsequent drop stays
                 // on this shell with a reconnecting banner, never a forced ConnectScreen.
-                reconnecting = mode.status.state != ConnectionState.ONLINE,
+                banner = if (mode.status.state != ConnectionState.ONLINE) "Reconnecting to rig…" else null,
             )
         }
     }
@@ -115,7 +130,8 @@ private fun NocturneShell(
     vm: SessionViewModel,
     redMode: Boolean,
     onToggleRed: () -> Unit,
-    reconnecting: Boolean,
+    /** Non-null shows a dismiss-free warning strip above the header — null hides it entirely. */
+    banner: String?,
 ) {
     val colors = NocturneTheme.colors
     val navController = rememberNavController()
@@ -143,7 +159,7 @@ private fun NocturneShell(
             .background(colors.bg),
     ) {
         Column(Modifier.fillMaxSize()) {
-            if (reconnecting) {
+            if (banner != null) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -154,7 +170,7 @@ private fun NocturneShell(
                     Phosphor.Icon(Phosphor.Warning, size = 13.dp, tint = colors.warn)
                     Spacer(Modifier.width(7.dp))
                     Text(
-                        "Reconnecting to rig…",
+                        banner,
                         style = NocturneTheme.type.Caption,
                         color = colors.warn,
                     )

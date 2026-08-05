@@ -71,9 +71,18 @@ class EkosRemoteController(
     }
 
     private fun applyEvent(s: SimState, event: EkosEvent): SimState = when (event) {
-        // Connection progress is consumed straight from client.connectionStatus by the
-        // connect screen / reconnect banner — not funneled through SimState at all.
-        is EkosEvent.NewConnectionState -> s
+        // Socket/dial progress itself is consumed straight from client.connectionStatus by
+        // the connect screen / reconnect banner — not funneled through SimState. But `online`
+        // specifically doubles as SimState.ekosRunning (Gear tab's Start/Stop Ekos, ReadyBanner,
+        // etc. all read that) — SimState defaults ekosRunning = true (M1 fixture default, a
+        // profile already running), which is wrong the moment a real socket opens and Ekos
+        // hasn't started yet (see NocturneApp — the shell is now reachable at that point
+        // specifically so Start Ekos is tappable). activeProfile mirrors whatever get_profiles
+        // already told us is selected, only while actually online.
+        is EkosEvent.NewConnectionState -> s.copy(
+            ekosRunning = event.online,
+            activeProfile = if (event.online) s.selectedProfile else null,
+        )
         is EkosEvent.NewCaptureState -> s.copy(wireCaptureStatus = event.status)
         is EkosEvent.NewMountState -> s.copy(
             wireMountStatus = event.status,
