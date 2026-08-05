@@ -104,6 +104,10 @@ class EkosRemoteClient(
                 sendCommand(Commands.GET_STATES)
                 sendCommand(Commands.GET_DEVICES)
                 sendCommand(Commands.GET_PROFILES)
+                // OpticalTrainManager is a real Ekos module — only meaningful once Ekos has
+                // actually started, unlike profiles/devices which the server happily reports
+                // pre-online too. Gated the same way GET_DEVICES/GET_PROFILES are.
+                sendCommand(Commands.TRAIN_GET_ALL)
             }
         }
         _events.tryEmit(event)

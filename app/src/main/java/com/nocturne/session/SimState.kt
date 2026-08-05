@@ -282,6 +282,15 @@ fun guideOpticNote(focalMm: Int): String {
 data class RigProfile(
     val name: String,
     val deviceKeys: List<String>,
+    /**
+     * Real `get_profiles`' `drivers` map (`{"<DeviceFamily>": [labels...]}`,
+     * M3) — [deviceKeys] alone (a flattened label list) can't drive
+     * [editProfile]'s per-category picker, since it's lost which family
+     * each label came from. Empty for every [SimulatedController] fixture
+     * profile — [deviceKeys] there is category *keys*, not driver labels,
+     * a different thing entirely (see the doc above `DEFAULT_PROFILES`).
+     */
+    val drivers: Map<String, List<String>> = emptyMap(),
 )
 
 val DEFAULT_PROFILES = listOf(

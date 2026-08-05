@@ -315,7 +315,7 @@ abstract class AbstractLocalSessionController : SessionController {
         )
     }
 
-    override fun editProfile(name: String) = update { s ->
+    override open fun editProfile(name: String) = update { s ->
         if (s.ekosRunning) return@update s
         val p = s.profiles.firstOrNull { it.name == name } ?: return@update s
         s.copy(sheet = SheetType.SETUP, setupEditingName = name, profileName = p.name)

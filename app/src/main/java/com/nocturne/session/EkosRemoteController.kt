@@ -7,6 +7,7 @@ import com.nocturne.protocol.WireDevice
 import com.nocturne.protocol.WireProfile
 import com.nocturne.protocol.WireProperty
 import com.nocturne.protocol.WireRiseset
+import com.nocturne.protocol.WireTrain
 import com.nocturne.protocol.SchedulerJobStatus
 import com.nocturne.protocol.bitmaskToRoles
 import com.nocturne.transport.EkosRemoteClient
@@ -61,6 +62,14 @@ class EkosRemoteController(
     private var pendingSyncName: String? = null
 
     init {
+        // SimState.jobs/activeJobId/lastActiveJobId/openBlockId default to DEFAULT_JOBS — one
+        // job pre-marked running = true, a SimulatedController demo convenience. A real
+        // connection has no session queued until the user actually adds one (Plan tab "Add to
+        // sequence"), so start empty rather than showing a fabricated "already imaging" job
+        // nobody started.
+        _state.update {
+            it.copy(jobs = emptyList(), activeJobId = null, jobSeq = 1, lastActiveJobId = null, openBlockId = null)
+        }
         scope.launch {
             client.events.collect { event ->
                 _state.update { s -> applyEvent(s, event) }
@@ -112,7 +121,16 @@ class EkosRemoteController(
                 profileDeleteRefused = if (refused) attemptedDelete else null,
             )
         }
-        is EkosEvent.Trains -> s.copy(wireTrains = event.trains)
+        // Nocturne's UI only ever models 2 train slots (Primary/Secondary) — a real rig can
+        // have any number of named trains under a real name (not "Primary"/"Secondary"), so
+        // this maps position 0/1 in the reply onto those two slots, best-effort. A rig with
+        // only 1 real train leaves secondaryTrain at its fixture default, same as a rig with
+        // more than 2 leaves the 3rd+ train invisible — known limitation, not silently wrong.
+        is EkosEvent.Trains -> s.copy(
+            wireTrains = event.trains,
+            primaryTrain = event.trains.getOrNull(0)?.toTrainAssignment() ?: s.primaryTrain,
+            secondaryTrain = event.trains.getOrNull(1)?.toTrainAssignment() ?: s.secondaryTrain,
+        )
         is EkosEvent.SchedulerJobs -> applySchedulerJobs(s, event)
 
         // A fresh astro_search_objects reply clears prior results (loading state) — the
@@ -298,6 +316,32 @@ class EkosRemoteController(
         // arrives moments later and is the only source of truth here either way.
     }
 
+    /**
+     * The base implementation only opens the sheet + copies the profile
+     * name — it never touches `selectedDeviceNames`/`devOff`, so the wizard
+     * would otherwise show whatever picker state happened to be left over
+     * from a previous edit, not this profile's real driver selections.
+     * Reverses `RigProfile.drivers` (family → labels) back into Nocturne's
+     * category keys via [CATEGORY_TO_DRIVER_FAMILY] so the picker actually
+     * reflects the real profile before [finishSetup] can send an update
+     * that's just this same reversal run forward again.
+     */
+    override fun editProfile(name: String) {
+        super.editProfile(name)
+        val p = _state.value.profiles.firstOrNull { it.name == name } ?: return
+        update { s ->
+            if (s.setupEditingName != name) return@update s // base declined (Ekos running) — nothing to seed
+            val selected = DEVICES.associate { d ->
+                val label = CATEGORY_TO_DRIVER_FAMILY[d.key]?.let { family -> p.drivers[family]?.firstOrNull() }
+                d.key to (label ?: "None")
+            }
+            s.copy(
+                selectedDeviceNames = s.selectedDeviceNames + selected,
+                devOff = selected.filterValues { it == "None" }.keys,
+            )
+        }
+    }
+
     override fun finishSetup() {
         val s = _state.value
         val drivers: Map<String, List<String>> = DEVICES.filter { it.key !in s.devOff }
@@ -461,9 +505,24 @@ private val CATEGORY_TO_DRIVER_FAMILY = mapOf(
     "weather" to "Weather",
 )
 
-private fun WireProfile.toRigProfile() = RigProfile(name = name, deviceKeys = drivers.values.flatten())
+private fun WireProfile.toRigProfile() = RigProfile(name = name, deviceKeys = drivers.values.flatten(), drivers = drivers)
 
 private fun WireDevice.toLiveDevice() = LiveDevice(name = name, connected = connected, roles = bitmaskToRoles(interfaceMask))
+
+/** Blank string fields (unassigned role, per `train_get_all`'s own convention) become "None". */
+private fun WireTrain.toTrainAssignment() = TrainAssignment(
+    mount = mount.ifBlank { "None" },
+    camera = camera.ifBlank { "None" },
+    rotator = rotator.ifBlank { "None" },
+    guideVia = guider.ifBlank { "None" },
+    dustCap = dustcap.ifBlank { "None" },
+    scope = scope.ifBlank { "None" },
+    filterWheel = filterwheel.ifBlank { "None" },
+    focuser = focuser.ifBlank { "None" },
+    reducer = reducer.toDoubleOrNull() ?: 1.0,
+    lightBox = lightbox.ifBlank { "None" },
+    adaptiveOptics = adaptiveoptics.ifBlank { "None" },
+)
 
 /** Merges one real property-vector push into [SimState.indiProps], keyed by real device name. */
 private fun SimState.withProperty(device: String, property: WireProperty): SimState {
