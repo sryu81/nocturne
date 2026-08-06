@@ -36,6 +36,18 @@ android {
     buildFeatures {
         compose = true
     }
+
+    testOptions {
+        unitTests.all {
+            // Forwards -DnocturneHwHost=<pi-ip> (and nocturneHwPort) from the Gradle invocation
+            // into the forked test JVM — Gradle does NOT do this by default. Powers the opt-in
+            // EkosRemoteHardwareTest; both this and the NOCTURNE_HW_HOST env var work (env vars
+            // are forwarded automatically), see that test's own doc comment. Only set when
+            // actually passed — an empty-string property would defeat the test's `?: null` skip.
+            System.getProperty("nocturneHwHost")?.let { host -> it.systemProperty("nocturneHwHost", host) }
+            System.getProperty("nocturneHwPort")?.let { port -> it.systemProperty("nocturneHwPort", port) }
+        }
+    }
 }
 
 dependencies {
@@ -53,4 +65,7 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.androidx.datastore.preferences)
     debugImplementation(libs.androidx.compose.ui.tooling)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
 }
