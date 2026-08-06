@@ -346,6 +346,108 @@ class EkosRemoteController(
         (_state.value.indiProps[deviceKey] ?: DRIVER_INDI_PROPS[deviceKey] ?: emptyList())
             .firstOrNull { it.name == propName } as? T
 
+    // ── Bench check (M3.2) ──────────────────────────────────────────────
+    //
+    // capture_preview/guide_capture/focus_in/out/mount_set_motion all have no direct reply
+    // (plan §"Protocol facts" pattern repeats here) — status arrives via the new_capture_state/
+    // new_guide_state pushes (already wired, M2) or the cooler/focuser's own subscribed
+    // property pushes; none of it needs a bespoke reconciliation path. Cooler itself reuses
+    // the existing generic setIndiNumber/indiNumber machinery (M3 §2) rather than a new one —
+    // CCD_TEMPERATURE is just another Number property, confirmed live against a real
+    // ToupTek ATR2600M: {"CCD_TEMPERATURE": [{"name":"CCD_TEMPERATURE_VALUE", perm RW}],
+    // "CCD_COOLER_POWER": [{"name":"COOLER_POWER", perm RO}]} — writing CCD_TEMPERATURE_VALUE
+    // is the real "set point" (most INDI CCD drivers auto-engage the cooler to chase it).
+
+    /** No image data arrives on this channel — real preview bytes need the Media channel (M4, not built). Status still updates via new_capture_state. */
+    override fun snapMain() {
+        client.sendCommand(Commands.CAPTURE_PREVIEW)
+        super.snapMain()
+    }
+
+    /** Same limitation as [snapMain] — real guide-frame bytes need the Media channel (M4). Status via new_guide_state. */
+    override fun snapGuide() {
+        client.sendCommand(Commands.GUIDE_CAPTURE)
+        super.snapGuide()
+    }
+
+    /**
+     * The real `CCD_TEMPERATURE` vector has no separate "target" element (confirmed live —
+     * only `CCD_TEMPERATURE_VALUE`, the current reading, is exposed) — `super.coolUp/coolDown()`
+     * still owns [SimState.coolTarget] as Nocturne's own client-side "last commanded" bookkeeping
+     * (same field/semantics as [SimulatedController]'s fixture), it just now also pushes that
+     * number to the real camera afterward. `CoolerCard` reads the live sensor value separately,
+     * via [com.nocturne.session.indiNumber].
+     *
+     * Two *separate* real things need writing, confirmed live (user report: "setpoint in Ekos
+     * wasn't synced" — it wasn't, this was the gap): the raw INDI `CCD_TEMPERATURE` device
+     * property (what actually drives the cooler hardware — [setIndiNumber] below), and the
+     * Capture module's own "Set Temperature" widget (`cameraTemperatureN`/`cameraTemperatureS`,
+     * `capture_get/set_all_settings` — what the Ekos *desktop UI* actually displays as the
+     * target). Writing only the device property, as the first cut of this did, changes the
+     * hardware for real but leaves the number shown on the real Ekos screen stale at whatever
+     * it was before — confirmed live: `cameraTemperatureN` sat at `0` even after the driver
+     * itself had already reached -9.3°C from a direct property write. `cameraTemperatureS` is
+     * the "enforce/use this" checkbox — set true unconditionally here since actively dialing a
+     * target via Nocturne's cooler card only makes sense with it enabled.
+     */
+    override fun coolUp() {
+        super.coolUp()
+        pushCoolerSetpoint()
+    }
+
+    override fun coolDown() {
+        super.coolDown()
+        pushCoolerSetpoint()
+    }
+
+    private fun pushCoolerSetpoint() {
+        val target = _state.value.coolTarget
+        client.sendCommand(Commands.CAPTURE_SET_ALL_SETTINGS, buildJsonObject {
+            put("cameraTemperatureN", target)
+            put("cameraTemperatureS", true)
+        })
+        val camera = _state.value.primaryTrain.camera
+        if (_state.value.wireDevices?.any { it.name == camera && it.connected } == true) {
+            setIndiNumber(camera, "CCD_TEMPERATURE", target)
+        }
+    }
+
+    override fun jogFocus(delta: Int) {
+        client.sendCommand(if (delta > 0) Commands.FOCUS_OUT else Commands.FOCUS_IN, buildJsonObject { put("steps", kotlin.math.abs(delta)) })
+        super.jogFocus(delta)
+    }
+
+    override fun setRate(index: Int) {
+        client.sendCommand(Commands.MOUNT_SET_SLEW_RATE, buildJsonObject { put("rate", index) })
+        super.setRate(index)
+    }
+
+    /** DPad's own key strings are already "N"/"S"/"E"/"W" — exactly mount_set_motion's `direction` values, no translation needed. */
+    override fun setSlewDir(key: String) {
+        client.sendCommand(Commands.MOUNT_SET_MOTION, buildJsonObject { put("direction", key); put("action", true) })
+        super.setSlewDir(key)
+    }
+
+    /** Must read the in-flight direction *before* super.stopSlew() clears it — mount_set_motion stops one axis at a time, matching the DPad's one-direction-at-a-time model. */
+    override fun stopSlew() {
+        _state.value.slewDir?.let { dir ->
+            client.sendCommand(Commands.MOUNT_SET_MOTION, buildJsonObject { put("direction", dir); put("action", false) })
+        }
+        super.stopSlew()
+    }
+
+    /** `mount_unpark` — no direct reply, watch new_mount_state (already wired, M2). */
+    override fun unparkMount() {
+        client.sendCommand(Commands.MOUNT_UNPARK)
+        super.unparkMount()
+    }
+
+    /** `align_solve` (`captureAndSolve()`) — no direct reply, watch new_align_state (already wired, M2). */
+    override fun plateSolveHere() {
+        client.sendCommand(Commands.ALIGN_SOLVE)
+        super.plateSolveHere()
+    }
+
     // ── Profiles / Optical Train (M3 §3) ────────────────────────────────
 
     override fun startProfile(name: String) {

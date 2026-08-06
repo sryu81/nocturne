@@ -51,4 +51,15 @@ object Commands {
     const val SCOPE_ADD = "scope_add"
     const val SCOPE_UPDATE = "scope_update"
     const val SCOPE_DELETE = "scope_delete"
+
+    // M3.2 — Bench check (Capture preview/Focus jog/Mount motion — EkosRemote-Command-Reference.md §5/6/8/9).
+    const val CAPTURE_PREVIEW = "capture_preview"
+    const val GUIDE_CAPTURE = "guide_capture"
+    const val FOCUS_IN = "focus_in"
+    const val FOCUS_OUT = "focus_out"
+    const val MOUNT_SET_MOTION = "mount_set_motion"
+    const val MOUNT_SET_SLEW_RATE = "mount_set_slew_rate"
+    const val MOUNT_UNPARK = "mount_unpark"
+    const val ALIGN_SOLVE = "align_solve"
+    const val CAPTURE_SET_ALL_SETTINGS = "capture_set_all_settings"
 }

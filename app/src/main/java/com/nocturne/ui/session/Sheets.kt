@@ -47,6 +47,7 @@ import com.nocturne.session.SimState
 import com.nocturne.session.TrainRole
 import com.nocturne.session.TrainSlot
 import com.nocturne.session.coolAtSetPoint
+import com.nocturne.session.indiNumber
 import com.nocturne.session.doneSpec
 import com.nocturne.session.endedJob
 import com.nocturne.session.fRatio
@@ -85,6 +86,7 @@ import com.nocturne.ui.icons.Phosphor
 import com.nocturne.ui.theme.NocturnePalette
 import com.nocturne.ui.theme.NocturneTheme
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /** Tintable big circle icon used in alert rows. */
 private data class AlertStyle(val color: Color, val icon: ImageVector)
@@ -899,15 +901,36 @@ private fun StepPills(labels: List<String>, current: Int) {
 
 // ── Bench ────────────────────────────────────────────────────────────────
 
+/**
+ * Real connection ([SimState.wireDevices] non-null): `capture_preview`/`guide_capture`
+ * (M3.2) really do trigger a capture on the Pi, but the resulting image/HFR/ADU numbers
+ * arrive over the Media channel, which doesn't exist yet (M4, `MediaChannel` is a stub) — so
+ * the honest thing to show is the real capture/guide status push (already wired, M2), not a
+ * fabricated readout. [SimulatedController] keeps the canned fixture text, unchanged.
+ */
+private fun benchSnapLabel(state: SimState, real: Boolean, snapped: Boolean, status: String?, fixtureText: String): String = when {
+    !real -> if (snapped) fixtureText else "no test frame yet"
+    status != null -> "status: $status"
+    else -> "tap Snap to trigger a real capture (no live preview yet — needs the Media channel, M4)"
+}
+
 @Composable
 private fun BenchSheet(state: SimState, ctrl: SessionController, landscape: Boolean) {
+    val real = state.wireDevices != null
     val left: @Composable () -> Unit = {
         Column {
             SnapPanel(
                 tag = "2 s · bin 2",
-                label = if (state.snappedMain) "★ 1 482 · HFR 2.31 · ADU 1 093" else "no test frame yet",
+                label = benchSnapLabel(state, real, state.snappedMain, state.wireCaptureStatus, "★ 1 482 · HFR 2.31 · ADU 1 093"),
                 snapLabel = "Snap main",
                 onSnap = ctrl::snapMain,
+            )
+            Spacer(Modifier.height(14.dp))
+            SnapPanel(
+                tag = "guide cam",
+                label = benchSnapLabel(state, real, state.snappedGuide, state.wireGuideStatus, "★ 214 · SNR 18.4"),
+                snapLabel = "Snap guide",
+                onSnap = ctrl::snapGuide,
             )
             Spacer(Modifier.height(14.dp))
             CoolerCard(state, ctrl)
@@ -962,11 +985,27 @@ private fun SnapPanel(tag: String, label: String, snapLabel: String, onSnap: () 
     }
 }
 
+/**
+ * Real connection: the imaging camera's actual `CCD_TEMPERATURE`/`CCD_COOLER_POWER`
+ * properties (confirmed live against a real ToupTek ATR2600M — see
+ * [com.nocturne.session.EkosRemoteController]'s doc comment on `coolUp`/`coolDown`), read via
+ * the same [indiNumber] helper the generic device sheets already use. `coolTarget` stays
+ * Nocturne's own client-side "last commanded set point" either way — the real vector has no
+ * separate target element to read back. Falls back to [SimulatedController]'s fixture
+ * `coolNow`/`coolPowerPct` when no real camera is connected (including under
+ * `SimulatedController`, which never populates `wireDevices`).
+ */
 @Composable
 private fun CoolerCard(state: SimState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
-    val atSet = state.coolAtSetPoint
+    val camera = state.primaryTrain.camera
+    val cameraConnected = state.wireDevices?.any { it.name == camera && it.connected } == true
+    val liveTemp = if (cameraConnected) state.indiNumber(camera, "CCD_TEMPERATURE") else null
+    val livePowerPct = if (cameraConnected) state.indiNumber(camera, "CCD_COOLER_POWER") else null
+    val sensorNow = liveTemp ?: state.coolNow
+    val powerPct = livePowerPct?.roundToInt() ?: state.coolPowerPct
+    val atSet = if (liveTemp != null) abs(liveTemp - state.coolTarget) < 0.5 else state.coolAtSetPoint
     Column(
         Modifier
             .fillMaxWidth()
@@ -976,15 +1015,15 @@ private fun CoolerCard(state: SimState, ctrl: SessionController) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextC("COOLER", style = t.MicroLabel, color = c.textMuted, modifier = Modifier.weight(1f))
             TextC(
-                (if (atSet) "at set point" else "ramping") + " · ${state.coolPowerPct}%",
+                (if (atSet) "at set point" else "ramping") + " · $powerPct%",
                 style = t.Mono115, color = if (atSet) c.ok else c.warn,
             )
         }
         Spacer(Modifier.height(9.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                TextC(String.format("%.1f", state.coolNow) + " °C", style = t.Mono26, color = c.text)
-                TextC("sensor now", style = t.MonoMicro, color = c.textMuted)
+                TextC(String.format("%.1f", sensorNow) + " °C", style = t.Mono26, color = c.text)
+                TextC(if (liveTemp != null) "sensor now (live)" else "sensor now", style = t.MonoMicro, color = c.textMuted)
             }
             CoolBtn("−") { ctrl.coolDown() }
             Column(Modifier.width(64.dp), horizontalAlignment = Alignment.CenterHorizontally) {
