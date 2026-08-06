@@ -25,6 +25,7 @@ import com.nocturne.session.DEVICES
 import com.nocturne.session.LiveDevice
 import com.nocturne.session.SessionController
 import com.nocturne.session.activeRigProfile
+import com.nocturne.session.findScope
 import com.nocturne.session.SheetType
 import com.nocturne.session.SimState
 import com.nocturne.session.indiNumber
@@ -76,16 +77,21 @@ fun GearScreen(
     TabPane(
         landscape = landscape,
         modifier = modifier,
-        items = listOf(
-            TabItem(full = true) { ReadyBanner(state) },
-            TabItem(full = true) { RigProfileCard(state, ctrl) },
-            TabItem { OpticalTrainCard(state, ctrl) },
-            TabItem { BenchCard(ctrl) },
-            TabItem { PaCard(state, ctrl) },
-            TabItem(full = true) { DeviceList(state, ctrl) },
-            TabItem(full = true) { PowerDew(state) },
-            TabItem(full = true) { CloseRoofButton(state, ctrl) },
-        ),
+        items = buildList {
+            add(TabItem(full = true) { ReadyBanner(state) })
+            add(TabItem(full = true) { RigProfileCard(state, ctrl) })
+            add(TabItem { ScopesCard(state, ctrl) })
+            add(TabItem { OpticalTrainCard(state, ctrl) })
+            // Which Ekos module uses which train (ProfileSettings) — only meaningful once real
+            // trains exist server-side; no fixture equivalent (SimulatedController never sets
+            // wireTrains), so the card itself is simply absent there, not a decorative stand-in.
+            if (state.wireTrains != null) add(TabItem { ModuleAssignmentsCard(state, ctrl) })
+            add(TabItem { BenchCard(ctrl) })
+            add(TabItem { PaCard(state, ctrl) })
+            add(TabItem(full = true) { DeviceList(state, ctrl) })
+            add(TabItem(full = true) { PowerDew(state) })
+            add(TabItem(full = true) { CloseRoofButton(state, ctrl) })
+        },
     )
 }
 
@@ -246,6 +252,8 @@ private fun RigProfileCard(state: SimState, ctrl: SessionController) {
 private fun OpticalTrainCard(state: SimState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
+    val primaryMm = state.findScope(state.primaryTrain.scope)?.focalMm
+    val secondaryMm = state.findScope(state.secondaryTrain.scope)?.focalMm
     Column(
         Modifier
             .fillMaxWidth()
@@ -257,7 +265,67 @@ private fun OpticalTrainCard(state: SimState, ctrl: SessionController) {
         Phosphor.Icon(Phosphor.CrosshairSimple, size = 20.dp, tint = c.accent400)
         Spacer(Modifier.height(5.dp))
         TextC("Optical train", style = t.Body135, color = c.text)
-        TextC("primary ${state.opticMm} mm · secondary ${state.guideOpticMm} mm", style = t.MonoMicro, color = c.textFaint)
+        TextC(
+            "primary ${primaryMm?.let { "$it mm" } ?: "—"} · secondary ${secondaryMm?.let { "$it mm" } ?: "—"}",
+            style = t.MonoMicro, color = c.textFaint,
+        )
+    }
+}
+
+/**
+ * Which Ekos module (Camera/Focus/Mount/Guide/Align/Dark Library) uses which
+ * named train — split out from the Optical Train card/sheet on user
+ * feedback (the two were one long scroll, reading as unrelated concerns).
+ * Only shown when [SimState.wireTrains] is non-null (see [GearScreen]) —
+ * there's no fixture equivalent, [ctrl]'s [SimState.moduleTrainAssignments]
+ * summary is simply meaningless under `SimulatedController`.
+ */
+@Composable
+private fun ModuleAssignmentsCard(state: SimState, ctrl: SessionController) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    val assigned = state.moduleTrainAssignments?.size ?: 0
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(c.surface, RoundedCornerShape(14.dp))
+            .border(1.dp, c.divider, RoundedCornerShape(14.dp))
+            .clickable { ctrl.openSheet(SheetType.MODULE_ASSIGNMENTS) }
+            .padding(12.dp),
+    ) {
+        Phosphor.Icon(Phosphor.CirclesThree, size = 20.dp, tint = c.accent400)
+        Spacer(Modifier.height(5.dp))
+        TextC("Module assignments", style = t.Body135, color = c.text)
+        TextC("$assigned of 6 modules set", style = t.MonoMicro, color = c.textFaint)
+    }
+}
+
+/**
+ * Scopes catalog card (M3.1) — real Ekos manages telescopes/lenses in their
+ * own dialog, entirely separate from Optical Trains (`get_scopes`/`scope_add`
+ * — see [ScopeDef]); placed right before Optical Train since a scope must
+ * exist here before a train can reference it.
+ */
+@Composable
+private fun ScopesCard(state: SimState, ctrl: SessionController) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    val scopes = state.wireScopes ?: state.scopes
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(c.surface, RoundedCornerShape(14.dp))
+            .border(1.dp, c.divider, RoundedCornerShape(14.dp))
+            .clickable { ctrl.openSheet(SheetType.SCOPES) }
+            .padding(12.dp),
+    ) {
+        Phosphor.Icon(Phosphor.Target, size = 20.dp, tint = c.accent400)
+        Spacer(Modifier.height(5.dp))
+        TextC("Scopes", style = t.Body135, color = c.text)
+        TextC(
+            if (scopes.isEmpty()) "none defined" else "${scopes.size} defined",
+            style = t.MonoMicro, color = c.textFaint,
+        )
     }
 }
 

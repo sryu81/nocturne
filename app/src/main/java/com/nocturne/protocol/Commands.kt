@@ -45,4 +45,10 @@ object Commands {
     const val TRAIN_SET = "train_set"
     const val TRAIN_ADD = "train_add"
     const val TRAIN_UPDATE = "train_update"
+
+    // M3.1 — Scopes catalog (separate from Optical Trains — EkosRemote-Command-Reference.md §4).
+    const val GET_SCOPES = "get_scopes"
+    const val SCOPE_ADD = "scope_add"
+    const val SCOPE_UPDATE = "scope_update"
+    const val SCOPE_DELETE = "scope_delete"
 }

@@ -93,6 +93,11 @@ class EkosRemoteClient(
         _connectionStatus.update { it.copy(state = ConnectionState.SOCKET_OPEN, lastError = null) }
         sendCommand(Commands.SET_CLIENT_STATE, buildJsonObject { put("state", true) })
         sendCommand(Commands.GET_CONNECTION)
+        // Scopes catalog — separate from Optical Trains (message.cpp:204), answered even while
+        // Ekos itself is stopped (confirmed live) — sent eagerly here, not gated behind `online`
+        // like GET_DEVICES/TRAIN_GET_ALL below, so the Scopes card shows real data before the
+        // user ever taps Start Ekos, same as get_profiles's own spontaneous pre-online push.
+        sendCommand(Commands.GET_SCOPES)
     }
 
     private fun onEvent(event: EkosEvent) {

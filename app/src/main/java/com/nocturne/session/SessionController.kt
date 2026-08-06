@@ -100,11 +100,18 @@ interface SessionController {
     fun openSetup()
     fun setupBack()
     fun finishSetup()
-    fun setScopeName(name: String)
-    fun setOpticMm(mm: Int)
-    fun setScopeApertureMm(mm: Int)
-    fun setGuideScopeName(name: String)
-    fun setGuideOpticMm(mm: Int)
-    fun setGuideScopeApertureMm(mm: Int)
     fun setProfileName(name: String)
+
+    /**
+     * The Scopes catalog (M3.1) — real Ekos's own separate telescopes/lenses
+     * dialog (`get_scopes`/`scope_add`/`scope_update`/`scope_delete`), not
+     * bundled into the rig Profile or Optical Train editors. A train's Scope
+     * role picks one of these by name (see [setTrainRole]/[TrainRole.SCOPE]).
+     */
+    fun addScope(name: String, vendor: String, type: String, focalMm: Int, apertureMm: Int)
+    fun updateScope(id: String, name: String, vendor: String, type: String, focalMm: Int, apertureMm: Int)
+    fun removeScope(id: String)
+    fun startAddScope()
+    fun cancelAddScope()
+    fun toggleEditScope(id: String)
 }

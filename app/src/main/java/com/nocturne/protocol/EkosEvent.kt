@@ -115,6 +115,12 @@ sealed interface EkosEvent {
     @Serializable
     data class TrainProfiles(val assignments: Map<String, Int>) : EkosEvent
 
+    // ── M3.1: Scopes catalog ─────────────────────────────────────────────
+
+    /** `get_scopes` reply — bare array, wrapped here. Also the auto-push after every `scope_add`/`update`/`delete`. */
+    @Serializable
+    data class Scopes(val scopes: List<WireScope>) : EkosEvent
+
     /** Anything not decoded above — unrecognized `type`, or a shape that failed to parse. */
     data class Raw(val type: String, val payload: JsonElement) : EkosEvent
 }
@@ -340,26 +346,32 @@ object SchedulerJobStage {
 
 /**
  * `OpticalTrainManager::getOpticalTrains()` entry (`train_get_all`). Field
- * *names* are verified live-test output; exact wire *types* beyond `id` are
- * not traced in the docs, so every role/name field defaults to `""` rather
- * than assuming non-null.
+ * *names* were verified live-test output; *types* are now confirmed against
+ * a real live capture too (a real Pi's reply held `"profile":5, "reducer":1,
+ * "adaptiveoptics":null` — `profile`/`reducer` are numbers, not strings, and
+ * `adaptiveoptics` can be an explicit JSON `null`, not just an absent/blank
+ * string like the other unassigned-role fields). Getting these wrong isn't
+ * cosmetic: a type mismatch throws during `decodeFromJsonElement`, which
+ * [EkosEventCodec] catches and silently downgrades to [EkosEvent.Raw] — the
+ * Optical Train tab would get no live data at all on real rigs, every time,
+ * with no visible error.
  */
 @Serializable
 data class WireTrain(
     val id: Int = 0,
     val name: String = "",
-    val profile: String = "",
+    val profile: Int = 0,
     val mount: String = "",
     val camera: String = "",
     val guider: String = "",
     val focuser: String = "",
     val filterwheel: String = "",
     val rotator: String = "",
-    val reducer: String = "",
+    val reducer: Double = 1.0,
     val dustcap: String = "",
     val lightbox: String = "",
     val scope: String = "",
-    val adaptiveoptics: String = "",
+    val adaptiveoptics: String? = null,
 )
 
 /**
@@ -388,4 +400,24 @@ val MODULE_KEY_BY_TRAIN_SETTING: Map<String, String> = mapOf(
     ProfileTrainSetting.GUIDE to "guide",
     ProfileTrainSetting.ALIGN to "align",
     ProfileTrainSetting.DARK_LIBRARY to "darklibrary",
+)
+
+/**
+ * `OAL::Scope::toJson()` (`get_scopes`/`scope_add`/`scope_update`/
+ * `scope_delete` — `EkosRemote-Command-Reference.md` §4, message.cpp:204/
+ * 1469/1474/1479): `{id, model, vendor, type, name, focal_length, aperture}`.
+ * Real Ekos's Scopes catalog is entirely separate from Optical Trains — a
+ * train's `scope` field (on [WireTrain]) just references one of these by
+ * [name]. `focal_length`/`aperture` are wire doubles; Nocturne's own
+ * [com.nocturne.session.ScopeDef] rounds them to Int mm for its UI.
+ */
+@Serializable
+data class WireScope(
+    val id: String = "",
+    val model: String = "",
+    val vendor: String = "",
+    val type: String = "",
+    val name: String = "",
+    val focal_length: Double = 0.0,
+    val aperture: Double = 0.0,
 )

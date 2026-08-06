@@ -52,8 +52,8 @@ import com.nocturne.session.endedJob
 import com.nocturne.session.fRatio
 import com.nocturne.session.formatHm
 import com.nocturne.session.get
-import com.nocturne.session.guideOpticNote
 import com.nocturne.session.opticNote
+import com.nocturne.session.ScopeDef
 import com.nocturne.session.coolBarPct
 import com.nocturne.session.coolPowerPct
 import com.nocturne.session.isOn
@@ -121,7 +121,9 @@ fun SheetHost(state: SimState, ctrl: SessionController, landscape: Boolean) {
         SheetType.PREFS -> "Alert rules" to "push + on-screen"
         SheetType.AUTOFOCUS_RULES -> "Autofocus rules" to "when to refocus"
         SheetType.SETUP -> (if (state.setupEditingName != null) "Edit rig profile" else "New rig profile") to "name + device connections"
-        SheetType.OPTICAL_TRAIN -> "Optical train" to "primary + secondary"
+        SheetType.OPTICAL_TRAIN -> "Optical train" to "primary + secondary roles"
+        SheetType.MODULE_ASSIGNMENTS -> "Module assignments" to "which train each Ekos module uses"
+        SheetType.SCOPES -> "Scopes" to "add, edit, remove"
         SheetType.DEVICE -> {
             val d = DEVICES.firstOrNull { it.key == state.deviceKey } ?: DEVICES[0]
             (state.selectedDeviceNames[d.key] ?: d.name) to (if (d.req) "required for a session" else "optional")
@@ -145,6 +147,8 @@ fun SheetHost(state: SimState, ctrl: SessionController, landscape: Boolean) {
                 SheetType.AUTOFOCUS_RULES -> AutofocusRulesSheet(state, ctrl)
                 SheetType.SETUP -> SetupBody(state, ctrl)
                 SheetType.OPTICAL_TRAIN -> OpticalTrainSheet(state, ctrl)
+                SheetType.MODULE_ASSIGNMENTS -> ModuleAssignmentsSheet(state, ctrl)
+                SheetType.SCOPES -> ScopesSheet(state, ctrl)
                 SheetType.DEVICE -> DeviceSheet(state, ctrl)
             }
         },
@@ -534,6 +538,117 @@ private fun MmField(label: String, mm: Int, modifier: Modifier, onChange: (Int) 
     }
 }
 
+/**
+ * Standalone entry point (from Gear tab, prior to Optical Train) — real
+ * Ekos's own Scopes catalog dialog (`get_scopes`/`scope_add`/`scope_update`/
+ * `scope_delete`, `EkosRemote-Command-Reference.md` §4): a flat add/edit/
+ * remove list of telescopes/lenses, entirely separate from both the rig
+ * Profile and the Optical Train's per-slot role pickers — a train's
+ * Scope/Lens role just picks one of these by name (`OpticalTrainSheet`'s
+ * `TrainForm`, unchanged, already a generic picker over whatever
+ * `trainRolePool(SCOPE)` returns).
+ */
+@Composable
+private fun ScopesSheet(state: SimState, ctrl: SessionController) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    val scopes = state.wireScopes ?: state.scopes
+    Column {
+        scopes.forEach { scope ->
+            val editing = state.editingScopeId == scope.id
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .background(if (editing) c.accent.copy(alpha = 0.14f) else c.bg, RoundedCornerShape(4.dp))
+                    .border(1.dp, if (editing) c.accent.copy(alpha = 0.6f) else Color.Transparent, RoundedCornerShape(4.dp))
+                    .clickable { ctrl.toggleEditScope(scope.id) }
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    TextC(scope.name, style = t.Body13, color = c.text)
+                    TextC(
+                        "${scope.focalMm} mm · ${fRatio(scope.focalMm, scope.apertureMm)} · ${scope.apertureMm} mm aperture",
+                        style = t.MonoSmall, color = c.textDim,
+                    )
+                }
+                IconBtn(icon = Phosphor.X, onClick = { ctrl.removeScope(scope.id) }, size = 28, tint = c.danger)
+                Spacer(Modifier.width(6.dp))
+                IconBtn(icon = Phosphor.CaretRight, onClick = { ctrl.toggleEditScope(scope.id) }, size = 28)
+            }
+            if (editing) {
+                Spacer(Modifier.height(8.4.dp))
+                ScopeEditorForm(
+                    initial = scope,
+                    onSave = { name, focalMm, apertureMm ->
+                        ctrl.updateScope(scope.id, name, scope.vendor, scope.type, focalMm, apertureMm)
+                        ctrl.toggleEditScope(scope.id)
+                    },
+                    onCancel = { ctrl.toggleEditScope(scope.id) },
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+        }
+        if (state.addingScope) {
+            ScopeEditorForm(
+                initial = null,
+                onSave = { name, focalMm, apertureMm -> ctrl.addScope(name, vendor = "", type = "", focalMm = focalMm, apertureMm = apertureMm) },
+                onCancel = ctrl::cancelAddScope,
+            )
+        } else {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, c.divider, RoundedCornerShape(4.dp))
+                    .clickable { ctrl.startAddScope() }
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Phosphor.Icon(Phosphor.Plus, size = 16.dp, tint = c.accent400)
+                Spacer(Modifier.width(8.dp))
+                TextC("New scope", style = t.Body13, color = c.accent400)
+            }
+        }
+    }
+}
+
+/** Inline add/edit form for one [ScopeDef] — reuses [ScopeInputFields] for the name/focal/aperture fields. */
+@Composable
+private fun ScopeEditorForm(initial: ScopeDef?, onSave: (name: String, focalMm: Int, apertureMm: Int) -> Unit, onCancel: () -> Unit) {
+    var name by remember(initial?.id) { mutableStateOf(initial?.name ?: "") }
+    var focalMm by remember(initial?.id) { mutableStateOf(initial?.focalMm ?: 550) }
+    var apertureMm by remember(initial?.id) { mutableStateOf(initial?.apertureMm ?: 80) }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(NocturneTheme.colors.bg, RoundedCornerShape(4.dp))
+            .padding(12.dp),
+    ) {
+        ScopeInputFields(
+            label = "Name",
+            name = name, onNameChange = { name = it },
+            focalMm = focalMm, onFocalChange = { focalMm = it },
+            apertureMm = apertureMm, onApertureChange = { apertureMm = it },
+            note = opticNote(focalMm),
+        )
+        Spacer(Modifier.height(8.4.dp))
+        Row(Modifier.fillMaxWidth()) {
+            NocturneButton(
+                text = "Cancel", onClick = onCancel,
+                style = com.nocturne.ui.components.BtnStyle.SUBTLE,
+                modifier = Modifier.weight(1f).height(40.dp),
+            )
+            Spacer(Modifier.width(8.4.dp))
+            NocturneButton(
+                text = "Save", onClick = { onSave(name, focalMm, apertureMm) },
+                style = com.nocturne.ui.components.BtnStyle.OUTLINE,
+                enabled = name.isNotBlank(),
+                modifier = Modifier.weight(1f).height(40.dp),
+            )
+        }
+    }
+}
+
 @Composable
 private fun SetupFooter(ctrl: SessionController) {
     Row(Modifier.fillMaxWidth()) {
@@ -554,61 +669,25 @@ private fun SetupFooter(ctrl: SessionController) {
 }
 
 /**
- * Standalone entry point (from Gear tab) — the real Optical Trains dialog:
- * Primary/Secondary (fixed, no add/remove — matches the design brief, not the
- * desktop dialog's +/− train list), each with the same 10 roles as
- * `train_get_all` (message.cpp:236, `OpticalTrainManager::getOpticalTrains()`):
- * Mount/Camera/Rotator/Guide via/Dust cap/Scope/Filter wheel/Focuser/
- * Reducer/Light box. Every dropdown's pool is whatever's currently selected
- * in the rig profile's device/scope categories — Reducer is the one field
- * that isn't a device pick, just a per-train multiplier.
+ * Standalone entry point (from Gear tab) — the real Optical Trains dialog's
+ * per-train role editor: Primary/Secondary (fixed, no add/remove — matches
+ * the design brief, not the desktop dialog's +/− train list), each with the
+ * same 10 roles as `train_get_all` (message.cpp:236,
+ * `OpticalTrainManager::getOpticalTrains()`): Mount/Camera/Rotator/Guide via/
+ * Dust cap/Scope/Filter wheel/Focuser/Reducer/Light box. Every dropdown's
+ * pool is whatever's currently selected in the rig profile's device/scope
+ * categories — Reducer is the one field that isn't a device pick, just a
+ * per-train multiplier. Scope/Lens itself is a plain picker over the Scopes
+ * catalog (`ScopesSheet`, reachable from its own Gear-tab card) — real Ekos
+ * keeps that catalog in its own dialog too, entirely separate from Optical
+ * Trains (M3.1). *Which Ekos module uses which train* is a separate concern
+ * — see `ModuleAssignmentsSheet` (split out, user feedback: the two were
+ * cluttering one long scroll and reading as unrelated to each other).
  */
 @Composable
 private fun OpticalTrainSheet(state: SimState, ctrl: SessionController) {
     var slot by remember { mutableStateOf(TrainSlot.PRIMARY) }
     Column {
-        // Scope/guide-scope definitions (name + focal length + aperture) — global, shared by
-        // both slots below, not per-profile. Real Ekos keeps these in its own Scopes catalog
-        // (`get_scopes`/`scope_add`), reachable from the Optical Train dialog, not the Profile
-        // editor — moved here to match (was bundled into the rig-setup wizard through M1/M2).
-        ScopeInputFields(
-            label = "Scope",
-            name = state.scopeName, onNameChange = ctrl::setScopeName,
-            focalMm = state.opticMm, onFocalChange = ctrl::setOpticMm,
-            apertureMm = state.scopeApertureMm, onApertureChange = ctrl::setScopeApertureMm,
-            note = opticNote(state.opticMm),
-        )
-        Spacer(Modifier.height(11.2.dp))
-        ScopeInputFields(
-            label = "Guide scope",
-            name = state.guideScopeName, onNameChange = ctrl::setGuideScopeName,
-            focalMm = state.guideOpticMm, onFocalChange = ctrl::setGuideOpticMm,
-            apertureMm = state.guideScopeApertureMm, onApertureChange = ctrl::setGuideScopeApertureMm,
-            note = guideOpticNote(state.guideOpticMm),
-        )
-        Spacer(Modifier.height(11.2.dp))
-        HDivider()
-        // Real per-active-profile module→train assignment (ProfileSettings, confirmed against
-        // profilesettings.cpp/opticaltrainmanager.cpp) — only meaningful once real trains exist,
-        // no fixture equivalent (SimulatedController never sets wireTrains), so this section is
-        // simply absent there rather than showing a decorative stand-in.
-        if (state.wireTrains != null) {
-            Spacer(Modifier.height(11.2.dp))
-            TextC("MODULE ASSIGNMENTS", style = NocturneTheme.type.MicroLabel, color = NocturneTheme.colors.textFaint)
-            Spacer(Modifier.height(5.dp))
-            val trainNames = state.wireTrains.map { it.name }
-            MODULE_ASSIGNMENT_LABELS.forEach { (moduleKey, label) ->
-                RoleRow(
-                    label = label,
-                    options = trainNames,
-                    selected = state.moduleTrainAssignments?.get(moduleKey) ?: "",
-                    onSelect = { ctrl.setModuleTrain(moduleKey, it) },
-                )
-                Spacer(Modifier.height(8.4.dp))
-            }
-            HDivider()
-        }
-        Spacer(Modifier.height(11.2.dp))
         Row(Modifier.border(1.dp, NocturneTheme.colors.divider, RoundedCornerShape(10.dp))) {
             listOf(TrainSlot.PRIMARY to "Primary", TrainSlot.SECONDARY to "Secondary").forEach { (s, label) ->
                 val sel = s == slot
@@ -617,10 +696,10 @@ private fun OpticalTrainSheet(state: SimState, ctrl: SessionController) {
                         .weight(1f)
                         .background(if (sel) NocturneTheme.colors.accent.copy(alpha = 0.2f) else Color.Transparent)
                         .clickable { slot = s }
-                        .padding(vertical = 9.dp),
+                        .padding(vertical = 11.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    TextC(label, style = NocturneTheme.type.MonoSmall, color = if (sel) NocturneTheme.colors.accent400 else NocturneTheme.colors.textMuted)
+                    TextC(label, style = NocturneTheme.type.Button13, color = if (sel) NocturneTheme.colors.accent400 else NocturneTheme.colors.textDim)
                 }
             }
         }
@@ -629,9 +708,54 @@ private fun OpticalTrainSheet(state: SimState, ctrl: SessionController) {
     }
 }
 
-/** Real `train_set` module keys + display labels — the 6 Ekos modules that each independently pick a train. */
+/**
+ * Standalone entry point (from Gear tab, next to Optical Train) — *which*
+ * Ekos module (real tab: Camera/Focus/Mount/Guide/Align/Dark Library) uses
+ * *which* named train, the real per-active-profile `ProfileSettings`
+ * mechanism (`train_set`/`train_get_profiles`, confirmed against
+ * `profilesettings.cpp`/`opticaltrainmanager.cpp`) — only meaningful once
+ * real trains exist, no fixture equivalent (`SimulatedController` never sets
+ * `wireTrains`), so [com.nocturne.ui.gear.GearScreen] simply omits this
+ * card's entry point rather than showing a decorative stand-in.
+ */
+@Composable
+private fun ModuleAssignmentsSheet(state: SimState, ctrl: SessionController) {
+    val trainNames = state.wireTrains?.map { it.name } ?: emptyList()
+    Column {
+        MODULE_ASSIGNMENT_LABELS.forEach { (moduleKey, label) ->
+            RoleRow(
+                label = label,
+                options = trainNames,
+                selected = state.moduleTrainAssignments?.get(moduleKey) ?: "",
+                onSelect = { ctrl.setModuleTrain(moduleKey, it) },
+            )
+            Spacer(Modifier.height(10.dp))
+        }
+    }
+}
+
+/**
+ * Real `train_set` module keys + display labels — the 6 Ekos modules that
+ * each independently pick a train (confirmed against real KStars source,
+ * `focus.cpp`/`mount.cpp`/`align_settings.cpp`/`guide.cpp`/`camera_config.cpp`/
+ * `darklibrary.cpp`, each with its own real, working Optical Train combo box
+ * — no module here is a decorative stand-in). Label is "Camera", not
+ * "Capture" — the wire's own module string stays `"capture"` (that's what
+ * `train_set` actually accepts, `EkosRemote-Command-Reference.md`
+ * §"train_set"), but the real Ekos tab a user sees this control on is called
+ * Camera. Setup/Scheduler/Analyze/Observatory have no per-module train of
+ * their own (Setup predates trains existing at all; Scheduler's train picker
+ * is per-*job*, not a persisted profile setting; Analyze/Observatory have no
+ * Optical Train concept) — deliberately absent from this list, not missed.
+ *
+ * **Dark Library** (`darklibrary.cpp`): manages dark-frame/defect-map
+ * calibration — captures or loads a matching master dark for whichever
+ * camera its assigned train points at. Genuinely independent of Capture's
+ * train (e.g. building a dark library for the guide camera while Capture
+ * images through the main one).
+ */
 private val MODULE_ASSIGNMENT_LABELS = listOf(
-    "capture" to "Capture",
+    "capture" to "Camera",
     "focus" to "Focus",
     "mount" to "Mount",
     "guide" to "Guide",
@@ -672,14 +796,19 @@ private fun TrainForm(state: SimState, ctrl: SessionController, slot: TrainSlot)
     }
 }
 
-/** One role's picker — horizontally-scrolling chip row, since a pool can be 1-3 wide. */
+/**
+ * One role's picker — horizontally-scrolling chip row, since a pool can be
+ * 1-3 wide. Label/options sized up from the original 9.5px/11px + faint/muted
+ * (user feedback: too small and dim to read comfortably) to 11px/13px +
+ * dim/text — [c.accent400] for the selected chip is unchanged, already legible.
+ */
 @Composable
 private fun RoleRow(label: String, options: List<String>, selected: String, onSelect: (String) -> Unit) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     Column {
-        TextC(label, style = t.MicroLabel, color = c.textFaint)
-        Spacer(Modifier.height(4.dp))
+        TextC(label, style = t.CaptionMedium, color = c.textDim)
+        Spacer(Modifier.height(5.dp))
         Row(
             Modifier
                 .fillMaxWidth()
@@ -692,9 +821,9 @@ private fun RoleRow(label: String, options: List<String>, selected: String, onSe
                     Modifier
                         .background(if (sel) c.accent.copy(alpha = 0.2f) else Color.Transparent)
                         .clickable { onSelect(opt) }
-                        .padding(horizontal = 11.dp, vertical = 9.dp),
+                        .padding(horizontal = 13.dp, vertical = 11.dp),
                 ) {
-                    TextC(opt, style = t.MonoSmall, color = if (sel) c.accent400 else c.textMuted)
+                    TextC(opt, style = t.Body13, color = if (sel) c.accent400 else c.textDim)
                 }
             }
         }
@@ -1684,9 +1813,10 @@ private fun SumStat(label: String, value: String, modifier: Modifier = Modifier)
     }
 }
 
+/** Shared field-label style (Optical Train's Reducer, Scope editor's Name, Setup's Profile name, ...) — bumped from 10px/textMuted (user feedback: too small/dim) to 11px medium/textDim. */
 @Composable
 private fun FieldLabel(text: String) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
-    TextC(text, style = t.MicroUppercase, color = c.textMuted)
+    TextC(text, style = t.CaptionMedium, color = c.textDim)
 }

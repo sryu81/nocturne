@@ -14,7 +14,7 @@ import kotlin.math.sin
 /** Which detail sheet is open. */
 enum class SheetType {
     GUIDE, FOCUS, ALERTS, PREFS, SETUP, BENCH, PA, DEVICE, SUMMARY, AUTOFOCUS_RULES,
-    OPTICAL_TRAIN,
+    OPTICAL_TRAIN, SCOPES, MODULE_ASSIGNMENTS,
 }
 
 /** Which meridian-flip action is awaiting confirmation. */
@@ -78,13 +78,20 @@ data class SimState(
     val userTargetSeq: Int = 1,
     val editingUserTargetId: String? = null,
     val addingUserTarget: Boolean = false,
-    /** Scope/guide-scope are user-entered (name + focal length + aperture), not picked from a catalog. */
-    val scopeName: String = "Field APO",
-    val opticMm: Int = 550,
-    val scopeApertureMm: Int = 130,
-    val guideScopeName: String = "OAG",
-    val guideOpticMm: Int = 240,
-    val guideScopeApertureMm: Int = 50,
+    /**
+     * The Scopes catalog (M3.1) — real Ekos manages telescopes/lenses in
+     * their own dialog (`get_scopes`/`scope_add`, `EkosRemote-Command-
+     * Reference.md` §4), entirely separate from both the rig Profile and
+     * the Optical Train's per-slot role pickers; a train's Scope role just
+     * *references* one of these by name, same as every other role. Lives on
+     * the Gear tab next to Rig profile — configured once, prior to and
+     * independent of which train slot uses it.
+     */
+    val scopes: List<ScopeDef> = DEFAULT_SCOPES,
+    /** Monotonic id counter for user-added scopes — survives removals, same pattern as [userTargetSeq]. */
+    val scopeSeq: Int = DEFAULT_SCOPES.size + 1,
+    val editingScopeId: String? = null,
+    val addingScope: Boolean = false,
     val profileName: String = "Field · 550 mm",
     val ekosRunning: Boolean = true,
     val activeProfile: String? = "Field · 550 mm",
@@ -177,6 +184,16 @@ data class SimState(
      * [realDeviceOptions]. Null until the first `get_profiles` reply.
      */
     val wireKnownDrivers: Map<String, List<String>>? = null,
+    /**
+     * `get_scopes` translated (M3.1) — real Ekos's Scopes catalog is a
+     * separate dialog from Optical Trains entirely (`get_scopes`/`scope_add`/
+     * `scope_update`/`scope_delete`, message.cpp:204/1469/1474/1479), not
+     * bundled into either the Profile editor or the Optical Train dialog.
+     * Read by [ScopesCard]/[trainRolePool] instead of [scopes] when present.
+     * Null until the first `get_scopes` reply (it's sent in the same
+     * pre-online-ok burst as `get_profiles`/`train_get_all`).
+     */
+    val wireScopes: List<ScopeDef>? = null,
     /**
      * Name of a `profile_delete` that came back refused (M3) — real Ekos
      * silently refuses to delete `"Simulators"` or the active profile, with
@@ -293,9 +310,10 @@ fun guideOpticNote(focalMm: Int): String {
 /**
  * A saved equipment profile (`get_profiles`/`profile_add` per the wire
  * protocol) — what a real Ekos Profile actually is: name + driver selection
- * + connection mode. Focal length/aperture (`opticMm`/`guideOpticMm`, M1/M2)
- * moved to [TrainAssignment.scope]/[TrainAssignment.reducer] (M3) — a real
- * Profile carries no optics, that's the Optical Train's job.
+ * + connection mode. Optics (focal length/aperture) live entirely in the
+ * Scopes catalog ([ScopeDef]/[SimState.scopes], M3.1), referenced by a
+ * train's [TrainAssignment.scope] — a real Profile carries no optics of its
+ * own, that's the Scopes catalog + Optical Train's job.
  */
 data class RigProfile(
     val name: String,
@@ -322,13 +340,36 @@ val DEFAULT_PROFILES = listOf(
 
 val SimState.activeRigProfile: RigProfile? get() = profiles.firstOrNull { it.name == activeProfile }
 
-/**
- * "1160 mm · f/8.9" — real Ekos's Scopes catalog (`get_scopes`/`scope_add` —
- * message.cpp:334-350) is user-entered (name + focal length + aperture), not
- * picked from a fixed list — this just formats the F-ratio from the two.
- */
+/** Looks up a [ScopeDef] by name (a [TrainAssignment.scope]/[TrainAssignment] reference) — real or fixture catalog, whichever is current. */
+fun SimState.findScope(name: String): ScopeDef? = (wireScopes ?: scopes).firstOrNull { it.name == name }
+
+/** "1160 mm · f/8.9" — formats the F-ratio from a [ScopeDef]'s focal length + aperture. */
 fun fRatio(focalMm: Int, apertureMm: Int): String =
     if (apertureMm <= 0) "—" else "f/${"%.1f".format(focalMm.toDouble() / apertureMm)}"
+
+/**
+ * One entry in the Scopes catalog — real Ekos's `OAL::Scope::toJson()`
+ * (`get_scopes`/`scope_add`/`scope_update`/`scope_delete`,
+ * `EkosRemote-Command-Reference.md` §4): `{id, model, vendor, type, name,
+ * focal_length, aperture}`. Entirely separate from both the rig Profile and
+ * the Optical Train dialog in real Ekos — a train's Scope role just
+ * references one of these by [name], same as every other role's device pick.
+ * `id` is server-assigned once real ([EkosRemoteController] populates
+ * [SimState.wireScopes] from the wire); locally it's `"scope_<seq>"`.
+ */
+data class ScopeDef(
+    val id: String,
+    val name: String,
+    val vendor: String = "",
+    val type: String = "",
+    val focalMm: Int,
+    val apertureMm: Int,
+)
+
+val DEFAULT_SCOPES = listOf(
+    ScopeDef(id = "scope_1", name = "Field APO", vendor = "", type = "Refractor", focalMm = 550, apertureMm = 130),
+    ScopeDef(id = "scope_2", name = "OAG", vendor = "", type = "Guide scope", focalMm = 240, apertureMm = 50),
+)
 
 /** Which Optical Train slot — Ekos only ever has these two roles. */
 enum class TrainSlot { PRIMARY, SECONDARY }
@@ -413,11 +454,12 @@ private val TRAIN_ROLE_DEVICE_ROLES: Map<TrainRole, Set<DeviceRole>> = mapOf(
  * every connected device whose `interface` bitmask ORs in this role's
  * [DeviceRole] — [TrainRole.SCOPE] has no device backing (it's the Scopes
  * catalog, `get_scopes`/`scope_add`, not an INDI device) so it always falls
- * through to the fixture pool below regardless of connection mode.
+ * through to the `when` block below regardless of connection mode, where it
+ * reads [wireScopes] (real) or [scopes] (fixture) by name.
  * [SimulatedController] pool (fixture): sourced from the rig profile's
- * device/scope category selections, per the design brief ("the dropdown
- * list is from the devices in the rig profile"). Dust cap/Light box/AO have
- * no backing category there, so they're always just "None".
+ * device category selections, per the design brief ("the dropdown list is
+ * from the devices in the rig profile"). Dust cap/Light box/AO have no
+ * backing category there, so they're always just "None".
  */
 fun SimState.trainRolePool(role: TrainRole): List<String> {
     val live = wireDevices
@@ -433,7 +475,7 @@ fun SimState.trainRolePool(role: TrainRole): List<String> {
         TrainRole.GUIDE_VIA -> (listOf("None") + listOfNotNull(selectedDeviceNames["mount"])).distinct()
         TrainRole.DUST_CAP -> listOf("None")
         TrainRole.ADAPTIVE_OPTICS -> listOf("None")
-        TrainRole.SCOPE -> listOf(scopeName, guideScopeName).distinct()
+        TrainRole.SCOPE -> (wireScopes ?: scopes).map { it.name }.distinct()
         TrainRole.FILTER_WHEEL -> (listOf("None") + listOfNotNull(selectedDeviceNames["efw"])).distinct()
         TrainRole.FOCUSER -> (listOf("None") + listOfNotNull(selectedDeviceNames["focus"])).distinct()
         TrainRole.LIGHT_BOX -> listOf("None")

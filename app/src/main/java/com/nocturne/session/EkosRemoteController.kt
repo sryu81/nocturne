@@ -7,6 +7,7 @@ import com.nocturne.protocol.WireDevice
 import com.nocturne.protocol.WireProfile
 import com.nocturne.protocol.WireProperty
 import com.nocturne.protocol.WireRiseset
+import com.nocturne.protocol.WireScope
 import com.nocturne.protocol.WireTrain
 import com.nocturne.protocol.MODULE_KEY_BY_TRAIN_SETTING
 import com.nocturne.protocol.SchedulerJobStatus
@@ -21,6 +22,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
+import kotlin.math.roundToInt
 
 /**
  * M3 session driver for a real EkosRemote connection. Runs no ticker — `t`
@@ -140,15 +142,17 @@ class EkosRemoteController(
             wireTrains = event.trains,
             primaryTrain = event.trains.getOrNull(0)?.toTrainAssignment() ?: s.primaryTrain,
             secondaryTrain = event.trains.getOrNull(1)?.toTrainAssignment() ?: s.secondaryTrain,
-            moduleTrainAssignments = resolveModuleTrainAssignments(event.trains) ?: s.moduleTrainAssignments,
+            moduleTrainAssignments = resolveModuleTrainAssignments(s.moduleTrainAssignments, event.trains),
         )
         // train_get_profiles carries train IDs, not names — and can arrive before or after
         // train_get_all — so the raw ordinal→ID map is kept separately and re-resolved to
         // names against whichever wireTrains is current whichever reply lands second.
         is EkosEvent.TrainProfiles -> {
             lastTrainProfileAssignments = event.assignments
-            s.copy(moduleTrainAssignments = resolveModuleTrainAssignments(s.wireTrains) ?: s.moduleTrainAssignments)
+            s.copy(moduleTrainAssignments = resolveModuleTrainAssignments(s.moduleTrainAssignments, s.wireTrains))
         }
+        is EkosEvent.Scopes -> s.copy(wireScopes = event.scopes.map { it.toScopeDef() })
+
         is EkosEvent.SchedulerJobs -> applySchedulerJobs(s, event)
 
         // A fresh astro_search_objects reply clears prior results (loading state) — the
@@ -175,15 +179,31 @@ class EkosRemoteController(
     private fun buildSearchResults(): List<Target> =
         lastAstroObjects.map { it.toTarget(lastRiseset.firstOrNull { rs -> rs.name == it.name }) }
 
-    /** Resolves the raw ordinal→trainID map against [trains] into module-key→train-name. Null if either half hasn't arrived yet. */
-    private fun resolveModuleTrainAssignments(trains: List<WireTrain>?): Map<String, String>? {
-        val raw = lastTrainProfileAssignments ?: return null
-        if (trains == null) return null
-        return raw.mapNotNull { (ordinal, trainId) ->
+    /**
+     * Resolves the raw ordinal→trainID map against [trains] into module-key→train-name, merged
+     * onto [previous] rather than replacing it wholesale.
+     *
+     * Confirmed live against a real rig: `train_get_profiles` can carry a *stale* train ID for a
+     * module — left over from before its optical trains were recreated/renamed — that doesn't
+     * match any entry in the current `train_get_all` list (e.g. Focus/Mount/Align pointing at a
+     * long-gone id `8` while the real trains are now `11`/`12`). A wholesale replace would drop
+     * that module from the map entirely (no selection ever shows, looks unselectable), *and* would
+     * clobber a just-made optimistic pick from [setModuleTrain] the instant the next (still-stale,
+     * since real Ekos's own persistence for that module may not have caught up yet)
+     * `train_get_profiles` reply lands. Merging means: a module that resolves updates normally: one
+     * that doesn't resolve simply keeps whatever [previous] already had — the optimistic value if
+     * the user just picked one, or absent (shows as unselected, honestly — it isn't pointing at
+     * either currently known train) if they haven't touched it yet.
+     */
+    private fun resolveModuleTrainAssignments(previous: Map<String, String>?, trains: List<WireTrain>?): Map<String, String>? {
+        val raw = lastTrainProfileAssignments ?: return previous
+        if (trains == null) return previous
+        val resolved = raw.mapNotNull { (ordinal, trainId) ->
             val module = MODULE_KEY_BY_TRAIN_SETTING[ordinal] ?: return@mapNotNull null
             val name = trains.firstOrNull { it.id == trainId }?.name ?: return@mapNotNull null
             module to name
         }.toMap()
+        return (previous ?: emptyMap()) + resolved
     }
 
     /**
@@ -457,6 +477,42 @@ class EkosRemoteController(
         client.sendCommand(if (wireTrain != null) Commands.TRAIN_UPDATE else Commands.TRAIN_ADD, payload)
     }
 
+    // ── Scopes catalog (M3.1) — separate from Optical Trains, see plan §"Protocol facts" ──
+
+    override fun addScope(name: String, vendor: String, type: String, focalMm: Int, apertureMm: Int) {
+        client.sendCommand(Commands.SCOPE_ADD, buildJsonObject {
+            put("model", name); put("vendor", vendor); put("type", type)
+            put("focal_length", focalMm.toDouble()); put("aperture", apertureMm.toDouble())
+        })
+        super.addScope(name, vendor, type, focalMm, apertureMm) // optimistic; get_scopes auto-reply reconciles
+    }
+
+    override fun updateScope(id: String, name: String, vendor: String, type: String, focalMm: Int, apertureMm: Int) {
+        // Only a real (wire-known) scope has a server id to update against — a still-local-only
+        // scope (added before this connection, or under SimulatedController) has no wire
+        // counterpart yet, so falls back to add instead of an update with a made-up id.
+        val isWireKnown = _state.value.wireScopes?.any { it.id == id } == true
+        if (isWireKnown) {
+            client.sendCommand(Commands.SCOPE_UPDATE, buildJsonObject {
+                put("id", id); put("model", name); put("vendor", vendor); put("type", type)
+                put("focal_length", focalMm.toDouble()); put("aperture", apertureMm.toDouble())
+            })
+        } else {
+            client.sendCommand(Commands.SCOPE_ADD, buildJsonObject {
+                put("model", name); put("vendor", vendor); put("type", type)
+                put("focal_length", focalMm.toDouble()); put("aperture", apertureMm.toDouble())
+            })
+        }
+        super.updateScope(id, name, vendor, type, focalMm, apertureMm)
+    }
+
+    override fun removeScope(id: String) {
+        if (_state.value.wireScopes?.any { it.id == id } == true) {
+            client.sendCommand(Commands.SCOPE_DELETE, buildJsonObject { put("id", id) })
+        }
+        super.removeScope(id)
+    }
+
     // ── Plan tab astro_* search (M3 §4) ─────────────────────────────────
 
     override fun setQuery(text: String) {
@@ -548,8 +604,26 @@ private fun WireProfile.toRigProfile() = RigProfile(name = name, deviceKeys = dr
 
 private fun WireDevice.toLiveDevice() = LiveDevice(name = name, connected = connected, roles = bitmaskToRoles(interfaceMask))
 
-/** Blank string fields (unassigned role, per `train_get_all`'s own convention) become "None". */
-private fun WireTrain.toTrainAssignment() = TrainAssignment(
+/**
+ * `scope_add`/`scope_update`'s request has no separate `name` field (only
+ * `model`/`vendor`/`type`/`aperture`/`focal_length` — plan §"Protocol facts")
+ * — [EkosRemoteController.addScope]/[updateScope] send the app's single
+ * name field as `model`. On the way back, `name` (which real Ekos returns
+ * alongside `model` in [WireScope]) is what a train's `scope` field actually
+ * references (confirmed live: `"scope":"Field APO"` matched `name`, not
+ * `model`), so decoding prefers it, falling back to `model` if ever blank.
+ */
+private fun WireScope.toScopeDef() = ScopeDef(
+    id = id,
+    name = name.ifBlank { model },
+    vendor = vendor,
+    type = type,
+    focalMm = focal_length.roundToInt(),
+    apertureMm = aperture.roundToInt(),
+)
+
+/** Blank string fields (unassigned role, per `train_get_all`'s own convention) become "None". `internal`, not `private`, so [EkosEventCodecTest]-style regression tests can call it directly. */
+internal fun WireTrain.toTrainAssignment() = TrainAssignment(
     mount = mount.ifBlank { "None" },
     camera = camera.ifBlank { "None" },
     rotator = rotator.ifBlank { "None" },
@@ -558,9 +632,9 @@ private fun WireTrain.toTrainAssignment() = TrainAssignment(
     scope = scope.ifBlank { "None" },
     filterWheel = filterwheel.ifBlank { "None" },
     focuser = focuser.ifBlank { "None" },
-    reducer = reducer.toDoubleOrNull() ?: 1.0,
+    reducer = reducer,
     lightBox = lightbox.ifBlank { "None" },
-    adaptiveOptics = adaptiveoptics.ifBlank { "None" },
+    adaptiveOptics = (adaptiveoptics ?: "").ifBlank { "None" },
 )
 
 /** Merges one real property-vector push into [SimState.indiProps], keyed by real device name. */

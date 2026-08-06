@@ -351,10 +351,7 @@ abstract class AbstractLocalSessionController : SessionController {
 
     override fun openBench() = update { it.copy(sheet = SheetType.BENCH) }
     override fun openSetup() = update { s ->
-        if (s.ekosRunning) s else s.copy(
-            sheet = SheetType.SETUP, setupEditingName = null,
-            profileName = "New profile", opticMm = 550, guideOpticMm = 240,
-        )
+        if (s.ekosRunning) s else s.copy(sheet = SheetType.SETUP, setupEditingName = null, profileName = "New profile")
     }
     override fun setupBack() = update { it.copy(sheet = null) }
     override open fun finishSetup() = update { s ->
@@ -373,11 +370,36 @@ abstract class AbstractLocalSessionController : SessionController {
             setupEditingName = null,
         )
     }
-    override fun setScopeName(name: String) = update { it.copy(scopeName = name) }
-    override fun setOpticMm(mm: Int) = update { it.copy(opticMm = mm.coerceIn(1, 9999)) }
-    override fun setScopeApertureMm(mm: Int) = update { it.copy(scopeApertureMm = mm.coerceIn(1, 999)) }
-    override fun setGuideScopeName(name: String) = update { it.copy(guideScopeName = name) }
-    override fun setGuideOpticMm(mm: Int) = update { it.copy(guideOpticMm = mm.coerceIn(1, 9999)) }
-    override fun setGuideScopeApertureMm(mm: Int) = update { it.copy(guideScopeApertureMm = mm.coerceIn(1, 999)) }
     override fun setProfileName(name: String) = update { it.copy(profileName = name) }
+
+    override open fun addScope(name: String, vendor: String, type: String, focalMm: Int, apertureMm: Int) = update { s ->
+        if (name.isBlank()) return@update s
+        val scope = ScopeDef(
+            id = "scope_${s.scopeSeq}", name = name, vendor = vendor, type = type,
+            focalMm = focalMm.coerceIn(1, 9999), apertureMm = apertureMm.coerceIn(1, 999),
+        )
+        s.copy(scopes = s.scopes + scope, scopeSeq = s.scopeSeq + 1, addingScope = false)
+    }
+
+    override open fun updateScope(id: String, name: String, vendor: String, type: String, focalMm: Int, apertureMm: Int) = update { s ->
+        s.copy(scopes = s.scopes.map {
+            if (it.id == id) it.copy(
+                name = name, vendor = vendor, type = type,
+                focalMm = focalMm.coerceIn(1, 9999), apertureMm = apertureMm.coerceIn(1, 999),
+            ) else it
+        })
+    }
+
+    override open fun removeScope(id: String) = update { s ->
+        s.copy(
+            scopes = s.scopes.filter { it.id != id },
+            editingScopeId = if (s.editingScopeId == id) null else s.editingScopeId,
+        )
+    }
+
+    override fun startAddScope() = update { it.copy(addingScope = true, editingScopeId = null) }
+    override fun cancelAddScope() = update { it.copy(addingScope = false) }
+    override fun toggleEditScope(id: String) = update { s ->
+        s.copy(editingScopeId = if (s.editingScopeId == id) null else id, addingScope = false)
+    }
 }
