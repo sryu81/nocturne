@@ -62,4 +62,8 @@ object Commands {
     const val MOUNT_UNPARK = "mount_unpark"
     const val ALIGN_SOLVE = "align_solve"
     const val CAPTURE_SET_ALL_SETTINGS = "capture_set_all_settings"
+
+    // M3.3 — per-module settings (curated subset, see docs/M3.3-plan.md).
+    const val MOUNT_GET_ALL_SETTINGS = "mount_get_all_settings"
+    const val MOUNT_SET_ALL_SETTINGS = "mount_set_all_settings"
 }

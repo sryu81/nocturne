@@ -15,6 +15,21 @@ import okhttp3.WebSocketListener
  * pushes). Translates OkHttp's callback-based `WebSocketListener` into flows;
  * OkHttp invokes these callbacks on its own dispatcher thread, not a
  * suspend context, so emission uses non-suspending `tryEmit` throughout.
+ *
+ * **One client at a time, confirmed from the real server source**
+ * (`kstars/ekos/ekosremote/node.cpp`, `Node::adoptSocket`): the real
+ * EkosRemote server holds exactly one `QWebSocket*` per path — a *new*
+ * connection to `/message/ekos` disconnects and deletes whatever was
+ * previously connected there, silently. This isn't a Nocturne bug to work
+ * around; it's a hard constraint of the real protocol. Concretely: a second
+ * Nocturne instance, a raw diagnostic script, or anything else opening its
+ * own `/message/ekos` connection while this one is live will evict it
+ * (triggering this client's own reconnect/backoff) — confirmed live while
+ * debugging what looked like a flaky Mount-settings write (M3.3): every
+ * "independent verification" probe opened during that investigation was
+ * itself the thing kicking the real connection off the wire and returning
+ * stale reads, not a write actually failing. Keep this in mind before ever
+ * trusting a second concurrent connection's read as ground truth.
  */
 class MessageChannel(private val okHttpClient: OkHttpClient, private val url: String) {
 

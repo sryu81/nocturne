@@ -117,6 +117,11 @@ class EkosRemoteClient(
                 // trains above to resolve IDs to names, but no ordering dependency in sending;
                 // the reply is applied once both have arrived (see EkosRemoteController).
                 sendCommand(Commands.TRAIN_GET_PROFILES)
+                // Mount module settings (M3.3, curated subset) — same online-only gating as
+                // TRAIN_GET_ALL above (the Mount module instance is null pre-start server-side).
+                // Sent eagerly (not lazily on sheet-open) so the Gear-tab card can show a real
+                // summary before the user ever opens the settings sheet.
+                sendCommand(Commands.MOUNT_GET_ALL_SETTINGS)
             }
         }
         _events.tryEmit(event)

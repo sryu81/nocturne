@@ -121,6 +121,19 @@ sealed interface EkosEvent {
     @Serializable
     data class Scopes(val scopes: List<WireScope>) : EkosEvent
 
+    // ── M3.3: per-module settings (curated subset, see docs/M3.3-plan.md) ─
+
+    /**
+     * `mount_get_all_settings` reply — real Ekos's Mount module reports 17
+     * fields (`Mount::getAllSettings`, a QVariantMap dump of the whole
+     * settings dialog); [WireMountSettings] models only the 10 curated as
+     * session-relevant (meridian flip, altitude/HA limits, auto-park).
+     * `ignoreUnknownKeys` (see `protocolJson`) drops the other 7 rather than
+     * failing to decode.
+     */
+    @Serializable
+    data class MountSettings(val settings: WireMountSettings) : EkosEvent
+
     /** Anything not decoded above — unrecognized `type`, or a shape that failed to parse. */
     data class Raw(val type: String, val payload: JsonElement) : EkosEvent
 }
@@ -420,4 +433,27 @@ data class WireScope(
     val name: String = "",
     val focal_length: Double = 0.0,
     val aperture: Double = 0.0,
+)
+
+/**
+ * Curated subset of `mount_get_all_settings`'s real 17 fields (see
+ * docs/M3.3-plan.md) — meridian flip, altitude/HA slew limits, auto-park.
+ * Field names match the wire verbatim (`Mount::getAllSettings`'s Qt widget
+ * object names), confirmed live against the real rig rather than guessed
+ * from docs. Excluded: `locationSource`/`timeSource`/`useGeographicUpdate`/
+ * `useTimeUpdate`/`leftRightCheckObject`/`upDownCheckObject` — KStars
+ * desktop-only conveniences, meaningless from a remote client.
+ */
+@Serializable
+data class WireMountSettings(
+    val executeMeridianFlip: Boolean = false,
+    val meridianFlipOffsetDegrees: Double = 0.0,
+    val enableAltitudeLimits: Boolean = false,
+    val minimumAltLimit: Double = 0.0,
+    val maximumAltLimit: Double = 90.0,
+    val enableAltitudeLimitsTrackingOnly: Boolean = false,
+    val enableHaLimit: Boolean = false,
+    val maximumHaLimit: Double = 0.0,
+    val parkEveryDay: Boolean = false,
+    val autoParkTime: String = "00:00:00",
 )

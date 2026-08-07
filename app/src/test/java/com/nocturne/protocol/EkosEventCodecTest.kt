@@ -177,6 +177,34 @@ class EkosEventCodecTest {
     }
 
     @Test
+    fun `decodes mount_get_all_settings — curated subset, extra real fields ignored`() {
+        // live capture (M3.3) — real Mount::getAllSettings() reports 17 fields; only 10 are
+        // modeled. ignoreUnknownKeys must drop the other 7 (locationSource/timeSource/
+        // useGeographicUpdate/useTimeUpdate/leftRightCheckObject/upDownCheckObject) without
+        // throwing.
+        val json = """{"payload":{"autoParkTime":"03:00:00","enableAltitudeLimits":false,
+            "enableAltitudeLimitsTrackingOnly":false,"enableHaLimit":false,"executeMeridianFlip":true,
+            "leftRightCheckObject":false,"locationSource":"KStars","maximumAltLimit":90,
+            "maximumHaLimit":2,"meridianFlipOffsetDegrees":1,"minimumAltLimit":0,
+            "opticalTrainCombo":"Primary","parkEveryDay":false,"timeSource":"KStars",
+            "upDownCheckObject":false,"useGeographicUpdate":true,"useTimeUpdate":true},
+            "type":"mount_get_all_settings"}"""
+
+        val event = EkosEventCodec.decode(json)
+        assertTrue("expected MountSettings, got $event", event is EkosEvent.MountSettings)
+        val settings = (event as EkosEvent.MountSettings).settings
+        assertEquals(true, settings.executeMeridianFlip)
+        assertEquals(1.0, settings.meridianFlipOffsetDegrees, 0.0)
+        assertEquals(false, settings.enableAltitudeLimits)
+        assertEquals(0.0, settings.minimumAltLimit, 0.0)
+        assertEquals(90.0, settings.maximumAltLimit, 0.0)
+        assertEquals(false, settings.enableHaLimit)
+        assertEquals(2.0, settings.maximumHaLimit, 0.0)
+        assertEquals(false, settings.parkEveryDay)
+        assertEquals("03:00:00", settings.autoParkTime)
+    }
+
+    @Test
     fun `unrecognized type falls back to Raw, not a crash`() {
         val event = EkosEventCodec.decode("""{"payload":{"foo":"bar"},"type":"some_future_command"}""")
         assertTrue(event is EkosEvent.Raw)

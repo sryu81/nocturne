@@ -129,6 +129,7 @@ fun SheetHost(state: SimState, ctrl: SessionController, landscape: Boolean) {
         SheetType.MODULE_ASSIGNMENTS -> "Module assignments" to "which train each Ekos module uses"
         SheetType.SCOPES -> "Scopes" to "add, edit, remove"
         SheetType.MAINTENANCE -> "Rig maintenance" to "reboot the Pi if Ekos hangs"
+        SheetType.MOUNT_SETTINGS -> "Mount settings" to "flip, limits, auto-park"
         SheetType.DEVICE -> {
             // Real connection: state.deviceKey is the live device's own name (see
             // RealDeviceList's onClick), not a fixture DEVICES[].key — must be looked up
@@ -167,6 +168,7 @@ fun SheetHost(state: SimState, ctrl: SessionController, landscape: Boolean) {
                 SheetType.MODULE_ASSIGNMENTS -> ModuleAssignmentsSheet(state, ctrl)
                 SheetType.SCOPES -> ScopesSheet(state, ctrl)
                 SheetType.MAINTENANCE -> MaintenanceSheet(state, ctrl)
+                SheetType.MOUNT_SETTINGS -> MountSettingsSheet(state, ctrl)
                 SheetType.DEVICE -> DeviceSheet(state, ctrl)
             }
         },
@@ -683,6 +685,156 @@ private fun SetupFooter(ctrl: SessionController) {
             style = com.nocturne.ui.components.BtnStyle.OUTLINE,
             modifier = Modifier.weight(1f).height(44.dp),
         )
+    }
+}
+
+// ── Mount settings (M3.3, curated subset) ───────────────────────────────────
+
+/**
+ * Curated subset of real Ekos's Mount tab (10 of 17 real fields — see
+ * docs/M3.3-plan.md) — meridian flip, altitude/HA slew limits, auto-park.
+ * Real-rig only: [SimState.wireMountSettings] is null under
+ * [SimulatedController] (there's no fixture equivalent — matches
+ * [ModuleAssignmentsSheet]'s own real-only gating) and briefly null on a
+ * real rig too, until the first `mount_get_all_settings` reply lands.
+ */
+@Composable
+private fun MountSettingsSheet(state: SimState, ctrl: SessionController) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+
+    if (!state.isRealRig) {
+        TextC("Simulator has no real Mount module settings to show — connect to a rig first.", style = t.Body13, color = c.textMuted)
+        return
+    }
+    val m = state.wireMountSettings
+    if (m == null) {
+        TextC("Fetching mount settings…", style = t.Body13, color = c.textMuted)
+        return
+    }
+
+    Column {
+        SwitchRow(
+            label = "Execute meridian flip",
+            sub = "flip automatically when the mount crosses the meridian",
+            checked = m.executeMeridianFlip,
+            onToggle = { ctrl.setMountMeridianFlip(!m.executeMeridianFlip) },
+            modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
+        )
+        Spacer(Modifier.height(8.4.dp))
+        FieldLabel("Flip offset")
+        Spacer(Modifier.height(5.dp))
+        DegreeField(m.meridianFlipOffsetDegrees, "min", ctrl::setMountMeridianFlipOffset)
+        Spacer(Modifier.height(16.dp))
+        HDivider()
+        Spacer(Modifier.height(16.dp))
+
+        SwitchRow(
+            label = "Altitude limits",
+            sub = "refuse to slew past these altitudes",
+            checked = m.enableAltitudeLimits,
+            onToggle = { ctrl.setMountAltLimitEnabled(!m.enableAltitudeLimits) },
+            modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
+        )
+        if (m.enableAltitudeLimits) {
+            Spacer(Modifier.height(8.4.dp))
+            Row(Modifier.fillMaxWidth()) {
+                Column(Modifier.weight(1f)) {
+                    FieldLabel("Min alt")
+                    Spacer(Modifier.height(5.dp))
+                    DegreeField(m.minimumAltLimit, "°", ctrl::setMountAltLimitMin)
+                }
+                Spacer(Modifier.width(11.2.dp))
+                Column(Modifier.weight(1f)) {
+                    FieldLabel("Max alt")
+                    Spacer(Modifier.height(5.dp))
+                    DegreeField(m.maximumAltLimit, "°", ctrl::setMountAltLimitMax)
+                }
+            }
+            Spacer(Modifier.height(8.4.dp))
+            SwitchRow(
+                label = "Tracking only",
+                sub = "only enforce while tracking, not on manual slews",
+                checked = m.enableAltitudeLimitsTrackingOnly,
+                onToggle = { ctrl.setMountAltLimitTrackingOnly(!m.enableAltitudeLimitsTrackingOnly) },
+                modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
+            )
+        }
+        Spacer(Modifier.height(16.dp))
+        HDivider()
+        Spacer(Modifier.height(16.dp))
+
+        SwitchRow(
+            label = "Hour-angle limit",
+            sub = "refuse to slew past this many hours from the meridian",
+            checked = m.enableHaLimit,
+            onToggle = { ctrl.setMountHaLimitEnabled(!m.enableHaLimit) },
+            modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
+        )
+        if (m.enableHaLimit) {
+            Spacer(Modifier.height(8.4.dp))
+            FieldLabel("Max hour angle")
+            Spacer(Modifier.height(5.dp))
+            DegreeField(m.maximumHaLimit, "h", ctrl::setMountHaLimitMax)
+        }
+        Spacer(Modifier.height(16.dp))
+        HDivider()
+        Spacer(Modifier.height(16.dp))
+
+        SwitchRow(
+            label = "Park every day",
+            sub = "auto-park the mount at a fixed time",
+            checked = m.parkEveryDay,
+            onToggle = { ctrl.setMountParkEveryDay(!m.parkEveryDay) },
+            modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
+        )
+        if (m.parkEveryDay) {
+            Spacer(Modifier.height(8.4.dp))
+            FieldLabel("Park time (HH:MM:SS)")
+            Spacer(Modifier.height(5.dp))
+            Box(
+                Modifier.fillMaxWidth().height(42.dp)
+                    .background(c.bg, RoundedCornerShape(4.dp))
+                    .border(1.dp, c.divider, RoundedCornerShape(4.dp))
+                    .padding(horizontal = 12.dp),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                BasicTextField(
+                    value = m.autoParkTime,
+                    onValueChange = ctrl::setMountAutoParkTime,
+                    singleLine = true,
+                    textStyle = t.Body13.copy(color = c.text),
+                    cursorBrush = SolidColor(c.accent),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+    }
+}
+
+/** Numeric field row shared by [MountSettingsSheet]'s degree/hour-angle inputs. */
+@Composable
+private fun DegreeField(value: Double, unit: String, onChange: (Double) -> Unit) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(42.dp)
+            .background(c.bg, RoundedCornerShape(4.dp))
+            .border(1.dp, c.divider, RoundedCornerShape(4.dp))
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        BasicTextField(
+            value = "%.1f".format(value),
+            onValueChange = { text -> text.filter { it.isDigit() || it == '.' || it == '-' }.toDoubleOrNull()?.let(onChange) },
+            singleLine = true,
+            textStyle = t.Body13.copy(color = c.text),
+            cursorBrush = SolidColor(c.accent),
+            modifier = Modifier.weight(1f),
+        )
+        TextC(unit, style = t.MonoSmall, color = c.neutral500)
     }
 }
 

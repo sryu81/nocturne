@@ -126,4 +126,16 @@ interface SessionController {
 
     /** Sends the actual reboot request. See [SimState.rigRebootState] for the result. */
     fun rebootRig()
+
+    // ── M3.3: Mount settings (curated subset, see docs/M3.3-plan.md) ──────
+    fun setMountMeridianFlip(enabled: Boolean)
+    fun setMountMeridianFlipOffset(deg: Double)
+    fun setMountAltLimitEnabled(enabled: Boolean)
+    fun setMountAltLimitMin(deg: Double)
+    fun setMountAltLimitMax(deg: Double)
+    fun setMountAltLimitTrackingOnly(enabled: Boolean)
+    fun setMountHaLimitEnabled(enabled: Boolean)
+    fun setMountHaLimitMax(hours: Double)
+    fun setMountParkEveryDay(enabled: Boolean)
+    fun setMountAutoParkTime(time: String)
 }

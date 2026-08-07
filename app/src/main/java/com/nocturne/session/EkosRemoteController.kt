@@ -18,6 +18,8 @@ import com.nocturne.transport.RigRebootClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -188,6 +190,8 @@ class EkosRemoteController(
             s.copy(moduleTrainAssignments = resolveModuleTrainAssignments(s.moduleTrainAssignments, s.wireTrains))
         }
         is EkosEvent.Scopes -> s.copy(wireScopes = event.scopes.map { it.toScopeDef() })
+
+        is EkosEvent.MountSettings -> s.copy(wireMountSettings = event.settings)
 
         is EkosEvent.SchedulerJobs -> applySchedulerJobs(s, event)
 
@@ -641,6 +645,70 @@ class EkosRemoteController(
                 )
             }
         }
+    }
+
+    /**
+     * Mount settings (M3.3, curated subset — see docs/M3.3-plan.md). Each setter sends
+     * `mount_set_all_settings` with just the one changed field (server applies only keys
+     * present in the map — confirmed against `Mount::setAllSettings` in the real source, so
+     * this can't clobber the other 16 real fields Nocturne doesn't model) and applies the same
+     * local update the simulator would via `super` — fire-and-forget, **no** immediate
+     * `mount_get_all_settings` re-fetch, matching [pushCoolerSetpoint]'s own precedent.
+     *
+     * Confirmed live this *needs* to be fire-and-forget, not optimistic-then-reconcile like
+     * [setModuleTrain]: sending the get immediately after the set raced on the app's real
+     * (busy — other pushes interleaving) connection and lost a write — a toggle-off was
+     * silently reverted back to on by the very re-fetch meant to confirm it, confirmed by an
+     * independent probe showing the real value never actually changed. The identical
+     * set-then-get pair worked instantly over an isolated low-traffic connection, so this is a
+     * server-side command-ordering race under load, not a Nocturne logic bug — avoided
+     * entirely by not re-fetching. The one-time `mount_get_all_settings` sent at connect
+     * (`EkosRemoteClient`'s online burst) is the only fetch; these setters trust their own
+     * optimistic write.
+     */
+    private fun sendMountSetting(field: String, value: JsonElement) {
+        client.sendCommand(Commands.MOUNT_SET_ALL_SETTINGS, buildJsonObject { put(field, value) })
+    }
+
+    override fun setMountMeridianFlip(enabled: Boolean) {
+        sendMountSetting("executeMeridianFlip", JsonPrimitive(enabled))
+        super.setMountMeridianFlip(enabled)
+    }
+    override fun setMountMeridianFlipOffset(deg: Double) {
+        sendMountSetting("meridianFlipOffsetDegrees", JsonPrimitive(deg))
+        super.setMountMeridianFlipOffset(deg)
+    }
+    override fun setMountAltLimitEnabled(enabled: Boolean) {
+        sendMountSetting("enableAltitudeLimits", JsonPrimitive(enabled))
+        super.setMountAltLimitEnabled(enabled)
+    }
+    override fun setMountAltLimitMin(deg: Double) {
+        sendMountSetting("minimumAltLimit", JsonPrimitive(deg))
+        super.setMountAltLimitMin(deg)
+    }
+    override fun setMountAltLimitMax(deg: Double) {
+        sendMountSetting("maximumAltLimit", JsonPrimitive(deg))
+        super.setMountAltLimitMax(deg)
+    }
+    override fun setMountAltLimitTrackingOnly(enabled: Boolean) {
+        sendMountSetting("enableAltitudeLimitsTrackingOnly", JsonPrimitive(enabled))
+        super.setMountAltLimitTrackingOnly(enabled)
+    }
+    override fun setMountHaLimitEnabled(enabled: Boolean) {
+        sendMountSetting("enableHaLimit", JsonPrimitive(enabled))
+        super.setMountHaLimitEnabled(enabled)
+    }
+    override fun setMountHaLimitMax(hours: Double) {
+        sendMountSetting("maximumHaLimit", JsonPrimitive(hours))
+        super.setMountHaLimitMax(hours)
+    }
+    override fun setMountParkEveryDay(enabled: Boolean) {
+        sendMountSetting("parkEveryDay", JsonPrimitive(enabled))
+        super.setMountParkEveryDay(enabled)
+    }
+    override fun setMountAutoParkTime(time: String) {
+        sendMountSetting("autoParkTime", JsonPrimitive(time))
+        super.setMountAutoParkTime(time)
     }
 
     /**

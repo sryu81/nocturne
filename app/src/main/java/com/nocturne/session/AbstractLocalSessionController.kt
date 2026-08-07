@@ -267,6 +267,40 @@ abstract class AbstractLocalSessionController : SessionController {
         s.copy(rigRebootState = RigRebootState.FAILED, rigRebootError = "No real rig connected — nothing to reboot")
     }
 
+    // Mount settings (M3.3): SimulatedController never populates wireMountSettings (there's no
+    // real mount_get_all_settings reply to translate), so these are safe no-ops there — the
+    // sheet itself is gated on wireMountSettings != null and never calls them under the simulator.
+    override open fun setMountMeridianFlip(enabled: Boolean) = update { s ->
+        s.copy(wireMountSettings = s.wireMountSettings?.copy(executeMeridianFlip = enabled))
+    }
+    override open fun setMountMeridianFlipOffset(deg: Double) = update { s ->
+        s.copy(wireMountSettings = s.wireMountSettings?.copy(meridianFlipOffsetDegrees = deg))
+    }
+    override open fun setMountAltLimitEnabled(enabled: Boolean) = update { s ->
+        s.copy(wireMountSettings = s.wireMountSettings?.copy(enableAltitudeLimits = enabled))
+    }
+    override open fun setMountAltLimitMin(deg: Double) = update { s ->
+        s.copy(wireMountSettings = s.wireMountSettings?.copy(minimumAltLimit = deg))
+    }
+    override open fun setMountAltLimitMax(deg: Double) = update { s ->
+        s.copy(wireMountSettings = s.wireMountSettings?.copy(maximumAltLimit = deg))
+    }
+    override open fun setMountAltLimitTrackingOnly(enabled: Boolean) = update { s ->
+        s.copy(wireMountSettings = s.wireMountSettings?.copy(enableAltitudeLimitsTrackingOnly = enabled))
+    }
+    override open fun setMountHaLimitEnabled(enabled: Boolean) = update { s ->
+        s.copy(wireMountSettings = s.wireMountSettings?.copy(enableHaLimit = enabled))
+    }
+    override open fun setMountHaLimitMax(hours: Double) = update { s ->
+        s.copy(wireMountSettings = s.wireMountSettings?.copy(maximumHaLimit = hours))
+    }
+    override open fun setMountParkEveryDay(enabled: Boolean) = update { s ->
+        s.copy(wireMountSettings = s.wireMountSettings?.copy(parkEveryDay = enabled))
+    }
+    override open fun setMountAutoParkTime(time: String) = update { s ->
+        s.copy(wireMountSettings = s.wireMountSettings?.copy(autoParkTime = time))
+    }
+
     override fun snapMain() = update { it.copy(snappedMain = true) }
     override fun snapGuide() = update { it.copy(snappedGuide = true) }
 
