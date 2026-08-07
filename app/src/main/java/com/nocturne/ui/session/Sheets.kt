@@ -40,6 +40,7 @@ import com.nocturne.session.IndiProperty
 import com.nocturne.session.LiveDevice
 import com.nocturne.session.PA_SECS
 import com.nocturne.session.RigRebootState
+import com.nocturne.session.formatIndiNumber
 import com.nocturne.session.realDeviceOptions
 import com.nocturne.session.PREF_DEFS
 import com.nocturne.session.SessionController
@@ -1816,7 +1817,7 @@ private fun IndiPropertyPanel(deviceKey: String, props: List<IndiProperty>, ctrl
                         onClick = { ctrl.setIndiNumber(deviceKey, prop.name, prop.value - prop.step) },
                     )
                     TextC(
-                        prop.format.format(prop.value), style = t.Mono15, color = c.text,
+                        formatIndiNumber(prop.format, prop.value), style = t.Mono15, color = c.text,
                         modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
                     )
                     IconBtn(
