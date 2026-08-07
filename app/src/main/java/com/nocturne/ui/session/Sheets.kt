@@ -39,6 +39,7 @@ import com.nocturne.session.Device
 import com.nocturne.session.IndiProperty
 import com.nocturne.session.LiveDevice
 import com.nocturne.session.PA_SECS
+import com.nocturne.session.RigRebootState
 import com.nocturne.session.realDeviceOptions
 import com.nocturne.session.PREF_DEFS
 import com.nocturne.session.SessionController
@@ -126,6 +127,7 @@ fun SheetHost(state: SimState, ctrl: SessionController, landscape: Boolean) {
         SheetType.OPTICAL_TRAIN -> "Optical train" to "primary + secondary roles"
         SheetType.MODULE_ASSIGNMENTS -> "Module assignments" to "which train each Ekos module uses"
         SheetType.SCOPES -> "Scopes" to "add, edit, remove"
+        SheetType.MAINTENANCE -> "Rig maintenance" to "reboot the Pi if Ekos hangs"
         SheetType.DEVICE -> {
             val d = DEVICES.firstOrNull { it.key == state.deviceKey } ?: DEVICES[0]
             (state.selectedDeviceNames[d.key] ?: d.name) to (if (d.req) "required for a session" else "optional")
@@ -151,6 +153,7 @@ fun SheetHost(state: SimState, ctrl: SessionController, landscape: Boolean) {
                 SheetType.OPTICAL_TRAIN -> OpticalTrainSheet(state, ctrl)
                 SheetType.MODULE_ASSIGNMENTS -> ModuleAssignmentsSheet(state, ctrl)
                 SheetType.SCOPES -> ScopesSheet(state, ctrl)
+                SheetType.MAINTENANCE -> MaintenanceSheet(state, ctrl)
                 SheetType.DEVICE -> DeviceSheet(state, ctrl)
             }
         },
@@ -666,6 +669,156 @@ private fun SetupFooter(ctrl: SessionController) {
             onClick = ctrl::finishSetup,
             style = com.nocturne.ui.components.BtnStyle.OUTLINE,
             modifier = Modifier.weight(1f).height(44.dp),
+        )
+    }
+}
+
+// ── Rig maintenance ─────────────────────────────────────────────────────────
+
+/**
+ * Rig-level recovery, not an Ekos concept — the EkosRemote wire has no
+ * OS-level reboot command (and couldn't rely on one anyway: a hung/crashed
+ * Ekos process is exactly the case a reboot needs to recover from). Talks
+ * instead to a small companion daemon on the Pi over its own HTTP+token
+ * channel (`pi-tools/reboot-daemon/`, [RigRebootClient]). Only meaningful
+ * under a real rig — [SimState.isRealRig] gates everything below the
+ * top warning.
+ */
+@Composable
+private fun MaintenanceSheet(state: SimState, ctrl: SessionController) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+
+    if (!state.isRealRig) {
+        TextC(
+            "Simulator has no real Pi to reboot — connect to a rig first.",
+            style = t.Body13, color = c.textMuted,
+        )
+        return
+    }
+
+    var portText by remember { mutableStateOf(state.rigRebootPort.toString()) }
+    var token by remember { mutableStateOf("") }
+    var showConfirm by remember { mutableStateOf(false) }
+
+    Column {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .background(c.warn.copy(alpha = 0.1f), RoundedCornerShape(10.dp))
+                .border(1.dp, c.warn.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+                .padding(12.dp),
+        ) {
+            Phosphor.Icon(Phosphor.Warning, size = 16.dp, tint = c.warn)
+            Spacer(Modifier.width(10.dp))
+            TextC(
+                "Reboots the Pi itself, not just Ekos — cuts power to any in-progress " +
+                    "slew, capture, or guiding. The app reconnects on its own once the Pi's back.",
+                style = t.Caption, color = c.warn,
+            )
+        }
+        Spacer(Modifier.height(20.dp))
+
+        TextC("REBOOT DAEMON PORT", style = t.MicroUppercase, color = c.textMuted)
+        Spacer(Modifier.height(6.dp))
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(42.dp)
+                .background(c.bg, RoundedCornerShape(4.dp))
+                .border(1.dp, c.divider, RoundedCornerShape(4.dp))
+                .padding(horizontal = 12.dp),
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            BasicTextField(
+                value = portText,
+                onValueChange = { portText = it.filter { ch -> ch.isDigit() }.take(5) },
+                singleLine = true,
+                textStyle = t.Body13.copy(color = c.text),
+                cursorBrush = SolidColor(c.accent),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        Spacer(Modifier.height(16.dp))
+
+        TextC("TOKEN", style = t.MicroUppercase, color = c.textMuted)
+        Spacer(Modifier.height(6.dp))
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(42.dp)
+                .background(c.bg, RoundedCornerShape(4.dp))
+                .border(1.dp, c.divider, RoundedCornerShape(4.dp))
+                .padding(horizontal = 12.dp),
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            BasicTextField(
+                value = token,
+                onValueChange = { token = it },
+                singleLine = true,
+                textStyle = t.Body13.copy(color = c.text),
+                cursorBrush = SolidColor(c.accent),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        Spacer(Modifier.height(4.dp))
+        TextC(
+            "One-time token printed by pi-tools/reboot-daemon/install.sh on the Pi.",
+            style = t.MonoMicro, color = c.textFaint,
+        )
+        Spacer(Modifier.height(16.dp))
+
+        NocturneButton(
+            text = if (state.rigRebootTokenSet) "Update config" else "Save config",
+            onClick = {
+                val port = portText.toIntOrNull() ?: 9001
+                if (token.isNotBlank()) ctrl.setRigRebootConfig(port, token)
+            },
+            enabled = token.isNotBlank(),
+            style = com.nocturne.ui.components.BtnStyle.OUTLINE,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(24.dp))
+
+        if (state.rigRebootAvailable) {
+            NocturneButton(
+                text = when (state.rigRebootState) {
+                    RigRebootState.SENDING -> "Sending…"
+                    else -> "Reboot Pi"
+                },
+                onClick = { showConfirm = true },
+                enabled = state.rigRebootState != RigRebootState.SENDING,
+                style = com.nocturne.ui.components.BtnStyle.DANGER,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            when (state.rigRebootState) {
+                RigRebootState.SENT -> {
+                    Spacer(Modifier.height(10.dp))
+                    TextC("Reboot sent — rig will be back in ~60s.", style = t.Caption, color = c.ok)
+                }
+                RigRebootState.FAILED -> {
+                    Spacer(Modifier.height(10.dp))
+                    TextC("Couldn't reboot: ${state.rigRebootError}", style = t.Caption, color = c.danger)
+                }
+                else -> {}
+            }
+        } else {
+            TextC("Save a token above to enable rig reboot.", style = t.Caption, color = c.textFaint)
+        }
+    }
+
+    if (showConfirm) {
+        com.nocturne.ui.components.TypedConfirmDialog(
+            title = "Reboot the rig?",
+            message = "This power-cycles the Pi. Anything mid-slew, mid-capture, or mid-guide " +
+                "will be cut off ungracefully.",
+            requiredText = "REBOOT",
+            confirmText = "Reboot",
+            onConfirm = {
+                showConfirm = false
+                ctrl.rebootRig()
+            },
+            onDismiss = { showConfirm = false },
         )
     }
 }

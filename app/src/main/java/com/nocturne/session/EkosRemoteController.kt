@@ -1,5 +1,6 @@
 package com.nocturne.session
 
+import com.nocturne.data.ConnectionRepository
 import com.nocturne.protocol.Commands
 import com.nocturne.protocol.EkosEvent
 import com.nocturne.protocol.WireAstroObject
@@ -13,6 +14,7 @@ import com.nocturne.protocol.MODULE_KEY_BY_TRAIN_SETTING
 import com.nocturne.protocol.SchedulerJobStatus
 import com.nocturne.protocol.bitmaskToRoles
 import com.nocturne.transport.EkosRemoteClient
+import com.nocturne.transport.RigRebootClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -39,7 +41,12 @@ import kotlin.math.roundToInt
  */
 class EkosRemoteController(
     private val client: EkosRemoteClient,
-    scope: CoroutineScope,
+    private val scope: CoroutineScope,
+    /** For persisting/loading the rig's reboot-daemon config (host/port already live on
+     *  [client]; only the daemon's own port + shared token are stored here) — see
+     *  [setRigRebootConfig]/[rebootRig]. Optional: pass null and reboot config just won't
+     *  survive process death (used by tests that don't need it). */
+    private val connectionRepo: ConnectionRepository? = null,
 ) : AbstractLocalSessionController() {
 
     /** Name a `profile_delete` was just sent for — checked against the next [EkosEvent.Profiles]. */
@@ -73,6 +80,11 @@ class EkosRemoteController(
     private var pendingSyncJobId: String? = null
     private var pendingSyncName: String? = null
 
+    /** In-memory mirror of the reboot daemon's port/token — [SimState] only ever exposes
+     *  whether a token is set ([SimState.rigRebootTokenSet]), never the token itself. */
+    private var rigRebootPort: Int = 9001
+    private var rigRebootToken: String? = null
+
     init {
         // SimState.jobs/activeJobId/lastActiveJobId/openBlockId default to DEFAULT_JOBS — one
         // job pre-marked running = true, a SimulatedController demo convenience. A real
@@ -80,7 +92,10 @@ class EkosRemoteController(
         // sequence"), so start empty rather than showing a fabricated "already imaging" job
         // nobody started.
         _state.update {
-            it.copy(jobs = emptyList(), activeJobId = null, jobSeq = 1, lastActiveJobId = null, openBlockId = null)
+            it.copy(
+                jobs = emptyList(), activeJobId = null, jobSeq = 1, lastActiveJobId = null, openBlockId = null,
+                isRealRig = true,
+            )
         }
         scope.launch {
             client.events.collect { event ->
@@ -89,6 +104,21 @@ class EkosRemoteController(
             }
         }
         client.connect()
+
+        connectionRepo?.let { repo ->
+            scope.launch {
+                val saved = repo.current()
+                rigRebootPort = saved.rebootPort
+                rigRebootToken = saved.rebootToken?.ifBlank { null }
+                _state.update {
+                    it.copy(
+                        rigRebootPort = saved.rebootPort,
+                        rigRebootTokenSet = rigRebootToken != null,
+                        rigRebootAvailable = rigRebootToken != null,
+                    )
+                }
+            }
+        }
     }
 
     private fun applyEvent(s: SimState, event: EkosEvent): SimState = when (event) {
@@ -565,6 +595,52 @@ class EkosRemoteController(
         client.sendCommand(Commands.TRAIN_SET, buildJsonObject { put("module", module); put("name", trainName) })
         client.sendCommand(Commands.TRAIN_GET_PROFILES)
         super.setModuleTrain(module, trainName) // optimistic; confirmed reply reconciles above
+    }
+
+    /**
+     * Persists the reboot daemon's port + shared token (pasted from the Pi-side install
+     * script's one-time printout) both in memory (for [rebootRig] to use immediately) and to
+     * disk via [connectionRepo] (so it survives app restart without re-pasting).
+     */
+    override fun setRigRebootConfig(port: Int, token: String) {
+        val trimmed = token.trim().ifBlank { null }
+        rigRebootPort = port
+        rigRebootToken = trimmed
+        _state.update {
+            it.copy(
+                rigRebootPort = port,
+                rigRebootTokenSet = trimmed != null,
+                rigRebootAvailable = trimmed != null,
+                rigRebootState = RigRebootState.IDLE,
+                rigRebootError = null,
+            )
+        }
+        if (trimmed != null) scope.launch { connectionRepo?.saveRebootConfig(port, trimmed) }
+    }
+
+    /**
+     * Fires the reboot request over the daemon's separate HTTP channel (not the EkosRemote
+     * wire — see [RigRebootClient]). A successful POST only means the Pi *accepted* the
+     * request; the socket dropping shortly after is expected, and [EkosRemoteClient]'s own
+     * backoff/reconnect (already fires on any close) picks the session back up once the Pi's
+     * back — no separate "app restart" step needed on this end.
+     */
+    override fun rebootRig() {
+        val token = rigRebootToken
+        if (token == null) {
+            _state.update { it.copy(rigRebootState = RigRebootState.FAILED, rigRebootError = "Set the reboot token first") }
+            return
+        }
+        _state.update { it.copy(rigRebootState = RigRebootState.SENDING, rigRebootError = null) }
+        scope.launch {
+            val result = RigRebootClient(client.host, rigRebootPort, token).reboot()
+            _state.update { s ->
+                result.fold(
+                    onSuccess = { s.copy(rigRebootState = RigRebootState.SENT, rigRebootError = null) },
+                    onFailure = { e -> s.copy(rigRebootState = RigRebootState.FAILED, rigRebootError = e.message ?: "request failed") },
+                )
+            }
+        }
     }
 
     /**

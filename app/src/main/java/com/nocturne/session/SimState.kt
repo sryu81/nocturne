@@ -14,8 +14,15 @@ import kotlin.math.sin
 /** Which detail sheet is open. */
 enum class SheetType {
     GUIDE, FOCUS, ALERTS, PREFS, SETUP, BENCH, PA, DEVICE, SUMMARY, AUTOFOCUS_RULES,
-    OPTICAL_TRAIN, SCOPES, MODULE_ASSIGNMENTS,
+    OPTICAL_TRAIN, SCOPES, MODULE_ASSIGNMENTS, MAINTENANCE,
 }
+
+/**
+ * Progress of a [SessionController.rebootRig] request against the rig's
+ * companion reboot daemon (separate HTTP+token channel — the EkosRemote wire
+ * itself has no OS-level reboot command, see `pi-tools/reboot-daemon/`).
+ */
+enum class RigRebootState { IDLE, SENDING, SENT, FAILED }
 
 /** Which meridian-flip action is awaiting confirmation. */
 enum class FlipConfirm { DEFER, NOW }
@@ -211,6 +218,16 @@ data class SimState(
     val wireSearchResults: List<Target>? = null,
     /** `scheduler_get_jobs` translated (M3) — cross-referenced for progress; see [SequenceJob.synced]. */
     val wireSchedulerJobs: List<WireSchedulerJob>? = null,
+    /** True under [EkosRemoteController]; false under [SimulatedController] — gates [MAINTENANCE] sheet's rig-reboot UI, which is meaningless without a real Pi. */
+    val isRealRig: Boolean = false,
+    /** Companion reboot daemon's port on the rig's Pi — separate from the EkosRemote wire port (see `pi-tools/reboot-daemon/`). */
+    val rigRebootPort: Int = 9001,
+    /** Whether a reboot token has been configured — the token itself never enters [SimState] (kept only inside the controller), so nothing display-worthy leaks it into logs/recompositions. */
+    val rigRebootTokenSet: Boolean = false,
+    /** True once a token is configured under a real rig — [MaintenanceSheet] shows the reboot button only then. */
+    val rigRebootAvailable: Boolean = false,
+    val rigRebootState: RigRebootState = RigRebootState.IDLE,
+    val rigRebootError: String? = null,
 )
 
 /** One `get_devices` entry, decoded to the roles its `interface` bitmask ORs together. */

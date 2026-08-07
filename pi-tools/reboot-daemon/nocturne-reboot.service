@@ -1,0 +1,16 @@
+[Unit]
+Description=Nocturne rig-reboot companion daemon
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/python3 /opt/nocturne-reboot/reboot_daemon.py
+Restart=on-failure
+RestartSec=2
+# install.sh substitutes this for whichever user ran it — must have NOPASSWD
+# sudo for `reboot` (install.sh checks this). Not root itself, so a bug in
+# this ~70-line daemon doesn't run as root beyond the one `sudo reboot` call
+# it shells out to.
+User=__NOCTURNE_REBOOT_USER__
+
+[Install]
+WantedBy=multi-user.target

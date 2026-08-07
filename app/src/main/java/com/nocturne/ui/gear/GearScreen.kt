@@ -88,6 +88,9 @@ fun GearScreen(
             if (state.wireTrains != null) add(TabItem { ModuleAssignmentsCard(state, ctrl) })
             add(TabItem { BenchCard(ctrl) })
             add(TabItem { PaCard(state, ctrl) })
+            // Rig-level recovery, not an Ekos concept — only worth surfacing once actually
+            // connected to a real Pi (SimulatedController has nothing to reboot).
+            if (state.isRealRig) add(TabItem { MaintenanceCard(state, ctrl) })
             add(TabItem(full = true) { DeviceList(state, ctrl) })
             add(TabItem(full = true) { PowerDew(state) })
             add(TabItem(full = true) { CloseRoofButton(state, ctrl) })
@@ -345,6 +348,28 @@ private fun BenchCard(ctrl: SessionController) {
         Spacer(Modifier.height(5.dp))
         TextC("Bench check", style = t.Body135, color = c.text)
         TextC("test frames · cooler · focuser · slew", style = t.MonoMicro, color = c.textFaint)
+    }
+}
+
+@Composable
+private fun MaintenanceCard(state: SimState, ctrl: SessionController) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(c.surface, RoundedCornerShape(14.dp))
+            .border(1.dp, c.divider, RoundedCornerShape(14.dp))
+            .clickable { ctrl.openSheet(SheetType.MAINTENANCE) }
+            .padding(12.dp),
+    ) {
+        Phosphor.Icon(Phosphor.Warning, size = 20.dp, tint = c.accent400)
+        Spacer(Modifier.height(5.dp))
+        TextC("Rig maintenance", style = t.Body135, color = c.text)
+        TextC(
+            if (!state.isRealRig) "simulator" else if (state.rigRebootAvailable) "reboot ready" else "reboot not configured",
+            style = t.MonoMicro, color = c.textFaint,
+        )
     }
 }
 

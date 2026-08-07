@@ -29,7 +29,7 @@ import kotlin.math.min
  * not opened here in M2 (see [MediaChannel]).
  */
 class EkosRemoteClient(
-    host: String,
+    val host: String,
     port: Int = 9000,
     private val scope: CoroutineScope,
 ) {

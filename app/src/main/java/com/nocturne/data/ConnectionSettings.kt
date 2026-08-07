@@ -21,6 +21,11 @@ data class ConnectionSettings(
     val port: Int = 9000,
     val lastConnectedAt: Long? = null,
     val useSimulator: Boolean = false,
+    /** Companion reboot-daemon port/token (`pi-tools/reboot-daemon/`) — separate channel from
+     *  the EkosRemote wire's own [port]. Token is null until the user pastes the one printed by
+     *  the Pi-side install script. */
+    val rebootPort: Int = 9001,
+    val rebootToken: String? = null,
 )
 
 /**
@@ -36,6 +41,8 @@ class ConnectionRepository(private val context: Context) {
         val PORT = intPreferencesKey("port")
         val LAST_CONNECTED_AT = longPreferencesKey("last_connected_at")
         val USE_SIMULATOR = booleanPreferencesKey("use_simulator")
+        val REBOOT_PORT = intPreferencesKey("reboot_port")
+        val REBOOT_TOKEN = stringPreferencesKey("reboot_token")
     }
 
     val settings: Flow<ConnectionSettings> = context.connectionDataStore.data.map { prefs ->
@@ -44,6 +51,8 @@ class ConnectionRepository(private val context: Context) {
             port = prefs[Keys.PORT] ?: 9000,
             lastConnectedAt = prefs[Keys.LAST_CONNECTED_AT],
             useSimulator = prefs[Keys.USE_SIMULATOR] ?: false,
+            rebootPort = prefs[Keys.REBOOT_PORT] ?: 9001,
+            rebootToken = prefs[Keys.REBOOT_TOKEN],
         )
     }
 
@@ -63,5 +72,12 @@ class ConnectionRepository(private val context: Context) {
 
     suspend fun setUseSimulator(useSimulator: Boolean) {
         context.connectionDataStore.edit { prefs -> prefs[Keys.USE_SIMULATOR] = useSimulator }
+    }
+
+    suspend fun saveRebootConfig(port: Int, token: String) {
+        context.connectionDataStore.edit { prefs ->
+            prefs[Keys.REBOOT_PORT] = port
+            prefs[Keys.REBOOT_TOKEN] = token
+        }
     }
 }

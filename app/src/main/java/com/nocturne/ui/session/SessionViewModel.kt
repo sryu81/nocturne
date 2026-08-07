@@ -77,7 +77,7 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
         client = newClient
         // Set ctrl before connectionMode flips to Connecting/Connected — NocturneShell
         // only composes once connectionMode says so, and must see the final ctrl then.
-        ctrl = EkosRemoteController(newClient, viewModelScope)
+        ctrl = EkosRemoteController(newClient, viewModelScope, repo)
 
         viewModelScope.launch {
             newClient.connectionStatus.collect { status ->

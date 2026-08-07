@@ -114,4 +114,16 @@ interface SessionController {
     fun startAddScope()
     fun cancelAddScope()
     fun toggleEditScope(id: String)
+
+    /**
+     * Configures the rig's companion reboot daemon (port + shared-secret token, see
+     * `pi-tools/reboot-daemon/`) — a channel entirely separate from the EkosRemote wire, since
+     * that wire has no OS-level reboot command and can't be relied on anyway when it's a hung
+     * Ekos process that needs the reboot. No-op-ish under [SimulatedController] (nothing to
+     * reboot); persisted and wired for real under [EkosRemoteController].
+     */
+    fun setRigRebootConfig(port: Int, token: String)
+
+    /** Sends the actual reboot request. See [SimState.rigRebootState] for the result. */
+    fun rebootRig()
 }
