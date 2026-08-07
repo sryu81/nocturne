@@ -130,8 +130,20 @@ fun SheetHost(state: SimState, ctrl: SessionController, landscape: Boolean) {
         SheetType.SCOPES -> "Scopes" to "add, edit, remove"
         SheetType.MAINTENANCE -> "Rig maintenance" to "reboot the Pi if Ekos hangs"
         SheetType.DEVICE -> {
-            val d = DEVICES.firstOrNull { it.key == state.deviceKey } ?: DEVICES[0]
-            (state.selectedDeviceNames[d.key] ?: d.name) to (if (d.req) "required for a session" else "optional")
+            // Real connection: state.deviceKey is the live device's own name (see
+            // RealDeviceList's onClick), not a fixture DEVICES[].key — must be looked up
+            // against state.wireDevices, same as DeviceSheet's body does, or every real
+            // device sheet falls through to DEVICES[0] ("mount") and shows whatever
+            // profile name is parked there for every device (confirmed live: always
+            // showed the mount's fixture display name, e.g. "EQ6-R Pro", regardless of
+            // which real device — LX200/ToupTek/ZWO — was actually tapped).
+            val live = state.wireDevices?.firstOrNull { it.name == state.deviceKey }
+            if (live != null) {
+                live.name to (if (live.connected) "connected" else "not connected")
+            } else {
+                val d = DEVICES.firstOrNull { it.key == state.deviceKey } ?: DEVICES[0]
+                (state.selectedDeviceNames[d.key] ?: d.name) to (if (d.req) "required for a session" else "optional")
+            }
         }
     }
 
