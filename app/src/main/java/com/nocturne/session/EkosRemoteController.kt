@@ -58,6 +58,12 @@ class EkosRemoteController(
     private var lastTrainProfileAssignments: Map<String, Int>? = null
 
     /**
+     * Module → train-name for an optimistic [setModuleTrain] pick not yet confirmed by the
+     * server's own snapshot — see [resolveModuleTrainAssignments] for why this exists.
+     */
+    private val pendingModuleTrainAssignments = mutableMapOf<String, String>()
+
+    /**
      * Job/target name a `scheduler_add_jobs` sync was just sent for (M3 §5)
      * — matched against the next `scheduler_get_jobs` reply's `name` field
      * (the same string sent as `nameEdit`) to capture the new job's real
@@ -194,6 +200,15 @@ class EkosRemoteController(
      * that doesn't resolve simply keeps whatever [previous] already had — the optimistic value if
      * the user just picked one, or absent (shows as unselected, honestly — it isn't pointing at
      * either currently known train) if they haven't touched it yet.
+     *
+     * A resolved module isn't always fresher than that, though: since real Ekos's own persistence
+     * for a module can still be catching up when *this very* `train_get_profiles` reply lands (see
+     * [setModuleTrain]), `resolved` can carry a snapshot that's stale but still points at a real,
+     * currently-known train — which isn't caught by the orphaned-ID case above, and would silently
+     * overwrite the optimistic pick with the pre-edit one (looks like the tap "didn't take"/"snapped
+     * back"). So a module with an outstanding pick in [pendingModuleTrainAssignments] keeps
+     * that pick pinned over whatever `resolved` says, until `resolved` actually agrees with it —
+     * at which point it's confirmed and cleared.
      */
     private fun resolveModuleTrainAssignments(previous: Map<String, String>?, trains: List<WireTrain>?): Map<String, String>? {
         val raw = lastTrainProfileAssignments ?: return previous
@@ -203,7 +218,8 @@ class EkosRemoteController(
             val name = trains.firstOrNull { it.id == trainId }?.name ?: return@mapNotNull null
             module to name
         }.toMap()
-        return (previous ?: emptyMap()) + resolved
+        pendingModuleTrainAssignments.entries.removeAll { (module, expected) -> resolved[module] == expected }
+        return (previous ?: emptyMap()) + resolved + pendingModuleTrainAssignments
     }
 
     /**
@@ -545,6 +561,7 @@ class EkosRemoteController(
      * else on this wire.
      */
     override fun setModuleTrain(module: String, trainName: String) {
+        pendingModuleTrainAssignments[module] = trainName
         client.sendCommand(Commands.TRAIN_SET, buildJsonObject { put("module", module); put("name", trainName) })
         client.sendCommand(Commands.TRAIN_GET_PROFILES)
         super.setModuleTrain(module, trainName) // optimistic; confirmed reply reconciles above
