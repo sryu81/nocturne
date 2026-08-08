@@ -420,7 +420,6 @@ abstract class AbstractLocalSessionController : SessionController {
         }))
     }
 
-    override fun openBench() = update { it.copy(sheet = SheetType.BENCH) }
     override fun openSetup() = update { s ->
         if (s.ekosRunning) s else s.copy(sheet = SheetType.SETUP, setupEditingName = null, profileName = "New profile")
     }

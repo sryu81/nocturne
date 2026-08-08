@@ -57,6 +57,7 @@ import com.nocturne.transport.ConnectionState
 import com.nocturne.transport.ConnectionStatus
 import com.nocturne.ui.connect.ConnectScreen
 import com.nocturne.ui.frames.FramesScreen
+import com.nocturne.ui.controls.ControlsScreen
 import com.nocturne.ui.gear.GearScreen
 import com.nocturne.ui.icons.Phosphor
 import com.nocturne.ui.nav.NocturneTab
@@ -220,6 +221,7 @@ private fun NocturneShell(
                     }
                     composable(NocturneTab.Frames.route) { FramesScreen(state, ctrl, landscape) }
                     composable(NocturneTab.Gear.route) { GearScreen(state, ctrl, landscape, onExitSimulator = vm::disconnect) }
+                    composable(NocturneTab.Controls.route) { ControlsScreen(state, ctrl, landscape) }
                 }
             }
 

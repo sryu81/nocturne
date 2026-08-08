@@ -96,7 +96,6 @@ interface SessionController {
     fun openPa()
     fun paNext()
     fun setPaRate(index: Int)
-    fun openBench()
     fun openSetup()
     fun setupBack()
     fun finishSetup()

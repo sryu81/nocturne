@@ -84,23 +84,18 @@ fun GearScreen(
             // ConnectScreen is otherwise a one-way door (see SessionViewModel.disconnect doc).
             if (!state.isRealRig) add(TabItem(full = true) { SimulatorExitCard(onExitSimulator) })
             add(TabItem(full = true) { RigProfileCard(state, ctrl) })
+            // Right below the profile it belongs to, not buried at the bottom of the tab.
+            add(TabItem(full = true) { DeviceList(state, ctrl) })
             add(TabItem { ScopesCard(state, ctrl) })
             add(TabItem { OpticalTrainCard(state, ctrl) })
             // Which Ekos module uses which train (ProfileSettings) — only meaningful once real
             // trains exist server-side; no fixture equivalent (SimulatedController never sets
             // wireTrains), so the card itself is simply absent there, not a decorative stand-in.
             if (state.wireTrains != null) add(TabItem { ModuleAssignmentsCard(state, ctrl) })
-            add(TabItem { BenchCard(ctrl) })
             add(TabItem { PaCard(state, ctrl) })
-            // Curated Mount settings (M3.3) — real-rig only, no fixture equivalent, same
-            // gating as ModuleAssignmentsCard above.
-            if (state.isRealRig) add(TabItem { MountSettingsCard(state, ctrl) })
-            // Curated Camera settings (M3.3 phase 5) — same real-rig-only gating.
-            if (state.isRealRig) add(TabItem { CameraSettingsCard(state, ctrl) })
             // Rig-level recovery, not an Ekos concept — only worth surfacing once actually
             // connected to a real Pi (SimulatedController has nothing to reboot).
             if (state.isRealRig) add(TabItem { MaintenanceCard(state, ctrl) })
-            add(TabItem(full = true) { DeviceList(state, ctrl) })
             add(TabItem(full = true) { PowerDew(state) })
             add(TabItem(full = true) { CloseRoofButton(state, ctrl) })
         },
@@ -336,91 +331,6 @@ private fun ScopesCard(state: SimState, ctrl: SessionController) {
         TextC("Scopes", style = t.Body135, color = c.text)
         TextC(
             if (scopes.isEmpty()) "none defined" else "${scopes.size} defined",
-            style = t.MonoMicro, color = c.textFaint,
-        )
-    }
-}
-
-@Composable
-private fun BenchCard(ctrl: SessionController) {
-    val c = NocturneTheme.colors
-    val t = NocturneTheme.type
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .background(c.surface, RoundedCornerShape(14.dp))
-            .border(1.dp, c.divider, RoundedCornerShape(14.dp))
-            .clickable { ctrl.openSheet(SheetType.BENCH) }
-            .padding(12.dp),
-    ) {
-        Phosphor.Icon(Phosphor.TestTube, size = 20.dp, tint = c.accent400)
-        Spacer(Modifier.height(5.dp))
-        TextC("Bench check", style = t.Body135, color = c.text)
-        TextC("test frames · cooler · focuser · slew", style = t.MonoMicro, color = c.textFaint)
-    }
-}
-
-/**
- * Curated Mount settings (M3.3, see docs/M3.3-plan.md) — real-rig only, same
- * gating as [ModuleAssignmentsCard]. Distinct from [BenchCard]'s mount jog/
- * slew controls: this is configuration (meridian flip, limits, auto-park),
- * not live control.
- */
-@Composable
-private fun MountSettingsCard(state: SimState, ctrl: SessionController) {
-    val c = NocturneTheme.colors
-    val t = NocturneTheme.type
-    val m = state.wireMountSettings
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .background(c.surface, RoundedCornerShape(14.dp))
-            .border(1.dp, c.divider, RoundedCornerShape(14.dp))
-            .clickable { ctrl.openSheet(SheetType.MOUNT_SETTINGS) }
-            .padding(12.dp),
-    ) {
-        Phosphor.Icon(Phosphor.CompassTool, size = 20.dp, tint = c.accent400)
-        Spacer(Modifier.height(5.dp))
-        TextC("Mount settings", style = t.Body135, color = c.text)
-        TextC(
-            if (m == null) "loading…" else {
-                val flip = if (m.executeMeridianFlip) "flip on" else "flip off"
-                val limits = if (m.enableAltitudeLimits || m.enableHaLimit) "limits on" else "no limits"
-                "$flip · $limits"
-            },
-            style = t.MonoMicro, color = c.textFaint,
-        )
-    }
-}
-
-/**
- * Curated Camera settings (M3.3 phase 5, see docs/M3.3-plan.md) — real-rig only, same gating as
- * [MountSettingsCard]. Distinct from the Sequence block editor's exposure/bin/gain/offset
- * (already live) and Bench's cooler card (already live): this covers save path + the two guide-
- * deviation abort guards + per-job dither, none of which have a home anywhere else in the app.
- */
-@Composable
-private fun CameraSettingsCard(state: SimState, ctrl: SessionController) {
-    val c = NocturneTheme.colors
-    val t = NocturneTheme.type
-    val cam = state.wireCaptureSettings
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .background(c.surface, RoundedCornerShape(14.dp))
-            .border(1.dp, c.divider, RoundedCornerShape(14.dp))
-            .clickable { ctrl.openSheet(SheetType.CAMERA_SETTINGS) }
-            .padding(12.dp),
-    ) {
-        Phosphor.Icon(Phosphor.Camera, size = 20.dp, tint = c.accent400)
-        Spacer(Modifier.height(5.dp))
-        TextC("Camera settings", style = t.Body135, color = c.text)
-        TextC(
-            if (cam == null) "loading…" else {
-                val guard = if (cam.enforceGuideDeviation || cam.enforceStartGuiderDrift) "guide guard on" else "no guide guard"
-                val dither = if (cam.enableDitherPerJob) "dither on" else "dither off"
-                "$guard · $dither"
-            },
             style = t.MonoMicro, color = c.textFaint,
         )
     }
