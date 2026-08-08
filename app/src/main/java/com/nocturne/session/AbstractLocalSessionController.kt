@@ -386,8 +386,9 @@ abstract class AbstractLocalSessionController : SessionController {
     override fun coolDown() = update { it.copy(coolTarget = (it.coolTarget - 1).coerceAtLeast(-25.0)) }
 
     // Deterministic-but-ticking, same style as `rms`/`fNow` — not a real focus sweep,
-    // but reactive rather than a frozen literal. Real invocation is `focus_start`/
-    // autofocus-run over the wire — M3.
+    // but reactive rather than a frozen literal. Unrelated to startAutofocus/stopAutofocus
+    // below — this is FocusSheet's dedicated one-shot "run once, bump HFR" fixture, kept
+    // separate on purpose (see startAutofocus's own doc).
     override fun runAutofocusNow() = update { s ->
         val newHfr = 2.2 + kotlin.math.abs(kotlin.math.sin(s.t / 13.0)) * 0.15
         s.copy(
@@ -397,6 +398,8 @@ abstract class AbstractLocalSessionController : SessionController {
             focusTempAtLastAf = s.eafTemp,
         )
     }
+    override fun startAutofocus() = update { it.copy(focusRunning = true) }
+    override fun stopAutofocus() = update { it.copy(focusRunning = false) }
 
     override fun unparkMount() = update {
         it.copy(mountParked = false, mountAlt = 49.2, mountAz = 71.6, slewDir = null, mountSolved = false)
@@ -405,6 +408,10 @@ abstract class AbstractLocalSessionController : SessionController {
     override fun setMountTracking(enabled: Boolean) = update { it.copy(mountTracking = enabled) }
 
     override fun plateSolveHere() = update { it.copy(mountSolved = true) }
+    override fun startGuiding() = update { it.copy(guiding = true) }
+    override fun stopGuiding() = update { it.copy(guiding = false) }
+    override fun startPolarAlign() = update { it.copy(polarRunning = true) }
+    override fun stopPolarAlign() = update { it.copy(polarRunning = false) }
 
     override fun openPa() = update { it.copy(sheet = SheetType.PA, paStep = 0) }
     override fun paNext() = update { it.copy(paStep = minOf(2, it.paStep + 1)) }

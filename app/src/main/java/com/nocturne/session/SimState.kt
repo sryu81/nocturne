@@ -64,6 +64,17 @@ data class SimState(
     val mountParked: Boolean = false,
     /** Fixture-only tracking on/off — real rig reads [mountTrackingOn] instead (real INDI `TELESCOPE_TRACK_STATE`). */
     val mountTracking: Boolean = true,
+    /**
+     * Client-side optimistic "is a start/stop routine running" flag for real Autofocus/Guide/
+     * Polar-Align control — flipped on tap, same shape as [mountTracking]/[mountParked]. Doesn't
+     * attempt to string-match the real wire's undocumented status/stage values (see
+     * `EkosRemoteController.startAutofocus`'s doc) — the raw wire text is shown alongside these,
+     * never derived from them. Known limitation, accepted: none of these three auto-clear when a
+     * real routine finishes on its own; user taps Stop manually even after real completion.
+     */
+    val focusRunning: Boolean = false,
+    val guiding: Boolean = false,
+    val polarRunning: Boolean = false,
     val deviceKey: String = "mount",
     /** Sheet to return to when the device sheet closes, e.g. SETUP when opened from the rig wizard's device list. */
     val deviceOrigin: SheetType? = null,

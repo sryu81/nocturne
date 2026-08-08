@@ -38,6 +38,7 @@ import com.nocturne.session.coolPowerPct
 import com.nocturne.session.indiNumber
 import com.nocturne.session.mountParkedReal
 import com.nocturne.session.mountTrackingOn
+import com.nocturne.session.paTotal
 import com.nocturne.session.realSlewRateProp
 import com.nocturne.ui.components.BtnStyle
 import com.nocturne.ui.components.HatchBg
@@ -105,6 +106,18 @@ fun ControlsScreen(
             add(TabItem(full = true) { CoolerCard(state, ctrl) })
             add(TabItem(full = true) { FocuserCard(state, ctrl) })
             if (state.isRealRig) add(TabItem { CameraSettingsCard(state, ctrl) })
+            // Plate solving (align_solve) folds into this section rather than getting its own —
+            // user asked for "primary camera + focuser (manual, auto) + plate solving" as one
+            // grouping. Inline sub-label (same MicroLabel/textMuted style already used inside
+            // card headers like "COOLER"/"FOCUSER · MANUAL") signals the seam without a second
+            // full SectionHeader weight.
+            add(TabItem(full = true) { SectionHeader("PLATE SOLVE", sub = true) })
+            add(TabItem(full = true) { AlignSolveCard(ctrl) })
+            if (state.isRealRig) add(TabItem { AlignSettingsCard(state, ctrl) })
+
+            add(TabItem(full = true) { SectionHeader("MOUNT") })
+            add(TabItem(full = true) { MountControlCard(state, ctrl) })
+            if (state.isRealRig) add(TabItem { MountSettingsCard(state, ctrl) })
 
             add(TabItem(full = true) { SectionHeader("GUIDE") })
             add(
@@ -129,25 +142,29 @@ fun ControlsScreen(
                     )
                 },
             )
-            // Remaining Guide-module settings (accuracy threshold, dither) + start/stop control
-            // land in M3.3 phase 4 — see docs/M3.3-plan.md's Addendum. Exposure/gain/binning
-            // above were brought forward since Bench "Snap guide" needed them to be configurable.
+            add(TabItem(full = true) { GuideControlCard(state, ctrl) })
+            // Remaining Guide-module settings (accuracy threshold, dither) still land in M3.3
+            // phase 4 — see docs/M3.3-plan.md's Addendum. Start/stop control (GuideControlCard
+            // above) and exposure/gain/binning (SnapPanel above) are both done now.
 
-            add(TabItem(full = true) { SectionHeader("MOUNT") })
-            add(TabItem(full = true) { MountControlCard(state, ctrl) })
-            if (state.isRealRig) add(TabItem { MountSettingsCard(state, ctrl) })
-
-            add(TabItem(full = true) { SectionHeader("ALIGN") })
-            add(TabItem(full = true) { AlignSolveCard(ctrl) })
-            if (state.isRealRig) add(TabItem { AlignSettingsCard(state, ctrl) })
+            add(TabItem(full = true) { SectionHeader("POLAR ALIGNMENT") })
+            add(TabItem { PaCard(state, ctrl) })
         },
     )
 }
 
 @Composable
-private fun SectionHeader(text: String) {
+private fun SectionHeader(text: String, sub: Boolean = false) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
+    if (sub) {
+        // Inline sub-label for grouping within a section (e.g. "PLATE SOLVE" inside PRIMARY
+        // CAMERA) — same MicroLabel/textMuted style already used inside card headers like
+        // "COOLER"/"FOCUSER · MANUAL", deliberately one weight below the bold section header
+        // below so it reads as a seam, not a new top-level section.
+        TextC(text, style = t.MicroLabel, color = c.textMuted, modifier = Modifier.padding(top = 8.dp))
+        return
+    }
     // Bumped from MicroLabel/textFaint (9.5sp, dim) — was unreadable at a glance against the
     // cards below it, per user feedback ("must be larger and visible/brighter").
     TextC(text, style = t.Body135, color = c.text, modifier = Modifier.padding(top = 4.dp))
@@ -364,6 +381,16 @@ private fun CoolBtn(label: String, onClick: () -> Unit) {
     }
 }
 
+/**
+ * Manual jog (unchanged) + real Autofocus start/stop. `focus_start`/`focus_stop` have no
+ * meaningful params or reply — [SimState.focusRunning] is a client-side optimistic flag driving
+ * the button's own label, not derived from the real wire status text, which is shown verbatim
+ * alongside it instead (`state.wireFocusStatus`) — see
+ * [com.nocturne.session.EkosRemoteController.startAutofocus]'s doc for why. Known limitation:
+ * `focusRunning` doesn't auto-clear when a real autofocus finishes on its own — the raw status
+ * text is the only place that'd actually show real completion; the button still needs a manual
+ * Stop tap.
+ */
 @Composable
 private fun FocuserCard(state: SimState, ctrl: SessionController) {
     val c = NocturneTheme.colors
@@ -397,6 +424,20 @@ private fun FocuserCard(state: SimState, ctrl: SessionController) {
         }
         Spacer(Modifier.height(9.dp))
         TextC("rough focus by eye, then run autofocus · backlash 90 out", style = t.MonoMicro, color = c.textMuted)
+        Spacer(Modifier.height(9.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TextC(
+                "AUTOFOCUS · " + (state.wireFocusStatus?.let { "status: $it" } ?: if (state.focusRunning) "running…" else "idle"),
+                style = t.Mono115, color = if (state.focusRunning) c.warn else c.textMuted,
+                modifier = Modifier.weight(1f),
+            )
+            NocturneButton(
+                text = if (state.focusRunning) "Stop" else "Start autofocus",
+                onClick = { if (state.focusRunning) ctrl.stopAutofocus() else ctrl.startAutofocus() },
+                style = if (state.focusRunning) BtnStyle.SOLID else BtnStyle.SUBTLE,
+                modifier = Modifier.height(34.dp),
+            )
+        }
     }
 }
 
@@ -571,6 +612,40 @@ private fun DPad(state: SimState, ctrl: SessionController) {
     }
 }
 
+/**
+ * Real Guide start/stop — `guide_start`/`guide_stop` (`guide_stop` = server-side `abort()`, not a
+ * graceful pause, see [com.nocturne.session.EkosRemoteController.startGuiding]'s doc). Same
+ * optimistic-boolean + raw-status-passthrough shape as [FocuserCard]'s autofocus row.
+ * **Ungated** — works under the simulator too via [SimState.guiding], matching every other
+ * Bench-derived live-control card in this file.
+ */
+@Composable
+private fun GuideControlCard(state: SimState, ctrl: SessionController) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(c.surface, RoundedCornerShape(14.dp))
+            .border(1.dp, c.divider, RoundedCornerShape(14.dp))
+            .padding(11.2.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TextC(
+                "GUIDING · " + (state.wireGuideStatus?.let { "status: $it" } ?: if (state.guiding) "running…" else "idle"),
+                style = t.Mono115, color = if (state.guiding) c.warn else c.textMuted,
+                modifier = Modifier.weight(1f),
+            )
+            NocturneButton(
+                text = if (state.guiding) "Stop" else "Start guiding",
+                onClick = { if (state.guiding) ctrl.stopGuiding() else ctrl.startGuiding() },
+                style = if (state.guiding) BtnStyle.SOLID else BtnStyle.SUBTLE,
+                modifier = Modifier.height(34.dp),
+            )
+        }
+    }
+}
+
 /** Extracted from the old Bench `MountCard` — `align_solve` is the Align module's own action, not Mount's. No controller change, same [ctrl.plateSolveHere] call as before. */
 @Composable
 private fun AlignSolveCard(ctrl: SessionController) {
@@ -675,5 +750,57 @@ private fun CameraSettingsCard(state: SimState, ctrl: SessionController) {
             },
             style = t.MonoMicro, color = c.textFaint,
         )
+    }
+}
+
+/**
+ * Real: `state.wirePolarStage`/`polarRunning` — [PaSheet][com.nocturne.ui.session] has a
+ * dedicated real-mode branch (raw stage/message passthrough, `polar_start`/`polar_stop`), the
+ * existing fixture 3-step wizard is unchanged for the simulator. Moved here from Gear tab, same
+ * "this is exactly what Controls is for" reasoning as Mount/Camera settings above — Polar Align
+ * previously lived on Gear as a 100%-fixture wizard with no real wiring at all; both the move and
+ * the real wiring land together since there's no clean "wire in place" step for a feature whose
+ * only existing home is the fixture-only wizard being replaced.
+ */
+@Composable
+private fun PaCard(state: SimState, ctrl: SessionController) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(c.surface, RoundedCornerShape(14.dp))
+            .border(1.dp, c.divider, RoundedCornerShape(14.dp))
+            .clickable { ctrl.openSheet(SheetType.PA) }
+            .padding(12.dp),
+    ) {
+        Phosphor.Icon(Phosphor.Target, size = 20.dp, tint = c.accent400)
+        Spacer(Modifier.height(5.dp))
+        TextC("Polar align", style = t.Body135, color = c.text)
+        if (state.isRealRig) {
+            TextC(
+                state.wirePolarStage ?: if (state.polarRunning) "running…" else "not started",
+                style = t.MonoMicro, color = if (state.polarRunning) c.warn else c.textFaint,
+            )
+        } else {
+            TextC(
+                "${String.format("%.1f", state.paTotal)}′ total error",
+                style = t.MonoMicro, color = paColor(state),
+            )
+        }
+    }
+}
+
+/** Duplicated from `GearScreen.kt`'s own `paColor` (small, file-local, 8 lines) rather than
+ * extracted to a shared file — [PaCard]'s fixture-mode summary needs the same 3-band coloring
+ * as Gear's `RigChip` polar indicator; matches this codebase's existing tolerance for small
+ * file-local duplication. */
+@Composable
+private fun paColor(state: SimState): Color {
+    val c = NocturneTheme.colors
+    return when {
+        state.paTotal < 1 -> c.ok
+        state.paTotal < 3 -> c.warn
+        else -> c.danger
     }
 }

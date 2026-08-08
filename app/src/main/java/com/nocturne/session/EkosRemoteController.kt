@@ -522,6 +522,35 @@ class EkosRemoteController(
         super.jogFocus(delta)
     }
 
+    /**
+     * `focus_start`/`focus_stop` — empty request/response each (confirmed against the reference);
+     * progress arrives only via `new_focus_state` (already wired, `SimState.wireFocusStatus`).
+     * Doesn't attempt to string-match the real status text — no documented enum of values exists
+     * anywhere for it, only shown verbatim in the UI alongside [SimState.focusRunning]'s own
+     * optimistic button state. Distinct from `runAutofocusNow` below (FocusSheet's older one-shot
+     * fixture-only button) — both now fire the same real command, kept as separate methods since
+     * their fixture behaviors differ and neither call site should have to know about the other.
+     */
+    override fun startAutofocus() {
+        client.sendCommand(Commands.FOCUS_START)
+        super.startAutofocus()
+    }
+    override fun stopAutofocus() {
+        client.sendCommand(Commands.FOCUS_STOP)
+        super.stopAutofocus()
+    }
+    /**
+     * FocusSheet's older, separate "Run autofocus now" button (dedicated Focus tab, not
+     * Controls) had no real override at all before this — real rigs silently got
+     * `AbstractLocalSessionController`'s fixture HFR-tick. Fixed for free here: same underlying
+     * `focus_start` command as [startAutofocus] above, since real Ekos has no distinct "run once"
+     * vs "start" concept — `focus_start` is the only real entry point either way.
+     */
+    override fun runAutofocusNow() {
+        client.sendCommand(Commands.FOCUS_START)
+        super.runAutofocusNow()
+    }
+
     override fun setRate(index: Int) {
         client.sendCommand(Commands.MOUNT_SET_SLEW_RATE, buildJsonObject { put("rate", index) })
         super.setRate(index)
@@ -566,6 +595,37 @@ class EkosRemoteController(
     override fun plateSolveHere() {
         client.sendCommand(Commands.ALIGN_SOLVE)
         super.plateSolveHere()
+    }
+
+    /**
+     * `guide_start`/`guide_stop` — empty request/response each. `guide_stop` maps server-side to
+     * `abort()` (confirmed against the reference) — a hard abort, not a distinct graceful-stop
+     * concept, worth remembering before anyone expects a gentler pause here. Progress via
+     * `new_guide_state` (already wired, `SimState.wireGuideStatus`), shown raw in the UI —
+     * same no-string-matching approach as [startAutofocus].
+     */
+    override fun startGuiding() {
+        client.sendCommand(Commands.GUIDE_START)
+        super.startGuiding()
+    }
+    override fun stopGuiding() {
+        client.sendCommand(Commands.GUIDE_STOP)
+        super.stopGuiding()
+    }
+
+    /**
+     * `polar_start`/`polar_stop` — no direct reply, watch `new_polar_state` (M2, hardened for
+     * partial payloads — see [EkosEvent.NewPolarState]'s doc). Real PAH drives its own multi-slew
+     * capture/solve/rotate sequence server-side once started — Stop must be assumed to interrupt
+     * it mid-motion, there's no documented graceful-completion signal to wait for instead.
+     */
+    override fun startPolarAlign() {
+        client.sendCommand(Commands.POLAR_START)
+        super.startPolarAlign()
+    }
+    override fun stopPolarAlign() {
+        client.sendCommand(Commands.POLAR_STOP)
+        super.stopPolarAlign()
     }
 
     // ── Profiles / Optical Train (M3 §3) ────────────────────────────────

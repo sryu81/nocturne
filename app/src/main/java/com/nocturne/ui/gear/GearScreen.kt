@@ -92,7 +92,6 @@ fun GearScreen(
             // trains exist server-side; no fixture equivalent (SimulatedController never sets
             // wireTrains), so the card itself is simply absent there, not a decorative stand-in.
             if (state.wireTrains != null) add(TabItem { ModuleAssignmentsCard(state, ctrl) })
-            add(TabItem { PaCard(state, ctrl) })
             // Rig-level recovery, not an Ekos concept — only worth surfacing once actually
             // connected to a real Pi (SimulatedController has nothing to reboot).
             if (state.isRealRig) add(TabItem { MaintenanceCard(state, ctrl) })
@@ -148,7 +147,15 @@ private fun ReadyBanner(state: SimState) {
                 Spacer(Modifier.width(6.dp))
                 RigChip("● camera", if (state.isOn("cam")) c.ok else c.danger)
                 Spacer(Modifier.width(6.dp))
-                RigChip("● polar ${String.format("%.1f", state.paTotal)}′", paColor(state))
+                // Real rig: paTotal/paAlt/paAz are pure fixture fields the real controller never
+                // writes (confirmed — no EkosRemoteController override for openPa/paNext/
+                // setPaRate exists) — showing them here would be a fabricated number now that
+                // Polar Align has real wiring elsewhere (Controls tab). Real wirePolarStage instead.
+                if (state.isRealRig) {
+                    RigChip("● polar ${state.wirePolarStage ?: "not run"}", if (state.wirePolarStage != null) c.ok else c.textFaint)
+                } else {
+                    RigChip("● polar ${String.format("%.1f", state.paTotal)}′", paColor(state))
+                }
             }
         }
     }
@@ -390,28 +397,6 @@ private fun MaintenanceCard(state: SimState, ctrl: SessionController) {
         TextC(
             if (!state.isRealRig) "simulator" else if (state.rigRebootAvailable) "reboot ready" else "reboot not configured",
             style = t.MonoMicro, color = c.textFaint,
-        )
-    }
-}
-
-@Composable
-private fun PaCard(state: SimState, ctrl: SessionController) {
-    val c = NocturneTheme.colors
-    val t = NocturneTheme.type
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .background(c.surface, RoundedCornerShape(14.dp))
-            .border(1.dp, c.divider, RoundedCornerShape(14.dp))
-            .clickable { ctrl.openSheet(SheetType.PA) }
-            .padding(12.dp),
-    ) {
-        Phosphor.Icon(Phosphor.Target, size = 20.dp, tint = c.accent400)
-        Spacer(Modifier.height(5.dp))
-        TextC("Polar align", style = t.Body135, color = c.text)
-        TextC(
-            "${String.format("%.1f", state.paTotal)}′ total error",
-            style = t.MonoMicro, color = paColor(state),
         )
     }
 }

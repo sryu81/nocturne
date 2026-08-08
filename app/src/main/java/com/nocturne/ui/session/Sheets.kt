@@ -123,7 +123,9 @@ fun SheetHost(state: SimState, ctrl: SessionController, landscape: Boolean) {
         SheetType.FOCUS -> "Focus" to "V-curve · 9 points"
         SheetType.ALERTS -> "Alerts" to "tonight"
         SheetType.SUMMARY -> "Session summary" to "21:48 → 04:12"
-        SheetType.PA -> "Polar alignment" to "three steps"
+        // "three steps" is the fixture wizard's own framing — misleading verbatim in real mode,
+        // where PaSheet shows raw new_polar_state stage/message passthrough instead (see its doc).
+        SheetType.PA -> "Polar alignment" to (if (state.isRealRig) "live status" else "three steps")
         SheetType.PREFS -> "Alert rules" to "push + on-screen"
         SheetType.AUTOFOCUS_RULES -> "Autofocus rules" to "when to refocus"
         SheetType.SETUP -> (if (state.setupEditingName != null) "Edit rig profile" else "New rig profile") to "name + device connections"
@@ -1459,6 +1461,10 @@ private fun StepPills(labels: List<String>, current: Int) {
 
 @Composable
 private fun PaSheet(state: SimState, ctrl: SessionController, landscape: Boolean) {
+    if (state.isRealRig) {
+        PaRealSheet(state, ctrl)
+        return
+    }
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     Column {
@@ -1469,6 +1475,56 @@ private fun PaSheet(state: SimState, ctrl: SessionController, landscape: Boolean
             1 -> PaStep1(ctrl)
             else -> PaStep2(state, ctrl, landscape)
         }
+    }
+}
+
+/**
+ * Real-mode Polar Align — raw `new_polar_state` passthrough, not a stage-driven wizard. Real
+ * pushes arrive as independent partial shapes ("scattered across several functions" per the
+ * protocol reference — `{"stage"}` alone, `{"message"}` alone, `{"vector":...}`, `{"enabled"}`
+ * alone), confirmed live via a direct probe (`polar_start` → `{"stage":"First Capture"}` then
+ * `{"message":"...capturing the first image..."}` as two separate frames, `{"stage":"First
+ * Solve"}`/`{"message":"Solving the first image..."}` next, `polar_stop` → `{"stage":"Idle"}` +
+ * reset instructional message). No documented stage count/order/vocabulary for the full cycle —
+ * mapping these onto fixed step-pills (like the fixture wizard above) would be exactly the kind
+ * of wire-shape guess this project's established norm forbids (see `WireAlignSettings`'s
+ * `alignBinning` history). Shows the raw text instead; a richer stage-driven UI is a reasonable
+ * follow-up once more real PAH runs establish a stable vocabulary.
+ *
+ * [SimState.polarRunning] is a client-side optimistic flag driving the Start/Stop button only —
+ * same shape as [FocuserCard][com.nocturne.ui.controls]'s autofocus row — never derived from the
+ * wire text.
+ */
+@Composable
+private fun PaRealSheet(state: SimState, ctrl: SessionController) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    Column {
+        TextC(
+            state.wirePolarStage ?: if (state.polarRunning) "running…" else "not started",
+            style = t.Mono26, color = if (state.polarRunning) c.warn else c.text,
+        )
+        state.wirePolarEnabled?.let {
+            Spacer(Modifier.height(4.dp))
+            TextC(if (it) "PAH active" else "inactive", style = t.MonoSmall, color = c.textMuted)
+        }
+        Spacer(Modifier.height(9.dp))
+        TextC(
+            state.wirePolarMessage ?: "Put the mount either in the home position pointed toward the celestial pole, or pointed anywhere near the meridian, then tap Start.",
+            style = t.Body13, color = c.textMuted,
+        )
+        Spacer(Modifier.height(20.dp))
+        TextC(
+            "Real PAH drives its own mount rotation sequence once started — watch the mount. Stop cancels immediately, mid-motion if it's already rotating.",
+            style = t.MonoMicro, color = c.warn,
+        )
+        Spacer(Modifier.height(14.dp))
+        com.nocturne.ui.components.NocturneButton(
+            text = if (state.polarRunning) "Stop" else "Start",
+            onClick = { if (state.polarRunning) ctrl.stopPolarAlign() else ctrl.startPolarAlign() },
+            style = if (state.polarRunning) com.nocturne.ui.components.BtnStyle.SOLID else com.nocturne.ui.components.BtnStyle.OUTLINE,
+            modifier = Modifier.fillMaxWidth().height(44.dp),
+        )
     }
 }
 

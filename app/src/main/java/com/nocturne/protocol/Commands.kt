@@ -80,4 +80,14 @@ object Commands {
 
     // M3.3 phase 6 (partial, brought forward to fix Bench Focuser's stale initial position).
     const val FOCUS_GET_ALL_SETTINGS = "focus_get_all_settings"
+
+    // Controls tab v2 — real Autofocus/Guide/Polar-Align start-stop control (empty
+    // request/response, all three — see EkosRemote-Command-Reference.md §8/9/11; progress
+    // arrives only via new_focus_state/new_guide_state/new_polar_state, already wired).
+    const val FOCUS_START = "focus_start"
+    const val FOCUS_STOP = "focus_stop"
+    const val GUIDE_START = "guide_start"
+    const val GUIDE_STOP = "guide_stop"
+    const val POLAR_START = "polar_start"
+    const val POLAR_STOP = "polar_stop"
 }
