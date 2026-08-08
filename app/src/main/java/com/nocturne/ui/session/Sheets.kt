@@ -70,6 +70,7 @@ import com.nocturne.session.ready
 import com.nocturne.session.rejectCount
 import com.nocturne.session.eafTemp
 import com.nocturne.session.benchFocPos
+import com.nocturne.session.realSlewRateProp
 import com.nocturne.session.focusNextAfMin
 import com.nocturne.session.guideStarSnr
 import com.nocturne.session.rms
@@ -1422,6 +1423,13 @@ private fun FocuserCard(state: SimState, ctrl: SessionController) {
 private fun MountCard(state: SimState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
+    // Real mount's own rate list/labels when available (see SimState.realSlewRateProp doc for
+    // why this can't just be the fixed 5-option RATES fixture) — falls back to RATES/state.rate
+    // for the simulator or before the real property has arrived.
+    val realRates = state.realSlewRateProp
+    val rateLabels = realRates?.options ?: RATES
+    val selectedRateIndex = realRates?.selected ?: state.rate
+    val currentRateLabel = rateLabels.getOrNull(selectedRateIndex) ?: "?"
     Column(
         Modifier
             .fillMaxWidth()
@@ -1431,7 +1439,7 @@ private fun MountCard(state: SimState, ctrl: SessionController) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextC("MOUNT · MANUAL", style = t.MicroLabel, color = c.textMuted, modifier = Modifier.weight(1f))
             TextC(
-                state.slewDir?.let { "slewing $it at ${RATES[state.rate]}" }
+                state.slewDir?.let { "slewing $it at $currentRateLabel" }
                     ?: (if (state.mountSolved) "tracking · sidereal · solved" else "tracking · sidereal"),
                 style = t.Mono115,
                 color = if (state.slewDir != null) c.warn else c.ok,
@@ -1442,16 +1450,20 @@ private fun MountCard(state: SimState, ctrl: SessionController) {
             DPad(state, ctrl)
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
+                // Scrollable, fixed-width chips (not weight(1f)) so this holds up whether it's
+                // the fixture's 5 options or a real driver's own count (10 for this LX200
+                // OnStep, confirmed live — other drivers report different counts/labels again).
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .border(1.dp, c.divider, RoundedCornerShape(4.dp)),
+                        .border(1.dp, c.divider, RoundedCornerShape(4.dp))
+                        .horizontalScroll(rememberScrollState()),
                 ) {
-                    RATES.forEachIndexed { i, label ->
-                        val sel = state.rate == i
+                    rateLabels.forEachIndexed { i, label ->
+                        val sel = selectedRateIndex == i
                         Box(
                             Modifier
-                                .weight(1f)
+                                .width(44.dp)
                                 .height(32.dp)
                                 .background(if (sel) c.accent.copy(alpha = 0.2f) else Color.Transparent)
                                 .clickable { ctrl.setRate(i) },

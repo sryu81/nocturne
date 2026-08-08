@@ -1046,6 +1046,22 @@ val SimState.eafTemp: Double get() = indiNumber("EAF", "FOCUS_TEMPERATURE") ?: -
 val SimState.benchFocPos: Int get() = indiNumber(primaryTrain.focuser, "ABS_FOCUS_POSITION")?.roundToInt() ?: focPos
 
 /**
+ * Real mount's actual slew-rate options straight from its own `TELESCOPE_SLEW_RATE` INDI
+ * switch vector — already flowing into [indiProps] via the generic device-property subscribe
+ * (switch vectors decode every element, unlike the multi-element gap noted on
+ * [wireCcdInfoByDevice]). Real driver rate lists vary in both count and labels — confirmed live,
+ * an LX200 OnStep reports 10 (`0.25x`..`Max`), not the Bench check UI's fixed 5-option `RATES`
+ * fixture list (`"0.5×"/"1×"/"8×"/"64×"/"max"`), which never matched any real driver's actual
+ * rates. `mount_set_slew_rate`'s `rate` field is documented as a plain ordinal "index into
+ * driver's slew-rate list" — this switch vector's own element order *is* that list, so the
+ * index Bench check sends for option `i` here needs no translation. Null in the simulator or
+ * before the mount's own `device_get` reply has arrived.
+ */
+val SimState.realSlewRateProp: IndiProperty.SwitchProp?
+    get() = (indiProps[primaryTrain.mount] ?: emptyList())
+        .firstOrNull { it.name == "TELESCOPE_SLEW_RATE" } as? IndiProperty.SwitchProp
+
+/**
  * Real pixel scale (arcsec/pixel) for Plan tab's Framing card — standard formula
  * `206.265 × pixel_size_µm / focal_length_mm`. Null (falls back to the card's own placeholder)
  * until both the primary scope's focal length and the primary camera's [CcdInfo] are known —
