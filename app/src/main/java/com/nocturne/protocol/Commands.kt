@@ -67,4 +67,8 @@ object Commands {
     const val MOUNT_GET_ALL_SETTINGS = "mount_get_all_settings"
     const val MOUNT_SET_ALL_SETTINGS = "mount_set_all_settings"
     const val CAPTURE_GET_ALL_SETTINGS = "capture_get_all_settings"
+
+    // M3.3 phase 3 — Align settings (curated subset, see docs/M3.3-plan.md).
+    const val ALIGN_GET_ALL_SETTINGS = "align_get_all_settings"
+    const val ALIGN_SET_ALL_SETTINGS = "align_set_all_settings"
 }

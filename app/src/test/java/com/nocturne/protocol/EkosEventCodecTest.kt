@@ -232,6 +232,30 @@ class EkosEventCodecTest {
     }
 
     @Test
+    fun `decodes align_get_all_settings — curated subset, alignBinning is a string not a number`() {
+        // live capture (M3.3 phase 3) — real Align::getAllSettings() reports 98 fields; only 5
+        // are modeled. ignoreUnknownKeys must drop the other 93 without throwing. alignBinning
+        // was confirmed live as a combo-box string ("1x1"), not a number — the whole reason this
+        // test (and the live probe that produced it) exists: the M3.3 plan draft assumed Int
+        // before probing and would have silently degraded every real reply to Raw forever.
+        val json = """{"payload":{"FlipRotationNotAllowed":false,"alignAccuracyThreshold":30,
+            "alignBinning":"1x1","alignDarkFrame":false,"alignExposure":3,"alignFilter":"L",
+            "alignGain":99,"alignISO":"","alignSettlingTime":1500,"alignUseCurrentFilter":false,
+            "index_4107":false,"kcfg_AstrometryTimeout":180,"opticalTrainCombo":"Primary",
+            "pAHDirection":"West","pAHExposure":3,"pAHRotation":30},
+            "type":"align_get_all_settings"}"""
+
+        val event = EkosEventCodec.decode(json)
+        assertTrue("expected AlignSettings, got $event", event is EkosEvent.AlignSettings)
+        val settings = (event as EkosEvent.AlignSettings).settings
+        assertEquals(3.0, settings.alignExposure, 0.0)
+        assertEquals(99.0, settings.alignGain, 0.0)
+        assertEquals("L", settings.alignFilter)
+        assertEquals("1x1", settings.alignBinning)
+        assertEquals(30.0, settings.alignAccuracyThreshold, 0.0)
+    }
+
+    @Test
     fun `unrecognized type falls back to Raw, not a crash`() {
         val event = EkosEventCodec.decode("""{"payload":{"foo":"bar"},"type":"some_future_command"}""")
         assertTrue(event is EkosEvent.Raw)

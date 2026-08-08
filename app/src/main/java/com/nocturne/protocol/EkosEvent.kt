@@ -145,6 +145,17 @@ sealed interface EkosEvent {
     @Serializable
     data class CaptureSettings(val settings: WireCaptureSettings) : EkosEvent
 
+    /**
+     * `align_get_all_settings` reply — real Ekos's Align module reports 98 fields
+     * (`Align::getAllSettings`, reflects over every settings-dialog widget by `objectName()`);
+     * [WireAlignSettings] models only the 5 curated as session-relevant (exposure, gain,
+     * filter, binning, solver accuracy threshold) — the ~50 astrometry index-file booleans and
+     * PAH-star/solver internals are one-time-calibrate-and-forget, not per-session (see
+     * docs/M3.3-plan.md). `ignoreUnknownKeys` drops the other 93.
+     */
+    @Serializable
+    data class AlignSettings(val settings: WireAlignSettings) : EkosEvent
+
     /** Anything not decoded above — unrecognized `type`, or a shape that failed to parse. */
     data class Raw(val type: String, val payload: JsonElement) : EkosEvent
 }
@@ -489,4 +500,24 @@ data class WireCaptureSettings(
     val startGuideDeviation: Double = 2.0,
     val enableDitherPerJob: Boolean = false,
     val guideDitherPerJobFrequency: Int = 0,
+)
+
+/**
+ * Curated subset (5 of 98 real fields, docs/M3.3-plan.md) of real Ekos's Align module
+ * settings — exposure, gain, filter, binning, solver accuracy threshold. Field names match the
+ * wire verbatim (`Align::getAllSettings`'s Qt widget object names), confirmed live against the
+ * real rig (real values seen: `alignExposure 3`, `alignGain 99`, `alignFilter "L"`,
+ * `alignBinning "1x1"`, `alignAccuracyThreshold 30`). **`alignBinning` is a string** (a combo-box
+ * selection like `"1x1"`/`"2x2"`, not a number) — confirmed live, don't assume it matches
+ * `Block.binning`'s `Int` shape in the Sequence block editor, a completely separate field.
+ * Excluded: astrometry index-file booleans (~50 `index_*`/`kcfg_Astrometry*` fields) and
+ * PAH-star/solver internals — one-time calibration, not per-session.
+ */
+@Serializable
+data class WireAlignSettings(
+    val alignExposure: Double = 3.0,
+    val alignGain: Double = 99.0,
+    val alignFilter: String = "L",
+    val alignBinning: String = "1x1",
+    val alignAccuracyThreshold: Double = 30.0,
 )

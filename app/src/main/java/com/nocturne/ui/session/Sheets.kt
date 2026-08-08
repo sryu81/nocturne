@@ -35,6 +35,7 @@ import com.nocturne.session.ALERTS
 import com.nocturne.session.AlertIcon
 import com.nocturne.session.DEVICES
 import com.nocturne.session.DRIVER_INDI_PROPS
+import com.nocturne.session.FILTER_CYCLE
 import com.nocturne.session.Device
 import com.nocturne.session.IndiProperty
 import com.nocturne.session.LiveDevice
@@ -132,6 +133,7 @@ fun SheetHost(state: SimState, ctrl: SessionController, landscape: Boolean) {
         SheetType.MAINTENANCE -> "Rig maintenance" to "reboot the Pi if Ekos hangs"
         SheetType.MOUNT_SETTINGS -> "Mount settings" to "flip, limits, auto-park"
         SheetType.CAMERA_SETTINGS -> "Camera settings" to "save path, guide guard, dither"
+        SheetType.ALIGN_SETTINGS -> "Align settings" to "exposure, gain, filter, accuracy"
         SheetType.DEVICE -> {
             // Real connection: state.deviceKey is the live device's own name (see
             // RealDeviceList's onClick), not a fixture DEVICES[].key — must be looked up
@@ -171,6 +173,7 @@ fun SheetHost(state: SimState, ctrl: SessionController, landscape: Boolean) {
                 SheetType.MAINTENANCE -> MaintenanceSheet(state, ctrl)
                 SheetType.MOUNT_SETTINGS -> MountSettingsSheet(state, ctrl)
                 SheetType.CAMERA_SETTINGS -> CameraSettingsSheet(state, ctrl)
+                SheetType.ALIGN_SETTINGS -> AlignSettingsSheet(state, ctrl)
                 SheetType.DEVICE -> DeviceSheet(state, ctrl)
             }
         },
@@ -958,6 +961,85 @@ private fun IntField(value: Int, onChange: (Int) -> Unit) {
             cursorBrush = SolidColor(c.accent),
             modifier = Modifier.weight(1f),
         )
+    }
+}
+
+// ── Align settings (M3.3 phase 3, curated subset) ───────────────────────────
+
+/** Real Ekos's alignBinning combo options — confirmed live (`"1x1"` was the observed value, not a number). */
+private val ALIGN_BINNING_OPTIONS = listOf("1x1", "2x2", "3x3", "4x4")
+
+/**
+ * Curated subset of real Ekos's Align tab (5 of 98 real fields — see
+ * docs/M3.3-plan.md) — exposure, gain, filter, binning, solver accuracy
+ * threshold. Real-rig only: [SimState.wireAlignSettings] is null under
+ * [SimulatedController] (no fixture equivalent, same real-only gating as
+ * [MountSettingsSheet]/[CameraSettingsSheet]) and briefly null on a real
+ * rig too, until the first `align_get_all_settings` reply lands.
+ */
+@Composable
+private fun AlignSettingsSheet(state: SimState, ctrl: SessionController) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+
+    if (!state.isRealRig) {
+        TextC("Simulator has no real Align module settings to show — connect to a rig first.", style = t.Body13, color = c.textMuted)
+        return
+    }
+    val a = state.wireAlignSettings
+    if (a == null) {
+        TextC("Fetching align settings…", style = t.Body13, color = c.textMuted)
+        return
+    }
+
+    Column {
+        FieldLabel("Exposure")
+        Spacer(Modifier.height(5.dp))
+        DegreeField(a.alignExposure, "s", ctrl::setAlignExposure)
+        Spacer(Modifier.height(8.4.dp))
+        FieldLabel("Gain")
+        Spacer(Modifier.height(5.dp))
+        DegreeField(a.alignGain, "", ctrl::setAlignGain)
+        Spacer(Modifier.height(16.dp))
+        HDivider()
+        Spacer(Modifier.height(16.dp))
+
+        // Same tap-to-cycle idiom as the Sequence tab's own filter chip (cycleBlockFilter) —
+        // reuses the same real filter-wheel position list, just via a direct setAlignFilter
+        // call here instead of a dedicated cycle method (Align has only the one filter field,
+        // no block/job indirection to route through).
+        FieldLabel("Filter")
+        Spacer(Modifier.height(5.dp))
+        CycleChip(a.alignFilter) { ctrl.setAlignFilter(FILTER_CYCLE[(FILTER_CYCLE.indexOf(a.alignFilter) + 1).mod(FILTER_CYCLE.size)]) }
+        Spacer(Modifier.height(8.4.dp))
+        FieldLabel("Binning")
+        Spacer(Modifier.height(5.dp))
+        CycleChip(a.alignBinning) { ctrl.setAlignBinning(ALIGN_BINNING_OPTIONS[(ALIGN_BINNING_OPTIONS.indexOf(a.alignBinning) + 1).mod(ALIGN_BINNING_OPTIONS.size)]) }
+        Spacer(Modifier.height(16.dp))
+        HDivider()
+        Spacer(Modifier.height(16.dp))
+
+        FieldLabel("Solver accuracy threshold")
+        Spacer(Modifier.height(5.dp))
+        DegreeField(a.alignAccuracyThreshold, "\"", ctrl::setAlignAccuracyThreshold)
+    }
+}
+
+/** Tap-to-cycle chip shared by [AlignSettingsSheet]'s filter/binning fields. */
+@Composable
+private fun CycleChip(value: String, onTap: () -> Unit) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    Box(
+        Modifier
+            .height(42.dp)
+            .background(c.bg, RoundedCornerShape(4.dp))
+            .border(1.dp, c.divider, RoundedCornerShape(4.dp))
+            .clickable(onClick = onTap)
+            .padding(horizontal = 12.dp),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        TextC(value, style = t.Body13, color = c.text)
     }
 }
 

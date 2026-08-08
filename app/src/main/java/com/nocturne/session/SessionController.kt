@@ -146,4 +146,11 @@ interface SessionController {
     fun setCameraStartGuideDeviation(arcsec: Double)
     fun setCameraDitherPerJobEnabled(enabled: Boolean)
     fun setCameraDitherPerJobFrequency(everyN: Int)
+
+    // ── M3.3: Align settings (curated subset, see docs/M3.3-plan.md) ──────
+    fun setAlignExposure(sec: Double)
+    fun setAlignGain(gain: Double)
+    fun setAlignFilter(filter: String)
+    fun setAlignBinning(binning: String)
+    fun setAlignAccuracyThreshold(arcsec: Double)
 }

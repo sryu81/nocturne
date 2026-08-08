@@ -327,6 +327,24 @@ abstract class AbstractLocalSessionController : SessionController {
         s.copy(wireCaptureSettings = s.wireCaptureSettings?.copy(guideDitherPerJobFrequency = everyN))
     }
 
+    // Align settings (M3.3 phase 3): same no-op-under-simulator shape as Mount/Camera settings
+    // above — SimulatedController never populates wireAlignSettings.
+    override open fun setAlignExposure(sec: Double) = update { s ->
+        s.copy(wireAlignSettings = s.wireAlignSettings?.copy(alignExposure = sec))
+    }
+    override open fun setAlignGain(gain: Double) = update { s ->
+        s.copy(wireAlignSettings = s.wireAlignSettings?.copy(alignGain = gain))
+    }
+    override open fun setAlignFilter(filter: String) = update { s ->
+        s.copy(wireAlignSettings = s.wireAlignSettings?.copy(alignFilter = filter))
+    }
+    override open fun setAlignBinning(binning: String) = update { s ->
+        s.copy(wireAlignSettings = s.wireAlignSettings?.copy(alignBinning = binning))
+    }
+    override open fun setAlignAccuracyThreshold(arcsec: Double) = update { s ->
+        s.copy(wireAlignSettings = s.wireAlignSettings?.copy(alignAccuracyThreshold = arcsec))
+    }
+
     override fun snapMain() = update { it.copy(snappedMain = true) }
     override fun snapGuide() = update { it.copy(snappedGuide = true) }
 

@@ -97,8 +97,8 @@ fun ControlsScreen(
                     )
                 },
             )
-            // Guide-module settings + start/stop control land in a later phase — see
-            // docs/M3.3-plan.md's Addendum for the Align-before-Guide phasing rationale.
+            // Guide-module settings + start/stop control land in a later phase (M3.3 phase 4)
+            // — see docs/M3.3-plan.md's Addendum for the Align-before-Guide phasing rationale.
 
             add(TabItem(full = true) { SectionHeader("MOUNT") })
             add(TabItem(full = true) { MountControlCard(state, ctrl) })
@@ -106,7 +106,7 @@ fun ControlsScreen(
 
             add(TabItem(full = true) { SectionHeader("ALIGN") })
             add(TabItem(full = true) { AlignSolveCard(ctrl) })
-            // Align settings (alignExposure/gain/filter/binning/accuracy) land in a later phase.
+            if (state.isRealRig) add(TabItem { AlignSettingsCard(state, ctrl) })
         },
     )
 }
@@ -405,6 +405,34 @@ private fun AlignSolveCard(ctrl: SessionController) {
         style = BtnStyle.SUBTLE,
         modifier = Modifier.fillMaxWidth().height(38.dp),
     )
+}
+
+/**
+ * Curated Align settings (M3.3 phase 3, see docs/M3.3-plan.md) — real-rig only, same gating as
+ * [MountSettingsCard]/[CameraSettingsCard]. Distinct from [AlignSolveCard]'s live solve action:
+ * this is configuration (exposure, gain, filter, binning, solver accuracy), not live control.
+ */
+@Composable
+private fun AlignSettingsCard(state: SimState, ctrl: SessionController) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    val a = state.wireAlignSettings
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(c.surface, RoundedCornerShape(14.dp))
+            .border(1.dp, c.divider, RoundedCornerShape(14.dp))
+            .clickable { ctrl.openSheet(SheetType.ALIGN_SETTINGS) }
+            .padding(12.dp),
+    ) {
+        Phosphor.Icon(Phosphor.Target, size = 20.dp, tint = c.accent400)
+        Spacer(Modifier.height(5.dp))
+        TextC("Align settings", style = t.Body135, color = c.text)
+        TextC(
+            if (a == null) "loading…" else "${a.alignFilter} · ${a.alignBinning} · ${"%.0f".format(a.alignExposure)}s",
+            style = t.MonoMicro, color = c.textFaint,
+        )
+    }
 }
 
 /**

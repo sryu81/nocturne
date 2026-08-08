@@ -197,6 +197,7 @@ class EkosRemoteController(
 
         is EkosEvent.MountSettings -> s.copy(wireMountSettings = event.settings)
         is EkosEvent.CaptureSettings -> s.copy(wireCaptureSettings = event.settings)
+        is EkosEvent.AlignSettings -> s.copy(wireAlignSettings = event.settings)
 
         is EkosEvent.SchedulerJobs -> applySchedulerJobs(s, event)
 
@@ -783,6 +784,37 @@ class EkosRemoteController(
     override fun setCameraDitherPerJobFrequency(everyN: Int) {
         sendCaptureSetting("guideDitherPerJobFrequency", JsonPrimitive(everyN))
         super.setCameraDitherPerJobFrequency(everyN)
+    }
+
+    /**
+     * Align settings (M3.3 phase 3, curated subset). Same fire-and-forget shape as
+     * [sendMountSetting]/[sendCaptureSetting] — `align_set_all_settings` only touches the keys
+     * present in the map, and no immediate `align_get_all_settings` re-fetch, per the same
+     * command-ordering-race lesson documented on [sendMountSetting].
+     */
+    private fun sendAlignSetting(field: String, value: JsonElement) {
+        client.sendCommand(Commands.ALIGN_SET_ALL_SETTINGS, buildJsonObject { put(field, value) })
+    }
+
+    override fun setAlignExposure(sec: Double) {
+        sendAlignSetting("alignExposure", JsonPrimitive(sec))
+        super.setAlignExposure(sec)
+    }
+    override fun setAlignGain(gain: Double) {
+        sendAlignSetting("alignGain", JsonPrimitive(gain))
+        super.setAlignGain(gain)
+    }
+    override fun setAlignFilter(filter: String) {
+        sendAlignSetting("alignFilter", JsonPrimitive(filter))
+        super.setAlignFilter(filter)
+    }
+    override fun setAlignBinning(binning: String) {
+        sendAlignSetting("alignBinning", JsonPrimitive(binning))
+        super.setAlignBinning(binning)
+    }
+    override fun setAlignAccuracyThreshold(arcsec: Double) {
+        sendAlignSetting("alignAccuracyThreshold", JsonPrimitive(arcsec))
+        super.setAlignAccuracyThreshold(arcsec)
     }
 
     /**

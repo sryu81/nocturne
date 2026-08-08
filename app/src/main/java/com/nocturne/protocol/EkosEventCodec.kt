@@ -55,6 +55,7 @@ object EkosEventCodec {
                 "train_get_profiles" -> EkosEvent.TrainProfiles(protocolJson.decodeFromJsonElement(envelope.payload))
                 "mount_get_all_settings" -> EkosEvent.MountSettings(protocolJson.decodeFromJsonElement(envelope.payload))
                 "capture_get_all_settings" -> EkosEvent.CaptureSettings(protocolJson.decodeFromJsonElement(envelope.payload))
+                "align_get_all_settings" -> EkosEvent.AlignSettings(protocolJson.decodeFromJsonElement(envelope.payload))
                 else -> EkosEvent.Raw(envelope.type, envelope.payload)
             }
         } catch (e: SerializationException) {
