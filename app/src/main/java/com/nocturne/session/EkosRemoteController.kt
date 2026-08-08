@@ -146,7 +146,14 @@ class EkosRemoteController(
         is EkosEvent.NewFocusState -> s.copy(wireFocusStatus = event.status)
         is EkosEvent.NewGuideState -> s.copy(wireGuideStatus = event.status)
         is EkosEvent.NewAlignState -> s.copy(wireAlignStatus = event.status)
-        is EkosEvent.NewPolarState -> s.copy(wirePolarStage = event.stage)
+        // Merges non-null fields rather than overwriting — real pushes are partial (see
+        // NewPolarState's own doc), so a message-only or vector-only frame must not null out a
+        // previously-known stage (or vice versa).
+        is EkosEvent.NewPolarState -> s.copy(
+            wirePolarStage = event.stage ?: s.wirePolarStage,
+            wirePolarEnabled = event.enabled ?: s.wirePolarEnabled,
+            wirePolarMessage = event.message ?: s.wirePolarMessage,
+        )
 
         is EkosEvent.Devices -> s.copy(wireDevices = event.devices.map { it.toLiveDevice() })
         is EkosEvent.DeviceProperties -> event.properties.fold(s) { acc, prop ->

@@ -281,6 +281,30 @@ class EkosEventCodecTest {
     }
 
     @Test
+    fun `decodes new_polar_state — partial payloads (stage-only, message-only) must not fall back to Raw`() {
+        // Regression: NewPolarState originally had no defaults on any field. Real pushes arrive
+        // as independent partial shapes per the protocol reference ({"stage"} alone, {"message"}
+        // alone, {"vector":...}, {"enabled"} alone — never all three at once) — every one of
+        // those used to fail to decode (missing required field) and silently degrade to Raw,
+        // meaning wirePolarStage would never actually update on a real rig. Caught by inspection
+        // before ever shipping real Polar Alignment wiring, not from a live bug report.
+        val stageOnly = EkosEventCodec.decode("""{"payload":{"stage":"select star"},"type":"new_polar_state"}""")
+        assertTrue(stageOnly is EkosEvent.NewPolarState)
+        assertEquals("select star", (stageOnly as EkosEvent.NewPolarState).stage)
+        assertNull(stageOnly.enabled)
+        assertNull(stageOnly.message)
+
+        val messageOnly = EkosEventCodec.decode("""{"payload":{"message":"Rotate the mount"},"type":"new_polar_state"}""")
+        assertTrue(messageOnly is EkosEvent.NewPolarState)
+        assertEquals("Rotate the mount", (messageOnly as EkosEvent.NewPolarState).message)
+        assertNull(messageOnly.stage)
+
+        val enabledOnly = EkosEventCodec.decode("""{"payload":{"enabled":true},"type":"new_polar_state"}""")
+        assertTrue(enabledOnly is EkosEvent.NewPolarState)
+        assertEquals(true, (enabledOnly as EkosEvent.NewPolarState).enabled)
+    }
+
+    @Test
     fun `unrecognized type falls back to Raw, not a crash`() {
         val event = EkosEventCodec.decode("""{"payload":{"foo":"bar"},"type":"some_future_command"}""")
         assertTrue(event is EkosEvent.Raw)

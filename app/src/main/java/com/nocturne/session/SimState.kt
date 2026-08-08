@@ -171,6 +171,11 @@ data class SimState(
     val wireGuideStatus: String? = null,
     val wireAlignStatus: String? = null,
     val wirePolarStage: String? = null,
+    /** `new_polar_state`'s `enabled`/`message` fields — decoded since [EkosEvent.NewPolarState]
+     * models them, but unused until Polar Alignment gets real wiring; kept alongside
+     * [wirePolarStage] rather than discarded. */
+    val wirePolarEnabled: Boolean? = null,
+    val wirePolarMessage: String? = null,
     /**
      * `get_devices` translated to app-friendly shape — null until the first
      * push arrives (still showing the fixture [DEVICES] catalog), populated

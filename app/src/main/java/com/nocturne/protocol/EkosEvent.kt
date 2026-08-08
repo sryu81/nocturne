@@ -46,8 +46,18 @@ sealed interface EkosEvent {
     @Serializable
     data class NewAlignState(val status: String) : EkosEvent
 
+    /**
+     * `new_polar_state` push. Real pushes arrive as independent **partial** shapes "scattered
+     * across several functions" per the protocol reference — `{"stage"}` alone, `{"message"}`
+     * alone, `{"vector": {...}}`, `{"updatedError",...}`, `{"enabled"}` alone, never all three of
+     * these fields at once. All three fields need defaults for that reason — without them, every
+     * partial real payload fails to decode (missing required field) and silently degrades to
+     * [Raw], meaning `wirePolarStage` never actually updates on a real rig. Caught before ever
+     * shipping real Polar Alignment wiring, not found via a live bug — same category of mistake
+     * as [WireAlignSettings]'s `alignBinning` type fix, just caught by inspection this time.
+     */
     @Serializable
-    data class NewPolarState(val stage: String, val enabled: Boolean, val message: String) : EkosEvent
+    data class NewPolarState(val stage: String? = null, val enabled: Boolean? = null, val message: String? = null) : EkosEvent
 
     // ── M3: profiles ────────────────────────────────────────────────────
 
