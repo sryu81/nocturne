@@ -206,13 +206,14 @@ class EkosEventCodecTest {
 
     @Test
     fun `decodes capture_get_all_settings — curated subset, extra real fields ignored`() {
-        // live capture (M3.3 phase 5) — real Camera::getAllSettings() reports 59 fields; only 7
-        // are modeled. ignoreUnknownKeys must drop the other 52 without throwing. Trimmed to a
-        // representative subset of the full live payload (real values from the rig), not every
-        // one of the 59 fields — the point is the curated 7 decode correctly and unknown keys
-        // don't break decode, not to duplicate the full reference dump here.
+        // live capture (M3.3 phase 5 + the preview-controls/cooler-sync fix) — real
+        // Camera::getAllSettings() reports 59 fields; only 12 are modeled. ignoreUnknownKeys
+        // must drop the other 47 without throwing. Trimmed to a representative subset of the
+        // full live payload (real values from the rig), not every one of the 59 fields — the
+        // point is the curated 12 decode correctly and unknown keys don't break decode, not to
+        // duplicate the full reference dump here.
         val json = """{"payload":{"FilterPosCombo":"L","cameraTemperatureN":-1,"cameraTemperatureS":true,
-            "captureBinHN":1,"captureExposureN":1,"captureGainN":99,"captureTypeS":"Light",
+            "captureBinHN":1,"captureBinVN":1,"captureExposureN":1,"captureGainN":99,"captureTypeS":"Light",
             "enableDitherPerJob":true,"enforceGuideDeviation":false,"enforceStartGuiderDrift":false,
             "fileDirectoryT":"/home/soo/Pictures","guideDeviation":2,"guideDitherPerJobFrequency":0,
             "hFRDeviation":1,"opticalTrainCombo":"Primary","refocusEveryN":60,"startGuideDeviation":2,
@@ -229,6 +230,30 @@ class EkosEventCodecTest {
         assertEquals(2.0, settings.startGuideDeviation, 0.0)
         assertEquals(true, settings.enableDitherPerJob)
         assertEquals(0, settings.guideDitherPerJobFrequency)
+        assertEquals(1.0, settings.captureExposureN, 0.0)
+        assertEquals(99.0, settings.captureGainN, 0.0)
+        assertEquals(1, settings.captureBinHN)
+        assertEquals(1, settings.captureBinVN)
+        assertEquals(-1.0, settings.cameraTemperatureN, 0.0)
+    }
+
+    @Test
+    fun `decodes guide_get_all_settings — partial subset, guideBinning is a string`() {
+        // live capture (Bench "Snap guide" preview controls) — real Guide::getAllSettings()
+        // reports 84 fields; only 3 are modeled so far (guideExposure/gain/binning — enough for
+        // Bench's Snap guide to configure a preview; the rest land in M3.3 phase 4). Same
+        // guideBinning-is-a-string confirmation as WireAlignSettings.alignBinning.
+        val json = """{"payload":{"dECGuideEnabled":true,"guideAutoStar":true,"guideBinning":"1x1",
+            "guideDarkFrame":false,"guideExposure":1,"guideGain":99,"guiderAccuracyThreshold":2,
+            "kcfg_DitherEnabled":false,"kcfg_ReuseGuideCalibration":true,"opticalTrainCombo":"Secondary"},
+            "type":"guide_get_all_settings"}"""
+
+        val event = EkosEventCodec.decode(json)
+        assertTrue("expected GuideSettings, got $event", event is EkosEvent.GuideSettings)
+        val settings = (event as EkosEvent.GuideSettings).settings
+        assertEquals(1.0, settings.guideExposure, 0.0)
+        assertEquals(99.0, settings.guideGain, 0.0)
+        assertEquals("1x1", settings.guideBinning)
     }
 
     @Test

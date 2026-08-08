@@ -156,6 +156,15 @@ sealed interface EkosEvent {
     @Serializable
     data class AlignSettings(val settings: WireAlignSettings) : EkosEvent
 
+    /**
+     * `guide_get_all_settings` reply — real Ekos's Guide module reports 84 fields;
+     * [WireGuideSettings] currently models only the 3 a Bench "Snap guide" preview needs
+     * (exposure/gain/binning) — see that class's own doc for the phase-4 extension plan.
+     * `ignoreUnknownKeys` drops the other 81.
+     */
+    @Serializable
+    data class GuideSettings(val settings: WireGuideSettings) : EkosEvent
+
     /** Anything not decoded above — unrecognized `type`, or a shape that failed to parse. */
     data class Raw(val type: String, val payload: JsonElement) : EkosEvent
 }
@@ -481,15 +490,32 @@ data class WireMountSettings(
 )
 
 /**
- * Curated subset (7 of 59 real fields, docs/M3.3-plan.md) of real Ekos's Camera module
+ * Curated subset (12 of 59 real fields, docs/M3.3-plan.md) of real Ekos's Camera module
  * settings — save path, guide-deviation abort guard, start-of-job guide-drift guard, per-job
- * dither. Field names match the wire verbatim (`Camera::getAllSettings`'s Qt widget object
- * names), confirmed live against the real rig (real values seen: `fileDirectoryT
- * "/home/soo/Pictures"`, `guideDeviation 2`, `startGuideDeviation 2`,
- * `guideDitherPerJobFrequency 0`). Excluded: exposure/bin/gain/offset/frame/format (already
- * live via the Sequence block editor and `EsqWriter`), `cameraTemperatureN/S` (already live via
- * Bench's cooler card), autofocus/refocus/calibration/script fields (one-time setup, not
- * per-session).
+ * dither, plus the live preview capture parameters and cooler setpoint (see below). Field names
+ * match the wire verbatim (`Camera::getAllSettings`'s Qt widget object names), confirmed live
+ * against the real rig (real values seen: `fileDirectoryT "/home/soo/Pictures"`,
+ * `guideDeviation 2`, `startGuideDeviation 2`, `guideDitherPerJobFrequency 0`,
+ * `captureExposureN 1`, `captureGainN 99`, `captureBinHN/VN 1`, `cameraTemperatureN -1`).
+ *
+ * **`captureExposureN`/`captureGainN`/`captureBinHN`/`captureBinVN` were originally excluded**
+ * as "already live via the Sequence block editor" — that was wrong: the Sequence block editor's
+ * `Block.exposureSec`/`gain`/`binning` only take effect once that block's *job* actually runs
+ * through the scheduler. A bare `capture_preview` (Bench check's "Snap main") has no exposure/
+ * gain/bin parameter of its own — real Ekos fires it using whatever the Capture module's *own*
+ * currently-loaded values are, i.e. exactly these four fields. Included now so Bench's Snap
+ * main can actually configure what a preview shoots, not just fire blind.
+ *
+ * **`cameraTemperatureN` was also wrongly excluded** as "already live via Bench's cooler card" —
+ * only the *live sensor reading* was live there (`CCD_TEMPERATURE`, read directly), never the
+ * *setpoint*: `state.coolTarget` was a plain client-side value, seeded from a fixture default
+ * and never reconciled against this real field on connect. Included now so `coolTarget` can be
+ * seeded from the real Capture module's actual setpoint the moment this reply arrives (see
+ * `EkosRemoteController.applyEvent`'s `CaptureSettings` arm) — fixes cooler setpoint not
+ * matching real Ekos at the start of a session.
+ *
+ * Still excluded: capture count/offset/frame/format fields (Sequence-job concepts, not a
+ * preview's), autofocus/refocus/calibration/script fields (one-time setup, not per-session).
  */
 @Serializable
 data class WireCaptureSettings(
@@ -500,6 +526,11 @@ data class WireCaptureSettings(
     val startGuideDeviation: Double = 2.0,
     val enableDitherPerJob: Boolean = false,
     val guideDitherPerJobFrequency: Int = 0,
+    val captureExposureN: Double = 1.0,
+    val captureGainN: Double = 99.0,
+    val captureBinHN: Int = 1,
+    val captureBinVN: Int = 1,
+    val cameraTemperatureN: Double = -10.0,
 )
 
 /**
@@ -513,6 +544,26 @@ data class WireCaptureSettings(
  * Excluded: astrometry index-file booleans (~50 `index_*`/`kcfg_Astrometry*` fields) and
  * PAH-star/solver internals — one-time calibration, not per-session.
  */
+/**
+ * Curated subset of real Ekos's Guide module settings — currently just the 3 fields Bench
+ * check's "Snap guide" needs to actually configure a preview capture (same reasoning as
+ * `WireCaptureSettings.captureExposureN` etc — `guide_capture` has no parameter of its own,
+ * real Ekos fires it using whatever the Guide module's own currently-loaded values are).
+ * Field names match the wire verbatim, confirmed live against the real rig (real values seen:
+ * `guideExposure 1`, `guideGain 99`, `guideBinning "1x1"`). **`guideBinning` is a string**,
+ * same as `WireAlignSettings.alignBinning` — confirmed live, not a number.
+ *
+ * This is a deliberately partial subset — M3.3 phase 4 (Guide settings sheet: solver accuracy
+ * threshold, dither) adds the remaining curated fields to this same struct rather than a
+ * separate one, since it's the same wire command (`guide_get_all_settings`).
+ */
+@Serializable
+data class WireGuideSettings(
+    val guideExposure: Double = 1.0,
+    val guideGain: Double = 99.0,
+    val guideBinning: String = "1x1",
+)
+
 @Serializable
 data class WireAlignSettings(
     val alignExposure: Double = 3.0,

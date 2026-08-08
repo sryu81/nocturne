@@ -345,6 +345,28 @@ abstract class AbstractLocalSessionController : SessionController {
         s.copy(wireAlignSettings = s.wireAlignSettings?.copy(alignAccuracyThreshold = arcsec))
     }
 
+    // Primary/guide preview capture params: same no-op-under-simulator shape as every other
+    // module setting above — SimulatedController never populates wireCaptureSettings/
+    // wireGuideSettings's new fields any differently than the rest of those structs.
+    override open fun setCapturePreviewExposure(sec: Double) = update { s ->
+        s.copy(wireCaptureSettings = s.wireCaptureSettings?.copy(captureExposureN = sec))
+    }
+    override open fun setCapturePreviewGain(gain: Double) = update { s ->
+        s.copy(wireCaptureSettings = s.wireCaptureSettings?.copy(captureGainN = gain))
+    }
+    override open fun setCapturePreviewBinning(bin: Int) = update { s ->
+        s.copy(wireCaptureSettings = s.wireCaptureSettings?.copy(captureBinHN = bin, captureBinVN = bin))
+    }
+    override open fun setGuidePreviewExposure(sec: Double) = update { s ->
+        s.copy(wireGuideSettings = s.wireGuideSettings?.copy(guideExposure = sec))
+    }
+    override open fun setGuidePreviewGain(gain: Double) = update { s ->
+        s.copy(wireGuideSettings = s.wireGuideSettings?.copy(guideGain = gain))
+    }
+    override open fun setGuidePreviewBinning(binning: String) = update { s ->
+        s.copy(wireGuideSettings = s.wireGuideSettings?.copy(guideBinning = binning))
+    }
+
     override fun snapMain() = update { it.copy(snappedMain = true) }
     override fun snapGuide() = update { it.copy(snappedGuide = true) }
 

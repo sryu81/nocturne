@@ -17,10 +17,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.unit.dp
 import com.nocturne.session.SessionController
 import com.nocturne.session.SheetType
@@ -44,6 +46,8 @@ import kotlin.math.roundToInt
 
 private val JOGS = listOf(-1000, -100, -10, 10, 100, 1000)
 private val RATES = listOf("0.5×", "1×", "8×", "64×", "max")
+private val BIN_OPTIONS = listOf(1, 2, 3, 4)
+private val GUIDE_BIN_OPTIONS = listOf("1x1", "2x2", "3x3", "4x4")
 
 /**
  * Per-module operational settings + live control — Camera/Guide/Mount/Align, split out of Gear
@@ -73,11 +77,22 @@ fun ControlsScreen(
             add(
                 TabItem(full = true) {
                     val real = state.wireDevices != null
+                    val cam = state.wireCaptureSettings
                     SnapPanel(
-                        tag = "2 s · bin 2",
+                        tag = if (cam != null) "${"%.0f".format(cam.captureExposureN)} s · bin ${cam.captureBinHN}" else "2 s · bin 2",
                         label = benchSnapLabel(real, state.snappedMain, state.wireCaptureStatus, "★ 1 482 · HFR 2.31 · ADU 1 093"),
                         snapLabel = "Snap main",
                         onSnap = ctrl::snapMain,
+                        previewControls = cam?.let {
+                            {
+                                PreviewParamRow(
+                                    exposure = it.captureExposureN, onExposureChange = ctrl::setCapturePreviewExposure,
+                                    gain = it.captureGainN, onGainChange = ctrl::setCapturePreviewGain,
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                BinCycleChip(it.captureBinHN, BIN_OPTIONS, labelOf = { "${it}x$it" }) { ctrl.setCapturePreviewBinning(it) }
+                            }
+                        },
                     )
                 },
             )
@@ -89,16 +104,28 @@ fun ControlsScreen(
             add(
                 TabItem(full = true) {
                     val real = state.wireDevices != null
+                    val guide = state.wireGuideSettings
                     SnapPanel(
-                        tag = "guide cam",
+                        tag = if (guide != null) "${"%.0f".format(guide.guideExposure)} s · bin ${guide.guideBinning}" else "guide cam",
                         label = benchSnapLabel(real, state.snappedGuide, state.wireGuideStatus, "★ 214 · SNR 18.4"),
                         snapLabel = "Snap guide",
                         onSnap = ctrl::snapGuide,
+                        previewControls = guide?.let {
+                            {
+                                PreviewParamRow(
+                                    exposure = it.guideExposure, onExposureChange = ctrl::setGuidePreviewExposure,
+                                    gain = it.guideGain, onGainChange = ctrl::setGuidePreviewGain,
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                BinCycleChip(it.guideBinning, GUIDE_BIN_OPTIONS, labelOf = { it }) { ctrl.setGuidePreviewBinning(it) }
+                            }
+                        },
                     )
                 },
             )
-            // Guide-module settings + start/stop control land in a later phase (M3.3 phase 4)
-            // — see docs/M3.3-plan.md's Addendum for the Align-before-Guide phasing rationale.
+            // Remaining Guide-module settings (accuracy threshold, dither) + start/stop control
+            // land in M3.3 phase 4 — see docs/M3.3-plan.md's Addendum. Exposure/gain/binning
+            // above were brought forward since Bench "Snap guide" needed them to be configurable.
 
             add(TabItem(full = true) { SectionHeader("MOUNT") })
             add(TabItem(full = true) { MountControlCard(state, ctrl) })
@@ -115,7 +142,9 @@ fun ControlsScreen(
 private fun SectionHeader(text: String) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
-    TextC(text, style = t.MicroLabel, color = c.textFaint, modifier = Modifier.padding(top = 4.dp))
+    // Bumped from MicroLabel/textFaint (9.5sp, dim) — was unreadable at a glance against the
+    // cards below it, per user feedback ("must be larger and visible/brighter").
+    TextC(text, style = t.Body135, color = c.text, modifier = Modifier.padding(top = 4.dp))
 }
 
 /**
@@ -131,8 +160,18 @@ private fun benchSnapLabel(real: Boolean, snapped: Boolean, status: String?, fix
     else -> "tap Snap to trigger a real capture (no live preview yet — needs the Media channel, M4)"
 }
 
+/**
+ * `previewControls`: real-rig-only exposure/gain/binning editors for the specific camera this
+ * panel snaps — null under the simulator or before the relevant `*_get_all_settings` reply has
+ * arrived (matches every other curated-settings gating this session). Real `capture_preview`/
+ * `guide_capture` take no parameters of their own (confirmed against the protocol reference —
+ * message.cpp:467, 670-680, both "Request: none"); real Ekos fires them using whatever the
+ * module's own currently-loaded exposure/gain/bin already are, so these controls edit exactly
+ * those real fields via `capture_set_all_settings`/`guide_set_all_settings` before Snap is ever
+ * tapped — see [com.nocturne.session.EkosRemoteController.setCapturePreviewExposure] etc.
+ */
 @Composable
-private fun SnapPanel(tag: String, label: String, snapLabel: String, onSnap: () -> Unit) {
+private fun SnapPanel(tag: String, label: String, snapLabel: String, onSnap: () -> Unit, previewControls: (@Composable () -> Unit)? = null) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     Column {
@@ -143,12 +182,19 @@ private fun SnapPanel(tag: String, label: String, snapLabel: String, onSnap: () 
                 .background(c.surfaceDeep, RoundedCornerShape(4.dp)),
         ) {
             HatchBg(Modifier.fillMaxSize(), color = c.surfaceRaised)
+            // Bumped from MonoMicro/MonoMini (9-9.5sp, dim neutral500) — per user feedback these
+            // were too small/dim to read at a glance, same complaint as SectionHeader above.
             TextC(
-                tag, style = t.MonoMicro, color = c.accent400,
+                tag, style = t.Mono115, color = c.accent400,
                 modifier = Modifier.align(Alignment.TopStart).padding(top = 5.dp, start = 6.dp),
             )
         }
-        TextC(label, style = t.MonoMini, color = c.neutral500, modifier = Modifier.padding(top = 5.dp))
+        TextC(label, style = t.MonoSmall, color = c.text, modifier = Modifier.padding(top = 5.dp))
+        if (previewControls != null) {
+            Spacer(Modifier.height(8.dp))
+            previewControls()
+        }
+        Spacer(Modifier.height(8.dp))
         NocturneButton(
             text = snapLabel,
             onClick = onSnap,
@@ -158,15 +204,75 @@ private fun SnapPanel(tag: String, label: String, snapLabel: String, onSnap: () 
     }
 }
 
+/** Compact Exposure/Gain editors shared by [SnapPanel]'s primary/guide preview controls. */
+@Composable
+private fun PreviewParamRow(exposure: Double, onExposureChange: (Double) -> Unit, gain: Double, onGainChange: (Double) -> Unit) {
+    Row(Modifier.fillMaxWidth()) {
+        MiniField("EXP", exposure, "s", Modifier.weight(1f), onExposureChange)
+        Spacer(Modifier.width(8.dp))
+        MiniField("GAIN", gain, "", Modifier.weight(1f), onGainChange)
+    }
+}
+
+@Composable
+private fun MiniField(label: String, value: Double, unit: String, modifier: Modifier, onChange: (Double) -> Unit) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    Column(modifier) {
+        TextC(label, style = t.MonoMicro, color = c.textMuted)
+        Spacer(Modifier.height(3.dp))
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .height(34.dp)
+                .background(c.bg, RoundedCornerShape(4.dp))
+                .border(1.dp, c.divider, RoundedCornerShape(4.dp))
+                .padding(horizontal = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            BasicTextField(
+                value = "%.1f".format(value),
+                onValueChange = { text -> text.filter { ch -> ch.isDigit() || ch == '.' || ch == '-' }.toDoubleOrNull()?.let(onChange) },
+                singleLine = true,
+                textStyle = t.Body13.copy(color = c.text),
+                cursorBrush = SolidColor(c.accent),
+                modifier = Modifier.weight(1f),
+            )
+            if (unit.isNotEmpty()) TextC(unit, style = t.MonoSmall, color = c.neutral500)
+        }
+    }
+}
+
+/** Tap-to-cycle binning chip shared by [SnapPanel]'s primary (`Int`, e.g. `1`/`2`/`3`/`4`) and guide (`String`, e.g. `"1x1"`) binning fields — real wire shapes differ (confirmed live), this stays generic over both. */
+@Composable
+private fun <T> BinCycleChip(value: T, options: List<T>, labelOf: (T) -> String, onSelect: (T) -> Unit) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    Box(
+        Modifier
+            .height(34.dp)
+            .background(c.bg, RoundedCornerShape(4.dp))
+            .border(1.dp, c.divider, RoundedCornerShape(4.dp))
+            .clickable { onSelect(options[(options.indexOf(value) + 1).mod(options.size)]) }
+            .padding(horizontal = 12.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        TextC("bin ${labelOf(value)}", style = t.Body13, color = c.text)
+    }
+}
+
 /**
  * Real connection: the imaging camera's actual `CCD_TEMPERATURE`/`CCD_COOLER_POWER`
  * properties (confirmed live against a real ToupTek ATR2600M — see
  * [com.nocturne.session.EkosRemoteController]'s doc comment on `coolUp`/`coolDown`), read via
- * the same [indiNumber] helper the generic device sheets already use. `coolTarget` stays
- * Nocturne's own client-side "last commanded set point" either way — the real vector has no
- * separate target element to read back. Falls back to [SimulatedController]'s fixture
- * `coolNow`/`coolPowerPct` when no real camera is connected (including under
- * `SimulatedController`, which never populates `wireDevices`).
+ * the same [indiNumber] helper the generic device sheets already use. `coolTarget` is seeded
+ * from the real Capture module's own setpoint (`cameraTemperatureN`) the moment the eager
+ * `capture_get_all_settings` reply lands (`EkosRemoteController.applyEvent`'s `CaptureSettings`
+ * arm) — previously it was a pure client-side value stuck at a fixture default until the user's
+ * own `coolUp`/`coolDown` taps changed it, never matching real Ekos's actual setpoint at the
+ * start of a session. Falls back to [SimulatedController]'s fixture `coolNow`/`coolPowerPct`
+ * when no real camera is connected (including under `SimulatedController`, which never
+ * populates `wireDevices`/`wireCaptureSettings`).
  */
 @Composable
 private fun CoolerCard(state: SimState, ctrl: SessionController) {

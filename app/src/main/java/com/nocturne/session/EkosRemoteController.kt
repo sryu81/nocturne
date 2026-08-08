@@ -196,8 +196,15 @@ class EkosRemoteController(
         is EkosEvent.Scopes -> s.copy(wireScopes = event.scopes.map { it.toScopeDef() })
 
         is EkosEvent.MountSettings -> s.copy(wireMountSettings = event.settings)
-        is EkosEvent.CaptureSettings -> s.copy(wireCaptureSettings = event.settings)
+        // coolTarget seeded from the real Capture module's own setpoint the moment this reply
+        // arrives — fixes cooler setpoint not matching real Ekos at the start of a session (see
+        // WireCaptureSettings.cameraTemperatureN's doc for why this was missing). Safe to just
+        // overwrite unconditionally: this reply only ever arrives once (the eager fetch at
+        // connect, no reconcile-after-write per the established fire-and-forget norm), so there's
+        // no risk of it stomping a later optimistic coolUp/coolDown edit.
+        is EkosEvent.CaptureSettings -> s.copy(wireCaptureSettings = event.settings, coolTarget = event.settings.cameraTemperatureN)
         is EkosEvent.AlignSettings -> s.copy(wireAlignSettings = event.settings)
+        is EkosEvent.GuideSettings -> s.copy(wireGuideSettings = event.settings)
 
         is EkosEvent.SchedulerJobs -> applySchedulerJobs(s, event)
 
@@ -815,6 +822,50 @@ class EkosRemoteController(
     override fun setAlignAccuracyThreshold(arcsec: Double) {
         sendAlignSetting("alignAccuracyThreshold", JsonPrimitive(arcsec))
         super.setAlignAccuracyThreshold(arcsec)
+    }
+
+    /**
+     * Primary camera's live preview capture parameters — `capture_preview` (Bench "Snap main")
+     * takes no parameters of its own; real Ekos fires it using whatever the Capture module's own
+     * `captureExposureN`/`captureGainN`/`captureBinHN`/`captureBinVN` are currently set to (see
+     * [com.nocturne.protocol.WireCaptureSettings]'s doc). Same fire-and-forget shape as every
+     * other module setting this session.
+     */
+    override fun setCapturePreviewExposure(sec: Double) {
+        sendCaptureSetting("captureExposureN", JsonPrimitive(sec))
+        super.setCapturePreviewExposure(sec)
+    }
+    override fun setCapturePreviewGain(gain: Double) {
+        sendCaptureSetting("captureGainN", JsonPrimitive(gain))
+        super.setCapturePreviewGain(gain)
+    }
+    override fun setCapturePreviewBinning(bin: Int) {
+        // Both H and V in one shot — Nocturne only ever exposes a single square-binning control,
+        // matching the Sequence block editor's own Binning row (one Int, not H/V separately).
+        sendCaptureSetting("captureBinHN", JsonPrimitive(bin))
+        sendCaptureSetting("captureBinVN", JsonPrimitive(bin))
+        super.setCapturePreviewBinning(bin)
+    }
+
+    /**
+     * Guide camera's live preview capture parameters — same reasoning as
+     * [setCapturePreviewExposure] above, but for `guide_capture` (Bench "Snap guide") and the
+     * Guide module's own `guideExposure`/`guideGain`/`guideBinning`.
+     */
+    private fun sendGuideSetting(field: String, value: JsonElement) {
+        client.sendCommand(Commands.GUIDE_SET_ALL_SETTINGS, buildJsonObject { put(field, value) })
+    }
+    override fun setGuidePreviewExposure(sec: Double) {
+        sendGuideSetting("guideExposure", JsonPrimitive(sec))
+        super.setGuidePreviewExposure(sec)
+    }
+    override fun setGuidePreviewGain(gain: Double) {
+        sendGuideSetting("guideGain", JsonPrimitive(gain))
+        super.setGuidePreviewGain(gain)
+    }
+    override fun setGuidePreviewBinning(binning: String) {
+        sendGuideSetting("guideBinning", JsonPrimitive(binning))
+        super.setGuidePreviewBinning(binning)
     }
 
     /**

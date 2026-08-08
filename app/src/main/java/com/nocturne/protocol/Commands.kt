@@ -71,4 +71,8 @@ object Commands {
     // M3.3 phase 3 — Align settings (curated subset, see docs/M3.3-plan.md).
     const val ALIGN_GET_ALL_SETTINGS = "align_get_all_settings"
     const val ALIGN_SET_ALL_SETTINGS = "align_set_all_settings"
+
+    // M3.3 phase 4 (partial, brought forward for Bench "Snap guide" exposure/gain/bin control).
+    const val GUIDE_GET_ALL_SETTINGS = "guide_get_all_settings"
+    const val GUIDE_SET_ALL_SETTINGS = "guide_set_all_settings"
 }

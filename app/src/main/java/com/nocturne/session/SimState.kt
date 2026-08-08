@@ -3,6 +3,7 @@ package com.nocturne.session
 import com.nocturne.protocol.DeviceRole
 import com.nocturne.protocol.WireAlignSettings
 import com.nocturne.protocol.WireCaptureSettings
+import com.nocturne.protocol.WireGuideSettings
 import com.nocturne.protocol.WireMountSettings
 import com.nocturne.protocol.WireSchedulerJob
 import com.nocturne.protocol.WireTrain
@@ -251,6 +252,13 @@ data class SimState(
      * real-vs-simulator content.
      */
     val wireAlignSettings: WireAlignSettings? = null,
+    /**
+     * `guide_get_all_settings` translated (partial — see [WireGuideSettings]'s own doc). Null
+     * until the first reply (sent eagerly on connect, same as the other module settings above);
+     * gates Bench "Snap guide"'s exposure/gain/binning controls (real-rig only, no fixture
+     * equivalent, same as the others).
+     */
+    val wireGuideSettings: WireGuideSettings? = null,
     /** True under [EkosRemoteController]; false under [SimulatedController] — gates [MAINTENANCE] sheet's rig-reboot UI, which is meaningless without a real Pi. */
     val isRealRig: Boolean = false,
     /** Companion reboot daemon's port on the rig's Pi — separate from the EkosRemote wire port (see `pi-tools/reboot-daemon/`). */

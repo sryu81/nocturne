@@ -135,6 +135,8 @@ class EkosRemoteClient(
                 sendCommand(Commands.CAPTURE_GET_ALL_SETTINGS)
                 // Align module settings (M3.3 phase 3, curated subset) — same eager-on-online shape.
                 sendCommand(Commands.ALIGN_GET_ALL_SETTINGS)
+                // Guide module settings (partial — see WireGuideSettings doc) — same eager-on-online shape.
+                sendCommand(Commands.GUIDE_GET_ALL_SETTINGS)
             }
         }
         _events.tryEmit(event)

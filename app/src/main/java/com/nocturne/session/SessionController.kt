@@ -153,4 +153,12 @@ interface SessionController {
     fun setAlignFilter(filter: String)
     fun setAlignBinning(binning: String)
     fun setAlignAccuracyThreshold(arcsec: Double)
+
+    // ── Bench "Snap main"/"Snap guide" preview capture params ──────────────
+    fun setCapturePreviewExposure(sec: Double)
+    fun setCapturePreviewGain(gain: Double)
+    fun setCapturePreviewBinning(bin: Int)
+    fun setGuidePreviewExposure(sec: Double)
+    fun setGuidePreviewGain(gain: Double)
+    fun setGuidePreviewBinning(binning: String)
 }
