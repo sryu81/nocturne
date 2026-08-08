@@ -531,11 +531,20 @@ private fun ScopeInputFields(
     TextC("$note · ${fRatio(focalMm, apertureMm)}", style = t.MonoMicro, color = c.textMuted)
 }
 
-/** Small labeled digits-only mm field, used for scope focal length/aperture. */
+/**
+ * Small labeled digits-only mm field, used for scope focal length/aperture.
+ *
+ * Local `text` state, not a `value`-derived one — same clear-and-retype fix as [DegreeField]/
+ * [IntField]: rendering `mm.toString()` directly and only calling [onChange] on a successful
+ * parse meant clearing the field (empty string isn't a valid int) never called [onChange], so it
+ * snapped back to the old value on the next recomposition. Local text tracks whatever's actually
+ * typed (including empty, mid-edit); [onChange] only fires once a full number parses.
+ */
 @Composable
 private fun MmField(label: String, mm: Int, modifier: Modifier, onChange: (Int) -> Unit) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
+    var text by remember { mutableStateOf(mm.toString()) }
     Column(modifier) {
         TextC(label, style = t.MicroLabel, color = c.textFaint)
         Spacer(Modifier.height(3.dp))
@@ -549,8 +558,12 @@ private fun MmField(label: String, mm: Int, modifier: Modifier, onChange: (Int) 
             verticalAlignment = Alignment.CenterVertically,
         ) {
             BasicTextField(
-                value = mm.toString(),
-                onValueChange = { text -> onChange(text.filter { it.isDigit() }.take(4).toIntOrNull() ?: 0) },
+                value = text,
+                onValueChange = { new ->
+                    val filtered = new.filter { it.isDigit() }.take(4)
+                    text = filtered
+                    filtered.toIntOrNull()?.let(onChange)
+                },
                 singleLine = true,
                 textStyle = t.Body13.copy(color = c.text),
                 cursorBrush = SolidColor(c.accent),
@@ -815,11 +828,22 @@ private fun MountSettingsSheet(state: SimState, ctrl: SessionController) {
     }
 }
 
-/** Numeric field row shared by [MountSettingsSheet]'s degree/hour-angle inputs. */
+/**
+ * Numeric field row shared by [MountSettingsSheet]'s degree/hour-angle inputs.
+ *
+ * Local `text` state, not a `value`-derived one: the old version rendered `"%.1f".format(value)`
+ * directly and only called [onChange] when the typed text fully parsed as a `Double` — clearing
+ * the field to type a fresh number never called [onChange] (an empty string isn't a valid
+ * double), so the field snapped back to the old formatted value on the very next recomposition,
+ * making it impossible to clear and retype. Local text tracks whatever's actually been typed
+ * (including empty, `"-"`, a trailing `"."`, mid-edit) independently of [value]; [onChange] only
+ * fires once a full number parses, same external contract as before.
+ */
 @Composable
 private fun DegreeField(value: Double, unit: String, onChange: (Double) -> Unit) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
+    var text by remember { mutableStateOf("%.1f".format(value)) }
     Row(
         Modifier
             .fillMaxWidth()
@@ -830,8 +854,12 @@ private fun DegreeField(value: Double, unit: String, onChange: (Double) -> Unit)
         verticalAlignment = Alignment.CenterVertically,
     ) {
         BasicTextField(
-            value = "%.1f".format(value),
-            onValueChange = { text -> text.filter { it.isDigit() || it == '.' || it == '-' }.toDoubleOrNull()?.let(onChange) },
+            value = text,
+            onValueChange = { new ->
+                val filtered = new.filter { it.isDigit() || it == '.' || it == '-' }
+                text = filtered
+                filtered.toDoubleOrNull()?.let(onChange)
+            },
             singleLine = true,
             textStyle = t.Body13.copy(color = c.text),
             cursorBrush = SolidColor(c.accent),
@@ -939,11 +967,12 @@ private fun CameraSettingsSheet(state: SimState, ctrl: SessionController) {
     }
 }
 
-/** Integer field row — same shape as [DegreeField] but for whole-number settings like [CameraSettingsSheet]'s dither frequency. */
+/** Integer field row — same shape as [DegreeField] (same local-text-state fix, same reasoning) but for whole-number settings like [CameraSettingsSheet]'s dither frequency. */
 @Composable
 private fun IntField(value: Int, onChange: (Int) -> Unit) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
+    var text by remember { mutableStateOf("$value") }
     Row(
         Modifier
             .fillMaxWidth()
@@ -954,8 +983,12 @@ private fun IntField(value: Int, onChange: (Int) -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         BasicTextField(
-            value = "$value",
-            onValueChange = { text -> text.filter { it.isDigit() }.toIntOrNull()?.let(onChange) },
+            value = text,
+            onValueChange = { new ->
+                val filtered = new.filter { it.isDigit() }
+                text = filtered
+                filtered.toIntOrNull()?.let(onChange)
+            },
             singleLine = true,
             textStyle = t.Body13.copy(color = c.text),
             cursorBrush = SolidColor(c.accent),

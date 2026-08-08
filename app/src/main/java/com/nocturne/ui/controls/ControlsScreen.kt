@@ -19,6 +19,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -216,10 +220,20 @@ private fun PreviewParamRow(exposure: Double, onExposureChange: (Double) -> Unit
     }
 }
 
+/**
+ * Local `text` state, not a `value`-derived one — same clear-and-retype fix as `DegreeField`/
+ * `IntField` in `Sheets.kt`: the old version rendered `"%.1f".format(value)` directly and only
+ * called [onChange] when the typed text fully parsed, so clearing the field (empty string isn't
+ * a valid double) never called [onChange], and the field snapped back to the old value on the
+ * next recomposition — impossible to clear and retype. Local text tracks whatever's actually
+ * been typed (including empty, `"-"`, a trailing `"."`) independently of [value]; [onChange]
+ * only fires once a full number parses, same external contract as before.
+ */
 @Composable
 private fun MiniField(label: String, value: Double, unit: String, modifier: Modifier, onChange: (Double) -> Unit) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
+    var text by remember { mutableStateOf("%.1f".format(value)) }
     Column(modifier) {
         TextC(label, style = t.MonoMicro, color = c.textMuted)
         Spacer(Modifier.height(3.dp))
@@ -233,8 +247,12 @@ private fun MiniField(label: String, value: Double, unit: String, modifier: Modi
             verticalAlignment = Alignment.CenterVertically,
         ) {
             BasicTextField(
-                value = "%.1f".format(value),
-                onValueChange = { text -> text.filter { ch -> ch.isDigit() || ch == '.' || ch == '-' }.toDoubleOrNull()?.let(onChange) },
+                value = text,
+                onValueChange = { new ->
+                    val filtered = new.filter { ch -> ch.isDigit() || ch == '.' || ch == '-' }
+                    text = filtered
+                    filtered.toDoubleOrNull()?.let(onChange)
+                },
                 singleLine = true,
                 textStyle = t.Body13.copy(color = c.text),
                 cursorBrush = SolidColor(c.accent),

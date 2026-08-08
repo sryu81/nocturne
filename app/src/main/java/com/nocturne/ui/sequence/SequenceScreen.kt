@@ -502,11 +502,21 @@ private fun BlockDetails(block: Block, ctrl: SessionController, jobId: String, a
     }
 }
 
-/** Small boxed digits-only field — label above, value + suffix inline. */
+/**
+ * Small boxed digits-only field — label above, value + suffix inline.
+ *
+ * Local `text` state, not a `value`-derived one — same clear-and-retype fix as `Sheets.kt`'s
+ * `DegreeField`/`IntField`/`MmField`. The old version rendered `value.toString()` directly and
+ * fell back to `0` on an unparseable (e.g. empty) string, so clearing the field to type a fresh
+ * number instantly forced it to display "0" first, fighting the retype. Local text tracks
+ * whatever's actually typed (including empty, mid-edit) independently of [value]; [onChange]
+ * only fires once a full number parses.
+ */
 @Composable
 private fun NumberField(label: String, value: Int, suffix: String, modifier: Modifier = Modifier, onChange: (Int) -> Unit) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
+    var text by remember { mutableStateOf(value.toString()) }
     Column(modifier) {
         TextC(label, style = t.MicroLabel, color = c.textFaint)
         Spacer(Modifier.height(3.dp))
@@ -520,8 +530,12 @@ private fun NumberField(label: String, value: Int, suffix: String, modifier: Mod
             verticalAlignment = Alignment.CenterVertically,
         ) {
             BasicTextField(
-                value = value.toString(),
-                onValueChange = { text -> onChange(text.filter { it.isDigit() }.take(4).toIntOrNull() ?: 0) },
+                value = text,
+                onValueChange = { new ->
+                    val filtered = new.filter { it.isDigit() }.take(4)
+                    text = filtered
+                    filtered.toIntOrNull()?.let(onChange)
+                },
                 singleLine = true,
                 textStyle = t.Mono14.copy(color = c.text),
                 cursorBrush = SolidColor(c.accent),
