@@ -196,15 +196,14 @@ apart in conversation and in future docs.
 | Plan tab — catalog search, chips, altitude chart, framing box | `astro_search_objects`, `astro_get_object_info`, `astro_get_objects_observability`, `astro_get_objects_riseset` (`altitudes[]` → chart), `get_scopes`/`scope` for pixel-scale/rotator |
 | Sequence tab — job queue (one target ↔ one sequence, list + drill-down) | Job-queue membership (list/add/remove/select which job is queued) → `scheduler_get_jobs`/`scheduler_add_jobs`/`scheduler_remove_jobs`/`scheduler_start_job`, each `SequenceJob` maps to one `SchedulerJob`. A job's own block list (exposure/gain/binning/dither/AF, drilled into per job) → `capture_get_sequences`/`capture_add_sequence`/`capture_set_all_settings`/`capture_get_all_settings`/`capture_start/stop/loop`, and becomes the `.esq` file the owning `SchedulerJob.sequence` field points at (see §8). Night bar from the currently-running job + `new_capture_state`/`new_scheduler_state` |
 | Frames tab — sub grid, keep/cut, HFR across run | media frames (HFR from header), local Room verdicts, capture progress |
-| Gear tab — readiness, rig profile, optical train, bench, PA, device list, power/dew, roof | `get_profiles`, `profile_add/start/stop`, `get_devices`, `device_get`, `device_property_get/set/subscribe`, `new_temperature`, `new_notification`. Power/dew and roof cards only render when Powerbox/Dome are selected in the rig profile, and dim to an idle state when Ekos isn't running; roof control is separate Open/Close buttons, not a single toggle. |
-| Guide sheet | `new_guide_state`, `guide_get_all_settings`, media `+G` frames |
-| Focus sheet | `new_focus_state`, `focus_get_all_settings`, `focus_in/out`, media `+F` frames |
+| Gear tab — readiness, rig profile, optical train, device list, power/dew, roof, maintenance | `get_profiles`, `profile_add/start/stop`, `get_devices`, `device_get`, `device_property_get/set/subscribe`, `new_temperature`, `new_notification`. Power/dew and roof cards only render when Powerbox/Dome are selected in the rig profile, and dim to an idle state when Ekos isn't running; roof control is separate Open/Close buttons, not a single toggle. |
+| **Controls tab** — Primary Camera (snap/cooler/focuser + real Autofocus + Camera settings + Plate Solving), Mount (jog/rates/Park/Unpark/Home/Tracking + Mount settings), Guide (snap + real start/stop), Polar Alignment | `capture_preview`, `focus_in/out`, `focus_start/stop`, `mount_set_motion`, `mount_park/unpark`, `mount_set_tracking`, cooler via `device_property_set`, `guide_capture`, `guide_start/stop`, `align_solve`, `polar_start/stop` + `new_polar_state` (`stage`/`enabled`/`message`, raw passthrough — no documented stage vocabulary), `*_get_all_settings`/`*_set_all_settings` for Mount/Camera/Align (curated subsets, M3.3) |
+| Guide sheet (dedicated Guide tab, distinct from Controls' guide controls) | fixture-only — chart/RMS/SNR not yet wired to `new_guide_state` |
+| Focus sheet (dedicated Focus tab, distinct from Controls' focuser/autofocus) | fixture-only — V-curve not yet wired to `focus_get_all_settings` |
 | Alerts sheet | `new_notification`, `option_get/set` for rules |
 | Prefs sheet | `option_set` (alert rules, quiet hours) — app-local mirrors of Ekos options |
 | Rig profile (single screen) | profile name + device-role picker (mount/CCD/guide CCD/EFW/EAF/rotator/dome/weather/powerbox + scope/guide scope as free-typed name+focal+aperture) → `profile_add`/`profile_update` + `device_*`; Save calls `profile_start` |
 | Optical Train sheet | Primary/Secondary, 10 roles each (mount/camera/rotator/guide via/dust cap/scope/filter wheel/focuser/reducer/light box) → `train_get_all`/`train_add`/`train_update`, pools sourced from the rig profile's device/scope picks |
-| Bench sheet | `capture_preview`, `focus_in/out`, `mount_set_motion`, cooler via `device_property_set` |
-| PA sheet | `new_polar_state` (`stage`/`enabled`/`message`), `polar_start/refresh/set_algorithm`, media `+A` frames |
 | Device sheet | `device_get` properties, `device_property_set`, `device_property_subscribe`, connect/disconnect |
 | Summary + export | capture progress + local session log → export log + FITS list |
 
@@ -231,8 +230,11 @@ app/
                    (pure `.esq` XML serializer) and gives EkosRemoteController
                    its first dozen real command-sending overrides
     ui/            theme/ (tokens), nav/, session/, plan/, sequence/, frames/,
-                   gear/, connect/ (ConnectScreen — M2), sheets/ (guide, focus,
-                   alerts, prefs, setup, bench, pa, device, summary),
+                   gear/, controls/ (ControlsScreen — Primary Camera/Mount/
+                   Guide/Polar Alignment, M3.2/M3.3), connect/ (ConnectScreen
+                   — M2), sheets/ (guide, focus, alerts, prefs, setup, pa,
+                   device, summary, mount/camera/align settings — Bench sheet
+                   deleted, its live controls moved into controls/),
                    components/ (charts, cards, chips)
     data/          ConnectionSettings/ConnectionRepository (DataStore Preferences)
                    — built (M2). Room (frames, session log) — not started.
