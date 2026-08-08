@@ -1016,6 +1016,20 @@ val SimState.focusNextAfMin: Int get() = (afRefocusMin - (t - focusLastAfAt) / 6
 
 /** Live EAF focuser temperature — reads the user's own edits first, falls back to the driver fixture default. */
 val SimState.eafTemp: Double get() = indiNumber("EAF", "FOCUS_TEMPERATURE") ?: -0.6
+
+/**
+ * Real position for Bench check's Focuser card (M3.2) — [focPos] itself stays a plain fixture
+ * field (`jogFocus`'s local optimistic update needs it mutable), but on a real rig it was never
+ * reconciled against the focuser's actual `ABS_FOCUS_POSITION` INDI property, which is already
+ * fetched/subscribed like any other connected device's properties. `jogFocus`'s real override
+ * does send real `focus_in`/`focus_out` — only the number shown ever went stale, silently
+ * drifting from truth with every jog since the local math started from the fixture default
+ * (confirmed live: real rig showed 29445 on the device sheet while Bench stayed stuck at
+ * 18422, the exact `focPos` default). `primaryTrain.focuser` is the real focuser's own device
+ * name once `wireTrains` is populated (see `WireTrain.toTrainAssignment`) — falls back to
+ * [focPos] whenever that lookup misses (simulator, or before the real value has arrived).
+ */
+val SimState.benchFocPos: Int get() = indiNumber(primaryTrain.focuser, "ABS_FOCUS_POSITION")?.roundToInt() ?: focPos
 val SimState.paTotal: Double get() = hypot(paAlt, paAz)
 val SimState.coolAtSetPoint: Boolean get() = abs(coolNow - coolTarget) < 0.2
 val SimState.coolBarPct: Int get() {

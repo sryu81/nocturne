@@ -69,6 +69,7 @@ import com.nocturne.session.pct
 import com.nocturne.session.ready
 import com.nocturne.session.rejectCount
 import com.nocturne.session.eafTemp
+import com.nocturne.session.benchFocPos
 import com.nocturne.session.focusNextAfMin
 import com.nocturne.session.guideStarSnr
 import com.nocturne.session.rms
@@ -1394,7 +1395,7 @@ private fun FocuserCard(state: SimState, ctrl: SessionController) {
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextC("FOCUSER · MANUAL", style = t.MicroLabel, color = c.textMuted, modifier = Modifier.weight(1f))
-            TextC("${state.focPos}", style = t.Mono15, color = c.text)
+            TextC("${state.benchFocPos}", style = t.Mono15, color = c.text)
         }
         Spacer(Modifier.height(9.dp))
         Row(Modifier.fillMaxWidth()) {
