@@ -134,6 +134,17 @@ sealed interface EkosEvent {
     @Serializable
     data class MountSettings(val settings: WireMountSettings) : EkosEvent
 
+    /**
+     * `capture_get_all_settings` reply — real Ekos's Camera module reports 59 fields
+     * (`Camera::getAllSettings`, reflects over every settings-dialog widget by `objectName()`);
+     * [WireCaptureSettings] models only the 7 curated as session-relevant (save path, guide-
+     * deviation abort guard, start-of-job guide-drift guard, per-job dither) — exposure/bin/
+     * gain/offset are already live via the Sequence block editor, cooler temp already live via
+     * Bench (see docs/M3.3-plan.md). `ignoreUnknownKeys` drops the other 52.
+     */
+    @Serializable
+    data class CaptureSettings(val settings: WireCaptureSettings) : EkosEvent
+
     /** Anything not decoded above — unrecognized `type`, or a shape that failed to parse. */
     data class Raw(val type: String, val payload: JsonElement) : EkosEvent
 }
@@ -456,4 +467,26 @@ data class WireMountSettings(
     val maximumHaLimit: Double = 0.0,
     val parkEveryDay: Boolean = false,
     val autoParkTime: String = "00:00:00",
+)
+
+/**
+ * Curated subset (7 of 59 real fields, docs/M3.3-plan.md) of real Ekos's Camera module
+ * settings — save path, guide-deviation abort guard, start-of-job guide-drift guard, per-job
+ * dither. Field names match the wire verbatim (`Camera::getAllSettings`'s Qt widget object
+ * names), confirmed live against the real rig (real values seen: `fileDirectoryT
+ * "/home/soo/Pictures"`, `guideDeviation 2`, `startGuideDeviation 2`,
+ * `guideDitherPerJobFrequency 0`). Excluded: exposure/bin/gain/offset/frame/format (already
+ * live via the Sequence block editor and `EsqWriter`), `cameraTemperatureN/S` (already live via
+ * Bench's cooler card), autofocus/refocus/calibration/script fields (one-time setup, not
+ * per-session).
+ */
+@Serializable
+data class WireCaptureSettings(
+    val fileDirectoryT: String = "",
+    val enforceGuideDeviation: Boolean = false,
+    val guideDeviation: Double = 2.0,
+    val enforceStartGuiderDrift: Boolean = false,
+    val startGuideDeviation: Double = 2.0,
+    val enableDitherPerJob: Boolean = false,
+    val guideDitherPerJobFrequency: Int = 0,
 )

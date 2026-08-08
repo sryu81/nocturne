@@ -205,6 +205,33 @@ class EkosEventCodecTest {
     }
 
     @Test
+    fun `decodes capture_get_all_settings — curated subset, extra real fields ignored`() {
+        // live capture (M3.3 phase 5) — real Camera::getAllSettings() reports 59 fields; only 7
+        // are modeled. ignoreUnknownKeys must drop the other 52 without throwing. Trimmed to a
+        // representative subset of the full live payload (real values from the rig), not every
+        // one of the 59 fields — the point is the curated 7 decode correctly and unknown keys
+        // don't break decode, not to duplicate the full reference dump here.
+        val json = """{"payload":{"FilterPosCombo":"L","cameraTemperatureN":-1,"cameraTemperatureS":true,
+            "captureBinHN":1,"captureExposureN":1,"captureGainN":99,"captureTypeS":"Light",
+            "enableDitherPerJob":true,"enforceGuideDeviation":false,"enforceStartGuiderDrift":false,
+            "fileDirectoryT":"/home/soo/Pictures","guideDeviation":2,"guideDitherPerJobFrequency":0,
+            "hFRDeviation":1,"opticalTrainCombo":"Primary","refocusEveryN":60,"startGuideDeviation":2,
+            "targetNameT":""},
+            "type":"capture_get_all_settings"}"""
+
+        val event = EkosEventCodec.decode(json)
+        assertTrue("expected CaptureSettings, got $event", event is EkosEvent.CaptureSettings)
+        val settings = (event as EkosEvent.CaptureSettings).settings
+        assertEquals("/home/soo/Pictures", settings.fileDirectoryT)
+        assertEquals(false, settings.enforceGuideDeviation)
+        assertEquals(2.0, settings.guideDeviation, 0.0)
+        assertEquals(false, settings.enforceStartGuiderDrift)
+        assertEquals(2.0, settings.startGuideDeviation, 0.0)
+        assertEquals(true, settings.enableDitherPerJob)
+        assertEquals(0, settings.guideDitherPerJobFrequency)
+    }
+
+    @Test
     fun `unrecognized type falls back to Raw, not a crash`() {
         val event = EkosEventCodec.decode("""{"payload":{"foo":"bar"},"type":"some_future_command"}""")
         assertTrue(event is EkosEvent.Raw)

@@ -301,6 +301,32 @@ abstract class AbstractLocalSessionController : SessionController {
         s.copy(wireMountSettings = s.wireMountSettings?.copy(autoParkTime = time))
     }
 
+    // Camera settings (M3.3): same no-op-under-simulator shape as Mount settings above —
+    // SimulatedController never populates wireCaptureSettings (there's no real
+    // capture_get_all_settings reply to translate), so these only ever touch a null field; the
+    // sheet itself is gated on wireCaptureSettings != null and never calls them under the simulator.
+    override open fun setCameraSaveDir(path: String) = update { s ->
+        s.copy(wireCaptureSettings = s.wireCaptureSettings?.copy(fileDirectoryT = path))
+    }
+    override open fun setCameraGuideDeviationEnabled(enabled: Boolean) = update { s ->
+        s.copy(wireCaptureSettings = s.wireCaptureSettings?.copy(enforceGuideDeviation = enabled))
+    }
+    override open fun setCameraGuideDeviation(arcsec: Double) = update { s ->
+        s.copy(wireCaptureSettings = s.wireCaptureSettings?.copy(guideDeviation = arcsec))
+    }
+    override open fun setCameraStartGuideDriftEnabled(enabled: Boolean) = update { s ->
+        s.copy(wireCaptureSettings = s.wireCaptureSettings?.copy(enforceStartGuiderDrift = enabled))
+    }
+    override open fun setCameraStartGuideDeviation(arcsec: Double) = update { s ->
+        s.copy(wireCaptureSettings = s.wireCaptureSettings?.copy(startGuideDeviation = arcsec))
+    }
+    override open fun setCameraDitherPerJobEnabled(enabled: Boolean) = update { s ->
+        s.copy(wireCaptureSettings = s.wireCaptureSettings?.copy(enableDitherPerJob = enabled))
+    }
+    override open fun setCameraDitherPerJobFrequency(everyN: Int) = update { s ->
+        s.copy(wireCaptureSettings = s.wireCaptureSettings?.copy(guideDitherPerJobFrequency = everyN))
+    }
+
     override fun snapMain() = update { it.copy(snappedMain = true) }
     override fun snapGuide() = update { it.copy(snappedGuide = true) }
 

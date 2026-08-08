@@ -95,6 +95,8 @@ fun GearScreen(
             // Curated Mount settings (M3.3) — real-rig only, no fixture equivalent, same
             // gating as ModuleAssignmentsCard above.
             if (state.isRealRig) add(TabItem { MountSettingsCard(state, ctrl) })
+            // Curated Camera settings (M3.3 phase 5) — same real-rig-only gating.
+            if (state.isRealRig) add(TabItem { CameraSettingsCard(state, ctrl) })
             // Rig-level recovery, not an Ekos concept — only worth surfacing once actually
             // connected to a real Pi (SimulatedController has nothing to reboot).
             if (state.isRealRig) add(TabItem { MaintenanceCard(state, ctrl) })
@@ -385,6 +387,39 @@ private fun MountSettingsCard(state: SimState, ctrl: SessionController) {
                 val flip = if (m.executeMeridianFlip) "flip on" else "flip off"
                 val limits = if (m.enableAltitudeLimits || m.enableHaLimit) "limits on" else "no limits"
                 "$flip · $limits"
+            },
+            style = t.MonoMicro, color = c.textFaint,
+        )
+    }
+}
+
+/**
+ * Curated Camera settings (M3.3 phase 5, see docs/M3.3-plan.md) — real-rig only, same gating as
+ * [MountSettingsCard]. Distinct from the Sequence block editor's exposure/bin/gain/offset
+ * (already live) and Bench's cooler card (already live): this covers save path + the two guide-
+ * deviation abort guards + per-job dither, none of which have a home anywhere else in the app.
+ */
+@Composable
+private fun CameraSettingsCard(state: SimState, ctrl: SessionController) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    val cam = state.wireCaptureSettings
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(c.surface, RoundedCornerShape(14.dp))
+            .border(1.dp, c.divider, RoundedCornerShape(14.dp))
+            .clickable { ctrl.openSheet(SheetType.CAMERA_SETTINGS) }
+            .padding(12.dp),
+    ) {
+        Phosphor.Icon(Phosphor.Camera, size = 20.dp, tint = c.accent400)
+        Spacer(Modifier.height(5.dp))
+        TextC("Camera settings", style = t.Body135, color = c.text)
+        TextC(
+            if (cam == null) "loading…" else {
+                val guard = if (cam.enforceGuideDeviation || cam.enforceStartGuiderDrift) "guide guard on" else "no guide guard"
+                val dither = if (cam.enableDitherPerJob) "dither on" else "dither off"
+                "$guard · $dither"
             },
             style = t.MonoMicro, color = c.textFaint,
         )

@@ -138,4 +138,13 @@ interface SessionController {
     fun setMountHaLimitMax(hours: Double)
     fun setMountParkEveryDay(enabled: Boolean)
     fun setMountAutoParkTime(time: String)
+
+    // ── M3.3: Camera settings (curated subset, see docs/M3.3-plan.md) ─────
+    fun setCameraSaveDir(path: String)
+    fun setCameraGuideDeviationEnabled(enabled: Boolean)
+    fun setCameraGuideDeviation(arcsec: Double)
+    fun setCameraStartGuideDriftEnabled(enabled: Boolean)
+    fun setCameraStartGuideDeviation(arcsec: Double)
+    fun setCameraDitherPerJobEnabled(enabled: Boolean)
+    fun setCameraDitherPerJobFrequency(everyN: Int)
 }

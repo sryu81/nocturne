@@ -1,6 +1,7 @@
 package com.nocturne.session
 
 import com.nocturne.protocol.DeviceRole
+import com.nocturne.protocol.WireCaptureSettings
 import com.nocturne.protocol.WireMountSettings
 import com.nocturne.protocol.WireSchedulerJob
 import com.nocturne.protocol.WireTrain
@@ -15,7 +16,7 @@ import kotlin.math.sin
 /** Which detail sheet is open. */
 enum class SheetType {
     GUIDE, FOCUS, ALERTS, PREFS, SETUP, BENCH, PA, DEVICE, SUMMARY, AUTOFOCUS_RULES,
-    OPTICAL_TRAIN, SCOPES, MODULE_ASSIGNMENTS, MAINTENANCE, MOUNT_SETTINGS,
+    OPTICAL_TRAIN, SCOPES, MODULE_ASSIGNMENTS, MAINTENANCE, MOUNT_SETTINGS, CAMERA_SETTINGS,
 }
 
 /**
@@ -236,6 +237,12 @@ data class SimState(
      * sheet's real-vs-simulator content, same as [wireTrains]/[wireScopes].
      */
     val wireMountSettings: WireMountSettings? = null,
+    /**
+     * `capture_get_all_settings` translated (M3.3, curated subset — see docs/M3.3-plan.md).
+     * Null until the first reply (sent eagerly on connect, same as [wireMountSettings]); also
+     * gates [CAMERA_SETTINGS] sheet's real-vs-simulator content.
+     */
+    val wireCaptureSettings: WireCaptureSettings? = null,
     /** True under [EkosRemoteController]; false under [SimulatedController] — gates [MAINTENANCE] sheet's rig-reboot UI, which is meaningless without a real Pi. */
     val isRealRig: Boolean = false,
     /** Companion reboot daemon's port on the rig's Pi — separate from the EkosRemote wire port (see `pi-tools/reboot-daemon/`). */

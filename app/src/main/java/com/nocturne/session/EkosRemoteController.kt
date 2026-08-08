@@ -196,6 +196,7 @@ class EkosRemoteController(
         is EkosEvent.Scopes -> s.copy(wireScopes = event.scopes.map { it.toScopeDef() })
 
         is EkosEvent.MountSettings -> s.copy(wireMountSettings = event.settings)
+        is EkosEvent.CaptureSettings -> s.copy(wireCaptureSettings = event.settings)
 
         is EkosEvent.SchedulerJobs -> applySchedulerJobs(s, event)
 
@@ -742,6 +743,46 @@ class EkosRemoteController(
     override fun setMountAutoParkTime(time: String) {
         sendMountSetting("autoParkTime", JsonPrimitive(time))
         super.setMountAutoParkTime(time)
+    }
+
+    /**
+     * Camera settings (M3.3, curated subset). Same fire-and-forget shape as [sendMountSetting]
+     * — `capture_set_all_settings` only touches the keys present in the map (confirmed against
+     * `Camera::setAllSettings` in the real source, same partial-write safety already relied on
+     * for the cooler-setpoint fix), and no immediate `capture_get_all_settings` re-fetch, per
+     * the same command-ordering-race lesson documented on [sendMountSetting].
+     */
+    private fun sendCaptureSetting(field: String, value: JsonElement) {
+        client.sendCommand(Commands.CAPTURE_SET_ALL_SETTINGS, buildJsonObject { put(field, value) })
+    }
+
+    override fun setCameraSaveDir(path: String) {
+        sendCaptureSetting("fileDirectoryT", JsonPrimitive(path))
+        super.setCameraSaveDir(path)
+    }
+    override fun setCameraGuideDeviationEnabled(enabled: Boolean) {
+        sendCaptureSetting("enforceGuideDeviation", JsonPrimitive(enabled))
+        super.setCameraGuideDeviationEnabled(enabled)
+    }
+    override fun setCameraGuideDeviation(arcsec: Double) {
+        sendCaptureSetting("guideDeviation", JsonPrimitive(arcsec))
+        super.setCameraGuideDeviation(arcsec)
+    }
+    override fun setCameraStartGuideDriftEnabled(enabled: Boolean) {
+        sendCaptureSetting("enforceStartGuiderDrift", JsonPrimitive(enabled))
+        super.setCameraStartGuideDriftEnabled(enabled)
+    }
+    override fun setCameraStartGuideDeviation(arcsec: Double) {
+        sendCaptureSetting("startGuideDeviation", JsonPrimitive(arcsec))
+        super.setCameraStartGuideDeviation(arcsec)
+    }
+    override fun setCameraDitherPerJobEnabled(enabled: Boolean) {
+        sendCaptureSetting("enableDitherPerJob", JsonPrimitive(enabled))
+        super.setCameraDitherPerJobEnabled(enabled)
+    }
+    override fun setCameraDitherPerJobFrequency(everyN: Int) {
+        sendCaptureSetting("guideDitherPerJobFrequency", JsonPrimitive(everyN))
+        super.setCameraDitherPerJobFrequency(everyN)
     }
 
     /**

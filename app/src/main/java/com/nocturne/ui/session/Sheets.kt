@@ -132,6 +132,7 @@ fun SheetHost(state: SimState, ctrl: SessionController, landscape: Boolean) {
         SheetType.SCOPES -> "Scopes" to "add, edit, remove"
         SheetType.MAINTENANCE -> "Rig maintenance" to "reboot the Pi if Ekos hangs"
         SheetType.MOUNT_SETTINGS -> "Mount settings" to "flip, limits, auto-park"
+        SheetType.CAMERA_SETTINGS -> "Camera settings" to "save path, guide guard, dither"
         SheetType.DEVICE -> {
             // Real connection: state.deviceKey is the live device's own name (see
             // RealDeviceList's onClick), not a fixture DEVICES[].key — must be looked up
@@ -171,6 +172,7 @@ fun SheetHost(state: SimState, ctrl: SessionController, landscape: Boolean) {
                 SheetType.SCOPES -> ScopesSheet(state, ctrl)
                 SheetType.MAINTENANCE -> MaintenanceSheet(state, ctrl)
                 SheetType.MOUNT_SETTINGS -> MountSettingsSheet(state, ctrl)
+                SheetType.CAMERA_SETTINGS -> CameraSettingsSheet(state, ctrl)
                 SheetType.DEVICE -> DeviceSheet(state, ctrl)
             }
         },
@@ -837,6 +839,129 @@ private fun DegreeField(value: Double, unit: String, onChange: (Double) -> Unit)
             modifier = Modifier.weight(1f),
         )
         TextC(unit, style = t.MonoSmall, color = c.neutral500)
+    }
+}
+
+// ── Camera settings (M3.3 phase 5, curated subset) ──────────────────────────
+
+/**
+ * Curated subset of real Ekos's Camera tab (7 of 59 real fields — see
+ * docs/M3.3-plan.md) — save path, guide-deviation abort guard, start-of-job
+ * guide-drift guard, per-job dither. Real-rig only: [SimState.wireCaptureSettings]
+ * is null under [SimulatedController] (no fixture equivalent, same real-only
+ * gating as [MountSettingsSheet]) and briefly null on a real rig too, until
+ * the first `capture_get_all_settings` reply lands.
+ */
+@Composable
+private fun CameraSettingsSheet(state: SimState, ctrl: SessionController) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+
+    if (!state.isRealRig) {
+        TextC("Simulator has no real Camera module settings to show — connect to a rig first.", style = t.Body13, color = c.textMuted)
+        return
+    }
+    val cam = state.wireCaptureSettings
+    if (cam == null) {
+        TextC("Fetching camera settings…", style = t.Body13, color = c.textMuted)
+        return
+    }
+
+    Column {
+        FieldLabel("Save path")
+        Spacer(Modifier.height(5.dp))
+        Box(
+            Modifier.fillMaxWidth().height(42.dp)
+                .background(c.bg, RoundedCornerShape(4.dp))
+                .border(1.dp, c.divider, RoundedCornerShape(4.dp))
+                .padding(horizontal = 12.dp),
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            BasicTextField(
+                value = cam.fileDirectoryT,
+                onValueChange = ctrl::setCameraSaveDir,
+                singleLine = true,
+                textStyle = t.Body13.copy(color = c.text),
+                cursorBrush = SolidColor(c.accent),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        Spacer(Modifier.height(16.dp))
+        HDivider()
+        Spacer(Modifier.height(16.dp))
+
+        SwitchRow(
+            label = "Guide deviation guard",
+            sub = "abort capture if the guide star drifts past this many arcsec",
+            checked = cam.enforceGuideDeviation,
+            onToggle = { ctrl.setCameraGuideDeviationEnabled(!cam.enforceGuideDeviation) },
+            modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
+        )
+        if (cam.enforceGuideDeviation) {
+            Spacer(Modifier.height(8.4.dp))
+            FieldLabel("Max deviation")
+            Spacer(Modifier.height(5.dp))
+            DegreeField(cam.guideDeviation, "\"", ctrl::setCameraGuideDeviation)
+        }
+        Spacer(Modifier.height(16.dp))
+        HDivider()
+        Spacer(Modifier.height(16.dp))
+
+        SwitchRow(
+            label = "Start-of-job drift guard",
+            sub = "wait for the guide star to settle within this many arcsec before starting a job",
+            checked = cam.enforceStartGuiderDrift,
+            onToggle = { ctrl.setCameraStartGuideDriftEnabled(!cam.enforceStartGuiderDrift) },
+            modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
+        )
+        if (cam.enforceStartGuiderDrift) {
+            Spacer(Modifier.height(8.4.dp))
+            FieldLabel("Max drift")
+            Spacer(Modifier.height(5.dp))
+            DegreeField(cam.startGuideDeviation, "\"", ctrl::setCameraStartGuideDeviation)
+        }
+        Spacer(Modifier.height(16.dp))
+        HDivider()
+        Spacer(Modifier.height(16.dp))
+
+        SwitchRow(
+            label = "Dither every job",
+            sub = "dither after this many captured subs, not just per-filter",
+            checked = cam.enableDitherPerJob,
+            onToggle = { ctrl.setCameraDitherPerJobEnabled(!cam.enableDitherPerJob) },
+            modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
+        )
+        if (cam.enableDitherPerJob) {
+            Spacer(Modifier.height(8.4.dp))
+            FieldLabel("Every N subs")
+            Spacer(Modifier.height(5.dp))
+            IntField(cam.guideDitherPerJobFrequency, ctrl::setCameraDitherPerJobFrequency)
+        }
+    }
+}
+
+/** Integer field row — same shape as [DegreeField] but for whole-number settings like [CameraSettingsSheet]'s dither frequency. */
+@Composable
+private fun IntField(value: Int, onChange: (Int) -> Unit) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(42.dp)
+            .background(c.bg, RoundedCornerShape(4.dp))
+            .border(1.dp, c.divider, RoundedCornerShape(4.dp))
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        BasicTextField(
+            value = "$value",
+            onValueChange = { text -> text.filter { it.isDigit() }.toIntOrNull()?.let(onChange) },
+            singleLine = true,
+            textStyle = t.Body13.copy(color = c.text),
+            cursorBrush = SolidColor(c.accent),
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 

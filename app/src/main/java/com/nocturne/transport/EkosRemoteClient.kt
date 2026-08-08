@@ -130,6 +130,9 @@ class EkosRemoteClient(
                 // Sent eagerly (not lazily on sheet-open) so the Gear-tab card can show a real
                 // summary before the user ever opens the settings sheet.
                 sendCommand(Commands.MOUNT_GET_ALL_SETTINGS)
+                // Camera module settings (M3.3, curated subset) — same eager-on-online shape as
+                // MOUNT_GET_ALL_SETTINGS above.
+                sendCommand(Commands.CAPTURE_GET_ALL_SETTINGS)
             }
         }
         _events.tryEmit(event)
