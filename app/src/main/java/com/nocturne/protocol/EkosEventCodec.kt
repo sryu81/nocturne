@@ -57,6 +57,7 @@ object EkosEventCodec {
                 "capture_get_all_settings" -> EkosEvent.CaptureSettings(protocolJson.decodeFromJsonElement(envelope.payload))
                 "align_get_all_settings" -> EkosEvent.AlignSettings(protocolJson.decodeFromJsonElement(envelope.payload))
                 "guide_get_all_settings" -> EkosEvent.GuideSettings(protocolJson.decodeFromJsonElement(envelope.payload))
+                "focus_get_all_settings" -> EkosEvent.FocusSettings(protocolJson.decodeFromJsonElement(envelope.payload))
                 else -> EkosEvent.Raw(envelope.type, envelope.payload)
             }
         } catch (e: SerializationException) {

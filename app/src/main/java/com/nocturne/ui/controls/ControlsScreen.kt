@@ -32,6 +32,8 @@ import com.nocturne.session.coolAtSetPoint
 import com.nocturne.session.coolBarPct
 import com.nocturne.session.coolPowerPct
 import com.nocturne.session.indiNumber
+import com.nocturne.session.mountParkedReal
+import com.nocturne.session.mountTrackingOn
 import com.nocturne.session.realSlewRateProp
 import com.nocturne.ui.components.BtnStyle
 import com.nocturne.ui.components.HatchBg
@@ -381,9 +383,23 @@ private fun FocuserCard(state: SimState, ctrl: SessionController) {
 }
 
 /**
- * Split from the old Bench `MountCard`: this keeps D-pad/rate chips/alt-az/Unpark-home only —
+ * Split from the old Bench `MountCard`: this keeps D-pad/rate chips/alt-az/park/tracking only —
  * "Plate solve here" moved to [AlignSolveCard] since `align_solve` is literally the Align
  * module's own action, not Mount's.
+ *
+ * The old single "Unpark / home" button conflated two unrelated real actions (confirmed against
+ * the protocol reference — real Ekos's Mount module has no "home" command at all, only
+ * `mount_park`/`mount_unpark`/`mount_abort`/`mount_set_tracking`). Split into 4 real controls:
+ * **Park** / **Unpark** (`mount_park`/`mount_unpark`, universal Ekos commands), **Tracking on/off**
+ * (`mount_set_tracking`, also universal), and **Home** — which, unlike the other three, has no
+ * Ekos-level command at all; it's wired via the generic raw-INDI-property mechanism
+ * (`ctrl.setIndiSwitch`, already used by the device sheets) against the mount's own
+ * `TELESCOPE_HOME` property (confirmed live: standard INDI telescope-interface property,
+ * `Set`/`Go` elements — **not every mount driver implements this**, so it silently no-ops if the
+ * property isn't present, same safe-guard `setIndiSwitch` already has for any device/property).
+ * Was briefly confused with the LX200 OnStep driver's own `HomePause` property during
+ * investigation — that one's about *pausing during a meridian flip*, an unrelated concept;
+ * `TELESCOPE_HOME` is the actual "slew to home position" action.
  *
  * Known limitation carried over unchanged from the old Bench sheet (not a regression): leaving
  * this tab mid-slew does not auto-stop the mount — `stopSlew()` reads `state.slewDir` only when
@@ -401,6 +417,8 @@ private fun MountControlCard(state: SimState, ctrl: SessionController) {
     val rateLabels = realRates?.options ?: RATES
     val selectedRateIndex = realRates?.selected ?: state.rate
     val currentRateLabel = rateLabels.getOrNull(selectedRateIndex) ?: "?"
+    val parked = state.mountParkedReal
+    val trackingOn = state.mountTrackingOn
     Column(
         Modifier
             .fillMaxWidth()
@@ -411,10 +429,15 @@ private fun MountControlCard(state: SimState, ctrl: SessionController) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextC("MOUNT · MANUAL", style = t.MicroLabel, color = c.textMuted, modifier = Modifier.weight(1f))
             TextC(
-                state.slewDir?.let { "slewing $it at $currentRateLabel" }
-                    ?: (if (state.mountSolved) "tracking · sidereal · solved" else "tracking · sidereal"),
+                when {
+                    state.slewDir != null -> "slewing ${state.slewDir} at $currentRateLabel"
+                    parked -> "parked"
+                    !trackingOn -> "tracking off"
+                    state.mountSolved -> "tracking · sidereal · solved"
+                    else -> "tracking · sidereal"
+                },
                 style = t.Mono115,
-                color = if (state.slewDir != null) c.warn else c.ok,
+                color = if (state.slewDir != null || parked || !trackingOn) c.warn else c.ok,
             )
         }
         Spacer(Modifier.height(9.dp))
@@ -454,12 +477,40 @@ private fun MountControlCard(state: SimState, ctrl: SessionController) {
             }
         }
         Spacer(Modifier.height(9.dp))
-        NocturneButton(
-            text = "Unpark / home",
-            onClick = ctrl::unparkMount,
-            style = BtnStyle.SUBTLE,
-            modifier = Modifier.fillMaxWidth().height(38.dp),
-        )
+        Row(Modifier.fillMaxWidth()) {
+            NocturneButton(
+                text = "Park",
+                onClick = ctrl::parkMount,
+                style = if (parked) BtnStyle.SOLID else BtnStyle.SUBTLE,
+                enabled = !parked,
+                modifier = Modifier.weight(1f).height(38.dp),
+            )
+            Spacer(Modifier.width(8.4.dp))
+            NocturneButton(
+                text = "Unpark",
+                onClick = ctrl::unparkMount,
+                style = if (!parked) BtnStyle.SOLID else BtnStyle.SUBTLE,
+                enabled = parked,
+                modifier = Modifier.weight(1f).height(38.dp),
+            )
+        }
+        Spacer(Modifier.height(8.4.dp))
+        Row(Modifier.fillMaxWidth()) {
+            NocturneButton(
+                text = "Home",
+                onClick = { ctrl.setIndiSwitch(state.primaryTrain.mount, "TELESCOPE_HOME", 1) },
+                style = BtnStyle.SUBTLE,
+                enabled = state.wireDevices != null,
+                modifier = Modifier.weight(1f).height(38.dp),
+            )
+            Spacer(Modifier.width(8.4.dp))
+            NocturneButton(
+                text = if (trackingOn) "Tracking: ON" else "Tracking: OFF",
+                onClick = { ctrl.setMountTracking(!trackingOn) },
+                style = if (trackingOn) BtnStyle.SOLID else BtnStyle.SUBTLE,
+                modifier = Modifier.weight(1f).height(38.dp),
+            )
+        }
     }
 }
 

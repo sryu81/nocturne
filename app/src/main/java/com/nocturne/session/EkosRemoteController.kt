@@ -205,6 +205,12 @@ class EkosRemoteController(
         is EkosEvent.CaptureSettings -> s.copy(wireCaptureSettings = event.settings, coolTarget = event.settings.cameraTemperatureN)
         is EkosEvent.AlignSettings -> s.copy(wireAlignSettings = event.settings)
         is EkosEvent.GuideSettings -> s.copy(wireGuideSettings = event.settings)
+        // focPos seeded from Ekos's own tracked position (absTicksSpin) the moment this reply
+        // arrives — fixes Bench Focuser showing a real but different number than Ekos's own
+        // Focus tab (see WireFocusSettings's doc). Safe unconditionally, same reasoning as the
+        // coolTarget seed above: this reply only ever arrives once, before any optimistic
+        // jogFocus edit could race against it.
+        is EkosEvent.FocusSettings -> s.copy(wireFocusSettings = event.settings, focPos = event.settings.absTicksSpin)
 
         is EkosEvent.SchedulerJobs -> applySchedulerJobs(s, event)
 
@@ -532,6 +538,21 @@ class EkosRemoteController(
     override fun unparkMount() {
         client.sendCommand(Commands.MOUNT_UNPARK)
         super.unparkMount()
+    }
+    /** `mount_park` — no direct reply, watch new_mount_state (already wired, M2). */
+    override fun parkMount() {
+        client.sendCommand(Commands.MOUNT_PARK)
+        super.parkMount()
+    }
+    /**
+     * `mount_set_tracking` — the universal Ekos-level command (works for any mount driver),
+     * not a raw INDI property write. Real on/off state for display is read separately via
+     * [SimState.mountTrackingOn] (the mount's own `TELESCOPE_TRACK_STATE`), same read/write
+     * split as [parkMount]/[unparkMount] vs [SimState.mountParkedReal].
+     */
+    override fun setMountTracking(enabled: Boolean) {
+        client.sendCommand(Commands.MOUNT_SET_TRACKING, buildJsonObject { put("enabled", enabled) })
+        super.setMountTracking(enabled)
     }
 
     /** `align_solve` (`captureAndSolve()`) — no direct reply, watch new_align_state (already wired, M2). */

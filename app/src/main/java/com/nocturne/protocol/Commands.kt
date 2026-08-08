@@ -60,6 +60,8 @@ object Commands {
     const val MOUNT_SET_MOTION = "mount_set_motion"
     const val MOUNT_SET_SLEW_RATE = "mount_set_slew_rate"
     const val MOUNT_UNPARK = "mount_unpark"
+    const val MOUNT_PARK = "mount_park"
+    const val MOUNT_SET_TRACKING = "mount_set_tracking"
     const val ALIGN_SOLVE = "align_solve"
     const val CAPTURE_SET_ALL_SETTINGS = "capture_set_all_settings"
 
@@ -75,4 +77,7 @@ object Commands {
     // M3.3 phase 4 (partial, brought forward for Bench "Snap guide" exposure/gain/bin control).
     const val GUIDE_GET_ALL_SETTINGS = "guide_get_all_settings"
     const val GUIDE_SET_ALL_SETTINGS = "guide_set_all_settings"
+
+    // M3.3 phase 6 (partial, brought forward to fix Bench Focuser's stale initial position).
+    const val FOCUS_GET_ALL_SETTINGS = "focus_get_all_settings"
 }

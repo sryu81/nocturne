@@ -3,6 +3,7 @@ package com.nocturne.session
 import com.nocturne.protocol.DeviceRole
 import com.nocturne.protocol.WireAlignSettings
 import com.nocturne.protocol.WireCaptureSettings
+import com.nocturne.protocol.WireFocusSettings
 import com.nocturne.protocol.WireGuideSettings
 import com.nocturne.protocol.WireMountSettings
 import com.nocturne.protocol.WireSchedulerJob
@@ -61,6 +62,8 @@ data class SimState(
     /** The job [endSession] stopped, pending a Back-to-session/Next-job/Finish choice on the Summary sheet. */
     val lastEndedJobId: String? = null,
     val mountParked: Boolean = false,
+    /** Fixture-only tracking on/off — real rig reads [mountTrackingOn] instead (real INDI `TELESCOPE_TRACK_STATE`). */
+    val mountTracking: Boolean = true,
     val deviceKey: String = "mount",
     /** Sheet to return to when the device sheet closes, e.g. SETUP when opened from the rig wizard's device list. */
     val deviceOrigin: SheetType? = null,
@@ -259,6 +262,14 @@ data class SimState(
      * equivalent, same as the others).
      */
     val wireGuideSettings: WireGuideSettings? = null,
+    /**
+     * `focus_get_all_settings` translated (partial — see [WireFocusSettings]'s own doc). Null
+     * until the first reply (sent eagerly on connect, same as the other module settings above).
+     * Not read directly by the UI — its `absTicksSpin` seeds [focPos] once, on arrival (see
+     * [EkosRemoteController.applyEvent]'s `FocusSettings` arm); kept here mainly so
+     * [benchFocPos] can tell "already seeded" apart from "still on the raw-INDI fallback".
+     */
+    val wireFocusSettings: WireFocusSettings? = null,
     /** True under [EkosRemoteController]; false under [SimulatedController] — gates [MAINTENANCE] sheet's rig-reboot UI, which is meaningless without a real Pi. */
     val isRealRig: Boolean = false,
     /** Companion reboot daemon's port on the rig's Pi — separate from the EkosRemote wire port (see `pi-tools/reboot-daemon/`). */
@@ -1066,7 +1077,8 @@ val SimState.eafTemp: Double get() = indiNumber("EAF", "FOCUS_TEMPERATURE") ?: -
  * name once `wireTrains` is populated (see `WireTrain.toTrainAssignment`) — falls back to
  * [focPos] whenever that lookup misses (simulator, or before the real value has arrived).
  */
-val SimState.benchFocPos: Int get() = indiNumber(primaryTrain.focuser, "ABS_FOCUS_POSITION")?.roundToInt() ?: focPos
+val SimState.benchFocPos: Int get() =
+    if (wireFocusSettings != null) focPos else (indiNumber(primaryTrain.focuser, "ABS_FOCUS_POSITION")?.roundToInt() ?: focPos)
 
 /**
  * Real mount's actual slew-rate options straight from its own `TELESCOPE_SLEW_RATE` INDI
@@ -1083,6 +1095,30 @@ val SimState.benchFocPos: Int get() = indiNumber(primaryTrain.focuser, "ABS_FOCU
 val SimState.realSlewRateProp: IndiProperty.SwitchProp?
     get() = (indiProps[primaryTrain.mount] ?: emptyList())
         .firstOrNull { it.name == "TELESCOPE_SLEW_RATE" } as? IndiProperty.SwitchProp
+
+/**
+ * Real mount's actual tracking on/off, read from its own `TELESCOPE_TRACK_STATE` INDI switch
+ * (standard INDI telescope interface property, confirmed live: elements `TRACK_ON`/`TRACK_OFF`)
+ * — falls back to the fixture-only [mountTracking] field for the simulator or before the
+ * property has arrived. Used by [MountControlCard]'s Tracking on/off button, which sends the
+ * real `mount_set_tracking` Ekos-level command rather than writing this INDI property directly
+ * (this is read-only display; the write goes through the more universal Ekos command).
+ */
+val SimState.mountTrackingOn: Boolean get() {
+    val prop = (indiProps[primaryTrain.mount] ?: emptyList()).firstOrNull { it.name == "TELESCOPE_TRACK_STATE" } as? IndiProperty.SwitchProp
+    return prop?.let { it.elementNames.getOrNull(it.selected) == "TRACK_ON" } ?: mountTracking
+}
+
+/**
+ * Real mount's actual parked state, read from its own `TELESCOPE_PARK` INDI switch (standard
+ * INDI telescope interface property, confirmed live: elements `PARK`/`UNPARK`) — falls back to
+ * the fixture-only [mountParked] field. Same read-display/write-via-Ekos-command split as
+ * [mountTrackingOn]: writes go through `mount_park`/`mount_unpark`, not this property directly.
+ */
+val SimState.mountParkedReal: Boolean get() {
+    val prop = (indiProps[primaryTrain.mount] ?: emptyList()).firstOrNull { it.name == "TELESCOPE_PARK" } as? IndiProperty.SwitchProp
+    return prop?.let { it.elementNames.getOrNull(it.selected) == "PARK" } ?: mountParked
+}
 
 /**
  * Real pixel scale (arcsec/pixel) for Plan tab's Framing card — standard formula

@@ -401,6 +401,8 @@ abstract class AbstractLocalSessionController : SessionController {
     override fun unparkMount() = update {
         it.copy(mountParked = false, mountAlt = 49.2, mountAz = 71.6, slewDir = null, mountSolved = false)
     }
+    override fun parkMount() = update { it.copy(mountParked = true, slewDir = null) }
+    override fun setMountTracking(enabled: Boolean) = update { it.copy(mountTracking = enabled) }
 
     override fun plateSolveHere() = update { it.copy(mountSolved = true) }
 

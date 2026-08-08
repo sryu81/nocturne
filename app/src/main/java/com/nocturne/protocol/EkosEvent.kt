@@ -165,6 +165,15 @@ sealed interface EkosEvent {
     @Serializable
     data class GuideSettings(val settings: WireGuideSettings) : EkosEvent
 
+    /**
+     * `focus_get_all_settings` reply — real Ekos's Focus module reports 84 fields;
+     * [WireFocusSettings] currently models only `absTicksSpin` — see that class's own doc for
+     * why (fixes Bench Focuser's stale-vs-Ekos initial position) and the phase-6 extension plan.
+     * `ignoreUnknownKeys` drops the other 83.
+     */
+    @Serializable
+    data class FocusSettings(val settings: WireFocusSettings) : EkosEvent
+
     /** Anything not decoded above — unrecognized `type`, or a shape that failed to parse. */
     data class Raw(val type: String, val payload: JsonElement) : EkosEvent
 }
@@ -557,6 +566,29 @@ data class WireCaptureSettings(
  * threshold, dither) adds the remaining curated fields to this same struct rather than a
  * separate one, since it's the same wire command (`guide_get_all_settings`).
  */
+/**
+ * Curated subset of real Ekos's Focus module settings — currently just `absTicksSpin`, the
+ * Focus tab's own tracked absolute-position widget. **This is a real, different number from the
+ * focuser's raw INDI `ABS_FOCUS_POSITION` property** (confirmed live: `absTicksSpin` read 29535
+ * while the same focuser's raw INDI position read 29465, a real ~70-step gap, not a rounding
+ * artifact) — Bench check's Focuser card was reading the raw INDI value, which live-updates
+ * correctly on every jog but never matched what real Ekos's own Focus tab actually displays,
+ * since Ekos's Focus tab shows *this* field, not the raw hardware property. Fixed by seeding
+ * `SimState.focPos` from this value the moment it arrives (see
+ * `EkosRemoteController.applyEvent`'s `FocusSettings` arm) rather than switching the display
+ * over to this field permanently — `focPos` already live-tracks jogs via local optimistic
+ * increment (`jogFocus`), so seeding it once here gets both properties right: matches Ekos's own
+ * number at connect, keeps live-updating afterward exactly like it already did.
+ *
+ * Deliberately partial, same growth plan as `WireGuideSettings` — M3.3 phase 6 (Focus settings
+ * sheet) adds the remaining curated fields (exposure, gain, filter, backlash, algorithm — see
+ * docs/M3.3-plan.md) to this same struct/decode point later.
+ */
+@Serializable
+data class WireFocusSettings(
+    val absTicksSpin: Int = 18422,
+)
+
 @Serializable
 data class WireGuideSettings(
     val guideExposure: Double = 1.0,

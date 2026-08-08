@@ -78,6 +78,8 @@ interface SessionController {
     fun coolDown()
     fun runAutofocusNow()
     fun unparkMount()
+    fun parkMount()
+    fun setMountTracking(enabled: Boolean)
     fun plateSolveHere()
 
     fun startProfile(name: String)

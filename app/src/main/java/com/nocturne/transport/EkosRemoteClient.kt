@@ -137,6 +137,8 @@ class EkosRemoteClient(
                 sendCommand(Commands.ALIGN_GET_ALL_SETTINGS)
                 // Guide module settings (partial — see WireGuideSettings doc) — same eager-on-online shape.
                 sendCommand(Commands.GUIDE_GET_ALL_SETTINGS)
+                // Focus module settings (partial — see WireFocusSettings doc) — same eager-on-online shape.
+                sendCommand(Commands.FOCUS_GET_ALL_SETTINGS)
             }
         }
         _events.tryEmit(event)
