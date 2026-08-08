@@ -105,6 +105,7 @@ fun ControlsScreen(
             )
             add(TabItem(full = true) { CoolerCard(state, ctrl) })
             add(TabItem(full = true) { FocuserCard(state, ctrl) })
+            if (state.isRealRig) add(TabItem { FocusSettingsCard(state, ctrl) })
             if (state.isRealRig) add(TabItem { CameraSettingsCard(state, ctrl) })
             // Plate solving (align_solve) folds into this section rather than getting its own —
             // user asked for "primary camera + focuser (manual, auto) + plate solving" as one
@@ -707,6 +708,36 @@ private fun GuideSettingsCard(state: SimState, ctrl: SessionController) {
         TextC("Guide settings", style = t.Body135, color = c.text)
         TextC(
             if (g == null) "loading…" else "±${"%.0f".format(g.guiderAccuracyThreshold)}\" · ${if (g.kcfg_DitherEnabled) "dither on" else "dither off"}",
+            style = t.MonoMicro, color = c.textFaint,
+        )
+    }
+}
+
+/**
+ * Curated Focus settings (M3.3 phase 6, see docs/M3.3-plan.md) — real-rig only, same gating as
+ * [GuideSettingsCard]/[AlignSettingsCard]. Distinct from [FocuserCard]'s manual jog/autofocus
+ * start-stop: this covers exposure, gain, filter, backlash, and autofocus algorithm — closes
+ * out M3.3's module-settings effort (only Observatory, which has no settings surface at all,
+ * remains).
+ */
+@Composable
+private fun FocusSettingsCard(state: SimState, ctrl: SessionController) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    val f = state.wireFocusSettings
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(c.surface, RoundedCornerShape(14.dp))
+            .border(1.dp, c.divider, RoundedCornerShape(14.dp))
+            .clickable { ctrl.openSheet(SheetType.FOCUS_SETTINGS) }
+            .padding(12.dp),
+    ) {
+        Phosphor.Icon(Phosphor.ArrowsInLineHorizontal, size = 20.dp, tint = c.accent400)
+        Spacer(Modifier.height(5.dp))
+        TextC("Focus settings", style = t.Body135, color = c.text)
+        TextC(
+            if (f == null) "loading…" else "${f.focusFilter} · ${f.focusAlgorithm}",
             style = t.MonoMicro, color = c.textFaint,
         )
     }

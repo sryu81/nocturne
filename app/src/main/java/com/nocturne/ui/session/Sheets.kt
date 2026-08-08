@@ -137,6 +137,7 @@ fun SheetHost(state: SimState, ctrl: SessionController, landscape: Boolean) {
         SheetType.CAMERA_SETTINGS -> "Camera settings" to "save path, guide guard, dither"
         SheetType.ALIGN_SETTINGS -> "Align settings" to "exposure, gain, filter, accuracy"
         SheetType.GUIDE_SETTINGS -> "Guide settings" to "accuracy threshold, dither"
+        SheetType.FOCUS_SETTINGS -> "Focus settings" to "exposure, gain, filter"
         SheetType.DEVICE -> {
             // Real connection: state.deviceKey is the live device's own name (see
             // RealDeviceList's onClick), not a fixture DEVICES[].key — must be looked up
@@ -178,6 +179,7 @@ fun SheetHost(state: SimState, ctrl: SessionController, landscape: Boolean) {
                 SheetType.CAMERA_SETTINGS -> CameraSettingsSheet(state, ctrl)
                 SheetType.ALIGN_SETTINGS -> AlignSettingsSheet(state, ctrl)
                 SheetType.GUIDE_SETTINGS -> GuideSettingsSheet(state, ctrl)
+                SheetType.FOCUS_SETTINGS -> FocusSettingsSheet(state, ctrl)
                 SheetType.DEVICE -> DeviceSheet(state, ctrl)
             }
         },
@@ -1141,6 +1143,83 @@ private fun GuideSettingsSheet(state: SimState, ctrl: SessionController) {
             onToggle = { ctrl.setGuideReuseCalibration(!g.kcfg_ReuseGuideCalibration) },
             modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
         )
+    }
+}
+
+// ── Focus settings (M3.3 phase 6, curated subset) ───────────────────────────
+
+/**
+ * Curated subset of real Ekos's Focus tab (6 of 84 real fields — see
+ * docs/M3.3-plan.md and [WireFocusSettings]'s own doc for the live-probe history) —
+ * `absTicksSpin` (used elsewhere to seed [SimState.focPos], not shown here) plus
+ * exposure/gain/filter/backlash/algorithm. Real-rig only: [SimState.wireFocusSettings]
+ * is null under [SimulatedController] and briefly null on a real rig too, until the first
+ * `focus_get_all_settings` reply lands — same gating shape as [GuideSettingsSheet].
+ */
+@Composable
+private fun FocusSettingsSheet(state: SimState, ctrl: SessionController) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+
+    if (!state.isRealRig) {
+        TextC("Simulator has no real Focus module settings to show — connect to a rig first.", style = t.Body13, color = c.textMuted)
+        return
+    }
+    val f = state.wireFocusSettings
+    if (f == null) {
+        TextC("Fetching focus settings…", style = t.Body13, color = c.textMuted)
+        return
+    }
+
+    Column {
+        FieldLabel("Exposure")
+        Spacer(Modifier.height(5.dp))
+        DegreeField(f.focusExposure, "s", ctrl::setFocusExposure)
+        Spacer(Modifier.height(8.4.dp))
+        FieldLabel("Gain")
+        Spacer(Modifier.height(5.dp))
+        DegreeField(f.focusGain, "", ctrl::setFocusGain)
+        Spacer(Modifier.height(16.dp))
+        HDivider()
+        Spacer(Modifier.height(16.dp))
+
+        // Same tap-to-cycle idiom as AlignSettingsSheet's filter field — real filter-wheel
+        // position list, shared app-wide.
+        FieldLabel("Filter")
+        Spacer(Modifier.height(5.dp))
+        CycleChip(f.focusFilter) { ctrl.setFocusFilter(FILTER_CYCLE[(FILTER_CYCLE.indexOf(f.focusFilter) + 1).mod(FILTER_CYCLE.size)]) }
+        Spacer(Modifier.height(8.4.dp))
+        FieldLabel("Backlash")
+        Spacer(Modifier.height(5.dp))
+        IntField(f.focusBacklash, ctrl::setFocusBacklash)
+        Spacer(Modifier.height(16.dp))
+        HDivider()
+        Spacer(Modifier.height(16.dp))
+
+        // Free-text, not a cycle chip: unlike alignBinning/guideBinning (a small fixed set,
+        // confirmed live), real Ekos's algorithm list isn't enumerated anywhere probed so far
+        // (confirmed live value: "Linear 1 Pass") — inventing a guessed option list here would
+        // be exactly the kind of wire-shape guess this project avoids elsewhere. Same free-text
+        // shape as CameraSettingsSheet's "Save path" field (direct passthrough, no parse/filter
+        // step, so no clear-and-retype bug risk).
+        FieldLabel("Autofocus algorithm")
+        Spacer(Modifier.height(5.dp))
+        Box(
+            Modifier.fillMaxWidth().height(42.dp)
+                .background(c.bg, RoundedCornerShape(4.dp))
+                .border(1.dp, c.divider, RoundedCornerShape(4.dp))
+                .padding(horizontal = 12.dp),
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            BasicTextField(
+                value = f.focusAlgorithm,
+                onValueChange = ctrl::setFocusAlgorithm,
+                singleLine = true,
+                textStyle = t.Body13.copy(color = c.text),
+                cursorBrush = SolidColor(c.accent),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
     }
 }
 

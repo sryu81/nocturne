@@ -983,6 +983,36 @@ class EkosRemoteController(
     }
 
     /**
+     * Focus settings (M3.3 phase 6, curated subset) — same fire-and-forget shape as
+     * [setGuideAccuracyThreshold] etc. `applyEvent`'s `FocusSettings` arm needs no change: it
+     * already does a full-struct `s.copy(wireFocusSettings = event.settings, ...)`, which picks
+     * up these new fields automatically.
+     */
+    private fun sendFocusSetting(field: String, value: JsonElement) {
+        client.sendCommand(Commands.FOCUS_SET_ALL_SETTINGS, buildJsonObject { put(field, value) })
+    }
+    override fun setFocusExposure(sec: Double) {
+        sendFocusSetting("focusExposure", JsonPrimitive(sec))
+        super.setFocusExposure(sec)
+    }
+    override fun setFocusGain(gain: Double) {
+        sendFocusSetting("focusGain", JsonPrimitive(gain))
+        super.setFocusGain(gain)
+    }
+    override fun setFocusFilter(filter: String) {
+        sendFocusSetting("focusFilter", JsonPrimitive(filter))
+        super.setFocusFilter(filter)
+    }
+    override fun setFocusBacklash(steps: Int) {
+        sendFocusSetting("focusBacklash", JsonPrimitive(steps))
+        super.setFocusBacklash(steps)
+    }
+    override fun setFocusAlgorithm(algorithm: String) {
+        sendFocusSetting("focusAlgorithm", JsonPrimitive(algorithm))
+        super.setFocusAlgorithm(algorithm)
+    }
+
+    /**
      * `train_add`/`train_update` payload shape is undocumented (plan §"Protocol
      * facts") — sends every field `train_get_all` reports back, keyed by [id]
      * when a matching real train is already known, else falls back to

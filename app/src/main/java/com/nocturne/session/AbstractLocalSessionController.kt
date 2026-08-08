@@ -364,6 +364,23 @@ abstract class AbstractLocalSessionController : SessionController {
         s.copy(wireGuideSettings = s.wireGuideSettings?.copy(kcfg_ReuseGuideCalibration = enabled))
     }
 
+    // Focus settings (M3.3 phase 6): same no-op-under-simulator shape as Guide above.
+    override open fun setFocusExposure(sec: Double) = update { s ->
+        s.copy(wireFocusSettings = s.wireFocusSettings?.copy(focusExposure = sec))
+    }
+    override open fun setFocusGain(gain: Double) = update { s ->
+        s.copy(wireFocusSettings = s.wireFocusSettings?.copy(focusGain = gain))
+    }
+    override open fun setFocusFilter(filter: String) = update { s ->
+        s.copy(wireFocusSettings = s.wireFocusSettings?.copy(focusFilter = filter))
+    }
+    override open fun setFocusBacklash(steps: Int) = update { s ->
+        s.copy(wireFocusSettings = s.wireFocusSettings?.copy(focusBacklash = steps))
+    }
+    override open fun setFocusAlgorithm(algorithm: String) = update { s ->
+        s.copy(wireFocusSettings = s.wireFocusSettings?.copy(focusAlgorithm = algorithm))
+    }
+
     // Primary/guide preview capture params: same no-op-under-simulator shape as every other
     // module setting above — SimulatedController never populates wireCaptureSettings/
     // wireGuideSettings's new fields any differently than the rest of those structs.

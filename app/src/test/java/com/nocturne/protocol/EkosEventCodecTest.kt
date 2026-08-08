@@ -269,6 +269,33 @@ class EkosEventCodecTest {
     }
 
     @Test
+    fun `decodes focus_get_all_settings — curated subset incl phase-6 fields, focusAlgorithm is a string`() {
+        // live capture (M3.3 phase 6) — real Focus::getAllSettings() reports 84 fields; 6 are
+        // modeled (absTicksSpin, already used to seed SimState.focPos, plus exposure/gain/filter/
+        // backlash/algorithm for the Focus settings sheet). ignoreUnknownKeys must drop the other
+        // 78 without throwing. Unlike Guide's field-name history, this list carried low risk —
+        // EkosRemote-Command-Reference.md flags Focus's field list "Live-captured" (same trusted
+        // bucket as Capture/Align), and all 5 names matched verbatim before this probe — this
+        // capture confirms types only. focusAlgorithm is a string ("Linear 1 Pass"), not an enum
+        // index — same shape as alignBinning/guideBinning.
+        val json = """{"payload":{"absTicksSpin":29535,"defaultFocusTemperatureSource":"ZWO EAF",
+            "focusAlgorithm":"Linear 1 Pass","focusBacklash":0,"focusBinning":"1x1",
+            "focusCurveFit":"Hyperbola","focusExposure":2,"focusFilter":"L","focusGain":99,
+            "focusMaxTravel":100000,"opticalTrainCombo":"Primary"},
+            "type":"focus_get_all_settings"}"""
+
+        val event = EkosEventCodec.decode(json)
+        assertTrue("expected FocusSettings, got $event", event is EkosEvent.FocusSettings)
+        val settings = (event as EkosEvent.FocusSettings).settings
+        assertEquals(29535, settings.absTicksSpin)
+        assertEquals(2.0, settings.focusExposure, 0.0)
+        assertEquals(99.0, settings.focusGain, 0.0)
+        assertEquals("L", settings.focusFilter)
+        assertEquals(0, settings.focusBacklash)
+        assertEquals("Linear 1 Pass", settings.focusAlgorithm)
+    }
+
+    @Test
     fun `decodes align_get_all_settings — curated subset, alignBinning is a string not a number`() {
         // live capture (M3.3 phase 3) — real Align::getAllSettings() reports 98 fields; only 5
         // are modeled. ignoreUnknownKeys must drop the other 93 without throwing. alignBinning

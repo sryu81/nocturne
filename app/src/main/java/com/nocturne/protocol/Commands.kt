@@ -78,8 +78,10 @@ object Commands {
     const val GUIDE_GET_ALL_SETTINGS = "guide_get_all_settings"
     const val GUIDE_SET_ALL_SETTINGS = "guide_set_all_settings"
 
-    // M3.3 phase 6 (partial, brought forward to fix Bench Focuser's stale initial position).
+    // M3.3 phase 6 — Focus settings (curated subset, see docs/M3.3-plan.md). GET brought
+    // forward earlier to fix Bench Focuser's stale initial position; SET added now.
     const val FOCUS_GET_ALL_SETTINGS = "focus_get_all_settings"
+    const val FOCUS_SET_ALL_SETTINGS = "focus_set_all_settings"
 
     // Controls tab v2 — real Autofocus/Guide/Polar-Align start-stop control (empty
     // request/response, all three — see EkosRemote-Command-Reference.md §8/9/11; progress

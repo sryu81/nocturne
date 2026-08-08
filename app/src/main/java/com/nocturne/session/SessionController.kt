@@ -171,6 +171,13 @@ interface SessionController {
     fun setGuideDitherThreshold(value: Double)
     fun setGuideReuseCalibration(enabled: Boolean)
 
+    // ── M3.3 phase 6: Focus settings (curated subset, see docs/M3.3-plan.md) ──
+    fun setFocusExposure(sec: Double)
+    fun setFocusGain(gain: Double)
+    fun setFocusFilter(filter: String)
+    fun setFocusBacklash(steps: Int)
+    fun setFocusAlgorithm(algorithm: String)
+
     // ── Bench "Snap main"/"Snap guide" preview capture params ──────────────
     fun setCapturePreviewExposure(sec: Double)
     fun setCapturePreviewGain(gain: Double)

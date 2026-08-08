@@ -177,9 +177,9 @@ sealed interface EkosEvent {
 
     /**
      * `focus_get_all_settings` reply — real Ekos's Focus module reports 84 fields;
-     * [WireFocusSettings] currently models only `absTicksSpin` — see that class's own doc for
-     * why (fixes Bench Focuser's stale-vs-Ekos initial position) and the phase-6 extension plan.
-     * `ignoreUnknownKeys` drops the other 83.
+     * [WireFocusSettings] models 6 curated (`absTicksSpin` for the Focuser-position seed, plus
+     * exposure/gain/filter/backlash/algorithm for the Focus settings sheet, M3.3 phase 6) — see
+     * that class's own doc. `ignoreUnknownKeys` drops the other 78.
      */
     @Serializable
     data class FocusSettings(val settings: WireFocusSettings) : EkosEvent
@@ -595,13 +595,24 @@ data class WireCaptureSettings(
  * increment (`jogFocus`), so seeding it once here gets both properties right: matches Ekos's own
  * number at connect, keeps live-updating afterward exactly like it already did.
  *
- * Deliberately partial, same growth plan as `WireGuideSettings` — M3.3 phase 6 (Focus settings
- * sheet) adds the remaining curated fields (exposure, gain, filter, backlash, algorithm — see
- * docs/M3.3-plan.md) to this same struct/decode point later.
+ * Extended for M3.3 phase 6 (Focus settings sheet) with exposure/gain/filter/backlash/algorithm
+ * — field names match the wire verbatim, confirmed live against the real rig (real values seen:
+ * `focusExposure 2`, `focusGain 99`, `focusFilter "L"`, `focusBacklash 0`,
+ * `focusAlgorithm "Linear 1 Pass"`). Unlike Guide's field-name history, this list carries no
+ * risk: `EkosRemote-Command-Reference.md` flags Focus's field list "Live-captured" (the same
+ * trusted bucket as Capture/Align, not Guide's "not live-verified" flag), and all 5 names
+ * appeared verbatim in that list before this probe — this confirms types only, not names.
+ * **`focusAlgorithm` is a string** (an algorithm-name combo selection like `"Linear 1 Pass"`),
+ * not an enum index — same shape as `alignBinning`/`guideBinning`, don't assume otherwise.
  */
 @Serializable
 data class WireFocusSettings(
     val absTicksSpin: Int = 18422,
+    val focusExposure: Double = 2.0,
+    val focusGain: Double = 99.0,
+    val focusFilter: String = "L",
+    val focusBacklash: Int = 0,
+    val focusAlgorithm: String = "Linear 1 Pass",
 )
 
 @Serializable
