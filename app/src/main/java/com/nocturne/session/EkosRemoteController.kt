@@ -149,8 +149,11 @@ class EkosRemoteController(
         is EkosEvent.NewPolarState -> s.copy(wirePolarStage = event.stage)
 
         is EkosEvent.Devices -> s.copy(wireDevices = event.devices.map { it.toLiveDevice() })
-        is EkosEvent.DeviceProperties -> event.properties.fold(s) { acc, prop -> acc.withProperty(event.device, prop) }
+        is EkosEvent.DeviceProperties -> event.properties.fold(s) { acc, prop ->
+            acc.withProperty(event.device, prop).withConnectionState(event.device, prop)
+        }
         is EkosEvent.DeviceProperty -> s.withProperty(event.property.device, event.property)
+            .withConnectionState(event.property.device, event.property)
 
         // `state.profiles` is directly overwritten, not additive — get_profiles is always
         // the authoritative full list (plan §3). Diffed against the *old* s.profiles (still
@@ -308,13 +311,31 @@ class EkosRemoteController(
      * slider bounds come along) and subscribe to live updates
      * ([Commands.DEVICE_PROPERTY_SUBSCRIBE]) so [SimState.indiProps] stays
      * live from then on.
+     *
+     * A device that `get_devices` snapshotted as not-yet-connected still gets a narrow
+     * CONNECTION-only subscribe here — Start Ekos brings INDI drivers up over real wall-clock
+     * time, so `get_devices` (sent the instant Ekos itself goes online, see EkosRemoteClient)
+     * can catch some devices before they've finished connecting, and nothing else ever
+     * re-fetches the full list afterward. Without this, such a device stayed permanently stuck
+     * showing "not connected" in the Gear tab even once it was alive in real Ekos. Once that
+     * CONNECTION push reports connected (below, mirroring the branch above), the full
+     * DEVICE_GET + subscribe fires for real.
      */
     private fun sendFollowUpCommands(event: EkosEvent) {
         when (event) {
-            is EkosEvent.Devices -> event.devices.filter { it.connected }.forEach { device ->
-                client.sendCommand(Commands.DEVICE_GET, buildJsonObject { put("device", device.name) })
-                client.sendCommand(Commands.DEVICE_PROPERTY_SUBSCRIBE, buildJsonObject { put("device", device.name) })
+            is EkosEvent.Devices -> event.devices.forEach { device ->
+                if (device.connected) {
+                    client.sendCommand(Commands.DEVICE_GET, buildJsonObject { put("device", device.name) })
+                    client.sendCommand(Commands.DEVICE_PROPERTY_SUBSCRIBE, buildJsonObject { put("device", device.name) })
+                } else {
+                    client.sendCommand(Commands.DEVICE_PROPERTY_SUBSCRIBE, buildJsonObject {
+                        put("device", device.name)
+                        putJsonArray("properties") { add("CONNECTION") }
+                    })
+                }
             }
+            is EkosEvent.DeviceProperty -> fetchFullDeviceIfNewlyConnected(event.property.device, event.property)
+            is EkosEvent.DeviceProperties -> event.properties.forEach { fetchFullDeviceIfNewlyConnected(event.device, it) }
             // astro_search_objects carries no free-text field — the query is applied here,
             // client-side, against the flat name list before resolving the (usually much
             // smaller) matching subset's coordinates/riseset.
@@ -329,6 +350,17 @@ class EkosRemoteController(
             }
             else -> {}
         }
+    }
+
+    /** See [sendFollowUpCommands]'s doc — a device that arrived not-yet-connected only gets a
+     *  narrow CONNECTION subscribe up front; once that reports it's actually connected, fetch
+     *  its full property set + subscribe to everything, same as an already-connected device got
+     *  from the initial `get_devices` snapshot. */
+    private fun fetchFullDeviceIfNewlyConnected(device: String, property: WireProperty) {
+        if (property !is WireProperty.Switch || property.name != "CONNECTION") return
+        if (property.switches.none { it.name == "CONNECT" && it.state == 1 }) return
+        client.sendCommand(Commands.DEVICE_GET, buildJsonObject { put("device", device) })
+        client.sendCommand(Commands.DEVICE_PROPERTY_SUBSCRIBE, buildJsonObject { put("device", device) })
     }
 
     // ── Devices / property sheets (M3 §2) ───────────────────────────────
@@ -899,6 +931,19 @@ internal fun WireTrain.toTrainAssignment() = TrainAssignment(
     lightBox = lightbox.ifBlank { "None" },
     adaptiveOptics = (adaptiveoptics ?: "").ifBlank { "None" },
 )
+
+/**
+ * Mirrors a `CONNECTION` switch push into [SimState.wireDevices]'s `connected` flag for the
+ * matching device — the only place other than the initial `get_devices` snapshot (and the
+ * optimistic flip in [EkosRemoteController.toggleDevice]) that field ever changes. Needed
+ * because a device `get_devices` caught mid-startup (see [EkosRemoteController.sendFollowUpCommands])
+ * otherwise stays shown as disconnected forever even after it finishes connecting for real.
+ */
+private fun SimState.withConnectionState(device: String, property: WireProperty): SimState {
+    if (property !is WireProperty.Switch || property.name != "CONNECTION") return this
+    val connected = property.switches.any { it.name == "CONNECT" && it.state == 1 }
+    return copy(wireDevices = wireDevices?.map { if (it.name == device) it.copy(connected = connected) else it })
+}
 
 /** Merges one real property-vector push into [SimState.indiProps], keyed by real device name. */
 private fun SimState.withProperty(device: String, property: WireProperty): SimState {
