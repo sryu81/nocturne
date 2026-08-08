@@ -104,11 +104,15 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Explicit user action only — the sole path back to [ConnectionMode.NeedsConnect]
-     *  once a session has ever reached [ConnectionMode.Connected]. */
+     *  once a session has ever reached [ConnectionMode.Connected] or [ConnectionMode.Simulated].
+     *  Must clear the persisted `useSimulator` flag too — otherwise the init-time auto-resume
+     *  (see [init]) reads it back as true on next launch and drops straight back into the
+     *  simulator, defeating the whole point of disconnecting from it. */
     fun disconnect() {
         client?.disconnect()
         client = null
         reachedOnline = false
+        viewModelScope.launch { repo.setUseSimulator(false) }
         _connectionMode.value = ConnectionMode.NeedsConnect
     }
 

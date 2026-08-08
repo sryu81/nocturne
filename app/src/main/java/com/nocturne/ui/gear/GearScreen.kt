@@ -72,6 +72,7 @@ fun GearScreen(
     state: SimState,
     ctrl: SessionController,
     landscape: Boolean,
+    onExitSimulator: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     TabPane(
@@ -79,6 +80,9 @@ fun GearScreen(
         modifier = modifier,
         items = buildList {
             add(TabItem(full = true) { ReadyBanner(state) })
+            // Sole way back to ConnectScreen from the simulator — "Use simulator instead" on
+            // ConnectScreen is otherwise a one-way door (see SessionViewModel.disconnect doc).
+            if (!state.isRealRig) add(TabItem(full = true) { SimulatorExitCard(onExitSimulator) })
             add(TabItem(full = true) { RigProfileCard(state, ctrl) })
             add(TabItem { ScopesCard(state, ctrl) })
             add(TabItem { OpticalTrainCard(state, ctrl) })
@@ -383,6 +387,42 @@ private fun MountSettingsCard(state: SimState, ctrl: SessionController) {
                 "$flip · $limits"
             },
             style = t.MonoMicro, color = c.textFaint,
+        )
+    }
+}
+
+/**
+ * Simulator's escape hatch — without this, "Use simulator instead" on ConnectScreen is a one-way
+ * door: SessionViewModel's launch-time auto-resume re-enters the simulator on every relaunch as
+ * long as `useSimulator` stays persisted true, and nothing else in the shell can reach
+ * [SessionViewModel.disconnect]. Always visible whenever `!state.isRealRig` (not tucked into
+ * MaintenanceCard, which is real-rig-only and wouldn't render here at all).
+ */
+@Composable
+private fun SimulatorExitCard(onExitSimulator: () -> Unit) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(c.surface, RoundedCornerShape(14.dp))
+            .border(1.dp, c.divider, RoundedCornerShape(14.dp))
+            .padding(12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Phosphor.Icon(Phosphor.Plugs, size = 19.dp, tint = c.accent400)
+            Spacer(Modifier.width(9.dp))
+            Column(Modifier.weight(1f)) {
+                TextC("Simulator mode", style = t.Body135, color = c.text)
+                TextC("no real rig connected", style = t.MonoMicro, color = c.textFaint)
+            }
+        }
+        Spacer(Modifier.height(9.dp))
+        NocturneButton(
+            text = "Exit simulator / connect to rig",
+            onClick = onExitSimulator,
+            style = BtnStyle.OUTLINE,
+            modifier = Modifier.fillMaxWidth().height(40.dp),
         )
     }
 }

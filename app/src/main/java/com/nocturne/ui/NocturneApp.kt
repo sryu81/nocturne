@@ -219,7 +219,7 @@ private fun NocturneShell(
                         SequenceScreen(state, ctrl, landscape, onFixInGear = { navigate(NocturneTab.Gear) })
                     }
                     composable(NocturneTab.Frames.route) { FramesScreen(state, ctrl, landscape) }
-                    composable(NocturneTab.Gear.route) { GearScreen(state, ctrl, landscape) }
+                    composable(NocturneTab.Gear.route) { GearScreen(state, ctrl, landscape, onExitSimulator = vm::disconnect) }
                 }
             }
 
