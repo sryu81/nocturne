@@ -150,10 +150,11 @@ class EkosRemoteController(
 
         is EkosEvent.Devices -> s.copy(wireDevices = event.devices.map { it.toLiveDevice() })
         is EkosEvent.DeviceProperties -> event.properties.fold(s) { acc, prop ->
-            acc.withProperty(event.device, prop).withConnectionState(event.device, prop)
+            acc.withProperty(event.device, prop).withConnectionState(event.device, prop).withCcdInfo(event.device, prop)
         }
         is EkosEvent.DeviceProperty -> s.withProperty(event.property.device, event.property)
             .withConnectionState(event.property.device, event.property)
+            .withCcdInfo(event.property.device, event.property)
 
         // `state.profiles` is directly overwritten, not additive — get_profiles is always
         // the authoritative full list (plan §3). Diffed against the *old* s.profiles (still
@@ -943,6 +944,19 @@ private fun SimState.withConnectionState(device: String, property: WireProperty)
     if (property !is WireProperty.Switch || property.name != "CONNECTION") return this
     val connected = property.switches.any { it.name == "CONNECT" && it.state == 1 }
     return copy(wireDevices = wireDevices?.map { if (it.name == device) it.copy(connected = connected) else it })
+}
+
+/**
+ * Captures a real camera's `CCD_INFO` vector into [SimState.wireCcdInfoByDevice] for Plan tab's
+ * Framing card — see that field's doc for why this reads all three elements directly instead of
+ * going through the generic (lossy, single-element) [withProperty]/[indiProps] path.
+ */
+private fun SimState.withCcdInfo(device: String, property: WireProperty): SimState {
+    if (property !is WireProperty.Number || property.name != "CCD_INFO") return this
+    val maxX = property.numbers.firstOrNull { it.name == "CCD_MAX_X" }?.value?.roundToInt() ?: return this
+    val maxY = property.numbers.firstOrNull { it.name == "CCD_MAX_Y" }?.value?.roundToInt() ?: return this
+    val pixelUm = property.numbers.firstOrNull { it.name == "CCD_PIXEL_SIZE" }?.value ?: return this
+    return copy(wireCcdInfoByDevice = wireCcdInfoByDevice + (device to CcdInfo(maxX, maxY, pixelUm)))
 }
 
 /** Merges one real property-vector push into [SimState.indiProps], keyed by real device name. */

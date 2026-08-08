@@ -38,7 +38,10 @@ import com.nocturne.session.SimState
 import com.nocturne.session.TARGETS
 import com.nocturne.session.Target
 import com.nocturne.session.displayName
+import com.nocturne.session.findScope
 import com.nocturne.session.findTarget
+import com.nocturne.session.framingFovDeg
+import com.nocturne.session.framingPixelScaleArcsecPerPx
 import com.nocturne.ui.components.AltitudeChart
 import com.nocturne.ui.components.HatchBg
 import com.nocturne.ui.components.IconBtn
@@ -451,8 +454,29 @@ private fun FramingCard(state: SimState, ctrl: SessionController) {
     val t = NocturneTheme.type
     // Preserves the prototype's exact -11° pose at the default 118.4° angle; tracks live from there.
     val displayRotation = (-11.0 - (state.rotatorAngle - 118.4)).toFloat()
+    // Was a literal "FRAMING · 2600MM + 550MM" (the fixture's own default camera/scope,
+    // TrainAssignment("ASI2600MM Pro", "Field APO" @ 550mm) baked in as a static string —
+    // never wired to either real or fixture optical-train data since M1's port). Now reflects
+    // whichever camera/scope is actually assigned to the primary train.
+    val focalMm = state.findScope(state.primaryTrain.scope)?.focalMm
+    val cameraLabel = state.primaryTrain.camera.takeIf { it != "None" }
+    val framingTitle = buildString {
+        append("FRAMING")
+        cameraLabel?.let { append(" · $it") }
+        focalMm?.let { append(" · ${it}mm") }
+    }
+    // Real pixel-scale/FOV once the primary camera's CCD_INFO has arrived (EkosRemoteController
+    // only) — falls back to the same placeholder readout the card always showed otherwise, so
+    // the simulator (and the brief window before CCD_INFO arrives) look unchanged.
+    val pixelScale = state.framingPixelScaleArcsecPerPx
+    val fovDeg = state.framingFovDeg
+    val readout = if (pixelScale != null && fovDeg != null) {
+        "%.2f″/px · %.1f°×%.1f°".format(pixelScale, fovDeg.first, fovDeg.second)
+    } else {
+        "1.24″/px · 2.4°×1.6°"
+    }
     com.nocturne.ui.components.Card {
-        TextC("FRAMING · 2600MM + 550MM", style = t.MicroLabel, color = c.textFaint)
+        TextC(framingTitle, style = t.MicroLabel, color = c.textFaint)
         Spacer(Modifier.height(11.2.dp))
         Box(
             Modifier
@@ -471,7 +495,7 @@ private fun FramingCard(state: SimState, ctrl: SessionController) {
                     .border(1.dp, c.accent, RoundedCornerShape(0.dp)),
             ) {
                 TextC(
-                    "1.24″/px · 2.4°×1.6°",
+                    readout,
                     style = t.MonoMicro, color = c.accent400,
                     modifier = Modifier.padding(top = 4.dp, start = 6.dp),
                 )

@@ -172,6 +172,17 @@ data class SimState(
      * this, same discipline as every other wire-mirror field above.
      */
     val wireDevices: List<LiveDevice>? = null,
+    /**
+     * Real cameras' `CCD_INFO` vector (sensor resolution + pixel size), keyed by device name —
+     * needed for Plan tab's Framing card to compute a real pixel-scale/FOV instead of the
+     * literal placeholder it shipped with. Parsed specially (not via the generic single-value
+     * [indiProps] map) because `CCD_INFO` has multiple number elements
+     * (`CCD_MAX_X`/`CCD_MAX_Y`/`CCD_PIXEL_SIZE`) and the generic decode
+     * (`WireProperty.Number.toIndiProperty`) only keeps the first one — a real gap in that
+     * generic path for any multi-element vector, out of scope to fix generally here. Empty
+     * until each connected camera's own `device_get` reply arrives.
+     */
+    val wireCcdInfoByDevice: Map<String, CcdInfo> = emptyMap(),
     /** `train_get_all` translated (M3) — read by `OpticalTrainCard` when present instead of [trainRolePool]. */
     val wireTrains: List<WireTrain>? = null,
     /**
@@ -239,6 +250,9 @@ data class SimState(
 
 /** One `get_devices` entry, decoded to the roles its `interface` bitmask ORs together. */
 data class LiveDevice(val name: String, val connected: Boolean, val roles: Set<DeviceRole>)
+
+/** A real camera's `CCD_INFO` vector — see [SimState.wireCcdInfoByDevice]. */
+data class CcdInfo(val maxX: Int, val maxY: Int, val pixelUm: Double)
 
 // ── Catalog data (prototype script constants) ──────────────────────────────
 
@@ -1030,6 +1044,27 @@ val SimState.eafTemp: Double get() = indiNumber("EAF", "FOCUS_TEMPERATURE") ?: -
  * [focPos] whenever that lookup misses (simulator, or before the real value has arrived).
  */
 val SimState.benchFocPos: Int get() = indiNumber(primaryTrain.focuser, "ABS_FOCUS_POSITION")?.roundToInt() ?: focPos
+
+/**
+ * Real pixel scale (arcsec/pixel) for Plan tab's Framing card — standard formula
+ * `206.265 × pixel_size_µm / focal_length_mm`. Null (falls back to the card's own placeholder)
+ * until both the primary scope's focal length and the primary camera's [CcdInfo] are known —
+ * on the simulator that's always, since [wireCcdInfoByDevice] is only ever populated by
+ * [EkosRemoteController].
+ */
+val SimState.framingPixelScaleArcsecPerPx: Double? get() {
+    val focalMm = findScope(primaryTrain.scope)?.focalMm?.takeIf { it > 0 } ?: return null
+    val ccd = wireCcdInfoByDevice[primaryTrain.camera] ?: return null
+    return 206.265 * ccd.pixelUm / focalMm
+}
+
+/** Real field of view (width, height) in degrees, derived from [framingPixelScaleArcsecPerPx] and the primary camera's sensor resolution. */
+val SimState.framingFovDeg: Pair<Double, Double>? get() {
+    val scale = framingPixelScaleArcsecPerPx ?: return null
+    val ccd = wireCcdInfoByDevice[primaryTrain.camera] ?: return null
+    return (scale * ccd.maxX / 3600.0) to (scale * ccd.maxY / 3600.0)
+}
+
 val SimState.paTotal: Double get() = hypot(paAlt, paAz)
 val SimState.coolAtSetPoint: Boolean get() = abs(coolNow - coolTarget) < 0.2
 val SimState.coolBarPct: Int get() {
