@@ -96,8 +96,16 @@ class EkosRemoteClient(
         // Scopes catalog — separate from Optical Trains (message.cpp:204), answered even while
         // Ekos itself is stopped (confirmed live) — sent eagerly here, not gated behind `online`
         // like GET_DEVICES/TRAIN_GET_ALL below, so the Scopes card shows real data before the
-        // user ever taps Start Ekos, same as get_profiles's own spontaneous pre-online push.
+        // user ever taps Start Ekos.
         sendCommand(Commands.GET_SCOPES)
+        // Rig profiles — same pre-online availability as GET_SCOPES above (this is exactly what
+        // the Gear tab's profile picker needs before Start Ekos is even tappable). Previously
+        // this was only sent inside the `online` branch below, so a fresh connect to a Pi with
+        // Ekos not yet running left SimState.profiles at its SimState() default (DEFAULT_PROFILES
+        // fixture — "Field · 550 mm" etc., never overwritten) with no way to trigger a real fetch
+        // short of starting Ekos first. Documented bootstrap order (README §4.1) always had this
+        // eager — the actual sendCommand call had just drifted into the online-only block.
+        sendCommand(Commands.GET_PROFILES)
     }
 
     private fun onEvent(event: EkosEvent) {
@@ -108,10 +116,10 @@ class EkosRemoteClient(
             if (event.online) {
                 sendCommand(Commands.GET_STATES)
                 sendCommand(Commands.GET_DEVICES)
-                sendCommand(Commands.GET_PROFILES)
                 // OpticalTrainManager is a real Ekos module — only meaningful once Ekos has
-                // actually started, unlike profiles/devices which the server happily reports
-                // pre-online too. Gated the same way GET_DEVICES/GET_PROFILES are.
+                // actually started, unlike profiles/scopes which the server happily reports
+                // pre-online too (both now requested eagerly in onSocketOpen). Gated the same
+                // way GET_DEVICES is.
                 sendCommand(Commands.TRAIN_GET_ALL)
                 // Per-active-profile module→train assignment (ProfileSettings) — needs the
                 // trains above to resolve IDs to names, but no ordering dependency in sending;
