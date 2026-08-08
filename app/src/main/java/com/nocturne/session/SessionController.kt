@@ -162,6 +162,15 @@ interface SessionController {
     fun setAlignBinning(binning: String)
     fun setAlignAccuracyThreshold(arcsec: Double)
 
+    // ── M3.3 phase 4: Guide settings (curated subset, see docs/M3.3-plan.md) ──
+    // Named setGuide* (not setGuidePreview*, see below) to avoid colliding with the
+    // pre-existing Bench "Snap guide" preview setters.
+    fun setGuideAccuracyThreshold(arcsec: Double)
+    fun setGuideDitherEnabled(enabled: Boolean)
+    fun setGuideDitherPixels(px: Int)
+    fun setGuideDitherThreshold(value: Double)
+    fun setGuideReuseCalibration(enabled: Boolean)
+
     // ── Bench "Snap main"/"Snap guide" preview capture params ──────────────
     fun setCapturePreviewExposure(sec: Double)
     fun setCapturePreviewGain(gain: Double)

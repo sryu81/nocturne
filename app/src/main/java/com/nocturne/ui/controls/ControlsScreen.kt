@@ -143,9 +143,7 @@ fun ControlsScreen(
                 },
             )
             add(TabItem(full = true) { GuideControlCard(state, ctrl) })
-            // Remaining Guide-module settings (accuracy threshold, dither) still land in M3.3
-            // phase 4 — see docs/M3.3-plan.md's Addendum. Start/stop control (GuideControlCard
-            // above) and exposure/gain/binning (SnapPanel above) are both done now.
+            if (state.isRealRig) add(TabItem { GuideSettingsCard(state, ctrl) })
 
             add(TabItem(full = true) { SectionHeader("POLAR ALIGNMENT") })
             add(TabItem { PaCard(state, ctrl) })
@@ -680,6 +678,35 @@ private fun AlignSettingsCard(state: SimState, ctrl: SessionController) {
         TextC("Align settings", style = t.Body135, color = c.text)
         TextC(
             if (a == null) "loading…" else "${a.alignFilter} · ${a.alignBinning} · ${"%.0f".format(a.alignExposure)}s",
+            style = t.MonoMicro, color = c.textFaint,
+        )
+    }
+}
+
+/**
+ * Curated Guide settings (M3.3 phase 4, see docs/M3.3-plan.md) — real-rig only, same gating as
+ * [AlignSettingsCard]/[MountSettingsCard]. Distinct from [GuideControlCard]'s start/stop and the
+ * Guide `SnapPanel`'s preview exposure/gain/bin (both already live): this covers solver accuracy
+ * threshold, dither, and reuse-calibration — closes out M3.3 phase 4.
+ */
+@Composable
+private fun GuideSettingsCard(state: SimState, ctrl: SessionController) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    val g = state.wireGuideSettings
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(c.surface, RoundedCornerShape(14.dp))
+            .border(1.dp, c.divider, RoundedCornerShape(14.dp))
+            .clickable { ctrl.openSheet(SheetType.GUIDE_SETTINGS) }
+            .padding(12.dp),
+    ) {
+        Phosphor.Icon(Phosphor.CrosshairSimple, size = 20.dp, tint = c.accent400)
+        Spacer(Modifier.height(5.dp))
+        TextC("Guide settings", style = t.Body135, color = c.text)
+        TextC(
+            if (g == null) "loading…" else "±${"%.0f".format(g.guiderAccuracyThreshold)}\" · ${if (g.kcfg_DitherEnabled) "dither on" else "dither off"}",
             style = t.MonoMicro, color = c.textFaint,
         )
     }

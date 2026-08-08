@@ -168,9 +168,9 @@ sealed interface EkosEvent {
 
     /**
      * `guide_get_all_settings` reply — real Ekos's Guide module reports 84 fields;
-     * [WireGuideSettings] currently models only the 3 a Bench "Snap guide" preview needs
-     * (exposure/gain/binning) — see that class's own doc for the phase-4 extension plan.
-     * `ignoreUnknownKeys` drops the other 81.
+     * [WireGuideSettings] models 8 curated (exposure/gain/binning for Bench "Snap guide", plus
+     * accuracy threshold/dither for the Guide settings sheet, M3.3 phase 4) — see that class's
+     * own doc. `ignoreUnknownKeys` drops the other 76.
      */
     @Serializable
     data class GuideSettings(val settings: WireGuideSettings) : EkosEvent
@@ -564,17 +564,22 @@ data class WireCaptureSettings(
  * PAH-star/solver internals — one-time calibration, not per-session.
  */
 /**
- * Curated subset of real Ekos's Guide module settings — currently just the 3 fields Bench
- * check's "Snap guide" needs to actually configure a preview capture (same reasoning as
- * `WireCaptureSettings.captureExposureN` etc — `guide_capture` has no parameter of its own,
- * real Ekos fires it using whatever the Guide module's own currently-loaded values are).
- * Field names match the wire verbatim, confirmed live against the real rig (real values seen:
- * `guideExposure 1`, `guideGain 99`, `guideBinning "1x1"`). **`guideBinning` is a string**,
- * same as `WireAlignSettings.alignBinning` — confirmed live, not a number.
- *
- * This is a deliberately partial subset — M3.3 phase 4 (Guide settings sheet: solver accuracy
- * threshold, dither) adds the remaining curated fields to this same struct rather than a
- * separate one, since it's the same wire command (`guide_get_all_settings`).
+ * Curated subset of real Ekos's Guide module settings (8 of 84 real fields — see
+ * docs/M3.3-plan.md) — the 3 preview-capture fields Bench check's "Snap guide" needs (same
+ * reasoning as `WireCaptureSettings.captureExposureN` etc — `guide_capture` has no parameter of
+ * its own, real Ekos fires it using whatever the Guide module's own currently-loaded values are)
+ * plus the 5 M3.3 phase 4 fields (solver accuracy threshold, dither). Field names match the wire
+ * verbatim, confirmed live against the real rig (real values seen: `guideExposure 3.5`,
+ * `guideGain 99`, `guideBinning "1x1"`, `guiderAccuracyThreshold 2`, `kcfg_DitherEnabled false`,
+ * `kcfg_DitherPixels 2`, `kcfg_DitherThreshold 1`, `kcfg_ReuseGuideCalibration true`).
+ * **`guideBinning` is a string**, same as `WireAlignSettings.alignBinning` — confirmed live, not
+ * a number. **Corrects `docs/M3.3-plan.md`'s own field list**, which was flagged unverified
+ * (`EkosRemote-Command-Reference.md` explicitly says Guide's field list is "not live-verified,
+ * unlike Capture/Focus") and turned out to name 3 of its 5 dither/calibration fields incorrectly
+ * relative to what the reference doc's own static analysis had found — this probe confirms the
+ * plan's `kcfg_`-prefixed names are correct as-is (all 5 present verbatim in the live reply,
+ * including `kcfg_ReuseGuideCalibration` under `guide_get_all_settings` itself, not needing the
+ * separate `guide_set_calibration_settings` command as briefly suspected before probing).
  */
 /**
  * Curated subset of real Ekos's Focus module settings — currently just `absTicksSpin`, the
@@ -604,6 +609,11 @@ data class WireGuideSettings(
     val guideExposure: Double = 1.0,
     val guideGain: Double = 99.0,
     val guideBinning: String = "1x1",
+    val guiderAccuracyThreshold: Double = 2.0,
+    val kcfg_DitherEnabled: Boolean = false,
+    val kcfg_DitherPixels: Int = 2,
+    val kcfg_DitherThreshold: Double = 1.0,
+    val kcfg_ReuseGuideCalibration: Boolean = true,
 )
 
 @Serializable

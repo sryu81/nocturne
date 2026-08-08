@@ -136,6 +136,7 @@ fun SheetHost(state: SimState, ctrl: SessionController, landscape: Boolean) {
         SheetType.MOUNT_SETTINGS -> "Mount settings" to "flip, limits, auto-park"
         SheetType.CAMERA_SETTINGS -> "Camera settings" to "save path, guide guard, dither"
         SheetType.ALIGN_SETTINGS -> "Align settings" to "exposure, gain, filter, accuracy"
+        SheetType.GUIDE_SETTINGS -> "Guide settings" to "accuracy threshold, dither"
         SheetType.DEVICE -> {
             // Real connection: state.deviceKey is the live device's own name (see
             // RealDeviceList's onClick), not a fixture DEVICES[].key — must be looked up
@@ -176,6 +177,7 @@ fun SheetHost(state: SimState, ctrl: SessionController, landscape: Boolean) {
                 SheetType.MOUNT_SETTINGS -> MountSettingsSheet(state, ctrl)
                 SheetType.CAMERA_SETTINGS -> CameraSettingsSheet(state, ctrl)
                 SheetType.ALIGN_SETTINGS -> AlignSettingsSheet(state, ctrl)
+                SheetType.GUIDE_SETTINGS -> GuideSettingsSheet(state, ctrl)
                 SheetType.DEVICE -> DeviceSheet(state, ctrl)
             }
         },
@@ -1075,6 +1077,70 @@ private fun CycleChip(value: String, onTap: () -> Unit) {
         contentAlignment = Alignment.CenterStart,
     ) {
         TextC(value, style = t.Body13, color = c.text)
+    }
+}
+
+// ── Guide settings (M3.3 phase 4, curated subset) ───────────────────────────
+
+/**
+ * Curated subset of real Ekos's Guide tab (8 of 84 real fields — see
+ * docs/M3.3-plan.md and [WireGuideSettings]'s own doc for the live-probe history) —
+ * exposure/gain/binning (already live via Bench "Snap guide", shown read-only here for
+ * context) plus solver accuracy threshold and dither. Real-rig only: [SimState.wireGuideSettings]
+ * is null under [SimulatedController] and briefly null on a real rig too, until the first
+ * `guide_get_all_settings` reply lands — same gating shape as [AlignSettingsSheet].
+ */
+@Composable
+private fun GuideSettingsSheet(state: SimState, ctrl: SessionController) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+
+    if (!state.isRealRig) {
+        TextC("Simulator has no real Guide module settings to show — connect to a rig first.", style = t.Body13, color = c.textMuted)
+        return
+    }
+    val g = state.wireGuideSettings
+    if (g == null) {
+        TextC("Fetching guide settings…", style = t.Body13, color = c.textMuted)
+        return
+    }
+
+    Column {
+        FieldLabel("Accuracy threshold")
+        Spacer(Modifier.height(5.dp))
+        DegreeField(g.guiderAccuracyThreshold, "\"", ctrl::setGuideAccuracyThreshold)
+        Spacer(Modifier.height(16.dp))
+        HDivider()
+        Spacer(Modifier.height(16.dp))
+
+        SwitchRow(
+            label = "Dither",
+            sub = "nudge the mount slightly between subs to average out fixed-pattern noise",
+            checked = g.kcfg_DitherEnabled,
+            onToggle = { ctrl.setGuideDitherEnabled(!g.kcfg_DitherEnabled) },
+            modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
+        )
+        if (g.kcfg_DitherEnabled) {
+            Spacer(Modifier.height(8.4.dp))
+            FieldLabel("Dither amount")
+            Spacer(Modifier.height(5.dp))
+            IntField(g.kcfg_DitherPixels, ctrl::setGuideDitherPixels)
+            Spacer(Modifier.height(8.4.dp))
+            FieldLabel("Settle threshold")
+            Spacer(Modifier.height(5.dp))
+            DegreeField(g.kcfg_DitherThreshold, "px", ctrl::setGuideDitherThreshold)
+        }
+        Spacer(Modifier.height(16.dp))
+        HDivider()
+        Spacer(Modifier.height(16.dp))
+
+        SwitchRow(
+            label = "Reuse calibration",
+            sub = "skip re-calibrating the guider at the start of each session",
+            checked = g.kcfg_ReuseGuideCalibration,
+            onToggle = { ctrl.setGuideReuseCalibration(!g.kcfg_ReuseGuideCalibration) },
+            modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
+        )
     }
 }
 

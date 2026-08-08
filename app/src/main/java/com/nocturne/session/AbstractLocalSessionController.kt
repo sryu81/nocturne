@@ -345,6 +345,25 @@ abstract class AbstractLocalSessionController : SessionController {
         s.copy(wireAlignSettings = s.wireAlignSettings?.copy(alignAccuracyThreshold = arcsec))
     }
 
+    // Guide settings (M3.3 phase 4): same no-op-under-simulator shape as Align above —
+    // SimulatedController never populates wireGuideSettings, so these are dead in practice
+    // (the settings card/sheet are real-rig-gated) but kept consistent with the pattern.
+    override open fun setGuideAccuracyThreshold(arcsec: Double) = update { s ->
+        s.copy(wireGuideSettings = s.wireGuideSettings?.copy(guiderAccuracyThreshold = arcsec))
+    }
+    override open fun setGuideDitherEnabled(enabled: Boolean) = update { s ->
+        s.copy(wireGuideSettings = s.wireGuideSettings?.copy(kcfg_DitherEnabled = enabled))
+    }
+    override open fun setGuideDitherPixels(px: Int) = update { s ->
+        s.copy(wireGuideSettings = s.wireGuideSettings?.copy(kcfg_DitherPixels = px))
+    }
+    override open fun setGuideDitherThreshold(value: Double) = update { s ->
+        s.copy(wireGuideSettings = s.wireGuideSettings?.copy(kcfg_DitherThreshold = value))
+    }
+    override open fun setGuideReuseCalibration(enabled: Boolean) = update { s ->
+        s.copy(wireGuideSettings = s.wireGuideSettings?.copy(kcfg_ReuseGuideCalibration = enabled))
+    }
+
     // Primary/guide preview capture params: same no-op-under-simulator shape as every other
     // module setting above — SimulatedController never populates wireCaptureSettings/
     // wireGuideSettings's new fields any differently than the rest of those structs.

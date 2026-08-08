@@ -238,22 +238,34 @@ class EkosEventCodecTest {
     }
 
     @Test
-    fun `decodes guide_get_all_settings — partial subset, guideBinning is a string`() {
-        // live capture (Bench "Snap guide" preview controls) — real Guide::getAllSettings()
-        // reports 84 fields; only 3 are modeled so far (guideExposure/gain/binning — enough for
-        // Bench's Snap guide to configure a preview; the rest land in M3.3 phase 4). Same
-        // guideBinning-is-a-string confirmation as WireAlignSettings.alignBinning.
+    fun `decodes guide_get_all_settings — curated subset incl phase-4 fields, guideBinning is a string`() {
+        // live capture (M3.3 phase 4) — real Guide::getAllSettings() reports 84 fields; 8 are
+        // modeled (the 3 preview fields from Bench "Snap guide", plus accuracy threshold + dither
+        // + reuse-calibration). ignoreUnknownKeys must drop the other 76 without throwing.
+        // This capture is the one that resolved the M3.3-plan.md field-name risk: the plan's
+        // guiderAccuracyThreshold/kcfg_DitherEnabled/kcfg_DitherPixels/kcfg_DitherThreshold/
+        // kcfg_ReuseGuideCalibration names all turned out correct as-is (all present verbatim
+        // under guide_get_all_settings itself, not needing guide_set_calibration_settings as
+        // briefly suspected before probing) — unlike alignBinning's history below, this was a
+        // near-miss on the *names/command*, not the type.
         val json = """{"payload":{"dECGuideEnabled":true,"guideAutoStar":true,"guideBinning":"1x1",
-            "guideDarkFrame":false,"guideExposure":1,"guideGain":99,"guiderAccuracyThreshold":2,
-            "kcfg_DitherEnabled":false,"kcfg_ReuseGuideCalibration":true,"opticalTrainCombo":"Secondary"},
+            "guideDarkFrame":false,"guideExposure":3.5,"guideGain":99,"guiderAccuracyThreshold":2,
+            "kcfg_DitherEnabled":false,"kcfg_DitherPixels":2,"kcfg_DitherThreshold":1,
+            "kcfg_GuideAlgorithm":"SEP Multi Star (recommended)","kcfg_ReuseGuideCalibration":true,
+            "opticalTrainCombo":"Secondary"},
             "type":"guide_get_all_settings"}"""
 
         val event = EkosEventCodec.decode(json)
         assertTrue("expected GuideSettings, got $event", event is EkosEvent.GuideSettings)
         val settings = (event as EkosEvent.GuideSettings).settings
-        assertEquals(1.0, settings.guideExposure, 0.0)
+        assertEquals(3.5, settings.guideExposure, 0.0)
         assertEquals(99.0, settings.guideGain, 0.0)
         assertEquals("1x1", settings.guideBinning)
+        assertEquals(2.0, settings.guiderAccuracyThreshold, 0.0)
+        assertFalse(settings.kcfg_DitherEnabled)
+        assertEquals(2, settings.kcfg_DitherPixels)
+        assertEquals(1.0, settings.kcfg_DitherThreshold, 0.0)
+        assertTrue(settings.kcfg_ReuseGuideCalibration)
     }
 
     @Test

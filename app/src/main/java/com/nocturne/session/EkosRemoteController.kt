@@ -957,6 +957,32 @@ class EkosRemoteController(
     }
 
     /**
+     * Guide settings (M3.3 phase 4, curated subset) — same fire-and-forget shape as
+     * [setAlignExposure] etc, reusing [sendGuideSetting] above (same command,
+     * `guide_set_all_settings`, as the preview setters) rather than a second helper.
+     */
+    override fun setGuideAccuracyThreshold(arcsec: Double) {
+        sendGuideSetting("guiderAccuracyThreshold", JsonPrimitive(arcsec))
+        super.setGuideAccuracyThreshold(arcsec)
+    }
+    override fun setGuideDitherEnabled(enabled: Boolean) {
+        sendGuideSetting("kcfg_DitherEnabled", JsonPrimitive(enabled))
+        super.setGuideDitherEnabled(enabled)
+    }
+    override fun setGuideDitherPixels(px: Int) {
+        sendGuideSetting("kcfg_DitherPixels", JsonPrimitive(px))
+        super.setGuideDitherPixels(px)
+    }
+    override fun setGuideDitherThreshold(value: Double) {
+        sendGuideSetting("kcfg_DitherThreshold", JsonPrimitive(value))
+        super.setGuideDitherThreshold(value)
+    }
+    override fun setGuideReuseCalibration(enabled: Boolean) {
+        sendGuideSetting("kcfg_ReuseGuideCalibration", JsonPrimitive(enabled))
+        super.setGuideReuseCalibration(enabled)
+    }
+
+    /**
      * `train_add`/`train_update` payload shape is undocumented (plan §"Protocol
      * facts") — sends every field `train_get_all` reports back, keyed by [id]
      * when a matching real train is already known, else falls back to
