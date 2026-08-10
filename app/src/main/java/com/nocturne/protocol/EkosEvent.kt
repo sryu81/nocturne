@@ -677,4 +677,16 @@ data class WireAlignSettings(
     val alignFilter: String = "L",
     val alignBinning: String = "1x1",
     val alignAccuracyThreshold: Double = 30.0,
+    /**
+     * The Align module's solver-action radio group — what real Ekos does automatically after a
+     * successful `align_solve`, confirmed live: `nothingR` (report only, the real default),
+     * `slewR` (re-slew onto the solved position for real — this is what a real "goto & center"
+     * needs, no client-side offset math required), `syncR` (sync the mount's internal model
+     * instead of moving it). Mutually exclusive on the real side; curated in here (rather than a
+     * one-off raw read) so [EkosRemoteController.gotoAndCenter] can save the user's normal
+     * setting and restore it afterward instead of silently leaving `slewR` on.
+     */
+    val nothingR: Boolean = true,
+    val slewR: Boolean = false,
+    val syncR: Boolean = false,
 )

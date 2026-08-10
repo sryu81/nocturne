@@ -16,6 +16,7 @@ import com.nocturne.protocol.bitmaskToRoles
 import com.nocturne.transport.EkosRemoteClient
 import com.nocturne.transport.RigRebootClient
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonElement
@@ -679,6 +680,58 @@ class EkosRemoteController(
     override fun plateSolveHere() {
         client.sendCommand(Commands.ALIGN_SOLVE)
         super.plateSolveHere()
+    }
+
+    /**
+     * Real `mount_goto_target` — resolved server-side via KStars' own fuzzy object-name lookup
+     * (`findByName`), the same resolution the Scheduler's `nameEdit` gets for free (unlike
+     * `scheduler_add_jobs`, which needs `raBox`/`decBox` set directly — see `toggleJobRun`'s own
+     * doc for that near-miss; this command is documented to do its own name→coordinate
+     * resolution). Not-found is a silent no-op server-side, no error surfaces back. No direct
+     * reply — watch `new_mount_state`.
+     */
+    override fun gotoTarget(targetId: String) {
+        val target = _state.value.findTarget(targetId) ?: return
+        client.sendCommand(Commands.MOUNT_GOTO_TARGET, buildJsonObject { put("target", target.common.ifBlank { target.id }) })
+        super.gotoTarget(targetId)
+    }
+
+    /**
+     * Goto, then plate-solve with the Align module's solver-action temporarily switched to
+     * `slewR` — confirmed live (`align_get_all_settings`): real Ekos exposes this as 3 mutually
+     * exclusive bools (`nothingR`/`slewR`/`syncR`, default `nothingR`), and setting `slewR` makes
+     * the server itself re-slew onto the solved position after `align_solve` — no client-side
+     * pointing-offset math needed, unlike a naive read of the reference alone would suggest.
+     * Restores whatever solver-action the user had before (from the last real
+     * `align_get_all_settings` snapshot), not just `nothingR`, so this doesn't silently change
+     * their normal Align-tab default.
+     *
+     * **Known simplification, not yet live-tuned**: this app doesn't decode a real "slew
+     * finished" or "solve finished" signal (`new_mount_state`/`new_align_state`'s real status
+     * vocabularies aren't enumerated anywhere in this codebase yet), so the steps are separated by
+     * fixed heuristic delays rather than a real completion wait. Needs live testing to tune the
+     * delays (or replace them with a real status-string wait) before trusting this for anything
+     * time-sensitive — flagged, not silently assumed correct.
+     */
+    override fun gotoAndCenter(targetId: String) {
+        val target = _state.value.findTarget(targetId) ?: return
+        val original = _state.value.wireAlignSettings
+        client.sendCommand(Commands.MOUNT_GOTO_TARGET, buildJsonObject { put("target", target.common.ifBlank { target.id }) })
+        scope.launch {
+            delay(8_000) // heuristic slew-settle wait — see this function's own doc
+            client.sendCommand(Commands.ALIGN_SET_ALL_SETTINGS, buildJsonObject {
+                put("nothingR", false); put("slewR", true); put("syncR", false)
+            })
+            delay(500)
+            client.sendCommand(Commands.ALIGN_SOLVE)
+            delay(15_000) // heuristic solve+reslew-settle wait
+            client.sendCommand(Commands.ALIGN_SET_ALL_SETTINGS, buildJsonObject {
+                put("nothingR", original?.nothingR ?: true)
+                put("slewR", original?.slewR ?: false)
+                put("syncR", original?.syncR ?: false)
+            })
+        }
+        super.gotoAndCenter(targetId)
     }
 
     /**

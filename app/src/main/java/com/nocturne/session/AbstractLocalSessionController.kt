@@ -444,6 +444,11 @@ abstract class AbstractLocalSessionController : SessionController {
     override fun setMountTracking(enabled: Boolean) = update { it.copy(mountTracking = enabled) }
 
     override fun plateSolveHere() = update { it.copy(mountSolved = true) }
+    // Fixture has no modeled mount position (mountAlt/mountAz are simulator-display-only, never
+    // driven by an actual slew) — nothing meaningful to simulate for a plain goto. "& center"
+    // pretends the same solved-success gesture as plateSolveHere.
+    override fun gotoTarget(targetId: String) {}
+    override fun gotoAndCenter(targetId: String) = update { it.copy(mountSolved = true) }
     override fun startGuiding() = update { it.copy(guiding = true) }
     override fun stopGuiding() = update { it.copy(guiding = false) }
     override fun startPolarAlign() = update { it.copy(polarRunning = true) }

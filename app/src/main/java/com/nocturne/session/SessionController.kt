@@ -24,6 +24,10 @@ interface SessionController {
     fun cancelFlipConfirm()
 
     fun addToSequence(targetId: String)
+    /** Plain slew to a target's coordinates — no plate-solve correction. */
+    fun gotoTarget(targetId: String)
+    /** Slew, then plate-solve and let the real Align module's own solver-action re-slew onto the solved position. */
+    fun gotoAndCenter(targetId: String)
     fun removeJob(jobId: String)
     fun openJob(jobId: String)
     fun closeJob()

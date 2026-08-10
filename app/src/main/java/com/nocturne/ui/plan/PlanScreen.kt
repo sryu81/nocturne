@@ -109,22 +109,32 @@ fun PlanScreen(
             TabItem(full = true) { TargetCard(tgt) },
             TabItem(full = true) { FramingCard(state, ctrl) },
             TabItem(full = true) {
-                Row(Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth()) {
+                    Row(Modifier.fillMaxWidth()) {
+                        com.nocturne.ui.components.NocturneButton(
+                            text = "Goto",
+                            onClick = { ctrl.gotoTarget(tgt.id) },
+                            icon = Phosphor.Crosshair,
+                            modifier = Modifier.weight(1f).height(44.dp),
+                            style = com.nocturne.ui.components.BtnStyle.OUTLINE,
+                        )
+                        Spacer(Modifier.width(8.4.dp))
+                        com.nocturne.ui.components.NocturneButton(
+                            text = "Goto & center",
+                            onClick = { ctrl.gotoAndCenter(tgt.id) },
+                            icon = Phosphor.Crosshair,
+                            modifier = Modifier.weight(1f).height(44.dp),
+                            style = com.nocturne.ui.components.BtnStyle.OUTLINE,
+                        )
+                    }
+                    Spacer(Modifier.height(8.4.dp))
                     com.nocturne.ui.components.NocturneButton(
                         text = "Add to sequence",
                         onClick = {
                             ctrl.addToSequence(tgt.id)
                             onGoToSequence()
                         },
-                        modifier = Modifier.weight(1f).height(44.dp),
-                        style = com.nocturne.ui.components.BtnStyle.OUTLINE,
-                    )
-                    Spacer(Modifier.width(8.4.dp))
-                    com.nocturne.ui.components.NocturneButton(
-                        text = "Slew & center",
-                        onClick = {},
-                        icon = Phosphor.Crosshair,
-                        modifier = Modifier.weight(1f).height(44.dp),
+                        modifier = Modifier.fillMaxWidth().height(44.dp),
                         style = com.nocturne.ui.components.BtnStyle.OUTLINE,
                     )
                 }

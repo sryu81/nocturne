@@ -64,6 +64,7 @@ object Commands {
     const val MOUNT_UNPARK = "mount_unpark"
     const val MOUNT_PARK = "mount_park"
     const val MOUNT_SET_TRACKING = "mount_set_tracking"
+    const val MOUNT_GOTO_TARGET = "mount_goto_target"
     const val ALIGN_SOLVE = "align_solve"
     const val CAPTURE_SET_ALL_SETTINGS = "capture_set_all_settings"
 
