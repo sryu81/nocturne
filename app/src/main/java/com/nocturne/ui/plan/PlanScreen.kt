@@ -282,37 +282,37 @@ private fun TargetCard(state: SimState, ctrl: SessionController, tgt: Target) {
                 TextC(tgt.displayName, style = t.CardTitle, color = c.text)
                 TextC(
                     listOfNotNull(tgt.coords, tgt.size).joinToString(" · "),
-                    style = t.MonoMicro, color = c.textFaint,
+                    style = t.MonoSmall, color = c.textMuted,
                 )
             }
-            TextC("${tgt.usable ?: "—"} usable", style = t.MonoMicro, color = c.accent400)
+            TextC("${tgt.usable ?: "—"} usable", style = t.Mono115, color = c.accent400)
         }
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(8.dp))
         BoxWithConstraints(
             Modifier
                 .fillMaxWidth()
-                .height(118.dp),
+                .height(176.dp),
         ) {
             AltitudeChart(Modifier.fillMaxSize(), realAltitudes = realAltitudes, realNowFraction = nowFraction)
             TextC(
                 window?.let { state.formatSiteTime(it.first) } ?: "21:48",
-                style = t.MonoMicro, color = c.textFaint, modifier = Modifier.align(Alignment.BottomStart),
+                style = t.MonoSmall, color = c.textMuted, modifier = Modifier.align(Alignment.BottomStart),
             )
             if (realAltitudes != null && nowFraction != null) {
                 TextC(
-                    "now", style = t.MonoMicro, color = c.text,
+                    "now", style = t.Mono115, color = c.text,
                     modifier = Modifier.align(Alignment.BottomStart).padding(start = maxWidth * nowFraction.toFloat()),
                 )
             } else {
-                TextC("now", style = t.MonoMicro, color = c.text, modifier = Modifier.align(Alignment.BottomStart).padding(start = 104.dp))
-                TextC("flip", style = t.MonoMicro, color = c.warn, modifier = Modifier.align(Alignment.BottomStart).padding(start = 186.dp))
+                TextC("now", style = t.Mono115, color = c.text, modifier = Modifier.align(Alignment.BottomStart).padding(start = 104.dp))
+                TextC("flip", style = t.Mono115, color = c.warn, modifier = Modifier.align(Alignment.BottomStart).padding(start = 186.dp))
             }
             TextC(
                 window?.let { state.formatSiteTime(it.second) } ?: "04:12",
-                style = t.MonoMicro, color = c.textFaint, modifier = Modifier.align(Alignment.BottomEnd),
+                style = t.MonoSmall, color = c.textMuted, modifier = Modifier.align(Alignment.BottomEnd),
             )
             TextC(
-                "max ${maxAlt?.let { "$it°" } ?: "—"} @ ${peak ?: "—"}", style = t.MonoMicro, color = c.textMuted,
+                "max ${maxAlt?.let { "$it°" } ?: "—"} @ ${peak ?: "—"}", style = t.Mono115, color = c.text,
                 modifier = Modifier.align(Alignment.TopEnd),
             )
         }
@@ -522,28 +522,28 @@ private fun FramingCard(state: SimState, ctrl: SessionController) {
         "1.24″/px · 2.4°×1.6°"
     }
     com.nocturne.ui.components.Card {
-        TextC(framingTitle, style = t.MicroLabel, color = c.textFaint)
+        TextC(framingTitle, style = t.Body135, color = c.textMuted)
         Spacer(Modifier.height(11.2.dp))
         Box(
             Modifier
                 .fillMaxWidth()
-                .height(190.dp)
+                .height(240.dp)
                 .background(c.surfaceDeep, RoundedCornerShape(10.dp)),
         ) {
             HatchBg(Modifier.fillMaxSize())
             Box(
                 Modifier
                     .align(Alignment.Center)
-                    .width(196.dp)
-                    .height(132.dp)
+                    .width(246.dp)
+                    .height(166.dp)
                     .rotate(displayRotation)
                     .shadow(22.dp, RoundedCornerShape(0.dp), ambientColor = c.accent.copy(alpha = 0.35f), spotColor = c.accent.copy(alpha = 0.35f))
                     .border(1.dp, c.accent, RoundedCornerShape(0.dp)),
             ) {
                 TextC(
                     readout,
-                    style = t.MonoMicro, color = c.accent400,
-                    modifier = Modifier.padding(top = 4.dp, start = 6.dp),
+                    style = t.Mono115, color = c.accent400,
+                    modifier = Modifier.padding(top = 6.dp, start = 8.dp),
                 )
             }
         }
