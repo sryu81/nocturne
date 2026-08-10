@@ -8,11 +8,15 @@ import com.nocturne.protocol.WireGuideSettings
 import com.nocturne.protocol.WireMountSettings
 import com.nocturne.protocol.WireSchedulerJob
 import com.nocturne.protocol.WireTrain
+import java.time.Instant
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.hypot
 import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlin.math.roundToLong
 import kotlin.math.sign
 import kotlin.math.sin
 
@@ -287,6 +291,16 @@ data class SimState(
      * [benchFocPos] can tell "already seeded" apart from "still on the raw-INDI fallback".
      */
     val wireFocusSettings: WireFocusSettings? = null,
+    /**
+     * `astro_get_almanac`'s `Dusk`/`Dawn` (M2026-08 Session tab real night-arc) — signed
+     * fraction-of-day offsets from local midnight, see [EkosEvent.AstroAlmanac]'s own doc for the
+     * exact sign convention. Null until the first reply (sent eagerly on connect, same as the
+     * module settings above); real-rig only, no fixture equivalent.
+     */
+    val wireDusk: Double? = null,
+    val wireDawn: Double? = null,
+    /** `astro_get_location`'s `tz` — real signed UTC hour offset, needed to resolve [wireDusk]/[wireDawn] into an absolute instant. Null until the first reply. */
+    val wireSiteTz: Double? = null,
     /** True under [EkosRemoteController]; false under [SimulatedController] — gates [MAINTENANCE] sheet's rig-reboot UI, which is meaningless without a real Pi. */
     val isRealRig: Boolean = false,
     /** Companion reboot daemon's port on the rig's Pi — separate from the EkosRemote wire port (see `pi-tools/reboot-daemon/`). */
@@ -1031,6 +1045,78 @@ val Block.meta: String get() {
     return if (doneCount > 0) "$doneCount done · $remaining left" else "queued · $remaining"
 }
 
+/** Total subs done/planned across all blocks — real once [SequenceJob.synced], fixture math otherwise. */
+val SequenceJob.totalDone: Int get() = blocks.sumOf { it.doneCount }
+val SequenceJob.totalSubs: Int get() = blocks.sumOf { it.subCount }
+
+/** "Ha 12/40 · OIII 0/30" — per-filter done/planned breakdown, in block order. */
+val SequenceJob.filterBreakdown: String get() =
+    blocks.joinToString(" · ") { "${it.filter} ${it.doneCount}/${it.subCount}" }
+
+/** Total planned/captured integration time across all blocks — exposureSec × count, summed. */
+val SequenceJob.totalPlannedSec: Int get() = blocks.sumOf { it.exposureSec * it.subCount }
+val SequenceJob.totalDoneSec: Int get() = blocks.sumOf { it.exposureSec * it.doneCount }
+
+private fun formatHM(totalSec: Int): String {
+    val h = totalSec / 3600
+    val m = (totalSec % 3600) / 60
+    return "$h:${m.toString().padStart(2, '0')}"
+}
+
+/** "1:00" / "3:20" style (hours:minutes, unpadded hour) — matches NightArcCard's existing literal shape. */
+val SequenceJob.doneHM: String get() = formatHM(totalDoneSec)
+val SequenceJob.plannedHM: String get() = formatHM(totalPlannedSec)
+
+/**
+ * Real dusk/dawn as absolute instants, resolved from [SimState.wireDusk]/[SimState.wireDawn]'s
+ * signed day-fraction-from-midnight offsets against the *site's* own local "today" (per
+ * [SimState.wireSiteTz]) — deliberately not the Android device's own timezone, since the almanac
+ * itself is anchored to the Pi's configured site, which could differ from wherever the phone
+ * happens to be. Null until all three wire fields have arrived (real-rig only, no fixture
+ * equivalent — [SessionScreen.kt]'s `NightArcCard` keeps its hardcoded "21:48 → 04:12" under
+ * `!isRealRig`/before this arrives).
+ */
+val SimState.realNightWindow: Pair<Instant, Instant>? get() {
+    val dusk = wireDusk ?: return null
+    val dawn = wireDawn ?: return null
+    val tz = wireSiteTz ?: return null
+    val zone = ZoneOffset.ofTotalSeconds((tz * 3600).roundToInt())
+    val now = Instant.now()
+    val nowDate = now.atZone(zone).toLocalDate()
+    // "Local midnight today" is ambiguous by clock time alone — dusk/dawn are small offsets
+    // (a few hours) from *some* midnight, but which one (the one just passed, in the small hours,
+    // or the upcoming one, in the evening/daytime) depends on where "now" actually sits. Anchoring
+    // on whichever midnight is chronologically nearest to "now" resolves both cases correctly
+    // without guessing AM/PM — confirmed live: anchoring on today's midnight-*start* unconditionally
+    // (the first cut here) put a 2pm-computed dusk a full day early.
+    val todayStart = nowDate.atStartOfDay(zone).toInstant()
+    val tomorrowStart = nowDate.plusDays(1).atStartOfDay(zone).toInstant()
+    val anchor = if (abs(now.epochSecond - todayStart.epochSecond) <= abs(now.epochSecond - tomorrowStart.epochSecond)) todayStart else tomorrowStart
+    return anchor.plusSeconds((dusk * 86400).roundToLong()) to anchor.plusSeconds((dawn * 86400).roundToLong())
+}
+
+private val SITE_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm")
+
+/** [instant] formatted "HH:mm" in the site's own local time — real replacement for the "21:48"/"04:12" literals. */
+fun SimState.formatSiteTime(instant: Instant): String {
+    val tz = wireSiteTz ?: return "--:--"
+    return instant.atZone(ZoneOffset.ofTotalSeconds((tz * 3600).roundToInt())).format(SITE_TIME_FORMATTER)
+}
+
+/**
+ * Real fraction of tonight's dusk-to-dawn span elapsed right now — null (not clamped) whenever
+ * "now" falls outside that span (daytime, or between a stale dawn and the next dusk), so the UI
+ * can show an honest "not observing" state instead of plotting a wrong dot position.
+ */
+val SimState.realNowFraction: Double? get() {
+    val (dusk, dawn) = realNightWindow ?: return null
+    val now = Instant.now()
+    if (now.isBefore(dusk) || now.isAfter(dawn)) return null
+    val totalSec = dawn.epochSecond - dusk.epochSecond
+    if (totalSec <= 0) return null
+    return (now.epochSecond - dusk.epochSecond).toDouble() / totalSec
+}
+
 internal fun SimState.mapJob(jobId: String, f: (SequenceJob) -> SequenceJob): SimState =
     copy(jobs = jobs.map { if (it.id == jobId) f(it) else it })
 
@@ -1135,6 +1221,20 @@ val SimState.mountTrackingOn: Boolean get() {
 val SimState.mountParkedReal: Boolean get() {
     val prop = (indiProps[primaryTrain.mount] ?: emptyList()).firstOrNull { it.name == "TELESCOPE_PARK" } as? IndiProperty.SwitchProp
     return prop?.let { it.elementNames.getOrNull(it.selected) == "PARK" } ?: mountParked
+}
+
+/**
+ * [wireMountPierSide]'s raw ordinal named, per a single live-confirmed data point (2026-08-09):
+ * the real rig reported `pierSide = 1` while the user visually confirmed the tube was physically
+ * on the mount's West side — so `1 -> "West"`, `0 -> "East"` by elimination. Not exhaustively
+ * verified across every sky position; falls back to the raw ordinal (no invented label) for any
+ * other value so a wrong guess never gets shown as if confirmed.
+ */
+val SimState.mountPierSideLabel: String? get() = when (wireMountPierSide) {
+    1 -> "West"
+    0 -> "East"
+    null -> null
+    else -> "raw $wireMountPierSide"
 }
 
 /**

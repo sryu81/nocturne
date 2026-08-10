@@ -82,6 +82,37 @@ class EkosRemoteController(
     private var pendingSyncJobId: String? = null
     private var pendingSyncName: String? = null
 
+    /**
+     * A job/target name a `scheduler_start_job` should follow once the pending sync above
+     * actually lands (matched by name against the next `scheduler_get_jobs` reply) — set right
+     * alongside [pendingSyncJobId]/[pendingSyncName] but consumed separately in
+     * [sendFollowUpCommands], since [applySchedulerJobs] already clears those two on match before
+     * [sendFollowUpCommands] runs. Toggling the Scheduler on is only safe once the add is
+     * confirmed real, not merely attempted — see [toggleJobRun]'s doc for why the add can fail.
+     */
+    private var pendingSchedulerStart: String? = null
+
+    /**
+     * Optimistic mirror of whether `scheduler_start_job` (a toggle, not exclusively "start" — see
+     * its own doc in the command reference) currently has the real Scheduler running — no wire
+     * push cleanly exposes this as a plain boolean, and blindly re-sending the toggle without
+     * knowing its current state would risk starting it instead of stopping it. Set true right
+     * after we send it to actually start a job; consulted (and cleared) before ever removing a
+     * job, since **real Ekos silently refuses `scheduler_remove_jobs` while the Scheduler is
+     * actively running** — confirmed live (2026-08-09) via the Scheduler's own log:
+     * `"Cannot delete currently running job 'M 104'"`. Stays false under [SimulatedController].
+     */
+    private var schedulerRunning = false
+
+    /**
+     * [toggleJobRun]'s save→settings→add→get→start chain is split at this point because
+     * `sequenceEdit` needs the *server-resolved* absolute path from the save reply, not a
+     * client-guessed one — see [EkosEvent.SchedulerSaveSequenceFile]'s doc. Holds everything the
+     * rest of the chain needs once that reply lands.
+     */
+    private data class PendingJobStart(val jobId: String, val targetName: String, val raDec: Pair<String, String>?, val trainName: String?)
+    private var pendingJobStart: PendingJobStart? = null
+
     /** In-memory mirror of the reboot daemon's port/token — [SimState] only ever exposes
      *  whether a token is set ([SimState.rigRebootTokenSet]), never the token itself. */
     private var rigRebootPort: Int = 9001
@@ -137,11 +168,14 @@ class EkosRemoteController(
             activeProfile = if (event.online) s.selectedProfile else null,
         )
         is EkosEvent.NewCaptureState -> s.copy(wireCaptureStatus = event.status)
+        // Merges non-null fields rather than overwriting — see NewMountState's own doc: the
+        // far-more-frequent coordinate-shaped push carries none of these 4 fields, and must not
+        // null out a previously-known status/pierSide when it lands.
         is EkosEvent.NewMountState -> s.copy(
-            wireMountStatus = event.status,
-            wireMountTarget = event.target,
-            wireMountSlewRate = event.slewRate,
-            wireMountPierSide = event.pierSide,
+            wireMountStatus = event.status ?: s.wireMountStatus,
+            wireMountTarget = event.target ?: s.wireMountTarget,
+            wireMountSlewRate = event.slewRate ?: s.wireMountSlewRate,
+            wireMountPierSide = event.pierSide ?: s.wireMountPierSide,
         )
         is EkosEvent.NewFocusState -> s.copy(wireFocusStatus = event.status)
         is EkosEvent.NewGuideState -> s.copy(wireGuideStatus = event.status)
@@ -218,8 +252,13 @@ class EkosRemoteController(
         // coolTarget seed above: this reply only ever arrives once, before any optimistic
         // jogFocus edit could race against it.
         is EkosEvent.FocusSettings -> s.copy(wireFocusSettings = event.settings, focPos = event.settings.absTicksSpin)
+        is EkosEvent.AstroAlmanac -> s.copy(wireDusk = event.dusk, wireDawn = event.dawn)
+        is EkosEvent.AstroLocation -> s.copy(wireSiteTz = event.tz)
 
         is EkosEvent.SchedulerJobs -> applySchedulerJobs(s, event)
+        // No state of its own — purely a trigger for sendFollowUpCommands to continue the
+        // toggleJobRun chain once the resolved absolute path is known (see the event's own doc).
+        is EkosEvent.SchedulerSaveSequenceFile -> s
 
         // A fresh astro_search_objects reply clears prior results (loading state) — the
         // follow-up astro_get_objects_info/riseset calls (sendFollowUpCommands below)
@@ -371,8 +410,53 @@ class EkosRemoteController(
                     client.sendCommand(Commands.ASTRO_GET_OBJECTS_RISESET, namesPayload)
                 }
             }
+            // Continues toggleJobRun's chain — see PendingJobStart's doc for why this waits for
+            // the resolved absolute path rather than sending sequenceEdit right after the save.
+            is EkosEvent.SchedulerSaveSequenceFile -> {
+                val pending = pendingJobStart
+                if (pending != null && event.result) {
+                    pendingJobStart = null
+                    client.sendCommand(Commands.SCHEDULER_SET_ALL_SETTINGS, buildJsonObject {
+                        put("nameEdit", pending.targetName)
+                        put("sequenceEdit", event.path)
+                        put("startupTimeConditionR", 0) // ASAP
+                        put("schedulerAltitude", false)
+                        pending.raDec?.let { (ra, dec) -> put("raBox", ra); put("decBox", dec) }
+                        pending.trainName?.let { put("opticalTrainCombo", it) }
+                    })
+                    client.sendCommand(Commands.SCHEDULER_ADD_JOBS)
+                    pendingSyncJobId = pending.jobId
+                    pendingSyncName = pending.targetName
+                    pendingSchedulerStart = pending.targetName
+                    client.sendCommand(Commands.SCHEDULER_GET_JOBS) // confirms + captures wireIndex, see applySchedulerJobs
+                }
+            }
+            // Only toggle the real Scheduler on once the add above is confirmed to have actually
+            // taken (matched by name) — never blindly, in case it silently failed again.
+            is EkosEvent.SchedulerJobs -> {
+                val waitingName = pendingSchedulerStart
+                if (waitingName != null && event.jobs.any { it.name == waitingName }) {
+                    pendingSchedulerStart = null
+                    client.sendCommand(Commands.SCHEDULER_START_JOB)
+                    schedulerRunning = true
+                }
+            }
             else -> {}
         }
+    }
+
+    /**
+     * Parses the "HHhMMmSSs ±DD°MM′SS″" coords string — the exact shape both the fixture
+     * `TARGETS` catalog and real astro-search results share (`formatRaHours`/`formatDecDegrees`
+     * above generate it literally) — into `raBox`/`decBox`'s own wire format. Confirmed live:
+     * colon-separated `"HH:MM:SS"` input round-trips correctly through `scheduler_add_jobs`.
+     * Returns null for anything that doesn't match (e.g. a free-text custom target) rather than
+     * guessing — [toggleJobRun] simply omits `raBox`/`decBox` in that case.
+     */
+    private fun parseCoordsToRaDecBox(coords: String): Pair<String, String>? {
+        val m = COORDS_REGEX.find(coords) ?: return null
+        val (rh, rm, rs, sign, dd, dm, ds) = m.destructured
+        return "$rh:$rm:$rs" to "$sign$dd:$dm:$ds"
     }
 
     /** See [sendFollowUpCommands]'s doc — a device that arrived not-yet-connected only gets a
@@ -1121,12 +1205,30 @@ class EkosRemoteController(
      * synced job removes it from the real Scheduler entirely and clears
      * `synced`/`wireIndex` locally, unlocking the block editor again — the
      * only way to "edit" a synced job is stop, edit, restart fresh.
+     *
+     * **Confirmed live (2026-08-09) that the original minimum field set silently added nothing**:
+     * `scheduler_add_jobs` needs `raBox`/`decBox` populated directly — typing a name into
+     * `nameEdit` over the wire doesn't trigger the GUI's own name-resolution lookup the way a
+     * human clicking "Find" would, so the job's coordinates stayed blank and the add was silently
+     * a no-op (`scheduler_get_jobs` came back `{"jobs": []}` every time). `opticalTrainCombo` left
+     * at its default `"--"` is a second, independent way the same add can fail. Fixed: `raBox`/
+     * `decBox` from the target's own coords (parsed, see [parseCoordsToRaDecBox]) and
+     * `opticalTrainCombo` from the capture module's real assigned train. The rest of the chain
+     * (settings/add/get) is deferred to [sendFollowUpCommands]'s `SchedulerSaveSequenceFile` arm
+     * because `sequenceEdit` also needs the *server-resolved* absolute path from that reply, not
+     * the bare relative filename saved here (confirmed live: a relative `sequenceEdit` value
+     * produces a broken, unresolved `file:` URI, not a home-relative one like the save itself).
+     * Finally, real Ekos never actually *runs* an added job on its own — `scheduler_start_job`
+     * (`SCHEDULER_START_JOB`) is a separate toggle that was never sent at all before this fix, so
+     * even a successfully-added job would just sit there; now sent once [pendingSchedulerStart]'s
+     * name is confirmed present in a `scheduler_get_jobs` reply (not sent blindly right after
+     * `scheduler_add_jobs`, in case the add silently failed again for some other reason).
      */
     override fun toggleJobRun(jobId: String) {
         val job = _state.value.jobs.firstOrNull { it.id == jobId } ?: return
         if (job.running) {
             if (job.synced && job.wireIndex != null) {
-                client.sendCommand(Commands.SCHEDULER_REMOVE_JOBS, buildJsonObject { put("index", job.wireIndex) })
+                stopSchedulerThenRemove(job.wireIndex)
             }
             super.toggleJobRun(jobId)
             update { s -> s.mapJob(jobId) { it.copy(synced = false, wireIndex = null) } }
@@ -1141,26 +1243,30 @@ class EkosRemoteController(
             put("filedata", EsqWriter.write(job, targetName, s.afRefocusMin, s.afTempDeltaC))
             put("path", path)
         })
-        // Minimum viable field set (plan §"Protocol facts") — not the full ~40-field scheduler form.
-        client.sendCommand(Commands.SCHEDULER_SET_ALL_SETTINGS, buildJsonObject {
-            put("nameEdit", targetName)
-            put("sequenceEdit", path)
-            put("startupTimeConditionR", 0) // ASAP
-            put("schedulerAltitude", false)
-        })
-        client.sendCommand(Commands.SCHEDULER_ADD_JOBS)
-        pendingSyncJobId = jobId
-        pendingSyncName = targetName
-        client.sendCommand(Commands.SCHEDULER_GET_JOBS) // confirms + captures wireIndex, see applySchedulerJobs
-        super.toggleJobRun(jobId) // optimistic running=true; synced flips true once the reply above lands
+        pendingJobStart = PendingJobStart(
+            jobId = jobId,
+            targetName = targetName,
+            raDec = target?.coords?.let { parseCoordsToRaDecBox(it) },
+            trainName = s.moduleTrainAssignments?.get("capture") ?: s.wireTrains?.firstOrNull()?.name,
+        )
+        super.toggleJobRun(jobId) // optimistic running=true; synced flips true once the chain below confirms
     }
 
     override fun removeJob(jobId: String) {
         val job = _state.value.jobs.firstOrNull { it.id == jobId }
         if (job?.synced == true && job.wireIndex != null) {
-            client.sendCommand(Commands.SCHEDULER_REMOVE_JOBS, buildJsonObject { put("index", job.wireIndex) })
+            stopSchedulerThenRemove(job.wireIndex)
         }
         super.removeJob(jobId)
+    }
+
+    /** See [schedulerRunning]'s doc — a running real Scheduler must be toggled off first. */
+    private fun stopSchedulerThenRemove(wireIndex: Int) {
+        if (schedulerRunning) {
+            client.sendCommand(Commands.SCHEDULER_START_JOB) // toggle: stops it, since it's running
+            schedulerRunning = false
+        }
+        client.sendCommand(Commands.SCHEDULER_REMOVE_JOBS, buildJsonObject { put("index", wireIndex) })
     }
 }
 
@@ -1308,6 +1414,9 @@ private fun WireAstroObject.toTarget(riseset: WireRiseset?): Target = Target(
     de0 = de0,
     magnitude = magnitude,
 )
+
+/** Matches "20h59m17s +44°31′44″" — see [EkosRemoteController.parseCoordsToRaDecBox]. */
+private val COORDS_REGEX = Regex("""(\d+)h(\d+)m(\d+)s\s+([+-])(\d+)°(\d+)′(\d+)″""")
 
 /** J2000 RA hours → "20h59m17s". */
 private fun formatRaHours(hours: Double): String {

@@ -30,6 +30,8 @@ object Commands {
     const val ASTRO_SEARCH_OBJECTS = "astro_search_objects"
     const val ASTRO_GET_OBJECTS_INFO = "astro_get_objects_info"
     const val ASTRO_GET_OBJECTS_RISESET = "astro_get_objects_riseset"
+    const val ASTRO_GET_ALMANAC = "astro_get_almanac"
+    const val ASTRO_GET_LOCATION = "astro_get_location"
 
     // M3 — scheduler/capture sequences.
     const val SCHEDULER_GET_JOBS = "scheduler_get_jobs"

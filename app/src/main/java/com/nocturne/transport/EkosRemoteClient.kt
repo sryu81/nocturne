@@ -139,6 +139,10 @@ class EkosRemoteClient(
                 sendCommand(Commands.GUIDE_GET_ALL_SETTINGS)
                 // Focus module settings (partial — see WireFocusSettings doc) — same eager-on-online shape.
                 sendCommand(Commands.FOCUS_GET_ALL_SETTINGS)
+                // Real dusk/dawn + site timezone (Session tab's real night-arc) — same
+                // eager-on-online shape; stable for the whole night so one fetch suffices.
+                sendCommand(Commands.ASTRO_GET_ALMANAC)
+                sendCommand(Commands.ASTRO_GET_LOCATION)
             }
         }
         _events.tryEmit(event)

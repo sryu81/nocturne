@@ -72,7 +72,7 @@ class EkosRemoteHardwareTest {
             assertTrue("no messages received at all from $host:$port — is EkosRemote actually running?", events.isNotEmpty())
 
             val raw = events.filterIsInstance<EkosEvent.Raw>()
-            // A handful of push types genuinely have no typed case yet (e.g. astro_get_almanac) —
+            // A handful of push types genuinely have no typed case yet —
             // only fail on Raw for the commands this test itself explicitly requested/expects.
             val requestedTypes = setOf("get_profiles", "train_get_all", "new_connection_state", "astro_search_objects", "scheduler_get_jobs")
             val unexpectedRaw = raw.filter { it.type in requestedTypes }

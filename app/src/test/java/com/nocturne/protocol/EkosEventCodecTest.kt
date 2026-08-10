@@ -76,12 +76,23 @@ class EkosEventCodecTest {
     }
 
     @Test
-    fun `decodes astro_get_almanac as Raw — not modeled, must not crash`() {
-        // live capture — astro_get_almanac has no typed EkosEvent case yet; must degrade to Raw, not throw.
+    fun `decodes astro_get_almanac — curated to dusk-dawn, capitalized keys via SerialName`() {
+        // live capture (Session tab real night-arc, M2026-08) — only dusk/dawn are modeled,
+        // the Moon/Sun fields are ignored by design (see EkosEvent.AstroAlmanac's doc).
         val json = """{"payload":{"Dawn":0.19,"Dusk":-0.085,"MoonIllum":0.585,"MoonPhase":-99.86,"MoonRise":0.968,"MoonSet":0.569,"SunMaxAlt":69.16,"SunMinAlt":-35.28,"SunRise":0.261,"SunSet":0.843},"type":"astro_get_almanac"}"""
         val event = EkosEventCodec.decode(json)
-        assertTrue(event is EkosEvent.Raw)
-        assertEquals("astro_get_almanac", (event as EkosEvent.Raw).type)
+        assertTrue(event is EkosEvent.AstroAlmanac)
+        assertEquals(-0.085, (event as EkosEvent.AstroAlmanac).dusk, 0.0)
+        assertEquals(0.19, event.dawn, 0.0)
+    }
+
+    @Test
+    fun `decodes astro_get_location — curated to tz alone`() {
+        // live capture
+        val json = """{"payload":{"elevation":9.27,"latitude":37.7775,"longitude":-122.4108,"name":"San Francisco","tz":-7,"tz0":-8},"type":"astro_get_location"}"""
+        val event = EkosEventCodec.decode(json)
+        assertTrue(event is EkosEvent.AstroLocation)
+        assertEquals(-7.0, (event as EkosEvent.AstroLocation).tz, 0.0)
     }
 
     @Test

@@ -236,7 +236,7 @@ private fun NocturneShell(
         SheetHost(state = state, ctrl = ctrl, landscape = landscape)
 
         if (state.subPreviewExpanded) {
-            SubPreviewOverlay(onDismiss = ctrl::closeSubPreview)
+            SubPreviewOverlay(state = state, onDismiss = ctrl::closeSubPreview)
         }
 
         if (state.expandedFrameId != null) {

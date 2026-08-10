@@ -29,12 +29,22 @@ sealed interface EkosEvent {
     @Serializable
     data class NewCaptureState(val status: String) : EkosEvent
 
+    /**
+     * `new_mount_state` push. Real pushes come in (at least) two disjoint shapes, confirmed live:
+     * the documented `{status, target, slewRate, pierSide}` one (fires on an actual mount status
+     * transition — slew start/complete, park/unpark, tracking change) and an undocumented,
+     * far more frequent (~1/sec) coordinate-telemetry one (`{at, az, de, de0, ha, ra, ra0}`,
+     * ignored here — out of scope for what Session tab needs). All 4 fields need defaults for the
+     * same reason as [NewPolarState]: without them, every coordinate-shaped push (the common case)
+     * fails to decode (missing required fields) and silently degrades to [Raw], meaning
+     * `wireMountPierSide` would in practice almost never actually update on a real rig.
+     */
     @Serializable
     data class NewMountState(
-        val status: String,
-        val target: String,
-        val slewRate: Int,
-        val pierSide: Int,
+        val status: String? = null,
+        val target: String? = null,
+        val slewRate: Int? = null,
+        val pierSide: Int? = null,
     ) : EkosEvent
 
     @Serializable
@@ -99,11 +109,44 @@ sealed interface EkosEvent {
     @Serializable
     data class AstroObjectsRiseset(val entries: List<WireRiseset>) : EkosEvent
 
+    /**
+     * `astro_get_almanac` reply — "computed for local midnight today at the configured geo
+     * location" per the reference. Curated to the 2 fields Session tab's real night-arc needs
+     * (dawn/dusk), not the full Sun/Moon field set. Confirmed live: **not** clock times —
+     * fraction-of-day *offsets from local midnight*, signed (e.g. `dusk: -0.0896` = 2h9m
+     * *before* tonight's midnight; `dawn: 0.1938` = 4h39m *after* it), unlike `SunRise`/`SunSet`
+     * (unsigned fraction-of-day-since-previous-midnight, not modeled here — not needed). Real key
+     * names are capitalized (`"Dusk"`/`"Dawn"`), hence the `@SerialName`s.
+     */
+    @Serializable
+    data class AstroAlmanac(@SerialName("Dusk") val dusk: Double = 0.0, @SerialName("Dawn") val dawn: Double = 0.0) : EkosEvent
+
+    /**
+     * `astro_get_location` reply — curated to [tz] alone (real signed hour offset from UTC,
+     * confirmed live e.g. `-7` for PDT), the one field [AstroAlmanac]'s offsets need to resolve
+     * into an absolute real-world instant. `latitude`/`longitude`/`elevation`/`name`/`tz0` exist
+     * on the real reply too but aren't needed for this.
+     */
+    @Serializable
+    data class AstroLocation(val tz: Double = 0.0) : EkosEvent
+
     // ── M3: scheduler ────────────────────────────────────────────────────
 
     /** `scheduler_get_jobs` reply. */
     @Serializable
     data class SchedulerJobs(val jobs: List<WireSchedulerJob>) : EkosEvent
+
+    /**
+     * `scheduler_save_sequence_file` reply. [path] is the input `path` **resolved** to an
+     * absolute filesystem path server-side (home-relative input, confirmed live: sending
+     * `"foo.esq"` echoes back `"/home/<user>/foo.esq"`) — this differs from `sequenceEdit`'s own
+     * resolution in `scheduler_set_all_settings`, where a bare relative filename produces a
+     * broken unresolved `file:foo.esq` URI, not a home-relative one (confirmed live the hard
+     * way). [EkosRemoteController.toggleJobRun] must wait for this reply and reuse [path]
+     * verbatim as `sequenceEdit`, never guess a home directory client-side.
+     */
+    @Serializable
+    data class SchedulerSaveSequenceFile(val result: Boolean = false, val path: String = "") : EkosEvent
 
     // ── M3: optical trains ───────────────────────────────────────────────
 

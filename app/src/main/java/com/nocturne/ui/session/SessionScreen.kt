@@ -25,8 +25,18 @@ import com.nocturne.session.SheetType
 import com.nocturne.session.contractJob
 import com.nocturne.session.expRemain
 import com.nocturne.session.fNow
+import com.nocturne.session.doneHM
+import com.nocturne.session.filterBreakdown
 import com.nocturne.session.flipIn
+import com.nocturne.session.formatSiteTime
+import com.nocturne.session.mountPierSideLabel
+import com.nocturne.session.plannedHM
+import com.nocturne.session.realNightWindow
+import com.nocturne.session.realNowFraction
 import com.nocturne.session.rms
+import com.nocturne.session.totalDone
+import com.nocturne.session.totalPlannedSec
+import com.nocturne.session.totalSubs
 import com.nocturne.ui.components.Card
 import com.nocturne.ui.components.HatchBg
 import com.nocturne.ui.components.IconBtn
@@ -55,7 +65,7 @@ fun SessionScreen(
         modifier = modifier,
         items = listOf(
             TabItem(full = true) { NightArcCard(state) },
-            TabItem(full = true) { SubPreview(ctrl) },
+            TabItem(full = true) { SubPreview(state, ctrl) },
             TabItem { StatsRow(state, ctrl) },
             TabItem(full = true) { FlipBanner(state, ctrl) },
             TabItem(full = true) { SkySite() },
@@ -87,62 +97,119 @@ private fun IdleSessionCard(state: SimState, modifier: Modifier) {
     }
 }
 
+/**
+ * Real-rig dusk/dawn (`state.realNightWindow`, from `astro_get_almanac`/`astro_get_location`,
+ * M2026-08) replace the "21:48 → 04:12" literals once they've arrived; the arc's "now" dot uses
+ * `state.realNowFraction` — **null, not clamped**, whenever real "now" falls outside tonight's
+ * dusk-dawn span (daytime, or a stale window), so an honest message is shown instead of a wrong
+ * dot position. The "flip" tick has no real position to show (see `FlipBanner`'s own doc — no
+ * real flip-time data exists anywhere) and is simply omitted under a real rig rather than left at
+ * its old fixed pixel offset. `plannedFraction`/duration text use real block totals
+ * ([SequenceJob.totalPlannedSec]/[SequenceJob.totalDoneSec]) once [SequenceJob.synced]; the
+ * per-sub "X left" countdown the simulator shows has no real equivalent (blocked on the Media
+ * channel, same M4 gap as `StatsRow`/`SubPreview`) so it's dropped, not fabricated, in that case.
+ */
 @Composable
 private fun NightArcCard(state: SimState) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
+    val job = state.contractJob
+    val realProgress = job != null && job.synced
+    val real = state.isRealRig
+    val window = if (real) state.realNightWindow else null
+    val nowFrac = if (real) state.realNowFraction else null
     Card {
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextC("NIGHT ARC", style = t.MicroLabel, color = c.textFaint, modifier = Modifier.weight(1f))
-            TextC("21:48 → 04:12", style = t.MonoMicro, color = c.textMuted)
+            TextC(
+                if (window != null) "${state.formatSiteTime(window.first)} → ${state.formatSiteTime(window.second)}" else "21:48 → 04:12",
+                style = t.MonoMicro, color = c.textMuted,
+            )
         }
         Spacer(Modifier.height(4.dp))
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(176.dp),
-        ) {
-            NightArc(
-                shotFraction = state.fNow,
-                plannedFraction = 0.78,
-                nowFraction = state.fNow,
-                modifier = Modifier.fillMaxSize(),
-            )
-            Column(
-                Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 60.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                TextC("1:00", style = t.Mono34, color = c.text)
-                TextC("OF 3:20 INTEGRATED", style = t.Caption10, color = c.textFaint)
+        if (real && nowFrac == null) {
+            Box(Modifier.fillMaxWidth().height(176.dp), contentAlignment = Alignment.Center) {
                 TextC(
-                    "sub 13/40 · ${state.expRemain} left",
-                    style = t.Mono115, color = c.accent400,
+                    if (window == null) {
+                        "fetching real dusk/dawn…"
+                    } else {
+                        "outside tonight's dark window (${state.formatSiteTime(window.first)}–${state.formatSiteTime(window.second)})"
+                    },
+                    style = t.Body13, color = c.textMuted,
                 )
             }
-            TextC(
-                "21:48", style = t.MonoMicro, color = c.textFaint,
-                modifier = Modifier.align(Alignment.BottomStart).padding(bottom = 6.dp),
-            )
-            TextC(
-                "04:12", style = t.MonoMicro, color = c.textFaint,
-                modifier = Modifier.align(Alignment.BottomEnd).padding(bottom = 6.dp),
-            )
-            TextC(
-                "flip", style = t.MonoMicro, color = c.warn,
-                modifier = Modifier.align(Alignment.TopEnd).padding(end = 62.dp),
-            )
+        } else {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(176.dp),
+            ) {
+                val shotFraction = nowFrac ?: state.fNow
+                val plannedFraction = if (realProgress && window != null) {
+                    val spanSec = (window.second.epochSecond - window.first.epochSecond).coerceAtLeast(1)
+                    (job!!.totalPlannedSec.toDouble() / spanSec).coerceIn(0.0, 1.0)
+                } else {
+                    0.78
+                }
+                NightArc(
+                    shotFraction = shotFraction,
+                    plannedFraction = plannedFraction,
+                    nowFraction = shotFraction,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                Column(
+                    Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 60.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    TextC(if (realProgress) job!!.doneHM else "1:00", style = t.Mono34, color = c.text)
+                    TextC(
+                        if (realProgress) "OF ${job!!.plannedHM} INTEGRATED" else "OF 3:20 INTEGRATED",
+                        style = t.Caption10, color = c.textFaint,
+                    )
+                    TextC(
+                        if (realProgress) "sub ${job!!.totalDone}/${job.totalSubs}" else "sub 13/40 · ${state.expRemain} left",
+                        style = t.Mono115, color = c.accent400,
+                    )
+                }
+                TextC(
+                    if (window != null) state.formatSiteTime(window.first) else "21:48", style = t.MonoMicro, color = c.textFaint,
+                    modifier = Modifier.align(Alignment.BottomStart).padding(bottom = 6.dp),
+                )
+                TextC(
+                    if (window != null) state.formatSiteTime(window.second) else "04:12", style = t.MonoMicro, color = c.textFaint,
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(bottom = 6.dp),
+                )
+                if (!real) {
+                    TextC(
+                        "flip", style = t.MonoMicro, color = c.warn,
+                        modifier = Modifier.align(Alignment.TopEnd).padding(end = 62.dp),
+                    )
+                }
+            }
         }
         Row(Modifier.fillMaxWidth()) {
-            TextC("Ha 12/40 · OIII 0/30", style = t.MonoMicro, color = c.textMuted, modifier = Modifier.weight(1f))
+            TextC(
+                if (realProgress) job!!.filterBreakdown else "Ha 12/40 · OIII 0/30",
+                style = t.MonoMicro, color = c.textMuted, modifier = Modifier.weight(1f),
+            )
             TextC("dither in 2", style = t.MonoMicro, color = c.textFaint)
         }
     }
 }
 
+/**
+ * Real connection (`state.isRealRig`): a real `capture_preview` is triggerable but the resulting
+ * image/HFR/ADU numbers arrive over the Media channel, which doesn't exist yet (M4, `MediaChannel`
+ * is a stub) — so the honest thing to show is that gap, not a fabricated readout. Simulator keeps
+ * the canned fixture text, unchanged. Same idiom as `ControlsScreen.kt`'s `benchSnapLabel`.
+ */
+private fun subPreviewLine(real: Boolean, fixtureText: String): String =
+    if (real) "no live preview yet — needs the Media channel, M4" else fixtureText
+
 @Composable
-private fun SubPreview(ctrl: SessionController) {
+private fun SubPreview(state: SimState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     Box(
@@ -170,7 +237,10 @@ private fun SubPreview(ctrl: SessionController) {
                 .fillMaxWidth(),
             verticalAlignment = Alignment.Bottom,
         ) {
-            TextC("★ 1 482 · HFR 2.31 · ADU 1 093", style = t.MonoMid, color = c.textDim, modifier = Modifier.weight(1f))
+            TextC(
+                subPreviewLine(state.isRealRig, "★ 1 482 · HFR 2.31 · ADU 1 093"),
+                style = t.MonoMid, color = c.textDim, modifier = Modifier.weight(1f),
+            )
             IconBtn(icon = Phosphor.ArrowsOut, onClick = ctrl::openSubPreview, size = 30)
         }
     }
@@ -178,7 +248,7 @@ private fun SubPreview(ctrl: SessionController) {
 
 /** Full-screen sub preview — tap anywhere or the system back button dismisses it. */
 @Composable
-fun SubPreviewOverlay(onDismiss: () -> Unit) {
+fun SubPreviewOverlay(state: SimState, onDismiss: () -> Unit) {
     androidx.activity.compose.BackHandler(onBack = onDismiss)
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
@@ -209,7 +279,7 @@ fun SubPreviewOverlay(onDismiss: () -> Unit) {
             modifier = Modifier.align(Alignment.TopEnd).padding(16.dp),
         )
         TextC(
-            "★ 1 482 · HFR 2.31 · ADU 1 093",
+            subPreviewLine(state.isRealRig, "★ 1 482 · HFR 2.31 · ADU 1 093"),
             style = t.Mono17, color = c.textDim,
             modifier = Modifier.align(Alignment.BottomStart).padding(16.dp),
         )
@@ -230,27 +300,40 @@ private fun ChipTag(text: String, accent: Boolean) {
     }
 }
 
+/** No real HFR/RMS/SNR numbers exist anywhere on the wire yet — genuinely blocked on the Media channel (M4). */
 @Composable
 private fun StatsRow(state: SimState, ctrl: SessionController) {
+    val real = state.isRealRig
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
         MiniStat(
-            label = "HFR", value = "2.31", sub = "▼ 0.04", subColor = NocturneTheme.colors.ok,
+            label = "HFR",
+            value = if (real) "—" else "2.31",
+            sub = if (real) "not available (M4)" else "▼ 0.04",
+            subColor = if (real) NocturneTheme.colors.textFaint else NocturneTheme.colors.ok,
             onClick = { ctrl.openSheet(SheetType.FOCUS) },
             modifier = Modifier.weight(1f),
         )
         Spacer(Modifier.width(8.4.dp))
         MiniStat(
-            label = "RMS", value = String.format("%.2f", state.rms) + "\"",
+            label = "RMS",
+            value = if (real) "—" else String.format("%.2f", state.rms) + "\"",
+            sub = if (real) "not available (M4)" else null,
+            subColor = NocturneTheme.colors.textFaint,
             onClick = { ctrl.openSheet(SheetType.GUIDE) },
             modifier = Modifier.weight(1f),
-            content = {
-                Spacer(Modifier.height(4.dp))
-                MiniTrace(t = state.t, modifier = Modifier.fillMaxWidth().height(16.dp))
+            content = if (real) null else {
+                {
+                    Spacer(Modifier.height(4.dp))
+                    MiniTrace(t = state.t, modifier = Modifier.fillMaxWidth().height(16.dp))
+                }
             },
         )
         Spacer(Modifier.width(8.4.dp))
         MiniStat(
-            label = "SNR", value = "41.2", sub = "bkg 1 093", subColor = NocturneTheme.colors.textMuted,
+            label = "SNR",
+            value = if (real) "—" else "41.2",
+            sub = if (real) "not available (M4)" else "bkg 1 093",
+            subColor = NocturneTheme.colors.textMuted,
             modifier = Modifier.weight(1f),
         )
     }
@@ -287,10 +370,19 @@ private fun MiniStat(
     }
 }
 
+/**
+ * Real rig: no wire RPC exists for a manual flip trigger at all (`executeMeridianFlip` is an
+ * enable/disable *setting*, not a command — see `EkosRemoteController`'s doc on
+ * `requestFlipNow`/`requestDeferFlip`, which have no real override and would silently no-op on a
+ * real rig if left tappable) — so FLIP NOW/DEFER are disabled with an honest explanation instead
+ * of a fake countdown. Real pier side/auto-flip state shown in their place (no T-minus number
+ * exists on the wire — would need real RA + local sidereal time, neither modeled anywhere today).
+ */
 @Composable
 private fun FlipBanner(state: SimState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
+    val real = state.isRealRig
     Row(
         Modifier
             .fillMaxWidth()
@@ -303,24 +395,38 @@ private fun FlipBanner(state: SimState, ctrl: SessionController) {
         Spacer(Modifier.width(11.2.dp))
         Column(Modifier.weight(1f)) {
             TextC("MERIDIAN FLIP", style = t.MicroLabel, color = c.warn)
-            TextC("${state.flipIn} · auto, pauses guiding", style = t.Mono15, color = c.text)
+            if (real) {
+                val pier = state.mountPierSideLabel ?: "unknown"
+                val autoFlip = when (state.wireMountSettings?.executeMeridianFlip) {
+                    true -> "auto-flip on"
+                    false -> "auto-flip off"
+                    null -> "auto-flip ?"
+                }
+                TextC("pier $pier · $autoFlip", style = t.Mono15, color = c.text)
+                TextC(
+                    "no real trigger — flip is an enable/disable setting, not a manual command",
+                    style = t.MonoMicro, color = c.textFaint,
+                )
+            } else {
+                TextC("${state.flipIn} · auto, pauses guiding", style = t.Mono15, color = c.text)
+            }
         }
         Box(
             Modifier
-                .border(1.dp, c.warn, RoundedCornerShape(8.dp))
-                .clickable { ctrl.requestFlipNow() }
+                .border(1.dp, c.warn.copy(alpha = if (real) 0.25f else 1f), RoundedCornerShape(8.dp))
+                .let { if (real) it else it.clickable { ctrl.requestFlipNow() } }
                 .padding(horizontal = 9.dp, vertical = 6.dp),
         ) {
-            TextC("FLIP NOW", style = t.Button12, color = c.warn)
+            TextC("FLIP NOW", style = t.Button12, color = c.warn.copy(alpha = if (real) 0.4f else 1f))
         }
         Spacer(Modifier.width(8.dp))
         Box(
             Modifier
-                .border(1.dp, c.warn.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-                .clickable { ctrl.requestDeferFlip() }
+                .border(1.dp, c.warn.copy(alpha = if (real) 0.15f else 0.5f), RoundedCornerShape(8.dp))
+                .let { if (real) it else it.clickable { ctrl.requestDeferFlip() } }
                 .padding(horizontal = 9.dp, vertical = 6.dp),
         ) {
-            TextC("DEFER", style = t.Button12, color = c.warn)
+            TextC("DEFER", style = t.Button12, color = c.warn.copy(alpha = if (real) 0.4f else 1f))
         }
     }
 }
