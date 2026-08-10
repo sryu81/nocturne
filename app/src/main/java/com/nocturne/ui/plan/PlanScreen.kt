@@ -35,6 +35,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 import com.nocturne.session.SessionController
 import com.nocturne.session.SimState
 import com.nocturne.session.formatSiteTime
@@ -262,12 +263,27 @@ private fun TargetRow(tg: Target, selected: Boolean, onClick: () -> Unit) {
  * cheap enough to just re-request every time the framed target changes (`LaunchedEffect(tgt.id)`)
  * rather than tracking staleness here. "flip" has no real data anywhere in this app (see
  * `FlipBanner`'s own doc) so it's simply omitted under a real rig, same as `NightArcCard`.
+ *
+ * **Real bug found live (2026-08-09)**: `realDayFraction` et al. are `Instant.now()`-based, which
+ * Compose has no reason to ever re-evaluate on its own — with no periodic trigger, the "now"
+ * position silently freezes at whatever wall-clock time this composable last happened to
+ * recompose for some *other* reason (a wire event). Confirmed live: M104 shown "rising" hours
+ * after it had actually set, because nothing had touched `state` since it was framed. The `tick`
+ * below exists purely to force a redraw every 30s so real time keeps advancing on screen.
  */
 @Composable
 private fun TargetCard(state: SimState, ctrl: SessionController, tgt: Target) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     LaunchedEffect(tgt.id) { ctrl.ensureTargetRiseset(tgt.id) }
+    var tick by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(30_000)
+            tick++
+        }
+    }
+    @Suppress("UNUSED_EXPRESSION") tick
     val real = state.isRealRig
     val targetName = tgt.realLookupName
     val riseset = state.wireTargetRiseset?.takeIf { it.name == targetName }

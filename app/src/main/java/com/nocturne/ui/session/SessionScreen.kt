@@ -14,7 +14,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -109,11 +114,26 @@ private fun IdleSessionCard(state: SimState, modifier: Modifier) {
  * ([SequenceJob.totalPlannedSec]/[SequenceJob.totalDoneSec]) once [SequenceJob.synced]; the
  * per-sub "X left" countdown the simulator shows has no real equivalent (blocked on the Media
  * channel, same M4 gap as `StatsRow`/`SubPreview`) so it's dropped, not fabricated, in that case.
+ *
+ * **Real bug found live (2026-08-09)**: all of the above is `Instant.now()`-based, which Compose
+ * has no reason to ever re-evaluate on its own — with no periodic trigger, the "now" position
+ * silently freezes at whatever wall-clock time this composable last happened to recompose for any
+ * *other* reason (a wire event). Confirmed live: a target shown "rising" hours after it had
+ * actually set, because nothing had touched `state` since. The `tick` below exists purely to force
+ * a redraw every 30s so real time keeps advancing on screen without needing an unrelated event.
  */
 @Composable
 private fun NightArcCard(state: SimState) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
+    var tick by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(30_000)
+            tick++
+        }
+    }
+    @Suppress("UNUSED_EXPRESSION") tick
     val job = state.contractJob
     val realProgress = job != null && job.synced
     val real = state.isRealRig
