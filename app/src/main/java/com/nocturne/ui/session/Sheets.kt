@@ -1806,7 +1806,7 @@ private fun PaStep2(state: SimState, ctrl: SessionController, landscape: Boolean
                     Box(
                         Modifier
                             .weight(1f)
-                            .height(34.dp)
+                            .height(40.dp)
                             .background(if (sel) c.accent.copy(alpha = 0.2f) else Color.Transparent)
                             .clickable { ctrl.setPaRate(i) },
                         contentAlignment = Alignment.Center,
@@ -2094,7 +2094,7 @@ private fun IndiPropertyPanel(deviceKey: String, props: List<IndiProperty>, ctrl
                         Box(
                             Modifier
                                 .weight(1f)
-                                .height(34.dp)
+                                .height(40.dp)
                                 .background(if (sel) c.accent.copy(alpha = 0.2f) else Color.Transparent, RoundedCornerShape(4.dp))
                                 .border(1.dp, if (sel) c.accent else c.divider, RoundedCornerShape(4.dp))
                                 .clickable { ctrl.setIndiSwitch(deviceKey, prop.name, i) },

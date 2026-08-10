@@ -516,13 +516,13 @@ private fun MountControlCard(state: SimState, ctrl: SessionController) {
                         val sel = selectedRateIndex == i
                         Box(
                             Modifier
-                                .width(44.dp)
-                                .height(32.dp)
+                                .width(48.dp)
+                                .height(40.dp)
                                 .background(if (sel) c.accent.copy(alpha = 0.2f) else Color.Transparent)
                                 .clickable { ctrl.setRate(i) },
                             contentAlignment = Alignment.Center,
                         ) {
-                            TextC(label, style = t.MonoMicro, color = if (sel) c.accent400 else c.neutral500)
+                            TextC(label, style = t.MonoSmall, color = if (sel) c.accent400 else c.neutral500)
                         }
                     }
                 }
@@ -541,7 +541,7 @@ private fun MountControlCard(state: SimState, ctrl: SessionController) {
                 onClick = ctrl::parkMount,
                 style = if (parked) BtnStyle.SOLID else BtnStyle.SUBTLE,
                 enabled = !parked,
-                modifier = Modifier.weight(1f).height(38.dp),
+                modifier = Modifier.weight(1f).height(44.dp),
             )
             Spacer(Modifier.width(8.4.dp))
             NocturneButton(
@@ -549,7 +549,7 @@ private fun MountControlCard(state: SimState, ctrl: SessionController) {
                 onClick = ctrl::unparkMount,
                 style = if (!parked) BtnStyle.SOLID else BtnStyle.SUBTLE,
                 enabled = parked,
-                modifier = Modifier.weight(1f).height(38.dp),
+                modifier = Modifier.weight(1f).height(44.dp),
             )
         }
         Spacer(Modifier.height(8.4.dp))
@@ -559,14 +559,14 @@ private fun MountControlCard(state: SimState, ctrl: SessionController) {
                 onClick = { ctrl.setIndiSwitch(state.primaryTrain.mount, "TELESCOPE_HOME", 1) },
                 style = BtnStyle.SUBTLE,
                 enabled = state.wireDevices != null,
-                modifier = Modifier.weight(1f).height(38.dp),
+                modifier = Modifier.weight(1f).height(44.dp),
             )
             Spacer(Modifier.width(8.4.dp))
             NocturneButton(
                 text = if (trackingOn) "Tracking: ON" else "Tracking: OFF",
                 onClick = { ctrl.setMountTracking(!trackingOn) },
                 style = if (trackingOn) BtnStyle.SOLID else BtnStyle.SUBTLE,
-                modifier = Modifier.weight(1f).height(38.dp),
+                modifier = Modifier.weight(1f).height(44.dp),
             )
         }
     }
@@ -576,7 +576,7 @@ private fun MountControlCard(state: SimState, ctrl: SessionController) {
 private fun DPad(state: SimState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
-    Box(Modifier.width(142.dp).height(142.dp)) {
+    Box(Modifier.width(152.dp).height(152.dp)) {
         val dirs = listOf(
             Triple("N", Phosphor.CaretUp, Modifier.align(Alignment.TopCenter)),
             Triple("W", Phosphor.CaretLeft, Modifier.align(Alignment.CenterStart)),
@@ -590,18 +590,18 @@ private fun DPad(state: SimState, ctrl: SessionController) {
             val sel = state.slewDir == k
             Box(
                 mod
-                    .size(44.dp)
+                    .size(48.dp)
                     .background(if (sel) c.accent else c.text.copy(alpha = 0.05f), RoundedCornerShape(4.dp))
                     .clickable { ctrl.setSlewDir(k) },
                 contentAlignment = Alignment.Center,
             ) {
-                Phosphor.Icon(icon, size = 20.dp, tint = if (sel) c.surfaceDeep else c.neutral400)
+                Phosphor.Icon(icon, size = 22.dp, tint = if (sel) c.surfaceDeep else c.neutral400)
             }
         }
         Box(
             Modifier
                 .align(Alignment.Center)
-                .size(44.dp)
+                .size(48.dp)
                 .border(1.dp, c.danger.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
                 .clickable { ctrl.stopSlew() },
             contentAlignment = Alignment.Center,
