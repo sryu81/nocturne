@@ -1168,6 +1168,24 @@ val SimState.realNowFraction: Double? get() {
     return (now.epochSecond - dusk.epochSecond).toDouble() / totalSec
 }
 
+/**
+ * "T-H:MM" real countdown to the *next* dusk — shown when [realNowFraction] is null because
+ * we're outside tonight's dark window (daytime, or already past dawn). Dusk recurs roughly every
+ * 24h; adding a day to [realNightWindow]'s own dusk instant whenever it's already in the past
+ * (the "already past dawn, waiting for tonight" case) lands on the correct next occurrence
+ * without needing a second almanac fetch — confirmed sound because the dawn-to-next-dusk gap is
+ * always well under 24h.
+ */
+val SimState.realCountdownToDusk: String? get() {
+    val (dusk, _) = realNightWindow ?: return null
+    val now = Instant.now()
+    val nextDusk = if (!dusk.isBefore(now)) dusk else dusk.plusSeconds(86400)
+    val totalSec = (nextDusk.epochSecond - now.epochSecond).coerceAtLeast(0)
+    val h = totalSec / 3600
+    val m = (totalSec % 3600) / 60
+    return "T-$h:${m.toString().padStart(2, '0')}"
+}
+
 internal fun SimState.mapJob(jobId: String, f: (SequenceJob) -> SequenceJob): SimState =
     copy(jobs = jobs.map { if (it.id == jobId) f(it) else it })
 

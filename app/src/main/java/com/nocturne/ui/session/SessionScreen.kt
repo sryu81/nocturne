@@ -31,6 +31,7 @@ import com.nocturne.session.flipIn
 import com.nocturne.session.formatSiteTime
 import com.nocturne.session.mountPierSideLabel
 import com.nocturne.session.plannedHM
+import com.nocturne.session.realCountdownToDusk
 import com.nocturne.session.realNightWindow
 import com.nocturne.session.realNowFraction
 import com.nocturne.session.rms
@@ -129,14 +130,20 @@ private fun NightArcCard(state: SimState) {
         Spacer(Modifier.height(4.dp))
         if (real && nowFrac == null) {
             Box(Modifier.fillMaxWidth().height(176.dp), contentAlignment = Alignment.Center) {
-                TextC(
-                    if (window == null) {
-                        "fetching real dusk/dawn…"
-                    } else {
-                        "outside tonight's dark window (${state.formatSiteTime(window.first)}–${state.formatSiteTime(window.second)})"
-                    },
-                    style = t.Body13, color = c.textMuted,
-                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    TextC(
+                        if (window == null) {
+                            "fetching real dusk/dawn…"
+                        } else {
+                            "outside tonight's dark window (${state.formatSiteTime(window.first)}–${state.formatSiteTime(window.second)})"
+                        },
+                        style = t.Body13, color = c.textMuted,
+                    )
+                    state.realCountdownToDusk?.let { countdown ->
+                        Spacer(Modifier.height(11.2.dp))
+                        TextC(countdown, style = t.Mono34, color = c.ok)
+                    }
+                }
             }
         } else {
             Box(

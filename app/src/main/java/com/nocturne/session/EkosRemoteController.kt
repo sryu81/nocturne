@@ -1322,7 +1322,13 @@ class EkosRemoteController(
             update { s -> s.mapJob(jobId) { it.copy(synced = false, wireIndex = null) } }
             return
         }
+        startRealJob(jobId)
+        super.toggleJobRun(jobId) // optimistic running=true; synced flips true once the chain below confirms
+    }
 
+    /** The "start" half of [toggleJobRun] — see its own doc for the full save→settings→add→get→start chain. Factored out so [resumeSession]/[startNextJob] can re-run it without re-triggering the running-vs-not branch above. */
+    private fun startRealJob(jobId: String) {
+        val job = _state.value.jobs.firstOrNull { it.id == jobId } ?: return
         val s = _state.value
         val target = s.findTarget(job.targetId)
         val targetName = target?.common ?: target?.id ?: job.targetId
@@ -1337,7 +1343,6 @@ class EkosRemoteController(
             raDec = target?.coords?.let { parseCoordsToRaDecBox(it) },
             trainName = s.moduleTrainAssignments?.get("capture") ?: s.wireTrains?.firstOrNull()?.name,
         )
-        super.toggleJobRun(jobId) // optimistic running=true; synced flips true once the chain below confirms
     }
 
     override fun removeJob(jobId: String) {
@@ -1346,6 +1351,52 @@ class EkosRemoteController(
             stopSchedulerThenRemove(job.wireIndex)
         }
         super.removeJob(jobId)
+    }
+
+    /**
+     * Real Ekos has no "session" concept of its own — the base `endSession()`/`finishNight()`
+     * only ever flip local state (`running = false`, or wipe `jobs` entirely). Neither had an
+     * `EkosRemoteController` override at all before this fix, confirmed by a real user report:
+     * tapping "End session" on a real, still-synced job left it exactly as-is on the real
+     * Scheduler — still added, possibly still actively imaging — while the app itself moved on to
+     * the Summary sheet as if it had stopped. Same real-Scheduler-must-be-toggled-off-first
+     * requirement as [removeJob]/[toggleJobRun]'s stop path (see [stopSchedulerThenRemove]'s doc).
+     */
+    override fun endSession() {
+        val contract = _state.value.contractJob
+        if (contract != null && contract.synced && contract.wireIndex != null) {
+            stopSchedulerThenRemove(contract.wireIndex)
+        }
+        super.endSession()
+        if (contract != null) {
+            update { s -> s.mapJob(contract.id) { it.copy(synced = false, wireIndex = null) } }
+        }
+    }
+
+    /** See [endSession]'s doc. Removes highest wireIndex first — removing by index shifts every later job's real index, so ascending order would remove the wrong jobs partway through. */
+    override fun finishNight() {
+        _state.value.jobs.filter { it.synced && it.wireIndex != null }
+            .sortedByDescending { it.wireIndex }
+            .forEach { job -> stopSchedulerThenRemove(job.wireIndex!!) }
+        super.finishNight()
+    }
+
+    /**
+     * Direct consequence of [endSession] now correctly removing the real job: resuming (or
+     * advancing to the next job) must redo the real start sequence, or the app would claim
+     * "running" again while nothing is actually on the real Scheduler. Before the endSession fix,
+     * resume "worked" only by accident — nothing had ever been removed in the first place.
+     */
+    override fun resumeSession() {
+        val id = _state.value.lastEndedJobId
+        super.resumeSession()
+        if (id != null) startRealJob(id)
+    }
+
+    override fun startNextJob() {
+        val next = _state.value.jobs.firstOrNull { it.id != _state.value.lastEndedJobId }
+        super.startNextJob()
+        if (next != null) startRealJob(next.id)
     }
 
     /** See [schedulerRunning]'s doc — a running real Scheduler must be toggled off first. */
