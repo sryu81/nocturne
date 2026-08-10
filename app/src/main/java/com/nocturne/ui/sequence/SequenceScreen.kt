@@ -523,7 +523,7 @@ private fun NumberField(label: String, value: Int, suffix: String, modifier: Mod
         Row(
             Modifier
                 .fillMaxWidth()
-                .height(34.dp)
+                .height(40.dp)
                 .background(c.bg, RoundedCornerShape(4.dp))
                 .border(1.dp, c.divider, RoundedCornerShape(4.dp))
                 .padding(horizontal = 8.dp),

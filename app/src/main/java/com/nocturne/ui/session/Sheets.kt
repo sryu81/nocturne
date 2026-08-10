@@ -366,7 +366,7 @@ private fun AutofocusRulesSheet(state: SimState, ctrl: SessionController) {
         Row(
             Modifier
                 .fillMaxWidth()
-                .height(42.dp)
+                .height(48.dp)
                 .background(c.bg, RoundedCornerShape(4.dp))
                 .border(1.dp, c.divider, RoundedCornerShape(4.dp))
                 .padding(horizontal = 12.dp),
@@ -388,7 +388,7 @@ private fun AutofocusRulesSheet(state: SimState, ctrl: SessionController) {
         Row(
             Modifier
                 .fillMaxWidth()
-                .height(42.dp)
+                .height(48.dp)
                 .background(c.bg, RoundedCornerShape(4.dp))
                 .border(1.dp, c.divider, RoundedCornerShape(4.dp))
                 .padding(horizontal = 12.dp),
@@ -460,7 +460,7 @@ private fun SetupBody(state: SimState, ctrl: SessionController) {
             cursorBrush = SolidColor(c.accent),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(42.dp)
+                .height(48.dp)
                 .background(c.bg, RoundedCornerShape(4.dp))
                 .border(1.dp, c.divider, RoundedCornerShape(4.dp))
                 .padding(horizontal = 12.dp),
@@ -522,7 +522,7 @@ private fun ScopeInputFields(
         cursorBrush = SolidColor(c.accent),
         modifier = Modifier
             .fillMaxWidth()
-            .height(42.dp)
+            .height(48.dp)
             .background(c.bg, RoundedCornerShape(4.dp))
             .border(1.dp, c.divider, RoundedCornerShape(4.dp))
             .padding(horizontal = 12.dp),
@@ -557,7 +557,7 @@ private fun MmField(label: String, mm: Int, modifier: Modifier, onChange: (Int) 
         Row(
             Modifier
                 .fillMaxWidth()
-                .height(38.dp)
+                .height(44.dp)
                 .background(c.bg, RoundedCornerShape(4.dp))
                 .border(1.dp, c.divider, RoundedCornerShape(4.dp))
                 .padding(horizontal = 10.dp),
@@ -815,7 +815,7 @@ private fun MountSettingsSheet(state: SimState, ctrl: SessionController) {
             FieldLabel("Park time (HH:MM:SS)")
             Spacer(Modifier.height(5.dp))
             Box(
-                Modifier.fillMaxWidth().height(42.dp)
+                Modifier.fillMaxWidth().height(48.dp)
                     .background(c.bg, RoundedCornerShape(4.dp))
                     .border(1.dp, c.divider, RoundedCornerShape(4.dp))
                     .padding(horizontal = 12.dp),
@@ -853,7 +853,7 @@ private fun DegreeField(value: Double, unit: String, onChange: (Double) -> Unit)
     Row(
         Modifier
             .fillMaxWidth()
-            .height(42.dp)
+            .height(48.dp)
             .background(c.bg, RoundedCornerShape(4.dp))
             .border(1.dp, c.divider, RoundedCornerShape(4.dp))
             .padding(horizontal = 12.dp),
@@ -904,7 +904,7 @@ private fun CameraSettingsSheet(state: SimState, ctrl: SessionController) {
         FieldLabel("Save path")
         Spacer(Modifier.height(5.dp))
         Box(
-            Modifier.fillMaxWidth().height(42.dp)
+            Modifier.fillMaxWidth().height(48.dp)
                 .background(c.bg, RoundedCornerShape(4.dp))
                 .border(1.dp, c.divider, RoundedCornerShape(4.dp))
                 .padding(horizontal = 12.dp),
@@ -982,7 +982,7 @@ private fun IntField(value: Int, onChange: (Int) -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
-            .height(42.dp)
+            .height(48.dp)
             .background(c.bg, RoundedCornerShape(4.dp))
             .border(1.dp, c.divider, RoundedCornerShape(4.dp))
             .padding(horizontal = 12.dp),
@@ -1071,7 +1071,7 @@ private fun CycleChip(value: String, onTap: () -> Unit) {
     val t = NocturneTheme.type
     Box(
         Modifier
-            .height(42.dp)
+            .height(48.dp)
             .background(c.bg, RoundedCornerShape(4.dp))
             .border(1.dp, c.divider, RoundedCornerShape(4.dp))
             .clickable(onClick = onTap)
@@ -1205,7 +1205,7 @@ private fun FocusSettingsSheet(state: SimState, ctrl: SessionController) {
         FieldLabel("Autofocus algorithm")
         Spacer(Modifier.height(5.dp))
         Box(
-            Modifier.fillMaxWidth().height(42.dp)
+            Modifier.fillMaxWidth().height(48.dp)
                 .background(c.bg, RoundedCornerShape(4.dp))
                 .border(1.dp, c.divider, RoundedCornerShape(4.dp))
                 .padding(horizontal = 12.dp),
@@ -1274,7 +1274,7 @@ private fun MaintenanceSheet(state: SimState, ctrl: SessionController) {
         Box(
             Modifier
                 .fillMaxWidth()
-                .height(42.dp)
+                .height(48.dp)
                 .background(c.bg, RoundedCornerShape(4.dp))
                 .border(1.dp, c.divider, RoundedCornerShape(4.dp))
                 .padding(horizontal = 12.dp),
@@ -1296,7 +1296,7 @@ private fun MaintenanceSheet(state: SimState, ctrl: SessionController) {
         Box(
             Modifier
                 .fillMaxWidth()
-                .height(42.dp)
+                .height(48.dp)
                 .background(c.bg, RoundedCornerShape(4.dp))
                 .border(1.dp, c.divider, RoundedCornerShape(4.dp))
                 .padding(horizontal = 12.dp),
@@ -1543,7 +1543,7 @@ private fun ReducerField(value: Double, onChange: (Double) -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
-            .height(42.dp)
+            .height(48.dp)
             .background(c.bg, RoundedCornerShape(4.dp))
             .border(1.dp, c.divider, RoundedCornerShape(4.dp))
             .padding(horizontal = 12.dp),
@@ -2127,7 +2127,7 @@ private fun IndiPropertyPanel(deviceKey: String, props: List<IndiProperty>, ctrl
                     cursorBrush = SolidColor(c.accent),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(36.dp)
+                        .height(42.dp)
                         .background(c.surface, RoundedCornerShape(4.dp))
                         .border(1.dp, c.divider, RoundedCornerShape(4.dp))
                         .padding(horizontal = 10.dp),

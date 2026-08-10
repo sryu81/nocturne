@@ -82,7 +82,7 @@ fun TypedConfirmDialog(
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .height(42.dp)
+                    .height(48.dp)
                     .background(c.bg, RoundedCornerShape(4.dp))
                     .border(1.dp, c.divider, RoundedCornerShape(4.dp))
                     .padding(horizontal = 12.dp),

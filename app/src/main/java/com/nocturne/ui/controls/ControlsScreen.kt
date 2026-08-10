@@ -256,7 +256,7 @@ private fun MiniField(label: String, value: Double, unit: String, modifier: Modi
         Row(
             Modifier
                 .fillMaxWidth()
-                .height(34.dp)
+                .height(40.dp)
                 .background(c.bg, RoundedCornerShape(4.dp))
                 .border(1.dp, c.divider, RoundedCornerShape(4.dp))
                 .padding(horizontal = 10.dp),
@@ -286,7 +286,7 @@ private fun <T> BinCycleChip(value: T, options: List<T>, labelOf: (T) -> String,
     val t = NocturneTheme.type
     Box(
         Modifier
-            .height(34.dp)
+            .height(40.dp)
             .background(c.bg, RoundedCornerShape(4.dp))
             .border(1.dp, c.divider, RoundedCornerShape(4.dp))
             .clickable { onSelect(options[(options.indexOf(value) + 1).mod(options.size)]) }

@@ -126,12 +126,15 @@ object NocturneType {
         letterSpacing = letter.sp,
     )
 
-    val MonoMicro = mono(9f)
-    val MonoMini = mono(9.5f)
-    val MonoTiny = mono(10f)
-    val MonoSmall = mono(11f)
-    val Mono115 = mono(11.5f)
-    val MonoMid = mono(12f)
+    // Bumped from 9/9.5/10/11/11.5/12 — user feedback: sub-titles/section labels/mono captions
+    // app-wide read as too small. These are the highest-leverage edit for that: every screen
+    // consumes NocturneType as a singleton, so this one change propagates everywhere at once.
+    val MonoMicro = mono(10.5f)
+    val MonoMini = mono(10.5f)
+    val MonoTiny = mono(11f)
+    val MonoSmall = mono(12.5f)
+    val Mono115 = mono(13f)
+    val MonoMid = mono(13.5f)
     val Mono13 = mono(13f)
     val Mono14 = mono(14f)
     val Mono15 = mono(15f)
@@ -152,28 +155,29 @@ object NocturneType {
         letterSpacing = letter.sp,
     )
 
-    /** 9.5px plain meta (card captions) */
-    val Micro = body(9.5f)
-    /** 9.5px letter-spaced uppercase */
-    val MicroLabel = body(9.5f, letter = 0.855f)
-    /** 10px letter-spaced uppercase */
-    val MicroUppercase = body(10f, FontWeight.Medium, 0.9f)
-    /** 10px plain */
-    val Caption10 = body(10f)
-    /** 11px body */
-    val Caption = body(11f)
-    /** 11px medium */
-    val CaptionMedium = body(11f, FontWeight.Medium)
-    /** 13px body */
-    val Body13 = body(13f)
-    /** 13.5px body (device/row names) */
-    val Body135 = body(13.5f)
-    /** 12px medium button */
-    val Button12 = body(12f, FontWeight.Medium)
-    /** 13px medium button */
-    val Button13 = body(13f, FontWeight.Medium)
-    /** 14px medium button */
-    val Button14 = body(14f, FontWeight.Medium, 0f)
+    // Same bump-for-readability pass as the Mono* tier above (was 9.5/9.5/10/10/11/11/13/13.5).
+    /** plain meta (card captions) */
+    val Micro = body(11f)
+    /** letter-spaced uppercase — the "NIGHT ARC"/"SKY & SITE" section-kicker tier */
+    val MicroLabel = body(11.5f, letter = 0.855f)
+    /** letter-spaced uppercase */
+    val MicroUppercase = body(12f, FontWeight.Medium, 0.9f)
+    /** plain */
+    val Caption10 = body(11.5f)
+    /** body */
+    val Caption = body(12.5f)
+    /** medium */
+    val CaptionMedium = body(12.5f, FontWeight.Medium)
+    /** body */
+    val Body13 = body(14.5f)
+    /** body (device/row names) */
+    val Body135 = body(15f)
+    /** medium button */
+    val Button12 = body(13.5f, FontWeight.Medium)
+    /** medium button */
+    val Button13 = body(14.5f, FontWeight.Medium)
+    /** medium button */
+    val Button14 = body(15.5f, FontWeight.Medium, 0f)
 
     /** Material shim so material3 widgets inherit Nocturne type. */
     val Material: Typography = Typography().let { base ->

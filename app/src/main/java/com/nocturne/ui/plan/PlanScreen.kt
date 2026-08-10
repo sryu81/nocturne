@@ -160,7 +160,7 @@ private fun SearchBar(
     Row(
         Modifier
             .fillMaxWidth()
-            .height(42.dp)
+            .height(48.dp)
             .background(c.surface, RoundedCornerShape(10.dp))
             .border(1.dp, c.divider, RoundedCornerShape(10.dp))
             .padding(horizontal = 12.dp),
@@ -476,7 +476,7 @@ private fun EditableField(label: String, value: String, onChange: (String) -> Un
         Box(
             Modifier
                 .fillMaxWidth()
-                .height(34.dp)
+                .height(40.dp)
                 .background(c.surface, RoundedCornerShape(4.dp))
                 .border(1.dp, c.divider, RoundedCornerShape(4.dp))
                 .padding(horizontal = 8.dp),

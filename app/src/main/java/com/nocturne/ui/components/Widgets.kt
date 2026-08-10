@@ -81,7 +81,7 @@ fun NocturneButton(
     }
     val shape = RoundedCornerShape(10.dp)
     val base = Modifier
-        .height(34.dp)
+        .height(38.dp) // was 34 — most call sites override with their own explicit height anyway
         .background(bg, shape)
         .padding(horizontal = 14.dp)
         .clickable(enabled = enabled, onClick = onClick)
