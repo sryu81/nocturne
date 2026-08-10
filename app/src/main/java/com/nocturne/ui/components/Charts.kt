@@ -119,16 +119,28 @@ fun NightArc(
     }
 }
 
-/** Plan-tab altitude chart (viewBox 348×118, stretched). */
+/**
+ * Plan-tab altitude chart (viewBox 348×118, stretched). [realAltitudes] (49 real points spanning
+ * ±12h around local midnight, see `WireRiseset.altitudes`'s own doc) and [realNowFraction] (see
+ * `SimState.realDayFraction`) replace the decorative fixture curve + fixed-pixel "now" dot once
+ * both have arrived for the currently-framed target — until then (simulator, or before the fetch
+ * lands) this keeps rendering the exact same fixture shape it always has, zero regression. There's
+ * no real "flip" (meridian-flip time) data anywhere in this app (see `FlipBanner`'s own doc) so
+ * that dashed line is real-mode-only omitted, same treatment as Session tab's `NightArcCard`.
+ */
 @Composable
-fun AltitudeChart(modifier: Modifier) {
+fun AltitudeChart(modifier: Modifier, realAltitudes: List<Double>? = null, realNowFraction: Double? = null) {
     val colors = com.nocturne.ui.theme.NocturneTheme.colors
-    val curve = listOf(
+    val fixtureCurve = listOf(
         "0,96", "40,80", "80,64", "120,48", "160,33", "200,26", "240,32", "280,48", "320,70", "348,86",
     ).map { p ->
         val parts = p.split(",")
         Offset(parts[0].toFloat(), parts[1].toFloat())
     }
+    // Real altitudes are degrees, +90..-90 — mapped onto the same 0..118 viewBox height the
+    // fixture curve uses, high altitude at the top (y=8) down to low/below-horizon at the bottom
+    // (y=110), leaving a small margin either side.
+    fun altY(alt: Double) = (((90.0 - alt) / 180.0) * 102.0 + 8.0).toFloat()
     Canvas(modifier = modifier) {
         fun sx(x: Float) = x / 348f * size.width
         fun sy(y: Float) = y / 118f * size.height
@@ -140,20 +152,47 @@ fun AltitudeChart(modifier: Modifier) {
             Color(0xFFE9E9ED).copy(alpha = 0.07f),
             Offset(0f, sy(50f)), Offset(size.width, sy(50f)), strokeWidth = 1f,
         )
-        val path = Path().apply {
-            moveTo(sx(curve[0].x), sy(curve[0].y))
-            curve.drop(1).forEach { lineTo(sx(it.x), sy(it.y)) }
+        if (realAltitudes != null && realAltitudes.size >= 2) {
+            // Real horizon (alt=0) line, in place of the fixture's second fixed guide line.
+            drawLine(
+                colors.warn.copy(alpha = 0.3f),
+                Offset(0f, sy(altY(0.0))), Offset(size.width, sy(altY(0.0))), strokeWidth = 1f,
+            )
+            val n = realAltitudes.size
+            val path = Path().apply {
+                realAltitudes.forEachIndexed { i, alt ->
+                    val x = sx(i.toFloat() / (n - 1) * 348f)
+                    val y = sy(altY(alt))
+                    if (i == 0) moveTo(x, y) else lineTo(x, y)
+                }
+            }
+            drawPath(path, colors.accent, style = Stroke(width = 2f))
+            if (realNowFraction != null) {
+                val idx = (realNowFraction * (n - 1)).coerceIn(0.0, (n - 1).toDouble())
+                val lo = idx.toInt().coerceIn(0, n - 1)
+                val hi = (lo + 1).coerceAtMost(n - 1)
+                val frac = idx - lo
+                val nowAlt = realAltitudes[lo] + (realAltitudes[hi] - realAltitudes[lo]) * frac
+                val nowX = sx((realNowFraction * 348f).toFloat())
+                drawLine(Color(0xFFE9E9ED), Offset(nowX, 0f), Offset(nowX, size.height), strokeWidth = 1f)
+                drawCircle(Color(0xFFE9E9ED), radius = 3.5f, center = Offset(nowX, sy(altY(nowAlt))))
+            }
+        } else {
+            val path = Path().apply {
+                moveTo(sx(fixtureCurve[0].x), sy(fixtureCurve[0].y))
+                fixtureCurve.drop(1).forEach { lineTo(sx(it.x), sy(it.y)) }
+            }
+            drawPath(path, colors.accent, style = Stroke(width = 2f))
+            drawLine(
+                colors.warn, Offset(sx(208f), 0f), Offset(sx(208f), size.height),
+                strokeWidth = 1f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 8f)),
+            )
+            drawLine(
+                Color(0xFFE9E9ED), Offset(sx(118f), 0f), Offset(sx(118f), size.height),
+                strokeWidth = 1f,
+            )
+            drawCircle(Color(0xFFE9E9ED), radius = 3.5f, center = Offset(sx(118f), sy(49f)))
         }
-        drawPath(path, colors.accent, style = Stroke(width = 2f))
-        drawLine(
-            colors.warn, Offset(sx(208f), 0f), Offset(sx(208f), size.height),
-            strokeWidth = 1f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 8f)),
-        )
-        drawLine(
-            Color(0xFFE9E9ED), Offset(sx(118f), 0f), Offset(sx(118f), size.height),
-            strokeWidth = 1f,
-        )
-        drawCircle(Color(0xFFE9E9ED), radius = 3.5f, center = Offset(sx(118f), sy(49f)))
     }
 }
 

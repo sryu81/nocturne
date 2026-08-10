@@ -6,6 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,6 +37,10 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import com.nocturne.session.SessionController
 import com.nocturne.session.SimState
+import com.nocturne.session.formatSiteTime
+import com.nocturne.session.realDayFraction
+import com.nocturne.session.realDayWindow
+import com.nocturne.session.realLookupName
 import com.nocturne.session.TARGETS
 import com.nocturne.session.Target
 import com.nocturne.session.displayName
@@ -106,7 +112,7 @@ fun PlanScreen(
             },
             TabItem(full = true) { ResultsList(state, ctrl, matches, live = state.wireSearchResults != null) },
             TabItem(full = true) { UserCatalogSection(state, ctrl, userMatches) },
-            TabItem(full = true) { TargetCard(tgt) },
+            TabItem(full = true) { TargetCard(state, ctrl, tgt) },
             TabItem(full = true) { FramingCard(state, ctrl) },
             TabItem(full = true) {
                 Column(Modifier.fillMaxWidth()) {
@@ -249,10 +255,27 @@ private fun TargetRow(tg: Target, selected: Boolean, onClick: () -> Unit) {
     }
 }
 
+/**
+ * Real per-target altitude data ([SimState.wireTargetRiseset], fetched on demand — see
+ * [SessionController.ensureTargetRiseset]) replaces the chart's fixture curve and the "21:48"/
+ * "now"/"04:12" fixed literals once it's arrived *for this exact target*; the fetch itself is
+ * cheap enough to just re-request every time the framed target changes (`LaunchedEffect(tgt.id)`)
+ * rather than tracking staleness here. "flip" has no real data anywhere in this app (see
+ * `FlipBanner`'s own doc) so it's simply omitted under a real rig, same as `NightArcCard`.
+ */
 @Composable
-private fun TargetCard(tgt: Target) {
+private fun TargetCard(state: SimState, ctrl: SessionController, tgt: Target) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
+    LaunchedEffect(tgt.id) { ctrl.ensureTargetRiseset(tgt.id) }
+    val real = state.isRealRig
+    val targetName = tgt.realLookupName
+    val riseset = state.wireTargetRiseset?.takeIf { it.name == targetName }
+    val realAltitudes = riseset?.altitudes?.takeIf { it.size >= 2 }
+    val nowFraction = if (real) state.realDayFraction else null
+    val window = if (real) state.realDayWindow else null
+    val maxAlt = riseset?.altitudes?.maxOrNull()?.let { kotlin.math.round(it).toInt() } ?: tgt.max
+    val peak = riseset?.transit ?: tgt.peak
     com.nocturne.ui.components.Card {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -265,18 +288,31 @@ private fun TargetCard(tgt: Target) {
             TextC("${tgt.usable ?: "—"} usable", style = t.MonoMicro, color = c.accent400)
         }
         Spacer(Modifier.height(4.dp))
-        Box(
+        BoxWithConstraints(
             Modifier
                 .fillMaxWidth()
                 .height(118.dp),
         ) {
-            AltitudeChart(Modifier.fillMaxSize())
-            TextC("21:48", style = t.MonoMicro, color = c.textFaint, modifier = Modifier.align(Alignment.BottomStart))
-            TextC("now", style = t.MonoMicro, color = c.text, modifier = Modifier.align(Alignment.BottomStart).padding(start = 104.dp))
-            TextC("flip", style = t.MonoMicro, color = c.warn, modifier = Modifier.align(Alignment.BottomStart).padding(start = 186.dp))
-            TextC("04:12", style = t.MonoMicro, color = c.textFaint, modifier = Modifier.align(Alignment.BottomEnd))
+            AltitudeChart(Modifier.fillMaxSize(), realAltitudes = realAltitudes, realNowFraction = nowFraction)
             TextC(
-                "max ${tgt.max?.let { "$it°" } ?: "—"} @ ${tgt.peak ?: "—"}", style = t.MonoMicro, color = c.textMuted,
+                window?.let { state.formatSiteTime(it.first) } ?: "21:48",
+                style = t.MonoMicro, color = c.textFaint, modifier = Modifier.align(Alignment.BottomStart),
+            )
+            if (realAltitudes != null && nowFraction != null) {
+                TextC(
+                    "now", style = t.MonoMicro, color = c.text,
+                    modifier = Modifier.align(Alignment.BottomStart).padding(start = maxWidth * nowFraction.toFloat()),
+                )
+            } else {
+                TextC("now", style = t.MonoMicro, color = c.text, modifier = Modifier.align(Alignment.BottomStart).padding(start = 104.dp))
+                TextC("flip", style = t.MonoMicro, color = c.warn, modifier = Modifier.align(Alignment.BottomStart).padding(start = 186.dp))
+            }
+            TextC(
+                window?.let { state.formatSiteTime(it.second) } ?: "04:12",
+                style = t.MonoMicro, color = c.textFaint, modifier = Modifier.align(Alignment.BottomEnd),
+            )
+            TextC(
+                "max ${maxAlt?.let { "$it°" } ?: "—"} @ ${peak ?: "—"}", style = t.MonoMicro, color = c.textMuted,
                 modifier = Modifier.align(Alignment.TopEnd),
             )
         }

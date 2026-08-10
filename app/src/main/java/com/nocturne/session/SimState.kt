@@ -6,6 +6,7 @@ import com.nocturne.protocol.WireCaptureSettings
 import com.nocturne.protocol.WireFocusSettings
 import com.nocturne.protocol.WireGuideSettings
 import com.nocturne.protocol.WireMountSettings
+import com.nocturne.protocol.WireRiseset
 import com.nocturne.protocol.WireSchedulerJob
 import com.nocturne.protocol.WireTrain
 import java.time.Instant
@@ -301,6 +302,14 @@ data class SimState(
     val wireDawn: Double? = null,
     /** `astro_get_location`'s `tz` — real signed UTC hour offset, needed to resolve [wireDusk]/[wireDawn] into an absolute instant. Null until the first reply. */
     val wireSiteTz: Double? = null,
+    /**
+     * Real `astro_get_objects_riseset` for the Plan tab's *currently framed* target specifically —
+     * independent of [wireSearchResults]' own riseset-driven fields (`Target.max`/`peak`), which
+     * only ever cover live search results, never the fixture `TARGETS` catalog or custom targets.
+     * Populated on demand (see [EkosRemoteController.ensureTargetRiseset]) whenever the framed
+     * target changes; check `.name` matches the framed target before trusting it — real-rig only.
+     */
+    val wireTargetRiseset: WireRiseset? = null,
     /** True under [EkosRemoteController]; false under [SimulatedController] — gates [MAINTENANCE] sheet's rig-reboot UI, which is meaningless without a real Pi. */
     val isRealRig: Boolean = false,
     /** Companion reboot daemon's port on the rig's Pi — separate from the EkosRemote wire port (see `pi-tools/reboot-daemon/`). */
@@ -1011,6 +1020,20 @@ fun SimState.findTarget(id: String): Target? =
 /** "NGC 7000 — North America" for the well-known catalog; just the name for custom targets (no catalog id to show). */
 val Target.displayName: String get() = if (custom) common else "$id — $common"
 
+/**
+ * The name to send to any real wire call that resolves an object by name (`mount_goto_target`,
+ * `astro_get_objects_riseset`, the Scheduler's `nameEdit`, etc.) — **not** [displayName] or
+ * [common] unconditionally. For the fixture `TARGETS` catalog, `id` is the real resolvable
+ * designation ("NGC 7000") while `common` is just the human nickname ("North America"), which
+ * real KStars won't resolve as an object name at all — confirmed live (a real
+ * `astro_get_objects_riseset { "names": ["North America"] }` call was the original bug here).
+ * For a live search result, `id`/`common` are already identical (both the resolved catalog name),
+ * so this is a no-op there. Only for a user's custom target — where `id` is a synthetic
+ * `"custom_N"` string, not resolvable at all — is `common` (whatever they actually typed) the
+ * better (if still not guaranteed to resolve) choice.
+ */
+val Target.realLookupName: String get() = if (custom) common.ifBlank { id } else id.ifBlank { common }
+
 /** Median of the frame HFR list — real per-frame data, not fixture. */
 val SimState.medHfr: Double get() {
     val sorted = frames.map { it.hfr }.sorted()
@@ -1079,20 +1102,48 @@ val SequenceJob.plannedHM: String get() = formatHM(totalPlannedSec)
 val SimState.realNightWindow: Pair<Instant, Instant>? get() {
     val dusk = wireDusk ?: return null
     val dawn = wireDawn ?: return null
-    val tz = wireSiteTz ?: return null
-    val zone = ZoneOffset.ofTotalSeconds((tz * 3600).roundToInt())
+    val zone = siteZoneOffset ?: return null
+    val anchor = nearestMidnight(zone)
+    return anchor.plusSeconds((dusk * 86400).roundToLong()) to anchor.plusSeconds((dawn * 86400).roundToLong())
+}
+
+/** [wireSiteTz] as a [ZoneOffset] — null until it's arrived (real-rig only). */
+val SimState.siteZoneOffset: ZoneOffset? get() = wireSiteTz?.let { ZoneOffset.ofTotalSeconds((it * 3600).roundToInt()) }
+
+/**
+ * "Local midnight today" is ambiguous by clock time alone — offsets like [wireDusk]/[wireDawn], or
+ * the ±12h span a real `astro_get_objects_riseset` altitude curve is centered on, are small deltas
+ * from *some* midnight, but which one (the one just passed, in the small hours, or the upcoming
+ * one, in the evening/daytime) depends on where "now" actually sits. Anchoring on whichever
+ * midnight is chronologically nearest to "now" resolves both cases correctly without guessing
+ * AM/PM — confirmed live: anchoring on today's midnight-*start* unconditionally (the first cut of
+ * [realNightWindow]) put a 2pm-computed dusk a full day early.
+ */
+private fun nearestMidnight(zone: ZoneOffset): Instant {
     val now = Instant.now()
     val nowDate = now.atZone(zone).toLocalDate()
-    // "Local midnight today" is ambiguous by clock time alone — dusk/dawn are small offsets
-    // (a few hours) from *some* midnight, but which one (the one just passed, in the small hours,
-    // or the upcoming one, in the evening/daytime) depends on where "now" actually sits. Anchoring
-    // on whichever midnight is chronologically nearest to "now" resolves both cases correctly
-    // without guessing AM/PM — confirmed live: anchoring on today's midnight-*start* unconditionally
-    // (the first cut here) put a 2pm-computed dusk a full day early.
     val todayStart = nowDate.atStartOfDay(zone).toInstant()
     val tomorrowStart = nowDate.plusDays(1).atStartOfDay(zone).toInstant()
-    val anchor = if (abs(now.epochSecond - todayStart.epochSecond) <= abs(now.epochSecond - tomorrowStart.epochSecond)) todayStart else tomorrowStart
-    return anchor.plusSeconds((dusk * 86400).roundToLong()) to anchor.plusSeconds((dawn * 86400).roundToLong())
+    return if (abs(now.epochSecond - todayStart.epochSecond) <= abs(now.epochSecond - tomorrowStart.epochSecond)) todayStart else tomorrowStart
+}
+
+/**
+ * The real ±12h-around-local-midnight window a `astro_get_objects_riseset` altitude curve spans
+ * (see [WireRiseset.altitudes]'s own doc) — a full day cycle centered on midnight, distinct from
+ * [realNightWindow]'s dusk-to-dawn observing window. Null until [wireSiteTz] has arrived.
+ */
+val SimState.realDayWindow: Pair<Instant, Instant>? get() {
+    val zone = siteZoneOffset ?: return null
+    val anchor = nearestMidnight(zone)
+    return anchor.minusSeconds(43_200) to anchor.plusSeconds(43_200)
+}
+
+/** Real fraction of [realDayWindow] elapsed right now — always defined once the window is (by construction, "now" sits within ±12h of its own nearest midnight). */
+val SimState.realDayFraction: Double? get() {
+    val (start, end) = realDayWindow ?: return null
+    val total = end.epochSecond - start.epochSecond
+    if (total <= 0) return null
+    return (Instant.now().epochSecond - start.epochSecond).toDouble() / total
 }
 
 private val SITE_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm")

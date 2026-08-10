@@ -222,6 +222,8 @@ abstract class AbstractLocalSessionController : SessionController {
     override fun clearQuery() = update { it.copy(query = "") }
 
     override fun selectTarget(id: String) = update { it.copy(targetId = id) }
+    // Fixture has no real astro engine to query — AltitudeChart keeps its decorative curve.
+    override fun ensureTargetRiseset(targetId: String) {}
 
     override fun togglePref(key: String) = update { s ->
         s.copy(prefs = s.prefs + (key to !(s.prefs[key] ?: false)))

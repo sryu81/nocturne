@@ -64,6 +64,9 @@ class EkosRemoteController(
     private var lastRiseset: List<WireRiseset> = emptyList()
     private var pendingSearchQuery: String = ""
 
+    /** Name a standalone [ensureTargetRiseset] fetch is in flight for — see that function's doc. */
+    private var pendingTargetRisesetName: String? = null
+
     /** Raw `train_get_profiles` reply (ordinal → train ID) — see [resolveModuleTrainAssignments]. */
     private var lastTrainProfileAssignments: Map<String, Int>? = null
 
@@ -276,7 +279,17 @@ class EkosRemoteController(
         }
         is EkosEvent.AstroObjectsRiseset -> {
             lastRiseset = event.entries
-            s.copy(wireSearchResults = buildSearchResults())
+            // Same reply shape serves two independent consumers: search results (above) and a
+            // one-off riseset fetch for whatever target the Plan tab currently has framed (see
+            // ensureTargetRiseset's doc) — only claim it for the latter if the pending name is
+            // actually in this reply, so an unrelated in-flight search doesn't wrongly clear it.
+            val pending = pendingTargetRisesetName
+            val matched = pending?.let { name -> event.entries.firstOrNull { it.name == name } }
+            if (matched != null) pendingTargetRisesetName = null
+            s.copy(
+                wireSearchResults = buildSearchResults(),
+                wireTargetRiseset = matched ?: s.wireTargetRiseset,
+            )
         }
 
         is EkosEvent.Raw -> s
@@ -682,6 +695,28 @@ class EkosRemoteController(
         super.plateSolveHere()
     }
 
+    override fun selectTarget(id: String) {
+        super.selectTarget(id)
+        ensureTargetRiseset(id)
+    }
+
+    /**
+     * Real per-target altitude data for the Plan tab's altitude chart — `astro_get_objects_riseset`
+     * resolves any KStars-known name directly (confirmed against the reference: no dependency on a
+     * prior `astro_search_objects` call), so this works for the fixture `TARGETS` catalog and
+     * custom targets too, not just live search results (which already got a *different* riseset
+     * wired in, years earlier, via `Target.max`/`peak` — see [WireAstroObject.toTarget]). Skips the
+     * fetch entirely if already cached or already in flight for this exact name — cheap to call on
+     * every [selectTarget], no dedup needed at the call site.
+     */
+    override fun ensureTargetRiseset(targetId: String) {
+        val target = _state.value.findTarget(targetId) ?: return
+        val name = target.realLookupName
+        if (pendingTargetRisesetName == name || _state.value.wireTargetRiseset?.name == name) return
+        pendingTargetRisesetName = name
+        client.sendCommand(Commands.ASTRO_GET_OBJECTS_RISESET, buildJsonObject { putJsonArray("names") { add(name) } })
+    }
+
     /**
      * Real `mount_goto_target` — resolved server-side via KStars' own fuzzy object-name lookup
      * (`findByName`), the same resolution the Scheduler's `nameEdit` gets for free (unlike
@@ -692,7 +727,7 @@ class EkosRemoteController(
      */
     override fun gotoTarget(targetId: String) {
         val target = _state.value.findTarget(targetId) ?: return
-        client.sendCommand(Commands.MOUNT_GOTO_TARGET, buildJsonObject { put("target", target.common.ifBlank { target.id }) })
+        client.sendCommand(Commands.MOUNT_GOTO_TARGET, buildJsonObject { put("target", target.realLookupName) })
         super.gotoTarget(targetId)
     }
 
@@ -716,7 +751,7 @@ class EkosRemoteController(
     override fun gotoAndCenter(targetId: String) {
         val target = _state.value.findTarget(targetId) ?: return
         val original = _state.value.wireAlignSettings
-        client.sendCommand(Commands.MOUNT_GOTO_TARGET, buildJsonObject { put("target", target.common.ifBlank { target.id }) })
+        client.sendCommand(Commands.MOUNT_GOTO_TARGET, buildJsonObject { put("target", target.realLookupName) })
         scope.launch {
             delay(8_000) // heuristic slew-settle wait — see this function's own doc
             client.sendCommand(Commands.ALIGN_SET_ALL_SETTINGS, buildJsonObject {

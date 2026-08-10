@@ -62,6 +62,8 @@ interface SessionController {
     fun setQuery(text: String)
     fun clearQuery()
     fun selectTarget(id: String)
+    /** Fetch real per-target altitude data for the Plan tab's altitude chart, if not already cached. No-op under the simulator. */
+    fun ensureTargetRiseset(targetId: String)
     fun togglePref(key: String)
     fun toggleQuietHours()
     fun toggleCut(id: String)
