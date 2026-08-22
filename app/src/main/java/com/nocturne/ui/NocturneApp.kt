@@ -196,7 +196,14 @@ private fun NocturneShell(
             Row(
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxWidth(),
+                    .fillMaxWidth()
+                    // BottomNavBar (portrait) already insets from the bottom system nav bar via
+                    // its own navigationBarsPadding() — landscape's equivalent system nav column
+                    // (typically the right edge, gesture or 3-button) never got the same
+                    // treatment, so real content (e.g. Controls tab's Cooler card) ran straight
+                    // under it, confirmed live on a real device. This insets whichever side(s)
+                    // the system nav actually occupies, same modifier as BottomNavBar's own fix.
+                    .navigationBarsPadding(),
             ) {
                 if (landscape) {
                     NavRail(

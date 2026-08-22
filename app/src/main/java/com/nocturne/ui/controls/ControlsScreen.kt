@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -223,6 +224,13 @@ private fun SnapPanel(
             Modifier
                 .fillMaxWidth()
                 .aspectRatio(4f / 3f)
+                // In landscape this card spans the full 2-column grid width (TabItem(full=true)),
+                // so 4:3 against that width alone produced an ~1750px-tall box — confirmed live,
+                // took 3 full-screen swipes to reach the Snap button below it. This is just a
+                // hatched placeholder (no real preview image exists yet, M4), so capping the
+                // height doesn't cost any real content — it just stops growing past a sane size
+                // once the box is wider than a phone's portrait width would ever make it anyway.
+                .heightIn(max = 260.dp)
                 .background(c.surfaceDeep, RoundedCornerShape(4.dp)),
         ) {
             HatchBg(Modifier.fillMaxSize(), color = c.surfaceRaised)

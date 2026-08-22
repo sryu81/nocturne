@@ -2,6 +2,8 @@ package com.nocturne.ui.connect
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -9,7 +11,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -67,6 +71,19 @@ fun ConnectScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(c.bg)
+            // Only top-level screen with no shared shell/header of its own (NocturneShell's
+            // screens get this via NocturneHeader/BottomNavBar/NocturneApp.kt's own Row fix) —
+            // needed its own status-bar/nav-bar insets, confirmed live: in landscape, "Connect to
+            // rig"'s title/fields ran straight under the system nav column on whichever side it
+            // occupied.
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            // No scroll existed here at all before — in landscape's shorter viewport the content
+            // (title/warning/HOST/PORT/Connect/"Use simulator") already didn't fit, and there was
+            // no way to reach the Connect button at all; confirmed live (a swipe did nothing).
+            // Adding the two insets above only made the available height smaller, so this was
+            // very possibly already a latent bug, not one introduced by that fix.
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp),
     ) {
         VSpacer(48)
