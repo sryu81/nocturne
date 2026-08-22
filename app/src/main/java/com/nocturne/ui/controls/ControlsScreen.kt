@@ -28,13 +28,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.unit.dp
+import com.nocturne.session.CaptureProgress
 import com.nocturne.session.SessionController
 import com.nocturne.session.SheetType
 import com.nocturne.session.SimState
 import com.nocturne.session.benchFocPos
+import com.nocturne.session.captureProgress
 import com.nocturne.session.coolAtSetPoint
 import com.nocturne.session.coolBarPct
 import com.nocturne.session.coolPowerPct
+import com.nocturne.session.guideCameraDevice
 import com.nocturne.session.indiNumber
 import com.nocturne.session.mountParkedReal
 import com.nocturne.session.mountTrackingOn
@@ -85,11 +88,14 @@ fun ControlsScreen(
                 TabItem(full = true) {
                     val real = state.wireDevices != null
                     val cam = state.wireCaptureSettings
+                    val progress = if (real) state.captureProgress(state.primaryTrain.camera, cam?.captureExposureN ?: 2.0) else null
                     SnapPanel(
                         tag = if (cam != null) "${"%.0f".format(cam.captureExposureN)} s · bin ${cam.captureBinHN}" else "2 s · bin 2",
                         label = benchSnapLabel(real, state.snappedMain, state.wireCaptureStatus, "★ 1 482 · HFR 2.31 · ADU 1 093"),
                         snapLabel = "Snap main",
                         onSnap = ctrl::snapMain,
+                        progress = progress,
+                        onStop = { ctrl.setIndiSwitch(state.primaryTrain.camera, "CCD_ABORT_EXPOSURE", 0) },
                         previewControls = cam?.let {
                             {
                                 PreviewParamRow(
@@ -125,11 +131,15 @@ fun ControlsScreen(
                 TabItem(full = true) {
                     val real = state.wireDevices != null
                     val guide = state.wireGuideSettings
+                    val guideCam = state.guideCameraDevice
+                    val progress = if (real) state.captureProgress(guideCam, guide?.guideExposure ?: 1.0) else null
                     SnapPanel(
                         tag = if (guide != null) "${"%.0f".format(guide.guideExposure)} s · bin ${guide.guideBinning}" else "guide cam",
                         label = benchSnapLabel(real, state.snappedGuide, state.wireGuideStatus, "★ 214 · SNR 18.4"),
                         snapLabel = "Snap guide",
                         onSnap = ctrl::snapGuide,
+                        progress = progress,
+                        onStop = guideCam?.let { cam -> { ctrl.setIndiSwitch(cam, "CCD_ABORT_EXPOSURE", 0) } },
                         previewControls = guide?.let {
                             {
                                 PreviewParamRow(
@@ -193,9 +203,21 @@ private fun benchSnapLabel(real: Boolean, snapped: Boolean, status: String?, fix
  * tapped — see [com.nocturne.session.EkosRemoteController.setCapturePreviewExposure] etc.
  */
 @Composable
-private fun SnapPanel(tag: String, label: String, snapLabel: String, onSnap: () -> Unit, previewControls: (@Composable () -> Unit)? = null) {
+private fun SnapPanel(
+    tag: String,
+    label: String,
+    snapLabel: String,
+    onSnap: () -> Unit,
+    previewControls: (@Composable () -> Unit)? = null,
+    /** Real live exposure countdown/busy state — see [com.nocturne.session.captureProgress]. Null under
+     * the simulator or before the camera's own property has arrived. */
+    progress: CaptureProgress? = null,
+    /** Real `CCD_ABORT_EXPOSURE` write (see call sites) — null when there's no camera to target yet. */
+    onStop: (() -> Unit)? = null,
+) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
+    val busy = progress?.busy == true
     Column {
         Box(
             Modifier
@@ -212,17 +234,42 @@ private fun SnapPanel(tag: String, label: String, snapLabel: String, onSnap: () 
             )
         }
         TextC(label, style = t.MonoSmall, color = c.text, modifier = Modifier.padding(top = 5.dp))
+        // Real exposure countdown (M3.4) — read straight from the camera's own CCD_EXPOSURE
+        // vector, see captureProgress's own doc for why (guide_capture emits no status push at
+        // all, confirmed live). Only shown while actually busy; remainingSec can briefly be null
+        // right as a capture starts (property hasn't pushed its first value yet).
+        if (busy) {
+            val remaining = progress?.remainingSec
+            TextC(
+                if (remaining != null) "capturing · %.1fs left".format(remaining) else "capturing…",
+                style = t.MonoSmall, color = c.accent400, modifier = Modifier.padding(top = 2.dp),
+            )
+        }
         if (previewControls != null) {
             Spacer(Modifier.height(8.dp))
             previewControls()
         }
         Spacer(Modifier.height(8.dp))
-        NocturneButton(
-            text = snapLabel,
-            onClick = onSnap,
-            style = BtnStyle.OUTLINE,
-            modifier = Modifier.fillMaxWidth().height(34.dp),
-        )
+        if (busy && onStop != null) {
+            Row(Modifier.fillMaxWidth()) {
+                NocturneButton(
+                    text = snapLabel, onClick = onSnap, style = BtnStyle.OUTLINE, enabled = false,
+                    modifier = Modifier.weight(1f).height(34.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                NocturneButton(
+                    text = "Stop", onClick = onStop, style = BtnStyle.DANGER,
+                    modifier = Modifier.weight(1f).height(34.dp),
+                )
+            }
+        } else {
+            NocturneButton(
+                text = snapLabel,
+                onClick = onSnap,
+                style = BtnStyle.OUTLINE,
+                modifier = Modifier.fillMaxWidth().height(34.dp),
+            )
+        }
     }
 }
 

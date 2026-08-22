@@ -759,6 +759,15 @@ sealed class IndiProperty {
         val value: Double, val min: Double, val max: Double, val step: Double, val format: String = "%.1f",
         /** Real INDI element name within this vector (M3) — see [SwitchProp.elementNames]. */
         val elementName: String = name,
+        /**
+         * Real vector-level IPState (M3.4) — 0 Idle, 1 Ok, 2 Busy, 3 Alert. Defaults to 1 (Ok) so
+         * every pre-existing [DRIVER_INDI_PROPS] fixture entry keeps compiling/rendering unchanged.
+         * `WireProperty.Number.state` already decodes this; only the generic-property conversion
+         * had been dropping it. Added specifically so a real `CCD_EXPOSURE` vector's own Busy state
+         * (confirmed live: 2 while an exposure is running, 1 once idle/complete) can drive a real
+         * "capturing" indicator — see [indiBusy].
+         */
+        val state: Int = 1,
     ) : IndiProperty()
 
     data class TextProp(
@@ -779,6 +788,12 @@ sealed class IndiProperty {
 fun SimState.indiNumber(deviceName: String, propName: String): Double? {
     val props = indiProps[deviceName] ?: DRIVER_INDI_PROPS[deviceName] ?: emptyList()
     return (props.firstOrNull { it.name == propName } as? IndiProperty.NumberProp)?.value
+}
+
+/** Looks up a NumberProp's own vector-level IPState (see [IndiProperty.NumberProp.state]) by property name. */
+fun SimState.indiBusy(deviceName: String, propName: String): Boolean {
+    val props = indiProps[deviceName] ?: DRIVER_INDI_PROPS[deviceName] ?: emptyList()
+    return (props.firstOrNull { it.name == propName } as? IndiProperty.NumberProp)?.state == 2
 }
 
 /**
@@ -1251,6 +1266,37 @@ val SimState.eafTemp: Double get() = indiNumber("EAF", "FOCUS_TEMPERATURE") ?: -
  */
 val SimState.benchFocPos: Int get() =
     if (wireFocusSettings != null) focPos else (indiNumber(primaryTrain.focuser, "ABS_FOCUS_POSITION")?.roundToInt() ?: focPos)
+
+/**
+ * Real guide camera's own device name — whichever train is *actually* assigned to the Guide
+ * module (`moduleTrainAssignments["guide"]`, the same resolution `opticalTrainCombo` uses for
+ * real scheduler jobs, bug #19), not [secondaryTrain] (a plain index-1 pick into [wireTrains],
+ * never reconciled against which train the Guide module itself is really using). Null under the
+ * simulator or before trains + assignments have both arrived.
+ */
+val SimState.guideCameraDevice: String?
+    get() = wireTrains?.firstOrNull { it.name == moduleTrainAssignments?.get("guide") }?.camera?.takeIf { it.isNotBlank() }
+
+/**
+ * Real live exposure countdown/busy state for a Snap preview shot (M3.4 — Controls tab's Primary
+ * Camera/Guide "Snap" panels had no Stop button and no status/elapsed indication at all). Read
+ * straight off the camera's own generic INDI `CCD_EXPOSURE` vector rather than the `new_capture_state`
+ * push: confirmed live that `guide_capture` never emits `new_capture_state` at all (only
+ * `capture_preview` does, and only a `status`-only subset of shapes at that) — `CCD_EXPOSURE`'s own
+ * value/Busy-state is the one progress signal that's actually real and uniform across both cameras.
+ * `remainingSec`/`busy` are null/false whenever the property hasn't arrived yet (simulator, or before
+ * the camera's own `device_get` reply lands).
+ */
+data class CaptureProgress(val remainingSec: Double?, val totalSec: Double, val busy: Boolean)
+
+fun SimState.captureProgress(cameraDevice: String?, totalSec: Double): CaptureProgress? {
+    if (cameraDevice.isNullOrBlank()) return null
+    return CaptureProgress(
+        remainingSec = indiNumber(cameraDevice, "CCD_EXPOSURE"),
+        totalSec = totalSec,
+        busy = indiBusy(cameraDevice, "CCD_EXPOSURE"),
+    )
+}
 
 /**
  * Real mount's actual slew-rate options straight from its own `TELESCOPE_SLEW_RATE` INDI

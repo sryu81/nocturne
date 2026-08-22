@@ -1515,6 +1515,7 @@ private fun WireProperty.toIndiProperty(existing: IndiProperty?): IndiProperty =
             step = el?.step ?: ex?.step ?: 1.0,
             format = el?.format ?: ex?.format ?: "%.1f",
             elementName = el?.name ?: ex?.elementName ?: name,
+            state = state,
         )
     }
     is WireProperty.Text -> {
