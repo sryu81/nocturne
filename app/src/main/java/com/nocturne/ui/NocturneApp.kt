@@ -174,12 +174,16 @@ private fun NocturneShell(
                 .statusBarsPadding()
                 .navigationBarsPadding(),
         ) {
+            // Landscape's "connection status" (banner) and "session status" (header) rows are
+            // squeezed as compact as they'll go — landscape keeps a *vertical* tab rail (user's
+            // explicit call, a horizontal bar was tried and rejected), which needs every bit of
+            // vertical room it can get for all 6 tabs to fit without clipping.
             if (banner != null) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(colors.warn.copy(alpha = 0.14f))
-                        .padding(horizontal = NocturneTheme.spacing.s4, vertical = 6.dp),
+                        .padding(horizontal = NocturneTheme.spacing.s4, vertical = if (landscape) 3.dp else 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Phosphor.Icon(Phosphor.Warning, size = 13.dp, tint = colors.warn)
@@ -207,36 +211,40 @@ private fun NocturneShell(
                 onOpenAlerts = { ctrl.openSheet(SheetType.ALERTS) },
             )
 
-            // A vertical left-side rail (6 tabs) never fit landscape's own height on a real
-            // phone — "Controls" (6th tab) was clipped off the bottom, confirmed live. Landscape
-            // has the opposite problem to portrait (width to spare, height scarce), so it reuses
-            // the same horizontal TabBar as portrait's bottom bar, just placed at the top, right
-            // under the header, instead of a dedicated vertical rail.
-            if (landscape) {
-                TabBar(selected = currentTab, onSelect = ::navigate, position = TabBarPosition.TOP)
-            }
-
-            NavHost(
-                navController = navController,
-                startDestination = NocturneTab.Session.route,
+            Row(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth(),
             ) {
-                composable(NocturneTab.Session.route) { SessionScreen(state, ctrl, landscape) }
-                composable(NocturneTab.Plan.route) {
-                    PlanScreen(state, ctrl, landscape, onGoToSequence = { navigate(NocturneTab.Sequence) })
+                if (landscape) {
+                    NavRail(
+                        selected = currentTab,
+                        onSelect = ::navigate,
+                    )
                 }
-                composable(NocturneTab.Sequence.route) {
-                    SequenceScreen(state, ctrl, landscape, onFixInGear = { navigate(NocturneTab.Gear) })
+
+                NavHost(
+                    navController = navController,
+                    startDestination = NocturneTab.Session.route,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                ) {
+                    composable(NocturneTab.Session.route) { SessionScreen(state, ctrl, landscape) }
+                    composable(NocturneTab.Plan.route) {
+                        PlanScreen(state, ctrl, landscape, onGoToSequence = { navigate(NocturneTab.Sequence) })
+                    }
+                    composable(NocturneTab.Sequence.route) {
+                        SequenceScreen(state, ctrl, landscape, onFixInGear = { navigate(NocturneTab.Gear) })
+                    }
+                    composable(NocturneTab.Frames.route) { FramesScreen(state, ctrl, landscape) }
+                    composable(NocturneTab.Gear.route) { GearScreen(state, ctrl, landscape, onExitSimulator = vm::disconnect) }
+                    composable(NocturneTab.Controls.route) { ControlsScreen(state, ctrl, landscape) }
                 }
-                composable(NocturneTab.Frames.route) { FramesScreen(state, ctrl, landscape) }
-                composable(NocturneTab.Gear.route) { GearScreen(state, ctrl, landscape, onExitSimulator = vm::disconnect) }
-                composable(NocturneTab.Controls.route) { ControlsScreen(state, ctrl, landscape) }
             }
 
             if (!landscape) {
-                TabBar(selected = currentTab, onSelect = ::navigate, position = TabBarPosition.BOTTOM)
+                TabBar(selected = currentTab, onSelect = ::navigate)
             }
         }
 
@@ -294,7 +302,10 @@ private fun NocturneHeader(
             // banner overlapped the status bar icons, and the header then left an unwanted gap
             // below the banner from its own redundant top inset. Now applied once, in
             // NocturneShell's own outer Column, ahead of both the banner and this header.
-            .padding(horizontal = NocturneTheme.spacing.s4, vertical = NocturneTheme.spacing.s3)
+            // Vertical padding shrinks in landscape — the vertical tab rail needs every bit of
+            // height it can get for all 6 tabs to fit without clipping (user's explicit call to
+            // keep the rail vertical rather than switch to a horizontal bar).
+            .padding(horizontal = NocturneTheme.spacing.s4, vertical = if (landscape) NocturneTheme.spacing.s1 else NocturneTheme.spacing.s3)
             .border(
                 width = 1.dp,
                 color = colors.divider,
@@ -446,36 +457,23 @@ private fun NavItem(
     }
 }
 
-/** [TabBar]'s position — controls which corners round, mirroring the header's own
- *  bottom-rounded look when flush underneath it. */
-private enum class TabBarPosition { TOP, BOTTOM }
-
 /**
- * Horizontal tab strip, used at the bottom in portrait (unchanged from before) and — since a
- * vertical rail never fit landscape's own height on a real phone (6 tabs, "Controls" clipped off
- * the bottom, confirmed live) — at the top, right under the header, in landscape instead. No
- * navigationBarsPadding of its own anymore: the shared outer Column in [NocturneShell] already
- * insets from the system nav bar once, for every row alike.
+ * Portrait-only horizontal tab strip, bottom-anchored. (Landscape briefly reused this at the top
+ * of the screen instead of a vertical rail — rejected, per the user's explicit call: landscape
+ * keeps a vertical rail, full stop.) No navigationBarsPadding of its own: the shared outer Column
+ * in [NocturneShell] already insets from the system nav bar once, for every row alike.
  */
 @Composable
 private fun TabBar(
     selected: NocturneTab,
     onSelect: (NocturneTab) -> Unit,
-    position: TabBarPosition,
 ) {
     val colors = NocturneTheme.colors
-    val shape = when (position) {
-        // Bottom bar: flush with the screen's bottom edge, corners round facing up/inward.
-        TabBarPosition.BOTTOM -> RoundedCornerShape(topStart = NocturneTheme.radius.sm, topEnd = NocturneTheme.radius.sm)
-        // Top bar: flush under the header (which itself rounds its own bottom corners), so this
-        // rounds its bottom corners too, facing down/inward into the tab content below.
-        TabBarPosition.TOP -> RoundedCornerShape(bottomStart = NocturneTheme.radius.sm, bottomEnd = NocturneTheme.radius.sm)
-    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(colors.bg)
-            .border(1.dp, colors.divider, shape)
+            .border(1.dp, colors.divider, RoundedCornerShape(topStart = NocturneTheme.radius.sm, topEnd = NocturneTheme.radius.sm))
             .padding(vertical = NocturneTheme.spacing.s1),
     ) {
         NocturneTab.entries.forEach { tab ->
@@ -484,6 +482,38 @@ private fun TabBar(
                 selected = tab == selected,
                 onClick = { onSelect(tab) },
                 modifier = Modifier.weight(1f).height(52.dp),
+            )
+        }
+    }
+}
+
+/**
+ * Landscape's vertical tab rail — user's explicit call over a horizontal bar (tried, rejected).
+ * Item height trimmed from the original 56.dp to help all 6 tabs fit without clipping, alongside
+ * the header/banner above it also being squeezed as compact as they'll go in landscape — see
+ * NocturneShell's own landscape-specific padding.
+ */
+@Composable
+private fun NavRail(
+    selected: NocturneTab,
+    onSelect: (NocturneTab) -> Unit,
+) {
+    val colors = NocturneTheme.colors
+    Column(
+        modifier = Modifier
+            .fillMaxHeight()
+            .width(64.dp)
+            .background(colors.surface)
+            .border(1.dp, colors.divider, RoundedCornerShape(topEnd = NocturneTheme.radius.sm, bottomEnd = NocturneTheme.radius.sm))
+            .padding(vertical = NocturneTheme.spacing.s1),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        NocturneTab.entries.forEach { tab ->
+            NavItem(
+                tab = tab,
+                selected = tab == selected,
+                onClick = { onSelect(tab) },
+                modifier = Modifier.width(64.dp).height(48.dp),
             )
         }
     }
