@@ -195,22 +195,13 @@ private fun NocturneShell(
                     )
                 }
             }
-            NocturneHeader(
-                tab = currentTab,
-                state = state,
-                redMode = redMode,
-                landscape = landscape,
-                onToggleRed = onToggleRed,
-                onToggleOrientation = {
-                    val activity = context as Activity
-                    activity.requestedOrientation =
-                        if (landscape) ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                        else ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-                },
-                alertCount = ALERTS.size,
-                onOpenAlerts = { ctrl.openSheet(SheetType.ALERTS) },
-            )
-
+            // NocturneHeader used to sit here, above this whole Row — meaning the vertical
+            // NavRail's own top started below it, leaving a visible gap between the connection
+            // status banner and the rail (confirmed live, user-reported: "the session message
+            // bar should be shrunk so vertical bar should reach to the connection status bar").
+            // Moved inside the Row instead, alongside NavRail rather than above it, so the rail
+            // spans this Row's *full* height — flush with the banner above, independent of the
+            // header's own height — while the header still only affects the content pane's width.
             Row(
                 modifier = Modifier
                     .weight(1f)
@@ -223,23 +214,41 @@ private fun NocturneShell(
                     )
                 }
 
-                NavHost(
-                    navController = navController,
-                    startDestination = NocturneTab.Session.route,
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight(),
-                ) {
-                    composable(NocturneTab.Session.route) { SessionScreen(state, ctrl, landscape) }
-                    composable(NocturneTab.Plan.route) {
-                        PlanScreen(state, ctrl, landscape, onGoToSequence = { navigate(NocturneTab.Sequence) })
+                Column(Modifier.weight(1f).fillMaxHeight()) {
+                    NocturneHeader(
+                        tab = currentTab,
+                        state = state,
+                        redMode = redMode,
+                        landscape = landscape,
+                        onToggleRed = onToggleRed,
+                        onToggleOrientation = {
+                            val activity = context as Activity
+                            activity.requestedOrientation =
+                                if (landscape) ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                                else ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                        },
+                        alertCount = ALERTS.size,
+                        onOpenAlerts = { ctrl.openSheet(SheetType.ALERTS) },
+                    )
+
+                    NavHost(
+                        navController = navController,
+                        startDestination = NocturneTab.Session.route,
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                    ) {
+                        composable(NocturneTab.Session.route) { SessionScreen(state, ctrl, landscape) }
+                        composable(NocturneTab.Plan.route) {
+                            PlanScreen(state, ctrl, landscape, onGoToSequence = { navigate(NocturneTab.Sequence) })
+                        }
+                        composable(NocturneTab.Sequence.route) {
+                            SequenceScreen(state, ctrl, landscape, onFixInGear = { navigate(NocturneTab.Gear) })
+                        }
+                        composable(NocturneTab.Frames.route) { FramesScreen(state, ctrl, landscape) }
+                        composable(NocturneTab.Gear.route) { GearScreen(state, ctrl, landscape, onExitSimulator = vm::disconnect) }
+                        composable(NocturneTab.Controls.route) { ControlsScreen(state, ctrl, landscape) }
                     }
-                    composable(NocturneTab.Sequence.route) {
-                        SequenceScreen(state, ctrl, landscape, onFixInGear = { navigate(NocturneTab.Gear) })
-                    }
-                    composable(NocturneTab.Frames.route) { FramesScreen(state, ctrl, landscape) }
-                    composable(NocturneTab.Gear.route) { GearScreen(state, ctrl, landscape, onExitSimulator = vm::disconnect) }
-                    composable(NocturneTab.Controls.route) { ControlsScreen(state, ctrl, landscape) }
                 }
             }
 
