@@ -122,6 +122,39 @@ class EkosRemoteController(
     private var rigRebootPort: Int = 9001
     private var rigRebootToken: String? = null
 
+    /**
+     * Last-applied wall-clock time per (device, property), keyed for [shouldThrottleNumberPush]
+     * (M3.4) — see that function's own doc for why this exists.
+     */
+    private val lastAppliedNumberPushMs = mutableMapOf<Pair<String, String>, Long>()
+
+    /**
+     * Real `CCD_EXPOSURE` (M3.4, see [SimState.captureProgress]) pushes several times a second
+     * while an exposure is actively counting down — confirmed live. Every device-property push
+     * mutates the *same* shared `SimState` object every composable on screen is called with
+     * (`ControlsScreen(state, ...)` takes it as one parameter), so an unthrottled high-frequency
+     * source forces a full-screen recompose — including several genuinely expensive cards
+     * (`MountControlCard` etc) — at that same frequency. Confirmed live: tapping Snap main
+     * produced multi-second frame times ("Skipped N frames") and real ANR risk, and rotating the
+     * device mid-exposure (which rebuilds the whole Compose tree from scratch, an even heavier
+     * recompose) could lose the race against a short exposure finishing, making Stop appear to
+     * vanish. Throttles only the numeric *decay itself* — a vector-state transition (e.g. Busy ->
+     * Idle/Ok, an exposure finishing or being aborted) always applies immediately, at any
+     * property's very first push, and for anything that isn't currently Busy, so nothing real is
+     * ever delayed or dropped, only the redundant mid-exposure churn.
+     */
+    private fun shouldThrottleNumberPush(device: String, property: WireProperty, current: SimState): Boolean {
+        if (property !is WireProperty.Number) return false
+        val wasBusy = (current.indiProps[device]?.firstOrNull { it.name == property.name } as? IndiProperty.NumberProp)?.state == 2
+        if (!(wasBusy && property.state == 2)) return false
+        val key = device to property.name
+        val now = System.currentTimeMillis()
+        val last = lastAppliedNumberPushMs[key]
+        if (last != null && now - last < 400) return true
+        lastAppliedNumberPushMs[key] = now
+        return false
+    }
+
     init {
         // SimState.jobs/activeJobId/lastActiveJobId/openBlockId default to DEFAULT_JOBS — one
         // job pre-marked running = true, a SimulatedController demo convenience. A real
@@ -195,9 +228,11 @@ class EkosRemoteController(
 
         is EkosEvent.Devices -> s.copy(wireDevices = event.devices.map { it.toLiveDevice() })
         is EkosEvent.DeviceProperties -> event.properties.fold(s) { acc, prop ->
-            acc.withProperty(event.device, prop).withConnectionState(event.device, prop).withCcdInfo(event.device, prop)
+            if (shouldThrottleNumberPush(event.device, prop, acc)) acc
+            else acc.withProperty(event.device, prop).withConnectionState(event.device, prop).withCcdInfo(event.device, prop)
         }
-        is EkosEvent.DeviceProperty -> s.withProperty(event.property.device, event.property)
+        is EkosEvent.DeviceProperty -> if (shouldThrottleNumberPush(event.property.device, event.property, s)) s
+        else s.withProperty(event.property.device, event.property)
             .withConnectionState(event.property.device, event.property)
             .withCcdInfo(event.property.device, event.property)
 
