@@ -49,22 +49,32 @@ protocol, no orchestration needed. This is coarser than per-block (whole
 job, not a specific mid-sequence filter/exposure block) but worth doing on
 its own if a per-job version of this toggle is ever wanted.
 
-## Filter selection reflecting the real filter wheel — not an app fix, INDI-level
+## Setting real filter wheel slot names from the app
 
-**Status: resolved as out of scope, no code change.**
+**Status: likely already works via the generic INDI Controls panel — needs live confirmation, not new code.**
 
-Found alongside the above: the block editor's filter picker (`FILTER_CYCLE`
+Found alongside the above: the block editor's filter *picker* (`FILTER_CYCLE`
 — `Ha, OIII, SII, L, R, G, B`) is a fixed fixture list, identical for every
-rig, also reused for the Align/Focus module filter pickers. The real
-filter wheel's slot *names* (INDI's `FILTER_NAME` text-vector property) are
-never fetched anywhere — only the numeric slot position
-(`FILTER_SLOT_VALUE`) is wired, via the generic `indiProps` mechanism. The
-Gear tab's EFW device card "Slots" text is fixture too.
+rig, also reused for the Align/Focus module filter pickers — that part is a
+real gap (see below). But the user's actual ask — the app should let you
+*set* the real filter wheel's slot names, at the INDI property level — may
+already work today, with zero new code: the Device detail sheet (Gear tab
+→ tap a device card) already has a fully generic "INDI Controls" panel
+(`IndiPropertyPanel`, `Sheets.kt`) that renders *any* real INDI property for
+that device, including editable text properties via `ctrl.setIndiText` →
+real `DEVICE_PROPERTY_SET` — already wired end-to-end, not a stub. If the
+real EFW driver reports `FILTER_NAME` (the standard INDI filter-wheel
+property), it should already show up there as an editable field.
 
-User's own call: this belongs at the INDI/driver-configuration level (set
-real filter names via INDI Control Panel / KStars directly on the rig),
-not something Nocturne's wire protocol needs to read and mirror. No
-backlog item — documented here only so the "why is this still a fixture
-list" question doesn't need re-investigating later.
+**Not yet confirmed live** — check on the rig: Gear tab → tap the filter
+wheel device → does "INDI CONTROLS" show a `FILTER_NAME` text field? If
+yes, done, just wasn't discoverable. If genuinely missing, that means the
+real driver isn't reporting it (or something's filtering it), which is a
+different, real investigation — not this same fix.
+
+Separately, still a real gap either way: the block editor's own filter
+*picker* (`FILTER_CYCLE`) doesn't read from `FILTER_NAME` even once it's
+set for real — it'd need its own fetch-and-populate wiring to stop being a
+fixture list. Not started.
 
 ## (add more entries here as found)
