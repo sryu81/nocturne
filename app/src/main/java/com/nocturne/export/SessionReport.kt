@@ -8,9 +8,11 @@ import com.nocturne.session.SimState
 import com.nocturne.session.displayName
 import com.nocturne.session.endedJob
 import com.nocturne.session.findTarget
+import com.nocturne.session.formatSiteTime
 import com.nocturne.session.frames
 import com.nocturne.session.keepCount
 import com.nocturne.session.meta
+import com.nocturne.session.realNightWindow
 import com.nocturne.session.rejectCount
 import com.nocturne.session.spec
 import java.io.File
@@ -37,6 +39,14 @@ fun buildSessionReportHtml(state: SimState): String {
         "<tr><td>${a.time}</td><td>${a.text}</td></tr>"
     }
 
+    // Real dusk/dawn (same `state.realNightWindow` source as `NightArcCard`'s Session-tab fix,
+    // M2026-08) once it's arrived; falls back to the fixture literal under the simulator or
+    // before the fetch lands. The rest of this report (alerts/frames) is still genuinely M1
+    // fixture data regardless — that caveat stays as-is, only the window itself was fake here.
+    val nightWindow = (if (state.isRealRig) state.realNightWindow else null)?.let {
+        "${state.formatSiteTime(it.first)} → ${state.formatSiteTime(it.second)}"
+    } ?: "21:48 → 04:12"
+
     return """
         <!doctype html>
         <html><head><meta charset="utf-8"><title>Nocturne session report</title>
@@ -52,7 +62,7 @@ fun buildSessionReportHtml(state: SimState): String {
         </style></head>
         <body>
             <h1>${target?.displayName ?: "Nocturne session"}</h1>
-            <div class="meta">21:48 → 04:12 · exported from Nocturne (M1 simulator data)</div>
+            <div class="meta">$nightWindow · exported from Nocturne (M1 simulator data)</div>
 
             <h2>Sequence</h2>
             <table><tr><th>Filter</th><th>Exposure</th><th>Progress</th></tr>$blockRows</table>

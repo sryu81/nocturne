@@ -143,6 +143,19 @@ class EkosRemoteClient(
                 // eager-on-online shape; stable for the whole night so one fetch suffices.
                 sendCommand(Commands.ASTRO_GET_ALMANAC)
                 sendCommand(Commands.ASTRO_GET_LOCATION)
+                // Real Scheduler's current job queue — previously never fetched at all, so the
+                // app had no way to know (let alone reconcile against) whatever real Ekos already
+                // had queued. The reply also drives EkosRemoteController's connect-time reconcile
+                // (see reconcileSchedulerJobs) — the app's own local queue is the source of truth.
+                sendCommand(Commands.SCHEDULER_GET_JOBS)
+                // Scheduler-wide policy settings (Startup/Constraints/Completion/Observatory
+                // startup-shutdown/Aborted-job handling, curated subset) — same eager-on-online
+                // shape as MOUNT_GET_ALL_SETTINGS etc above. Previously never fetched at all, so
+                // the app had zero visibility into real config it's silently subject to every
+                // time it runs a job (see WireSchedulerSettings' own doc — this is where
+                // schedulerTwilight, the real root cause behind the twilight-shutdown incident,
+                // actually lives).
+                sendCommand(Commands.SCHEDULER_GET_ALL_SETTINGS)
             }
         }
         _events.tryEmit(event)

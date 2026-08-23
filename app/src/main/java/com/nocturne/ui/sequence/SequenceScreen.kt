@@ -41,9 +41,11 @@ import com.nocturne.session.SimState
 import com.nocturne.session.autofocusRuleText
 import com.nocturne.session.displayName
 import com.nocturne.session.findTarget
+import com.nocturne.session.formatSiteTime
 import com.nocturne.session.meta
 import com.nocturne.session.missing
 import com.nocturne.session.pct
+import com.nocturne.session.realNightWindow
 import com.nocturne.session.spec
 import com.nocturne.session.ready
 import com.nocturne.ui.components.Card
@@ -83,7 +85,7 @@ private fun JobListScreen(
         landscape = landscape,
         modifier = modifier,
         items = listOf(
-            TabItem(full = true) { NightPlanBar() },
+            TabItem(full = true) { NightPlanBar(state, ctrl) },
             TabItem(full = true) { JobList(state, ctrl) },
         ),
     )
@@ -237,35 +239,66 @@ private fun JobDetailHeader(state: SimState, job: SequenceJob, onBack: () -> Uni
     }
 }
 
+/**
+ * Real-rig dusk/dawn (`state.realNightWindow`, same source as `NightArcCard`'s Session-tab fix,
+ * M2026-08) replaces the "21:48 → 04:12" literal once it's arrived; falls back to the original
+ * fixture literal under the simulator or before the fetch lands. Only the header time label is
+ * real — the bar's own segments (`cal`/`Ha`/`flip`/`OIII`/`SII` widths) stay fixture, no real
+ * per-filter breakdown exists here (out of scope for this pass, same as `NightArcCard`'s "flip"
+ * tick being omitted rather than fabricated under a real rig).
+ *
+ * **Real bug found live (2026-08-22, user report)**: on a real rig with zero jobs queued (the
+ * "No targets queued" card right below this one), the fixture bar+filter-labels rendered anyway
+ * — illustrative fixture content with zero relation to anything real, right above an honest
+ * "nothing queued" message, reading as a real plan that doesn't exist. Fixed: the bar+labels are
+ * now only shown when there's actually a job to (fixture-)illustrate — hidden under a real rig
+ * with an empty queue, same honesty norm as `NightArcCard`/`FlipBanner` omitting fixture elements
+ * rather than fabricating them. Left showing under the simulator regardless of queue state — the
+ * simulator's own fixture jobs are its whole point, not misleading in that context.
+ */
 @Composable
-private fun NightPlanBar() {
+private fun NightPlanBar(state: SimState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
+    val window = if (state.isRealRig) state.realNightWindow else null
+    val showFixturePlan = !state.isRealRig || state.jobs.isNotEmpty()
     Card {
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextC("NIGHT PLAN", style = t.Caption, color = c.textFaint, modifier = Modifier.weight(1f))
-            TextC("21:48 → 04:12", style = t.Mono13, color = c.textMuted)
+            TextC(
+                if (window != null) "${state.formatSiteTime(window.first)} → ${state.formatSiteTime(window.second)}" else "21:48 → 04:12",
+                style = t.Mono13, color = c.textMuted,
+            )
+            Spacer(Modifier.width(8.dp))
+            // Scheduler-wide policy (Startup/Constraints/Completion/Observatory/Aborted-job) —
+            // real-rig only, same gating as the sheet itself; hidden under the simulator rather
+            // than opening to a dead "connect to a rig first" sheet every time.
+            if (state.isRealRig) {
+                IconBtn(Phosphor.SlidersHorizontal, onClick = { ctrl.openSheet(SheetType.SCHEDULER_SETTINGS) }, size = 28, iconSize = 14.dp)
+            }
         }
-        Spacer(Modifier.height(12.6.dp))
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .height(39.dp)
-                .background(Color.Transparent, RoundedCornerShape(4.dp)),
-        ) {
-            PlanSeg(0.12f, Color(0xFF5D5294))
-            PlanSeg(0.31f, c.accent)
-            PlanSeg(0.06f, c.warn.copy(alpha = 0.55f))
-            PlanSeg(0.33f, c.accentMuted)
-            PlanSeg(0.18f, c.accent800)
-        }
-        Spacer(Modifier.height(12.6.dp))
-        Row(Modifier.fillMaxWidth()) {
-            TextC("cal", style = t.Mono13, color = c.textFaint, modifier = Modifier.weight(1f))
-            TextC("Ha · now", style = t.Mono13, color = c.text, modifier = Modifier.weight(1f))
-            TextC("flip", style = t.Mono13, color = c.warn, modifier = Modifier.weight(1f))
-            TextC("OIII", style = t.Mono13, color = c.textFaint, modifier = Modifier.weight(1f))
-            TextC("SII", style = t.Mono13, color = c.textFaint, modifier = Modifier.weight(1f))
+        if (showFixturePlan) {
+            Spacer(Modifier.height(12.6.dp))
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .height(39.dp)
+                    .background(Color.Transparent, RoundedCornerShape(4.dp)),
+            ) {
+                PlanSeg(0.12f, Color(0xFF5D5294))
+                PlanSeg(0.31f, c.accent)
+                PlanSeg(0.06f, c.warn.copy(alpha = 0.55f))
+                PlanSeg(0.33f, c.accentMuted)
+                PlanSeg(0.18f, c.accent800)
+            }
+            Spacer(Modifier.height(12.6.dp))
+            Row(Modifier.fillMaxWidth()) {
+                TextC("cal", style = t.Mono13, color = c.textFaint, modifier = Modifier.weight(1f))
+                TextC("Ha · now", style = t.Mono13, color = c.text, modifier = Modifier.weight(1f))
+                TextC("flip", style = t.Mono13, color = c.warn, modifier = Modifier.weight(1f))
+                TextC("OIII", style = t.Mono13, color = c.textFaint, modifier = Modifier.weight(1f))
+                TextC("SII", style = t.Mono13, color = c.textFaint, modifier = Modifier.weight(1f))
+            }
         }
     }
 }

@@ -8,11 +8,13 @@ import com.nocturne.protocol.WireGuideSettings
 import com.nocturne.protocol.WireMountSettings
 import com.nocturne.protocol.WireRiseset
 import com.nocturne.protocol.WireSchedulerJob
+import com.nocturne.protocol.WireSchedulerSettings
 import com.nocturne.protocol.WireTrain
 import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import kotlin.math.abs
+import kotlinx.serialization.Serializable
 import kotlin.math.floor
 import kotlin.math.hypot
 import kotlin.math.min
@@ -25,7 +27,7 @@ import kotlin.math.sin
 enum class SheetType {
     GUIDE, FOCUS, ALERTS, PREFS, SETUP, PA, DEVICE, SUMMARY, AUTOFOCUS_RULES,
     OPTICAL_TRAIN, SCOPES, MODULE_ASSIGNMENTS, MAINTENANCE, MOUNT_SETTINGS, CAMERA_SETTINGS, ALIGN_SETTINGS,
-    GUIDE_SETTINGS, FOCUS_SETTINGS,
+    GUIDE_SETTINGS, FOCUS_SETTINGS, SCHEDULER_SETTINGS,
 }
 
 /**
@@ -292,6 +294,13 @@ data class SimState(
      * [benchFocPos] can tell "already seeded" apart from "still on the raw-INDI fallback".
      */
     val wireFocusSettings: WireFocusSettings? = null,
+    /**
+     * `scheduler_get_all_settings` translated (curated subset — see [WireSchedulerSettings]'s own
+     * doc). Null until the first reply (sent eagerly on connect, same as the other module
+     * settings above); gates [SCHEDULER_SETTINGS] sheet's real-vs-simulator content, no fixture
+     * equivalent (same as [wireMountSettings] etc).
+     */
+    val wireSchedulerSettings: WireSchedulerSettings? = null,
     /**
      * `astro_get_almanac`'s `Dusk`/`Dawn` (M2026-08 Session tab real night-arc) — signed
      * fraction-of-day offsets from local midnight, see [EkosEvent.AstroAlmanac]'s own doc for the
@@ -959,6 +968,7 @@ data class Frame(
 val FRAME_IDS = listOf("011", "012", "013", "014", "015", "016", "017", "018", "019", "020", "021", "022")
 val FRAME_HFRS = listOf(2.28, 2.31, 2.30, 2.35, 2.41, 2.33, 2.94, 2.44, 2.38, 2.36, 2.29, 2.32)
 
+@Serializable
 data class Block(
     val id: String,
     val filter: String,
@@ -992,6 +1002,7 @@ val DEFAULT_BLOCKS = listOf(
  * single-sequence model. Named `SequenceJob`, not `Job`, to avoid colliding
  * with `kotlinx.coroutines.Job` already used in [SimulatedController].
  */
+@Serializable
 data class SequenceJob(
     val id: String,
     val targetId: String,

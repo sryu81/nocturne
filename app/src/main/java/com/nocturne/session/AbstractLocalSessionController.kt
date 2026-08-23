@@ -405,6 +405,143 @@ abstract class AbstractLocalSessionController : SessionController {
         s.copy(wireGuideSettings = s.wireGuideSettings?.copy(guideBinning = binning))
     }
 
+    // ── Scheduler settings (curated subset, see WireSchedulerSettings' own doc, M2026-08) ──
+    override open fun setSchedulerStartAsap() = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(asapConditionR = true, startupTimeConditionR = false))
+    }
+    override open fun setSchedulerStartAtTime(iso: String) = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(asapConditionR = false, startupTimeConditionR = true, startupTimeEdit = iso))
+    }
+    override open fun setSchedulerLeadTime(minutes: Double) = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(kcfg_LeadTime = minutes))
+    }
+    override open fun setSchedulerPreDawnTime(minutes: Double) = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(kcfg_PreDawnTime = minutes))
+    }
+    override open fun setSchedulerAltitudeEnabled(enabled: Boolean) = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(schedulerAltitude = enabled))
+    }
+    override open fun setSchedulerAltitudeValue(deg: Double) = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(schedulerAltitudeValue = deg))
+    }
+    override open fun setSchedulerMoonSeparationEnabled(enabled: Boolean) = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(schedulerMoonSeparation = enabled))
+    }
+    override open fun setSchedulerMoonSeparationValue(deg: Double) = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(schedulerMoonSeparationValue = deg))
+    }
+    override open fun setSchedulerMoonAltitudeEnabled(enabled: Boolean) = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(schedulerMoonAltitude = enabled))
+    }
+    override open fun setSchedulerMoonAltitudeMaxValue(deg: Double) = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(schedulerMoonAltitudeMaxValue = deg))
+    }
+    override open fun setSchedulerTwilightEnabled(enabled: Boolean) = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(schedulerTwilight = enabled))
+    }
+    override open fun setSchedulerHorizonEnabled(enabled: Boolean) = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(schedulerHorizon = enabled))
+    }
+    override open fun setSchedulerDawnOffset(hours: Double) = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(kcfg_DawnOffset = hours))
+    }
+    override open fun setSchedulerDuskOffset(hours: Double) = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(kcfg_DuskOffset = hours))
+    }
+    override open fun setSchedulerTrackStep(enabled: Boolean) = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(schedulerTrackStep = enabled))
+    }
+    override open fun setSchedulerFocusStep(enabled: Boolean) = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(schedulerFocusStep = enabled))
+    }
+    override open fun setSchedulerAlignStep(enabled: Boolean) = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(schedulerAlignStep = enabled))
+    }
+    override open fun setSchedulerGuideStep(enabled: Boolean) = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(schedulerGuideStep = enabled))
+    }
+    override open fun setSchedulerCompleteSequences() = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(
+            schedulerCompleteSequences = true, schedulerRepeatSequences = false,
+            schedulerRepeatEverything = false, schedulerUntilTerminated = false, schedulerUntil = false,
+        ))
+    }
+    override open fun setSchedulerRepeatSequences(limit: Int) = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(
+            schedulerCompleteSequences = false, schedulerRepeatSequences = true, schedulerRepeatSequencesLimit = limit,
+            schedulerRepeatEverything = false, schedulerUntilTerminated = false, schedulerUntil = false,
+        ))
+    }
+    override open fun setSchedulerRepeatEverything() = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(
+            schedulerCompleteSequences = false, schedulerRepeatSequences = false,
+            schedulerRepeatEverything = true, schedulerUntilTerminated = false, schedulerUntil = false,
+        ))
+    }
+    override open fun setSchedulerUntilTerminated() = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(
+            schedulerCompleteSequences = false, schedulerRepeatSequences = false,
+            schedulerRepeatEverything = false, schedulerUntilTerminated = true, schedulerUntil = false,
+        ))
+    }
+    override open fun setSchedulerUntil(iso: String) = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(
+            schedulerCompleteSequences = false, schedulerRepeatSequences = false, schedulerRepeatEverything = false,
+            schedulerUntilTerminated = false, schedulerUntil = true, schedulerUntilValue = iso,
+        ))
+    }
+    override open fun setSchedulerStartupEnabled(enabled: Boolean) = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(schedulerStartupEnabled = enabled))
+    }
+    override open fun setSchedulerPreStartupScript(path: String) = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(schedulerPreStartupScript = path))
+    }
+    override open fun setSchedulerPostStartupScript(path: String) = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(schedulerPostStartupScript = path))
+    }
+    override open fun setSchedulerShutdownEnabled(enabled: Boolean) = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(schedulerShutdownEnabled = enabled))
+    }
+    override open fun setSchedulerPreShutdownScript(path: String) = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(schedulerPreShutdownScript = path))
+    }
+    override open fun setSchedulerPostShutdownScript(path: String) = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(schedulerPostShutdownScript = path))
+    }
+    override open fun setSchedulerPreemptiveShutdown(enabled: Boolean) = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(kcfg_PreemptiveShutdown = enabled))
+    }
+    override open fun setSchedulerPreemptiveShutdownTime(hours: Double) = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(kcfg_PreemptiveShutdownTime = hours))
+    }
+    override open fun setSchedulerStopEkosAfterShutdown(enabled: Boolean) = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(kcfg_StopEkosAfterShutdown = enabled))
+    }
+    override open fun setSchedulerShutdownScriptTerminatesIndi(enabled: Boolean) = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(kcfg_ShutdownScriptTerminatesINDI = enabled))
+    }
+    override open fun setSchedulerAbortDontRestart() = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(
+            errorHandlingDontRestartButton = true, errorHandlingRestartImmediatelyButton = false, errorHandlingRestartQueueButton = false,
+        ))
+    }
+    override open fun setSchedulerAbortRestartImmediately() = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(
+            errorHandlingDontRestartButton = false, errorHandlingRestartImmediatelyButton = true, errorHandlingRestartQueueButton = false,
+        ))
+    }
+    override open fun setSchedulerAbortRestartQueue() = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(
+            errorHandlingDontRestartButton = false, errorHandlingRestartImmediatelyButton = false, errorHandlingRestartQueueButton = true,
+        ))
+    }
+    override open fun setSchedulerAbortRescheduleErrors(enabled: Boolean) = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(errorHandlingRescheduleErrorsCB = enabled))
+    }
+    override open fun setSchedulerAbortDelay(minutes: Int) = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(errorHandlingStrategyDelay = minutes))
+    }
+
     override fun snapMain() = update { it.copy(snappedMain = true) }
     override fun snapGuide() = update { it.copy(snappedGuide = true) }
 

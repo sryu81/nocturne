@@ -39,6 +39,7 @@ object Commands {
     const val SCHEDULER_REMOVE_JOBS = "scheduler_remove_jobs"
     const val SCHEDULER_START_JOB = "scheduler_start_job"
     const val SCHEDULER_SAVE_SEQUENCE_FILE = "scheduler_save_sequence_file"
+    const val SCHEDULER_GET_ALL_SETTINGS = "scheduler_get_all_settings"
     const val SCHEDULER_SET_ALL_SETTINGS = "scheduler_set_all_settings"
 
     // M3 — optical trains.

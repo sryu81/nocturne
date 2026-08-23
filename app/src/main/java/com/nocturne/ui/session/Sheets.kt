@@ -42,7 +42,9 @@ import com.nocturne.session.LiveDevice
 import com.nocturne.session.PA_SECS
 import com.nocturne.session.RigRebootState
 import com.nocturne.session.formatIndiNumber
+import com.nocturne.session.formatSiteTime
 import com.nocturne.session.realDeviceOptions
+import com.nocturne.session.realNightWindow
 import com.nocturne.session.PREF_DEFS
 import com.nocturne.session.SessionController
 import com.nocturne.session.SheetType
@@ -122,7 +124,14 @@ fun SheetHost(state: SimState, ctrl: SessionController, landscape: Boolean) {
         SheetType.GUIDE -> "Guiding" to "last 2 min"
         SheetType.FOCUS -> "Focus" to "V-curve · 9 points"
         SheetType.ALERTS -> "Alerts" to "tonight"
-        SheetType.SUMMARY -> "Session summary" to "21:48 → 04:12"
+        // Real dusk/dawn (same `state.realNightWindow` source as `NightArcCard`'s Session-tab
+        // fix, M2026-08) once it's arrived; falls back to the fixture literal under the
+        // simulator or before the fetch lands.
+        SheetType.SUMMARY -> "Session summary" to (
+            (if (state.isRealRig) state.realNightWindow else null)?.let {
+                "${state.formatSiteTime(it.first)} → ${state.formatSiteTime(it.second)}"
+            } ?: "21:48 → 04:12"
+        )
         // "three steps" is the fixture wizard's own framing — misleading verbatim in real mode,
         // where PaSheet shows raw new_polar_state stage/message passthrough instead (see its doc).
         SheetType.PA -> "Polar alignment" to (if (state.isRealRig) "live status" else "three steps")
@@ -138,6 +147,11 @@ fun SheetHost(state: SimState, ctrl: SessionController, landscape: Boolean) {
         SheetType.ALIGN_SETTINGS -> "Align settings" to "exposure, gain, filter, accuracy"
         SheetType.GUIDE_SETTINGS -> "Guide settings" to "accuracy threshold, dither"
         SheetType.FOCUS_SETTINGS -> "Focus settings" to "exposure, gain, filter"
+        // Kept short like every other sheet's meta — NocturneSheet's title gets Modifier.weight(1f)
+        // but meta doesn't, so an unusually long meta string (the first cut named all 5 groups,
+        // ~60 chars) squeezes the title column down to almost nothing and wraps it letter-by-line
+        // (confirmed live). Every sibling sheet's meta is ~25-30 chars; matched that here instead.
+        SheetType.SCHEDULER_SETTINGS -> "Scheduler settings" to "startup, constraints & more"
         SheetType.DEVICE -> {
             // Real connection: state.deviceKey is the live device's own name (see
             // RealDeviceList's onClick), not a fixture DEVICES[].key — must be looked up
@@ -180,6 +194,7 @@ fun SheetHost(state: SimState, ctrl: SessionController, landscape: Boolean) {
                 SheetType.ALIGN_SETTINGS -> AlignSettingsSheet(state, ctrl)
                 SheetType.GUIDE_SETTINGS -> GuideSettingsSheet(state, ctrl)
                 SheetType.FOCUS_SETTINGS -> FocusSettingsSheet(state, ctrl)
+                SheetType.SCHEDULER_SETTINGS -> SchedulerSettingsSheet(state, ctrl)
                 SheetType.DEVICE -> DeviceSheet(state, ctrl)
             }
         },
@@ -1220,6 +1235,295 @@ private fun FocusSettingsSheet(state: SimState, ctrl: SessionController) {
                 modifier = Modifier.fillMaxWidth(),
             )
         }
+    }
+}
+
+// ── Scheduler settings (curated subset, see WireSchedulerSettings' own doc, M2026-08) ───────
+
+/**
+ * Scheduler-wide *policy* settings — Startup condition, Constraints (+ per-job step defaults),
+ * Completion condition, Observatory startup/shutdown procedure, Aborted-job handling — matching
+ * real Ekos's own Scheduler tab layout. See [WireSchedulerSettings]'s own doc for exactly which
+ * ~30 of ~70 real fields are curated here and why. Real-rig only: [SimState.wireSchedulerSettings]
+ * is null under [SimulatedController] (no fixture equivalent, same real-only gating as
+ * [MountSettingsSheet]) and briefly null on a real rig too, until the first
+ * `scheduler_get_all_settings` reply lands.
+ *
+ * [OptionRow] reuses [SwitchRow]'s own look for a mutually-exclusive selection (a radio, not a
+ * toggle) — clicking an already-selected option is a no-op in practice (the setter just
+ * re-selects itself), no separate widget built for this one pass.
+ */
+@Composable
+private fun SchedulerSettingsSheet(state: SimState, ctrl: SessionController) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+
+    if (!state.isRealRig) {
+        TextC("Simulator has no real Scheduler settings to show — connect to a rig first.", style = t.Body13, color = c.textMuted)
+        return
+    }
+    val sc = state.wireSchedulerSettings
+    if (sc == null) {
+        TextC("Fetching scheduler settings…", style = t.Body13, color = c.textMuted)
+        return
+    }
+
+    Column {
+        TextC("STARTUP CONDITION", style = t.MicroUppercase, color = c.textFaint)
+        Spacer(Modifier.height(8.4.dp))
+        OptionRow(label = "Start ASAP", selected = sc.asapConditionR, onSelect = ctrl::setSchedulerStartAsap)
+        Spacer(Modifier.height(4.dp))
+        OptionRow(label = "Start at a specific time", selected = sc.startupTimeConditionR, onSelect = { ctrl.setSchedulerStartAtTime(sc.startupTimeEdit) })
+        if (sc.startupTimeConditionR) {
+            Spacer(Modifier.height(8.4.dp))
+            FieldLabel("Start time (ISO)")
+            Spacer(Modifier.height(5.dp))
+            TextFieldBox(sc.startupTimeEdit, ctrl::setSchedulerStartAtTime)
+        }
+        Spacer(Modifier.height(8.4.dp))
+        Row(Modifier.fillMaxWidth()) {
+            Column(Modifier.weight(1f)) {
+                FieldLabel("Lead time")
+                Spacer(Modifier.height(5.dp))
+                DegreeField(sc.kcfg_LeadTime, "min", ctrl::setSchedulerLeadTime)
+            }
+            Spacer(Modifier.width(11.2.dp))
+            Column(Modifier.weight(1f)) {
+                FieldLabel("Pre-dawn cutoff")
+                Spacer(Modifier.height(5.dp))
+                DegreeField(sc.kcfg_PreDawnTime, "min", ctrl::setSchedulerPreDawnTime)
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+        HDivider()
+        Spacer(Modifier.height(16.dp))
+
+        TextC("CONSTRAINTS", style = t.MicroUppercase, color = c.textFaint)
+        Spacer(Modifier.height(8.4.dp))
+        SwitchRow(
+            label = "Altitude limit", checked = sc.schedulerAltitude,
+            onToggle = { ctrl.setSchedulerAltitudeEnabled(!sc.schedulerAltitude) },
+            modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
+        )
+        if (sc.schedulerAltitude) {
+            Spacer(Modifier.height(8.4.dp))
+            DegreeField(sc.schedulerAltitudeValue, "°", ctrl::setSchedulerAltitudeValue)
+        }
+        Spacer(Modifier.height(8.4.dp))
+        SwitchRow(
+            label = "Moon separation", checked = sc.schedulerMoonSeparation,
+            onToggle = { ctrl.setSchedulerMoonSeparationEnabled(!sc.schedulerMoonSeparation) },
+            modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
+        )
+        if (sc.schedulerMoonSeparation) {
+            Spacer(Modifier.height(8.4.dp))
+            DegreeField(sc.schedulerMoonSeparationValue, "°", ctrl::setSchedulerMoonSeparationValue)
+        }
+        Spacer(Modifier.height(8.4.dp))
+        SwitchRow(
+            label = "Moon altitude", checked = sc.schedulerMoonAltitude,
+            onToggle = { ctrl.setSchedulerMoonAltitudeEnabled(!sc.schedulerMoonAltitude) },
+            modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
+        )
+        if (sc.schedulerMoonAltitude) {
+            Spacer(Modifier.height(8.4.dp))
+            DegreeField(sc.schedulerMoonAltitudeMaxValue, "°", ctrl::setSchedulerMoonAltitudeMaxValue)
+        }
+        Spacer(Modifier.height(8.4.dp))
+        SwitchRow(
+            label = "Twilight", sub = "the real root cause behind the twilight-shutdown incident — see project notes",
+            checked = sc.schedulerTwilight,
+            onToggle = { ctrl.setSchedulerTwilightEnabled(!sc.schedulerTwilight) },
+            modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
+        )
+        Spacer(Modifier.height(8.4.dp))
+        Row(Modifier.fillMaxWidth()) {
+            Column(Modifier.weight(1f)) {
+                FieldLabel("Dawn offset")
+                Spacer(Modifier.height(5.dp))
+                DegreeField(sc.kcfg_DawnOffset, "h", ctrl::setSchedulerDawnOffset)
+            }
+            Spacer(Modifier.width(11.2.dp))
+            Column(Modifier.weight(1f)) {
+                FieldLabel("Dusk offset")
+                Spacer(Modifier.height(5.dp))
+                DegreeField(sc.kcfg_DuskOffset, "h", ctrl::setSchedulerDuskOffset)
+            }
+        }
+        Spacer(Modifier.height(8.4.dp))
+        SwitchRow(
+            label = "Horizon", checked = sc.schedulerHorizon,
+            onToggle = { ctrl.setSchedulerHorizonEnabled(!sc.schedulerHorizon) },
+            modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
+        )
+        Spacer(Modifier.height(16.dp))
+        FieldLabel("Job steps (new-job defaults)")
+        Spacer(Modifier.height(8.4.dp))
+        SwitchRow(
+            label = "Track", checked = sc.schedulerTrackStep,
+            onToggle = { ctrl.setSchedulerTrackStep(!sc.schedulerTrackStep) },
+            modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
+        )
+        Spacer(Modifier.height(4.dp))
+        SwitchRow(
+            label = "Focus", checked = sc.schedulerFocusStep,
+            onToggle = { ctrl.setSchedulerFocusStep(!sc.schedulerFocusStep) },
+            modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
+        )
+        Spacer(Modifier.height(4.dp))
+        SwitchRow(
+            label = "Align", checked = sc.schedulerAlignStep,
+            onToggle = { ctrl.setSchedulerAlignStep(!sc.schedulerAlignStep) },
+            modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
+        )
+        Spacer(Modifier.height(4.dp))
+        SwitchRow(
+            label = "Guide", checked = sc.schedulerGuideStep,
+            onToggle = { ctrl.setSchedulerGuideStep(!sc.schedulerGuideStep) },
+            modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
+        )
+        Spacer(Modifier.height(16.dp))
+        HDivider()
+        Spacer(Modifier.height(16.dp))
+
+        TextC("COMPLETION CONDITION", style = t.MicroUppercase, color = c.textFaint)
+        Spacer(Modifier.height(8.4.dp))
+        OptionRow(label = "Complete sequences", selected = sc.schedulerCompleteSequences, onSelect = ctrl::setSchedulerCompleteSequences)
+        Spacer(Modifier.height(4.dp))
+        OptionRow(label = "Repeat sequences", selected = sc.schedulerRepeatSequences, onSelect = { ctrl.setSchedulerRepeatSequences(sc.schedulerRepeatSequencesLimit) })
+        if (sc.schedulerRepeatSequences) {
+            Spacer(Modifier.height(8.4.dp))
+            FieldLabel("Repeat count")
+            Spacer(Modifier.height(5.dp))
+            DegreeField(sc.schedulerRepeatSequencesLimit.toDouble(), "×") { ctrl.setSchedulerRepeatSequences(it.toInt()) }
+        }
+        Spacer(Modifier.height(4.dp))
+        OptionRow(label = "Repeat everything", selected = sc.schedulerRepeatEverything, onSelect = ctrl::setSchedulerRepeatEverything)
+        Spacer(Modifier.height(4.dp))
+        OptionRow(label = "Loop until terminated", selected = sc.schedulerUntilTerminated, onSelect = ctrl::setSchedulerUntilTerminated)
+        Spacer(Modifier.height(4.dp))
+        OptionRow(label = "Loop until a date", selected = sc.schedulerUntil, onSelect = { ctrl.setSchedulerUntil(sc.schedulerUntilValue) })
+        if (sc.schedulerUntil) {
+            Spacer(Modifier.height(8.4.dp))
+            FieldLabel("Until (ISO)")
+            Spacer(Modifier.height(5.dp))
+            TextFieldBox(sc.schedulerUntilValue, ctrl::setSchedulerUntil)
+        }
+        Spacer(Modifier.height(16.dp))
+        HDivider()
+        Spacer(Modifier.height(16.dp))
+
+        TextC("OBSERVATORY STARTUP / SHUTDOWN", style = t.MicroUppercase, color = c.textFaint)
+        Spacer(Modifier.height(8.4.dp))
+        SwitchRow(
+            label = "Startup procedure enabled", checked = sc.schedulerStartupEnabled,
+            onToggle = { ctrl.setSchedulerStartupEnabled(!sc.schedulerStartupEnabled) },
+            modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
+        )
+        if (sc.schedulerStartupEnabled) {
+            Spacer(Modifier.height(8.4.dp))
+            FieldLabel("Pre-startup script")
+            Spacer(Modifier.height(5.dp))
+            TextFieldBox(sc.schedulerPreStartupScript, ctrl::setSchedulerPreStartupScript)
+            Spacer(Modifier.height(8.4.dp))
+            FieldLabel("Post-startup script")
+            Spacer(Modifier.height(5.dp))
+            TextFieldBox(sc.schedulerPostStartupScript, ctrl::setSchedulerPostStartupScript)
+        }
+        Spacer(Modifier.height(8.4.dp))
+        SwitchRow(
+            label = "Shutdown procedure enabled", checked = sc.schedulerShutdownEnabled,
+            onToggle = { ctrl.setSchedulerShutdownEnabled(!sc.schedulerShutdownEnabled) },
+            modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
+        )
+        if (sc.schedulerShutdownEnabled) {
+            Spacer(Modifier.height(8.4.dp))
+            FieldLabel("Pre-shutdown script")
+            Spacer(Modifier.height(5.dp))
+            TextFieldBox(sc.schedulerPreShutdownScript, ctrl::setSchedulerPreShutdownScript)
+            Spacer(Modifier.height(8.4.dp))
+            FieldLabel("Post-shutdown script")
+            Spacer(Modifier.height(5.dp))
+            TextFieldBox(sc.schedulerPostShutdownScript, ctrl::setSchedulerPostShutdownScript)
+        }
+        Spacer(Modifier.height(8.4.dp))
+        SwitchRow(
+            label = "Preemptive shutdown", sub = "shut down early if no job can run before the gap ends",
+            checked = sc.kcfg_PreemptiveShutdown,
+            onToggle = { ctrl.setSchedulerPreemptiveShutdown(!sc.kcfg_PreemptiveShutdown) },
+            modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
+        )
+        if (sc.kcfg_PreemptiveShutdown) {
+            Spacer(Modifier.height(8.4.dp))
+            DegreeField(sc.kcfg_PreemptiveShutdownTime, "h", ctrl::setSchedulerPreemptiveShutdownTime)
+        }
+        Spacer(Modifier.height(8.4.dp))
+        SwitchRow(
+            label = "Stop Ekos after shutdown", checked = sc.kcfg_StopEkosAfterShutdown,
+            onToggle = { ctrl.setSchedulerStopEkosAfterShutdown(!sc.kcfg_StopEkosAfterShutdown) },
+            modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
+        )
+        Spacer(Modifier.height(4.dp))
+        SwitchRow(
+            label = "Shutdown script terminates INDI", checked = sc.kcfg_ShutdownScriptTerminatesINDI,
+            onToggle = { ctrl.setSchedulerShutdownScriptTerminatesIndi(!sc.kcfg_ShutdownScriptTerminatesINDI) },
+            modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
+        )
+        Spacer(Modifier.height(16.dp))
+        HDivider()
+        Spacer(Modifier.height(16.dp))
+
+        TextC("ABORTED-JOB HANDLING", style = t.MicroUppercase, color = c.textFaint)
+        Spacer(Modifier.height(8.4.dp))
+        OptionRow(label = "Don't restart", selected = sc.errorHandlingDontRestartButton, onSelect = ctrl::setSchedulerAbortDontRestart)
+        Spacer(Modifier.height(4.dp))
+        OptionRow(label = "Restart immediately", selected = sc.errorHandlingRestartImmediatelyButton, onSelect = ctrl::setSchedulerAbortRestartImmediately)
+        Spacer(Modifier.height(4.dp))
+        OptionRow(label = "Restart after re-queueing", selected = sc.errorHandlingRestartQueueButton, onSelect = ctrl::setSchedulerAbortRestartQueue)
+        if (sc.errorHandlingRestartImmediatelyButton || sc.errorHandlingRestartQueueButton) {
+            Spacer(Modifier.height(8.4.dp))
+            FieldLabel("Restart delay")
+            Spacer(Modifier.height(5.dp))
+            DegreeField(sc.errorHandlingStrategyDelay.toDouble(), "min") { ctrl.setSchedulerAbortDelay(it.toInt()) }
+        }
+        Spacer(Modifier.height(8.4.dp))
+        SwitchRow(
+            label = "Reschedule errored jobs", checked = sc.errorHandlingRescheduleErrorsCB,
+            onToggle = { ctrl.setSchedulerAbortRescheduleErrors(!sc.errorHandlingRescheduleErrorsCB) },
+            modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
+        )
+    }
+}
+
+/** Mutually-exclusive selection row — reuses [SwitchRow]'s own look, see [SchedulerSettingsSheet]'s doc. */
+@Composable
+private fun OptionRow(label: String, selected: Boolean, onSelect: () -> Unit) {
+    SwitchRow(
+        label = label, checked = selected, onToggle = onSelect,
+        modifier = Modifier.fillMaxWidth().background(NocturneTheme.colors.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
+    )
+}
+
+/** Plain single-line text field box, same visual shape as [CameraSettingsSheet]'s save-path field. */
+@Composable
+private fun TextFieldBox(value: String, onChange: (String) -> Unit) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    Box(
+        Modifier.fillMaxWidth().height(48.dp)
+            .background(c.bg, RoundedCornerShape(4.dp))
+            .border(1.dp, c.divider, RoundedCornerShape(4.dp))
+            .padding(horizontal = 12.dp),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        BasicTextField(
+            value = value,
+            onValueChange = onChange,
+            singleLine = true,
+            textStyle = t.Body13.copy(color = c.text),
+            cursorBrush = SolidColor(c.accent),
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 

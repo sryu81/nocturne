@@ -1,6 +1,8 @@
 package com.nocturne.session
 
 import com.nocturne.data.ConnectionRepository
+import com.nocturne.data.SequenceRepository
+import com.nocturne.data.SequenceSnapshot
 import com.nocturne.protocol.Commands
 import com.nocturne.protocol.EkosEvent
 import com.nocturne.protocol.WireAstroObject
@@ -12,11 +14,14 @@ import com.nocturne.protocol.WireScope
 import com.nocturne.protocol.WireTrain
 import com.nocturne.protocol.MODULE_KEY_BY_TRAIN_SETTING
 import com.nocturne.protocol.SchedulerJobStatus
+import com.nocturne.protocol.WireSchedulerJob
 import com.nocturne.protocol.bitmaskToRoles
 import com.nocturne.transport.EkosRemoteClient
 import com.nocturne.transport.RigRebootClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonElement
@@ -50,6 +55,11 @@ class EkosRemoteController(
      *  [setRigRebootConfig]/[rebootRig]. Optional: pass null and reboot config just won't
      *  survive process death (used by tests that don't need it). */
     private val connectionRepo: ConnectionRepository? = null,
+    /** Persists the app's own local job queue across process death (M3.4) — see
+     *  [SequenceSnapshot]'s own doc for why the app's list, not real Ekos's Scheduler, is the
+     *  source of truth. Optional: pass null and the queue just won't survive process death (used
+     *  by tests that don't need it). */
+    private val sequenceRepo: SequenceRepository? = null,
 ) : AbstractLocalSessionController() {
 
     /** Name a `profile_delete` was just sent for — checked against the next [EkosEvent.Profiles]. */
@@ -108,6 +118,10 @@ class EkosRemoteController(
      */
     private var schedulerRunning = false
 
+    /** See [applyEvent]'s `NewConnectionState` arm — set on `online`, consumed once in
+     *  [sendFollowUpCommands]'s `SchedulerJobs` arm to fire [reconcileSchedulerJobs]. */
+    private var pendingInitialReconcile = false
+
     /**
      * [toggleJobRun]'s save→settings→add→get→start chain is split at this point because
      * `sequenceEdit` needs the *server-resolved* absolute path from the save reply, not a
@@ -159,8 +173,9 @@ class EkosRemoteController(
         // SimState.jobs/activeJobId/lastActiveJobId/openBlockId default to DEFAULT_JOBS — one
         // job pre-marked running = true, a SimulatedController demo convenience. A real
         // connection has no session queued until the user actually adds one (Plan tab "Add to
-        // sequence"), so start empty rather than showing a fabricated "already imaging" job
-        // nobody started.
+        // sequence") — or until sequenceRepo's own load below restores whatever was queued last,
+        // see that block's doc for why an unconditional empty-list reset here was itself a real
+        // bug (the app forgot its own queue on every relaunch, independent of real Ekos).
         _state.update {
             it.copy(
                 jobs = emptyList(), activeJobId = null, jobSeq = 1, lastActiveJobId = null, openBlockId = null,
@@ -189,6 +204,32 @@ class EkosRemoteController(
                 }
             }
         }
+
+        sequenceRepo?.let { repo ->
+            // Restore whatever was queued last, before this connection's own online-transition
+            // reconcile (see applyEvent's NewConnectionState arm) pushes it back out to real
+            // Ekos — this load must land first, or the reconcile would push an empty queue and
+            // wipe a real job that should have been re-synced instead. Loading is a single
+            // suspend read (DataStore's own in-memory cache after first launch), effectively
+            // immediate; the reconcile can't fire before `online` anyway, which is always at
+            // least one full connect roundtrip away.
+            scope.launch {
+                val saved = repo.current()
+                if (saved.jobs.isNotEmpty() || saved.lastActiveJobId != null) {
+                    _state.update {
+                        it.copy(jobs = saved.jobs, jobSeq = saved.jobSeq, lastActiveJobId = saved.lastActiveJobId)
+                    }
+                }
+            }
+            // Persists on every subsequent change, from any source (addToSequence, toggleJobRun,
+            // removeJob, endSession, finishNight, the reconcile below, ...) — one place instead of
+            // threading a save() call through every mutator.
+            scope.launch {
+                _state.map { SequenceSnapshot(it.jobs, it.jobSeq, it.lastActiveJobId) }
+                    .distinctUntilChanged()
+                    .collect { repo.save(it) }
+            }
+        }
     }
 
     private fun applyEvent(s: SimState, event: EkosEvent): SimState = when (event) {
@@ -200,10 +241,19 @@ class EkosRemoteController(
         // hasn't started yet (see NocturneApp — the shell is now reachable at that point
         // specifically so Start Ekos is tappable). activeProfile mirrors whatever get_profiles
         // already told us is selected, only while actually online.
-        is EkosEvent.NewConnectionState -> s.copy(
-            ekosRunning = event.online,
-            activeProfile = if (event.online) s.selectedProfile else null,
-        )
+        is EkosEvent.NewConnectionState -> {
+            // Marks the *next* scheduler_get_jobs reply (EkosRemoteClient sends one eagerly
+            // whenever `online` fires, alongside GET_DEVICES etc) as the connect-time reconcile
+            // trigger — consumed once in sendFollowUpCommands' own SchedulerJobs arm. Set
+            // unconditionally on every online=true (not just a false->true transition — `s.ekosRunning`
+            // defaults to `true` per the comment below, so a transition check would miss the very
+            // first, most important real connection).
+            if (event.online) pendingInitialReconcile = true
+            s.copy(
+                ekosRunning = event.online,
+                activeProfile = if (event.online) s.selectedProfile else null,
+            )
+        }
         is EkosEvent.NewCaptureState -> s.copy(wireCaptureStatus = event.status)
         // Merges non-null fields rather than overwriting — see NewMountState's own doc: the
         // far-more-frequent coordinate-shaped push carries none of these 4 fields, and must not
@@ -291,6 +341,7 @@ class EkosRemoteController(
         // coolTarget seed above: this reply only ever arrives once, before any optimistic
         // jogFocus edit could race against it.
         is EkosEvent.FocusSettings -> s.copy(wireFocusSettings = event.settings, focPos = event.settings.absTicksSpin)
+        is EkosEvent.SchedulerSettings -> s.copy(wireSchedulerSettings = event.settings)
         is EkosEvent.AstroAlmanac -> s.copy(wireDusk = event.dusk, wireDawn = event.dawn)
         is EkosEvent.AstroLocation -> s.copy(wireSiteTz = event.tz)
 
@@ -406,6 +457,53 @@ class EkosRemoteController(
         return next
     }
 
+    /**
+     * Connect-time reconcile (M3.4) — user's explicit call: the app's own local job queue is the
+     * source of truth, not whatever real Ekos's Scheduler happens to already hold (leftover from
+     * a previous app session, manual KStars use, or anything else). Fires once per `online`
+     * transition, right off the eager `scheduler_get_jobs` [EkosRemoteClient] now sends alongside
+     * its other bootstrap fetches.
+     *
+     * **Safety exception, non-negotiable**: never touches the real Scheduler at all if any real
+     * job is [SchedulerJobStatus.BUSY] — actively imaging, real hardware in motion. A reconnect or
+     * app relaunch must never be able to silently abort a real overnight run. Every other real
+     * state (idle/scheduled/error/aborted/invalid/complete) is safe to clear — none of those mean
+     * anything is physically happening right now.
+     *
+     * **Real bug found live (2026-08-22)**: this safety exception correctly left the BUSY job
+     * alone, but never restored [schedulerRunning] — that field is a plain in-memory `var`, reset
+     * to `false` on every app restart regardless of the real Scheduler's actual state. Confirmed
+     * live: force-stopped+relaunched the app while a real job was BUSY (this exact exception
+     * fired, job correctly left untouched) — but a subsequent tap on "remove job" then silently
+     * failed against the real rig (`removeJob` → [stopSchedulerThenRemove] skipped its stop-toggle
+     * since `schedulerRunning` read `false`, so a bare `scheduler_remove_jobs` went out while the
+     * real Scheduler was still running; real Ekos logged `"Cannot delete currently running job"`
+     * and refused, but the app's own local state had already optimistically removed it — a real
+     * app/rig desync, confirmed via a direct DBus probe against `org.kde.kstars`'s own
+     * `Scheduler.status` property). Same underlying brittleness as the "no `new_scheduler_state`
+     * wiring at all" gap noted this session — a BUSY job unambiguously means the Scheduler is
+     * running, so this exact branch is exactly where [schedulerRunning] must be resynced.
+     *
+     * Otherwise: removes every real job (descending index — same reasoning as [finishNight],
+     * removing ascending shifts every later index), resets local `synced`/`wireIndex` bookkeeping
+     * (whatever it pointed to just got wiped, so a later [toggleJobRun] must not think a job is
+     * already on the real scheduler), then re-pushes the local queue's own running job, if any,
+     * via [startRealJob] — the same real chain a manual Start tap already uses, not a bespoke bulk
+     * path. Mirrors [SimState.contractJob]'s own "the running one" singular model — this app has
+     * never supported more than one truly-live job at once.
+     */
+    private fun reconcileSchedulerJobs(realJobs: List<WireSchedulerJob>) {
+        if (realJobs.any { it.state == SchedulerJobStatus.BUSY }) {
+            schedulerRunning = true
+            return
+        }
+        realJobs.indices.sortedDescending().forEach { i ->
+            client.sendCommand(Commands.SCHEDULER_REMOVE_JOBS, buildJsonObject { put("index", i) })
+        }
+        _state.update { s -> s.copy(jobs = s.jobs.map { it.copy(synced = false, wireIndex = null) }) }
+        _state.value.jobs.firstOrNull { it.running }?.let { startRealJob(it.id) }
+    }
+
     private fun distributeCompleted(blocks: List<Block>, completed: Int): List<Block> {
         var remaining = completed
         return blocks.map { b ->
@@ -488,6 +586,10 @@ class EkosRemoteController(
                     pendingSchedulerStart = null
                     client.sendCommand(Commands.SCHEDULER_START_JOB)
                     schedulerRunning = true
+                }
+                if (pendingInitialReconcile) {
+                    pendingInitialReconcile = false
+                    reconcileSchedulerJobs(event.jobs)
                 }
             }
             else -> {}
@@ -1217,6 +1319,197 @@ class EkosRemoteController(
     override fun setFocusAlgorithm(algorithm: String) {
         sendFocusSetting("focusAlgorithm", JsonPrimitive(algorithm))
         super.setFocusAlgorithm(algorithm)
+    }
+
+    /**
+     * Scheduler-wide policy settings (curated subset, see [WireSchedulerSettings]'s own doc).
+     * Same fire-and-forget shape as [sendMountSetting] et al — `scheduler_set_all_settings` only
+     * touches the keys present in the map, and no immediate `scheduler_get_all_settings`
+     * re-fetch, per the same command-ordering-race lesson documented on [sendMountSetting]. Note
+     * this shares the wire endpoint with [toggleJobRun]'s own per-job-add send (bug #19) — no
+     * conflict, since that send only ever fires as part of adding a specific job, not from this
+     * sheet.
+     */
+    private fun sendSchedulerSetting(field: String, value: JsonElement) {
+        client.sendCommand(Commands.SCHEDULER_SET_ALL_SETTINGS, buildJsonObject { put(field, value) })
+    }
+
+    override fun setSchedulerStartAsap() {
+        client.sendCommand(Commands.SCHEDULER_SET_ALL_SETTINGS, buildJsonObject {
+            put("asapConditionR", true); put("startupTimeConditionR", false)
+        })
+        super.setSchedulerStartAsap()
+    }
+    override fun setSchedulerStartAtTime(iso: String) {
+        client.sendCommand(Commands.SCHEDULER_SET_ALL_SETTINGS, buildJsonObject {
+            put("asapConditionR", false); put("startupTimeConditionR", true); put("startupTimeEdit", iso)
+        })
+        super.setSchedulerStartAtTime(iso)
+    }
+    override fun setSchedulerLeadTime(minutes: Double) {
+        sendSchedulerSetting("kcfg_LeadTime", JsonPrimitive(minutes))
+        super.setSchedulerLeadTime(minutes)
+    }
+    override fun setSchedulerPreDawnTime(minutes: Double) {
+        sendSchedulerSetting("kcfg_PreDawnTime", JsonPrimitive(minutes))
+        super.setSchedulerPreDawnTime(minutes)
+    }
+    override fun setSchedulerAltitudeEnabled(enabled: Boolean) {
+        sendSchedulerSetting("schedulerAltitude", JsonPrimitive(enabled))
+        super.setSchedulerAltitudeEnabled(enabled)
+    }
+    override fun setSchedulerAltitudeValue(deg: Double) {
+        sendSchedulerSetting("schedulerAltitudeValue", JsonPrimitive(deg))
+        super.setSchedulerAltitudeValue(deg)
+    }
+    override fun setSchedulerMoonSeparationEnabled(enabled: Boolean) {
+        sendSchedulerSetting("schedulerMoonSeparation", JsonPrimitive(enabled))
+        super.setSchedulerMoonSeparationEnabled(enabled)
+    }
+    override fun setSchedulerMoonSeparationValue(deg: Double) {
+        sendSchedulerSetting("schedulerMoonSeparationValue", JsonPrimitive(deg))
+        super.setSchedulerMoonSeparationValue(deg)
+    }
+    override fun setSchedulerMoonAltitudeEnabled(enabled: Boolean) {
+        sendSchedulerSetting("schedulerMoonAltitude", JsonPrimitive(enabled))
+        super.setSchedulerMoonAltitudeEnabled(enabled)
+    }
+    override fun setSchedulerMoonAltitudeMaxValue(deg: Double) {
+        sendSchedulerSetting("schedulerMoonAltitudeMaxValue", JsonPrimitive(deg))
+        super.setSchedulerMoonAltitudeMaxValue(deg)
+    }
+    override fun setSchedulerTwilightEnabled(enabled: Boolean) {
+        sendSchedulerSetting("schedulerTwilight", JsonPrimitive(enabled))
+        super.setSchedulerTwilightEnabled(enabled)
+    }
+    override fun setSchedulerHorizonEnabled(enabled: Boolean) {
+        sendSchedulerSetting("schedulerHorizon", JsonPrimitive(enabled))
+        super.setSchedulerHorizonEnabled(enabled)
+    }
+    override fun setSchedulerDawnOffset(hours: Double) {
+        sendSchedulerSetting("kcfg_DawnOffset", JsonPrimitive(hours))
+        super.setSchedulerDawnOffset(hours)
+    }
+    override fun setSchedulerDuskOffset(hours: Double) {
+        sendSchedulerSetting("kcfg_DuskOffset", JsonPrimitive(hours))
+        super.setSchedulerDuskOffset(hours)
+    }
+    override fun setSchedulerTrackStep(enabled: Boolean) {
+        sendSchedulerSetting("schedulerTrackStep", JsonPrimitive(enabled))
+        super.setSchedulerTrackStep(enabled)
+    }
+    override fun setSchedulerFocusStep(enabled: Boolean) {
+        sendSchedulerSetting("schedulerFocusStep", JsonPrimitive(enabled))
+        super.setSchedulerFocusStep(enabled)
+    }
+    override fun setSchedulerAlignStep(enabled: Boolean) {
+        sendSchedulerSetting("schedulerAlignStep", JsonPrimitive(enabled))
+        super.setSchedulerAlignStep(enabled)
+    }
+    override fun setSchedulerGuideStep(enabled: Boolean) {
+        sendSchedulerSetting("schedulerGuideStep", JsonPrimitive(enabled))
+        super.setSchedulerGuideStep(enabled)
+    }
+    override fun setSchedulerCompleteSequences() {
+        client.sendCommand(Commands.SCHEDULER_SET_ALL_SETTINGS, buildJsonObject {
+            put("schedulerCompleteSequences", true); put("schedulerRepeatSequences", false)
+            put("schedulerRepeatEverything", false); put("schedulerUntilTerminated", false); put("schedulerUntil", false)
+        })
+        super.setSchedulerCompleteSequences()
+    }
+    override fun setSchedulerRepeatSequences(limit: Int) {
+        client.sendCommand(Commands.SCHEDULER_SET_ALL_SETTINGS, buildJsonObject {
+            put("schedulerCompleteSequences", false); put("schedulerRepeatSequences", true); put("schedulerRepeatSequencesLimit", limit)
+            put("schedulerRepeatEverything", false); put("schedulerUntilTerminated", false); put("schedulerUntil", false)
+        })
+        super.setSchedulerRepeatSequences(limit)
+    }
+    override fun setSchedulerRepeatEverything() {
+        client.sendCommand(Commands.SCHEDULER_SET_ALL_SETTINGS, buildJsonObject {
+            put("schedulerCompleteSequences", false); put("schedulerRepeatSequences", false)
+            put("schedulerRepeatEverything", true); put("schedulerUntilTerminated", false); put("schedulerUntil", false)
+        })
+        super.setSchedulerRepeatEverything()
+    }
+    override fun setSchedulerUntilTerminated() {
+        client.sendCommand(Commands.SCHEDULER_SET_ALL_SETTINGS, buildJsonObject {
+            put("schedulerCompleteSequences", false); put("schedulerRepeatSequences", false)
+            put("schedulerRepeatEverything", false); put("schedulerUntilTerminated", true); put("schedulerUntil", false)
+        })
+        super.setSchedulerUntilTerminated()
+    }
+    override fun setSchedulerUntil(iso: String) {
+        client.sendCommand(Commands.SCHEDULER_SET_ALL_SETTINGS, buildJsonObject {
+            put("schedulerCompleteSequences", false); put("schedulerRepeatSequences", false); put("schedulerRepeatEverything", false)
+            put("schedulerUntilTerminated", false); put("schedulerUntil", true); put("schedulerUntilValue", iso)
+        })
+        super.setSchedulerUntil(iso)
+    }
+    override fun setSchedulerStartupEnabled(enabled: Boolean) {
+        sendSchedulerSetting("schedulerStartupEnabled", JsonPrimitive(enabled))
+        super.setSchedulerStartupEnabled(enabled)
+    }
+    override fun setSchedulerPreStartupScript(path: String) {
+        sendSchedulerSetting("schedulerPreStartupScript", JsonPrimitive(path))
+        super.setSchedulerPreStartupScript(path)
+    }
+    override fun setSchedulerPostStartupScript(path: String) {
+        sendSchedulerSetting("schedulerPostStartupScript", JsonPrimitive(path))
+        super.setSchedulerPostStartupScript(path)
+    }
+    override fun setSchedulerShutdownEnabled(enabled: Boolean) {
+        sendSchedulerSetting("schedulerShutdownEnabled", JsonPrimitive(enabled))
+        super.setSchedulerShutdownEnabled(enabled)
+    }
+    override fun setSchedulerPreShutdownScript(path: String) {
+        sendSchedulerSetting("schedulerPreShutdownScript", JsonPrimitive(path))
+        super.setSchedulerPreShutdownScript(path)
+    }
+    override fun setSchedulerPostShutdownScript(path: String) {
+        sendSchedulerSetting("schedulerPostShutdownScript", JsonPrimitive(path))
+        super.setSchedulerPostShutdownScript(path)
+    }
+    override fun setSchedulerPreemptiveShutdown(enabled: Boolean) {
+        sendSchedulerSetting("kcfg_PreemptiveShutdown", JsonPrimitive(enabled))
+        super.setSchedulerPreemptiveShutdown(enabled)
+    }
+    override fun setSchedulerPreemptiveShutdownTime(hours: Double) {
+        sendSchedulerSetting("kcfg_PreemptiveShutdownTime", JsonPrimitive(hours))
+        super.setSchedulerPreemptiveShutdownTime(hours)
+    }
+    override fun setSchedulerStopEkosAfterShutdown(enabled: Boolean) {
+        sendSchedulerSetting("kcfg_StopEkosAfterShutdown", JsonPrimitive(enabled))
+        super.setSchedulerStopEkosAfterShutdown(enabled)
+    }
+    override fun setSchedulerShutdownScriptTerminatesIndi(enabled: Boolean) {
+        sendSchedulerSetting("kcfg_ShutdownScriptTerminatesINDI", JsonPrimitive(enabled))
+        super.setSchedulerShutdownScriptTerminatesIndi(enabled)
+    }
+    override fun setSchedulerAbortDontRestart() {
+        client.sendCommand(Commands.SCHEDULER_SET_ALL_SETTINGS, buildJsonObject {
+            put("errorHandlingDontRestartButton", true); put("errorHandlingRestartImmediatelyButton", false); put("errorHandlingRestartQueueButton", false)
+        })
+        super.setSchedulerAbortDontRestart()
+    }
+    override fun setSchedulerAbortRestartImmediately() {
+        client.sendCommand(Commands.SCHEDULER_SET_ALL_SETTINGS, buildJsonObject {
+            put("errorHandlingDontRestartButton", false); put("errorHandlingRestartImmediatelyButton", true); put("errorHandlingRestartQueueButton", false)
+        })
+        super.setSchedulerAbortRestartImmediately()
+    }
+    override fun setSchedulerAbortRestartQueue() {
+        client.sendCommand(Commands.SCHEDULER_SET_ALL_SETTINGS, buildJsonObject {
+            put("errorHandlingDontRestartButton", false); put("errorHandlingRestartImmediatelyButton", false); put("errorHandlingRestartQueueButton", true)
+        })
+        super.setSchedulerAbortRestartQueue()
+    }
+    override fun setSchedulerAbortRescheduleErrors(enabled: Boolean) {
+        sendSchedulerSetting("errorHandlingRescheduleErrorsCB", JsonPrimitive(enabled))
+        super.setSchedulerAbortRescheduleErrors(enabled)
+    }
+    override fun setSchedulerAbortDelay(minutes: Int) {
+        sendSchedulerSetting("errorHandlingStrategyDelay", JsonPrimitive(minutes))
+        super.setSchedulerAbortDelay(minutes)
     }
 
     /**

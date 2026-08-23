@@ -227,6 +227,26 @@ sealed interface EkosEvent {
     @Serializable
     data class FocusSettings(val settings: WireFocusSettings) : EkosEvent
 
+    /**
+     * `scheduler_get_all_settings` reply — real Ekos's Scheduler reports ~70 fields (same
+     * reflection pattern as Mount/Camera/Align/Guide/Focus above); [WireSchedulerSettings] models
+     * the ~30 curated as the Scheduler's own *global policy* — Startup condition, Constraints
+     * (+ per-job step toggles, same tab in real Ekos), Completion condition, Observatory
+     * startup/shutdown procedure, Aborted-job handling — matching real Ekos's own Scheduler tab
+     * layout (docs M2026-08). Explicitly excluded: per-job/job-creation-form fields already sent
+     * elsewhere by [EkosRemoteController] (`nameEdit`/`sequenceEdit`/`raBox`/`decBox`/
+     * `opticalTrainCombo`/`startupTimeConditionR` — bug #19's `toggleJobRun` chain), Weather-tied
+     * fields (`kcfg_SchedulerWeather*`, `kcfg_SchedulerSafetyMonitorConnectionString` — same scope
+     * as the deferred Sky & Site weather pass), deeper Options-page align-recovery/greedy-
+     * scheduling toggles (`kcfg_AlignCheck*`, `kcfg_*ResetMountModel*`, `kcfg_ForceAlignmentBeforeJob`,
+     * `kcfg_RealignAfterCalibrationFailure`, `kcfg_GreedyScheduling`, `kcfg_RememberJobProgress`),
+     * and `executionSequenceLimit`/`schedulerProfileCombo`/`epochCB`/`positionAngleSpin`/`groupEdit`/
+     * `fitsEdit`/`leadFollowerSelectionCB` (job-form or unclear-purpose, not scheduler policy).
+     * `ignoreUnknownKeys` drops all of the above.
+     */
+    @Serializable
+    data class SchedulerSettings(val settings: WireSchedulerSettings) : EkosEvent
+
     /** Anything not decoded above — unrecognized `type`, or a shape that failed to parse. */
     data class Raw(val type: String, val payload: JsonElement) : EkosEvent
 }
@@ -549,6 +569,105 @@ data class WireMountSettings(
     val maximumHaLimit: Double = 0.0,
     val parkEveryDay: Boolean = false,
     val autoParkTime: String = "00:00:00",
+)
+
+/**
+ * Curated subset (~30 of ~70 real fields) of real Ekos's Scheduler-wide *policy* settings — see
+ * [EkosEvent.SchedulerSettings]'s doc for exactly what's excluded and why. Field names match the
+ * wire verbatim (`Scheduler::getAllSettings`'s Qt widget object names), confirmed live against
+ * the real rig (real values seen 2026-08-22: `asapConditionR true`, `schedulerTwilight true`,
+ * `schedulerAltitude true` / `schedulerAltitudeValue -15`, `kcfg_DawnOffset 0` /
+ * `kcfg_DuskOffset 0`, `schedulerPostStartupScript
+ * "/usr/share/kstars/taskqueue/collections/observatory_startup.json"`,
+ * `schedulerPreShutdownScript ".../observatory_shutdown.json"` — a real, already-active
+ * observatory automation this app had never shown or let the user manage).
+ *
+ * **`schedulerTwilight true` here is the real root config behind the twilight-shutdown incident**
+ * (see project notes) — this app had zero visibility into it before now; this sheet is the first
+ * place it's ever surfaced client-side.
+ *
+ * Startup condition + timing:
+ * - [asapConditionR] / [startupTimeConditionR] — mutually exclusive radio pair; real Ekos
+ *   reflects each radio button as its own bool (confirmed live: exactly one is `true` at a time),
+ *   **not** the single-int shape `EkosRemoteController.toggleJobRun`'s existing
+ *   `put("startupTimeConditionR", 0)` send assumes for a brand-new job (that pre-existing,
+ *   already-shipped, already-live-verified send is left as-is — Qt evidently coerces the int 0
+ *   into this bool field on write without erroring; not touched here, out of scope for this pass).
+ * - [startupTimeEdit] — ISO datetime string, only meaningful when [startupTimeConditionR] is set.
+ * - [kcfg_LeadTime]/[kcfg_PreDawnTime] — minutes; how early to prep before a job's start time, and
+ *   how close to dawn a job is allowed to still be running.
+ *
+ * Constraints (+ real Ekos's own per-job step toggles, same tab in the real Scheduler UI):
+ * - [schedulerAltitude]/[schedulerAltitudeValue], [schedulerMoonSeparation]/[schedulerMoonSeparationValue],
+ *   [schedulerMoonAltitude]/[schedulerMoonAltitudeMaxValue], [schedulerTwilight], [schedulerHorizon].
+ * - [kcfg_DawnOffset]/[kcfg_DuskOffset] — signed hours padding on top of the real astronomical
+ *   dawn/dusk instant (same source `SimState.realNightWindow` reads) before twilight constraints
+ *   engage.
+ * - [schedulerTrackStep]/[schedulerFocusStep]/[schedulerAlignStep]/[schedulerGuideStep] — per-job
+ *   step defaults (Track/Focus/Align/Guide), same Constraints tab in real Ekos.
+ *
+ * Completion condition (mutually exclusive group, same shape as Startup condition above):
+ * [schedulerCompleteSequences], [schedulerRepeatSequences]/[schedulerRepeatSequencesLimit],
+ * [schedulerRepeatEverything], [schedulerUntilTerminated], [schedulerUntil]/[schedulerUntilValue].
+ *
+ * Observatory startup/shutdown procedure:
+ * [schedulerStartupEnabled]/[schedulerPreStartupScript]/[schedulerPostStartupScript],
+ * [schedulerShutdownEnabled]/[schedulerPreShutdownScript]/[schedulerPostShutdownScript],
+ * [kcfg_PreemptiveShutdown]/[kcfg_PreemptiveShutdownTime], [kcfg_StopEkosAfterShutdown],
+ * [kcfg_ShutdownScriptTerminatesINDI].
+ *
+ * Aborted-job handling: [errorHandlingDontRestartButton]/[errorHandlingRestartImmediatelyButton]/
+ * [errorHandlingRestartQueueButton] (mutually exclusive), [errorHandlingRescheduleErrorsCB],
+ * [errorHandlingStrategyDelay] (minutes).
+ */
+@Serializable
+data class WireSchedulerSettings(
+    // Startup condition
+    val asapConditionR: Boolean = true,
+    val startupTimeConditionR: Boolean = false,
+    val startupTimeEdit: String = "",
+    val kcfg_LeadTime: Double = 5.0,
+    val kcfg_PreDawnTime: Double = 30.0,
+    // Constraints
+    val schedulerAltitude: Boolean = false,
+    val schedulerAltitudeValue: Double = 0.0,
+    val schedulerMoonSeparation: Boolean = false,
+    val schedulerMoonSeparationValue: Double = 0.0,
+    val schedulerMoonAltitude: Boolean = false,
+    val schedulerMoonAltitudeMaxValue: Double = 90.0,
+    val schedulerTwilight: Boolean = false,
+    val schedulerHorizon: Boolean = false,
+    val kcfg_DawnOffset: Double = 0.0,
+    val kcfg_DuskOffset: Double = 0.0,
+    val schedulerTrackStep: Boolean = true,
+    val schedulerFocusStep: Boolean = true,
+    val schedulerAlignStep: Boolean = true,
+    val schedulerGuideStep: Boolean = true,
+    // Completion condition
+    val schedulerCompleteSequences: Boolean = true,
+    val schedulerRepeatSequences: Boolean = false,
+    val schedulerRepeatSequencesLimit: Int = 1,
+    val schedulerRepeatEverything: Boolean = false,
+    val schedulerUntilTerminated: Boolean = false,
+    val schedulerUntil: Boolean = false,
+    val schedulerUntilValue: String = "",
+    // Observatory startup/shutdown procedure
+    val schedulerStartupEnabled: Boolean = false,
+    val schedulerPreStartupScript: String = "",
+    val schedulerPostStartupScript: String = "",
+    val schedulerShutdownEnabled: Boolean = false,
+    val schedulerPreShutdownScript: String = "",
+    val schedulerPostShutdownScript: String = "",
+    val kcfg_PreemptiveShutdown: Boolean = false,
+    val kcfg_PreemptiveShutdownTime: Double = 2.0,
+    val kcfg_StopEkosAfterShutdown: Boolean = false,
+    val kcfg_ShutdownScriptTerminatesINDI: Boolean = false,
+    // Aborted-job handling
+    val errorHandlingDontRestartButton: Boolean = true,
+    val errorHandlingRestartImmediatelyButton: Boolean = false,
+    val errorHandlingRestartQueueButton: Boolean = false,
+    val errorHandlingRescheduleErrorsCB: Boolean = false,
+    val errorHandlingStrategyDelay: Int = 0,
 )
 
 /**
