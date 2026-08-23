@@ -137,6 +137,15 @@ fun NightArc(
  * nothing tying that time to a position on the curve itself. All three are real-mode only, same
  * gating as [realNowFraction] — no equivalent data exists for the fixture curve.
  */
+/**
+ * Real altitude (degrees, +90..-90) mapped onto [AltitudeChart]'s own 0..118 viewBox height —
+ * high altitude at the top (y=8) down to low/below-horizon at the bottom (y=110), leaving a
+ * small margin either side. Shared (not private to [AltitudeChart]) so `PlanScreen.kt`'s y-axis
+ * tick labels (user-requested, 2026-08-22) land at exactly the same height the real curve/
+ * horizon/peak/now lines do — divide by 118 for a 0..1 fraction of the chart's own height.
+ */
+fun altitudeToChartY(alt: Double): Float = (((90.0 - alt) / 180.0) * 102.0 + 8.0).toFloat()
+
 @Composable
 fun AltitudeChart(
     modifier: Modifier,
@@ -154,8 +163,9 @@ fun AltitudeChart(
     }
     // Real altitudes are degrees, +90..-90 — mapped onto the same 0..118 viewBox height the
     // fixture curve uses, high altitude at the top (y=8) down to low/below-horizon at the bottom
-    // (y=110), leaving a small margin either side.
-    fun altY(alt: Double) = (((90.0 - alt) / 180.0) * 102.0 + 8.0).toFloat()
+    // (y=110), leaving a small margin either side. Shared as [altitudeToChartY] (below) so
+    // PlanScreen.kt's y-axis tick labels land at exactly the same height this curve does.
+    fun altY(alt: Double) = altitudeToChartY(alt)
     Canvas(modifier = modifier) {
         fun sx(x: Float) = x / 348f * size.width
         fun sy(y: Float) = y / 118f * size.height

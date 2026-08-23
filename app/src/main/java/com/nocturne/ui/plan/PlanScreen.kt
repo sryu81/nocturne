@@ -59,6 +59,7 @@ import com.nocturne.session.findTarget
 import com.nocturne.session.framingFovDeg
 import com.nocturne.session.framingPixelScaleArcsecPerPx
 import com.nocturne.ui.components.AltitudeChart
+import com.nocturne.ui.components.altitudeToChartY
 import com.nocturne.ui.components.HatchBg
 import com.nocturne.ui.components.IconBtn
 import com.nocturne.ui.components.PlanChip
@@ -357,6 +358,18 @@ private fun TargetCard(state: SimState, ctrl: SessionController, tgt: Target) {
                 Modifier.fillMaxSize(), realAltitudes = realAltitudes, realNowFraction = nowFraction,
                 realDuskFraction = duskFraction, realDawnFraction = dawnFraction,
             )
+            // Real y-axis altitude ticks (user-requested, 2026-08-22) — same altitudeToChartY
+            // mapping the real curve/horizon/peak/now lines are all drawn with, so a tick's text
+            // lands at the exact height its degree value corresponds to on the curve.
+            if (realAltitudes != null) {
+                listOf(0, 30, 60, 90).forEach { deg ->
+                    val yFraction = altitudeToChartY(deg.toDouble()) / 118f
+                    TextC(
+                        "$deg°", style = t.MonoMicro, color = c.textFaint,
+                        modifier = Modifier.align(Alignment.TopStart).padding(start = 2.dp, top = (maxHeight * yFraction - 6.dp).coerceAtLeast(0.dp)),
+                    )
+                }
+            }
             TextC(
                 window?.let { state.formatSiteTime(it.first) } ?: "21:48",
                 style = t.MonoSmall, color = c.textMuted, modifier = Modifier.align(Alignment.BottomStart),
