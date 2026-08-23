@@ -1,5 +1,6 @@
 package com.nocturne.session
 
+import com.nocturne.protocol.ACTIVE_SCHEDULER_STATES
 import com.nocturne.protocol.DeviceRole
 import com.nocturne.protocol.WireAlignSettings
 import com.nocturne.protocol.WireCaptureSettings
@@ -7,6 +8,7 @@ import com.nocturne.protocol.WireFocusSettings
 import com.nocturne.protocol.WireGuideSettings
 import com.nocturne.protocol.WireMountSettings
 import com.nocturne.protocol.WireRiseset
+import com.nocturne.protocol.SchedulerJobStatus
 import com.nocturne.protocol.WireSchedulerJob
 import com.nocturne.protocol.WireSchedulerSettings
 import com.nocturne.protocol.WireTrain
@@ -64,7 +66,7 @@ data class SimState(
      * Only [contractJob] should read this; everything else should keep using
      * `jobs`.
      */
-    val lastActiveJobId: String? = DEFAULT_JOBS.firstOrNull { it.running }?.id,
+    val lastActiveJobId: String? = null,
     /** Which block card is expanded — global scalar is fine, only one job is ever drilled into at a time. */
     val openBlockId: String? = DEFAULT_BLOCKS.getOrNull(1)?.id,
     /** The job [endSession] stopped, pending a Back-to-session/Next-job/Finish choice on the Summary sheet. */
@@ -260,6 +262,40 @@ data class SimState(
     val wireSearchResults: List<Target>? = null,
     /** `scheduler_get_jobs` translated (M3) — cross-referenced for progress; see [SequenceJob.synced]. */
     val wireSchedulerJobs: List<WireSchedulerJob>? = null,
+    /**
+     * Whether the real Scheduler is currently toggled on — promoted out of what used to be a
+     * private `EkosRemoteController` var so the UI can render a real Start/Stop-Scheduler
+     * control. Written only from the real `new_scheduler_state` push, same "derived from real
+     * events only, never optimistic" shape [ekosRunning] already uses — a prior fix this session
+     * had to remove an optimistic flip here for causing a live "tapped stop, it started again"
+     * bug, so this field must never be set from a local tap, only from a real event.
+     */
+    val schedulerRunning: Boolean = false,
+    /**
+     * Target name of a "Push to Ekos" that came back refused (M3.4) — real Ekos refuses a
+     * duplicate job name outright (`"A job with name '...' already exists"`, confirmed live);
+     * [EkosRemoteController.pushJob] checks [wireSchedulerJobs] before ever sending the add and
+     * surfaces the refusal here rather than racing a server-side one, same shape as
+     * [profileDeleteRefused].
+     */
+    val jobPushRefused: String? = null,
+    /**
+     * Target name of a "Remove from Ekos" refused *before it was even sent* (M3.4) — real Ekos
+     * refuses `scheduler_remove_jobs` while the *Scheduler itself* is running
+     * ([schedulerRunning]), confirmed live: `"Cannot delete currently running job"`.
+     *
+     * **Not** gated on the job's own real `state` — confirmed live this was the wrong signal: a
+     * freshly-pushed job can read `SCHEDULED` from Ekos's own one-shot evaluation on add even
+     * while the Scheduler itself stays `IDLE` (never toggled on), and removal is perfectly safe
+     * in that case. [schedulerRunning] is the actual gating condition, independent of any one
+     * job's own state.
+     *
+     * User feedback (2026-08-23): a blanket "are you sure?" confirm on every remove tap was the
+     * wrong UX — [EkosRemoteController.removeJob] checks this first instead and only ever asks
+     * the user to look here if it's actually going to be refused; otherwise the remove is sent
+     * immediately, no dialog. Same shape as [jobPushRefused].
+     */
+    val jobRemoveRefused: String? = null,
     /**
      * `mount_get_all_settings` translated (M3.3, curated subset — see docs/M3.3-plan.md).
      * Null until the first reply (sent when [MOUNT_SETTINGS] sheet opens); also gates that
@@ -1006,32 +1042,65 @@ data class SequenceJob(
     val targetId: String,
     val blocks: List<Block> = DEFAULT_BLOCKS,
     val blockSeq: Int = DEFAULT_BLOCKS.size + 1,
-    val running: Boolean = false,
     /**
-     * True once this job has been pushed to the real Scheduler (M3) —
-     * `scheduler_add_jobs` was sent and confirmed via a `scheduler_get_jobs`
-     * round-trip. The block editor goes read-only while true (matches real
-     * Ekos — there's no live-edit-a-running-job wire primitive). Stays
-     * `false` forever under [SimulatedController].
+     * True once this job has been pushed to the real Scheduler ("Push to Ekos", M3.4) —
+     * `scheduler_add_jobs` was sent and confirmed via a `scheduler_get_jobs` round-trip. Means
+     * only "Ekos currently lists a job with this target's name" — nothing about whether it's
+     * actually running; use [wireJobFor] for that. The block editor goes read-only while true
+     * (matches real Ekos — there's no live-edit-a-running-job wire primitive).
+     *
+     * `running: Boolean` and `wireIndex: Int?` used to live here too (M3/M3.4) — dropped
+     * 2026-08-23 once the push/start/stop split landed: `WireSchedulerJob` has no server-assigned
+     * id, only `name`, so a cached index went stale the instant anything else on the real queue
+     * was added/removed (confirmed live — this exact staleness is what let a duplicate-name push
+     * silently latch onto a different job's slot). Both are now resolved fresh, by name, against
+     * [SimState.wireSchedulerJobs] at the moment a command needs them, via [wireJobFor].
      */
     val synced: Boolean = false,
-    /** This job's index in the last `scheduler_get_jobs` reply — needed for `scheduler_remove_jobs {index}`. */
-    val wireIndex: Int? = null,
 )
 
 val DEFAULT_JOBS = listOf(
-    SequenceJob(id = "j1", targetId = "NGC 7000", blocks = DEFAULT_BLOCKS, blockSeq = DEFAULT_BLOCKS.size + 1, running = true),
+    SequenceJob(id = "j1", targetId = "NGC 7000", blocks = DEFAULT_BLOCKS, blockSeq = DEFAULT_BLOCKS.size + 1),
 )
 
+/** The `target?.common ?: target?.id ?: job.targetId` name Ekos would know a job by — used to name-match [SimState.wireSchedulerJobs]. */
+fun SimState.targetNameFor(job: SequenceJob): String {
+    val target = findTarget(job.targetId)
+    return target?.common ?: target?.id ?: job.targetId
+}
+
 /**
- * Which job the Session tab reflects: the running one, or the first queued
- * job if none is running, or null if the queue is empty. Session tab's own
- * telemetry (night arc, HFR/RMS/SNR) stays the decoupled simulator fixture
- * it always was — only the header (target name, block progress) is wired to
+ * This job's real counterpart on the wire, if any — `null` for an unsynced job by construction
+ * (never name-match a job that hasn't been confirmed pushed; this is exactly where the
+ * duplicate-name bug bit before this field was added). This is the one place "is this job really
+ * running" gets answered from now on — [SequenceJob] itself carries no local running flag.
+ */
+fun SimState.wireJobFor(job: SequenceJob): WireSchedulerJob? =
+    if (!job.synced) null else wireSchedulerJobs.orEmpty().firstOrNull { it.name == targetNameFor(job) }
+
+/**
+ * Real jobs Ekos's Scheduler holds that no local, synced [SequenceJob] claims — added directly in
+ * KStars, or left over from before this app ever touched them. The app never hides these: it
+ * reads Ekos's real state and shows it as-is, it doesn't force/clear anything on connect.
+ */
+val SimState.unmanagedWireJobs: List<WireSchedulerJob> get() {
+    val claimed = jobs.filter { it.synced }.map { targetNameFor(it) }.toSet()
+    return wireSchedulerJobs.orEmpty().filterNot { it.name in claimed }
+}
+
+/**
+ * Which job the Session tab reflects: prefers real truth over local guesswork — a synced job
+ * actually [SchedulerJobStatus.BUSY] right now, else one in [ACTIVE_SCHEDULER_STATES] (Ekos has
+ * committed to it, even pre-slew), else whichever job was last active locally, else the first
+ * queued job, else null. Session tab's own telemetry (night arc, HFR/RMS/SNR) stays the decoupled
+ * simulator fixture it always was — only the header (target name, block progress) is wired to
  * this job.
  */
 val SimState.contractJob: SequenceJob? get() =
-    jobs.firstOrNull { it.running } ?: jobs.firstOrNull { it.id == lastActiveJobId } ?: jobs.firstOrNull()
+    jobs.firstOrNull { wireJobFor(it)?.state == SchedulerJobStatus.BUSY }
+        ?: jobs.firstOrNull { wireJobFor(it)?.state in ACTIVE_SCHEDULER_STATES }
+        ?: jobs.firstOrNull { it.id == lastActiveJobId }
+        ?: jobs.firstOrNull()
 
 /** The job [endSession] stopped — what the Summary sheet and its export report are about. */
 val SimState.endedJob: SequenceJob? get() = jobs.firstOrNull { it.id == lastEndedJobId }

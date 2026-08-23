@@ -31,6 +31,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import com.nocturne.protocol.SchedulerJobStatus
+import com.nocturne.protocol.WireSchedulerJob
+import com.nocturne.protocol.jobStatusLabel
 import com.nocturne.session.BINNING_OPTIONS
 import com.nocturne.session.Block
 import com.nocturne.session.DITHER_OPTIONS
@@ -48,9 +51,10 @@ import com.nocturne.session.pct
 import com.nocturne.session.realNightWindow
 import com.nocturne.session.spec
 import com.nocturne.session.ready
-import com.nocturne.ui.components.BtnStyle
+import com.nocturne.session.targetNameFor
+import com.nocturne.session.unmanagedWireJobs
+import com.nocturne.session.wireJobFor
 import com.nocturne.ui.components.Card
-import com.nocturne.ui.components.ConfirmDialog
 import com.nocturne.ui.components.HDivider
 import com.nocturne.ui.components.IconBtn
 import com.nocturne.ui.components.SwitchRow
@@ -95,7 +99,8 @@ private fun JobListScreen(
 
 @Composable
 private fun JobList(state: SimState, ctrl: SessionController) {
-    if (state.jobs.isEmpty()) {
+    val unmanaged = state.unmanagedWireJobs
+    if (state.jobs.isEmpty() && unmanaged.isEmpty()) {
         EmptyJobListCard()
         return
     }
@@ -108,6 +113,17 @@ private fun JobList(state: SimState, ctrl: SessionController) {
                 onRemove = { ctrl.removeJob(job.id) },
             )
             Spacer(Modifier.height(11.2.dp))
+        }
+        // Real jobs Ekos's Scheduler holds that no local, pushed job claims — added directly in
+        // KStars, or left over from before this app ever touched them. The app never hides
+        // these: it reads Ekos's real state and shows it as-is (2026-08-23 redesign).
+        if (unmanaged.isNotEmpty()) {
+            TextC("ON EKOS, NOT MANAGED HERE", style = NocturneTheme.type.Caption, color = NocturneTheme.colors.textFaint)
+            Spacer(Modifier.height(6.dp))
+            unmanaged.forEach { wireJob ->
+                UnmanagedJobCard(state = state, wireJob = wireJob, onRemove = { ctrl.removeUnmanagedJob(wireJob.name) })
+                Spacer(Modifier.height(11.2.dp))
+            }
         }
     }
 }
@@ -131,6 +147,15 @@ private fun JobCard(state: SimState, job: SequenceJob, onOpen: () -> Unit, onRem
     val target = state.findTarget(job.targetId)
     val doneTotal = job.blocks.sumOf { it.doneCount }
     val subTotal = job.blocks.sumOf { it.subCount }
+    val real = state.wireJobFor(job)
+    val (chipText, chipColor) = when {
+        !job.synced -> "not pushed" to c.textMuted
+        real == null -> "pushed — awaiting Ekos" to c.textMuted
+        real.state == SchedulerJobStatus.BUSY -> real.jobStatusLabel to c.accent400
+        real.state == SchedulerJobStatus.ERROR || real.state == SchedulerJobStatus.ABORTED -> real.jobStatusLabel to c.danger
+        else -> real.jobStatusLabel to c.textMuted
+    }
+    val chipBg = if (real?.state == SchedulerJobStatus.BUSY) c.accent.copy(alpha = 0.16f) else c.divider.copy(alpha = 0.4f)
     Card {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -142,10 +167,10 @@ private fun JobCard(state: SimState, job: SequenceJob, onOpen: () -> Unit, onRem
             }
             Box(
                 Modifier
-                    .background(if (job.running) c.accent.copy(alpha = 0.16f) else c.divider.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
+                    .background(chipBg, RoundedCornerShape(4.dp))
                     .padding(horizontal = 7.dp, vertical = 3.dp),
             ) {
-                TextC(if (job.running) "running" else "paused", style = t.MonoMicro, color = if (job.running) c.accent400 else c.textMuted)
+                TextC(chipText, style = t.MonoMicro, color = chipColor)
             }
             Spacer(Modifier.width(8.dp))
             IconBtn(icon = Phosphor.X, onClick = onRemove, size = 40, iconSize = 20.dp, tint = c.danger)
@@ -154,6 +179,41 @@ private fun JobCard(state: SimState, job: SequenceJob, onOpen: () -> Unit, onRem
         }
         Spacer(Modifier.height(6.dp))
         TextC("$doneTotal / $subTotal subs done", style = t.MonoMicro, color = c.textFaint)
+    }
+}
+
+/**
+ * A real Scheduler job with no local counterpart — see [SimState.unmanagedWireJobs]. No
+ * drill-down: there's no local block data for a job this app never wrote the `.esq` for. Same
+ * check-status-first, no-confirm-dialog remove shape as `PushOrRemoveRow` — see its own doc.
+ */
+@Composable
+private fun UnmanagedJobCard(state: SimState, wireJob: WireSchedulerJob, onRemove: () -> Unit) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    Card {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                TextC(wireJob.name, style = t.Body135, color = c.text)
+                TextC("${wireJob.completedCount}/${wireJob.sequenceCount} subs", style = t.MonoMicro, color = c.textFaint)
+            }
+            Box(
+                Modifier
+                    .background(c.divider.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 7.dp, vertical = 3.dp),
+            ) {
+                TextC(wireJob.jobStatusLabel, style = t.MonoMicro, color = c.textMuted)
+            }
+            Spacer(Modifier.width(8.dp))
+            IconBtn(icon = Phosphor.X, onClick = onRemove, size = 40, iconSize = 20.dp, tint = c.danger)
+        }
+        if (state.jobRemoveRefused == wireJob.name) {
+            Spacer(Modifier.height(6.dp))
+            TextC(
+                "Can't remove while the Scheduler is running — stop it first (see the button above the queue).",
+                style = t.MonoMicro, color = c.warn,
+            )
+        }
     }
 }
 
@@ -197,7 +257,7 @@ private fun JobDetailScreen(
                     }
                 }
             },
-            TabItem(full = true) { StartButton(state, ctrl, job) },
+            TabItem(full = true) { PushOrRemoveRow(state, ctrl, job) },
             TabItem(full = true) {
                 if (!state.ready) {
                     Box(
@@ -271,6 +331,8 @@ private fun NightPlanBar(state: SimState, ctrl: SessionController) {
             Spacer(Modifier.width(8.dp))
             IconBtn(Phosphor.SlidersHorizontal, onClick = { ctrl.openSheet(SheetType.SCHEDULER_SETTINGS) }, size = 28, iconSize = 14.dp)
         }
+        Spacer(Modifier.height(9.dp))
+        SchedulerToggleButton(state, ctrl)
         if (showFixturePlan) {
             Spacer(Modifier.height(12.6.dp))
             Row(
@@ -293,6 +355,37 @@ private fun NightPlanBar(state: SimState, ctrl: SessionController) {
                 TextC("OIII", style = t.Mono13, color = c.textFaint, modifier = Modifier.weight(1f))
                 TextC("SII", style = t.Mono13, color = c.textFaint, modifier = Modifier.weight(1f))
             }
+        }
+    }
+}
+
+/**
+ * Global Scheduler start/stop (2026-08-23 push/start/stop split) — not tied to any one job, since
+ * real Ekos only has a whole-queue start/stop, not a per-job one. A user report found the earlier
+ * bare-icon version of this undiscoverable ("where is the start job button?") — a labeled
+ * full-width button, matching this app's other primary-action buttons, replaces it. Label/icon
+ * follow `state.schedulerRunning`, which is only ever set from the real `new_scheduler_state`
+ * push (see that field's own doc) — no optimistic flip on tap, so the label only flips once the
+ * real transition actually lands.
+ */
+@Composable
+private fun SchedulerToggleButton(state: SimState, ctrl: SessionController) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    val running = state.schedulerRunning
+    val color = if (running) c.warn else c.accent
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(40.dp)
+            .border(1.dp, color, RoundedCornerShape(10.dp))
+            .clickable(onClick = ctrl::toggleScheduler),
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Phosphor.Icon(if (running) Phosphor.Pause else Phosphor.Play, size = 15.dp, tint = color)
+            Spacer(Modifier.width(8.dp))
+            TextC(if (running) "Stop Scheduler" else "Start Scheduler", style = t.Button14, color = color)
         }
     }
 }
@@ -468,8 +561,8 @@ private fun BlockCard(
 /**
  * `locked` (M3, `job.synced`) — once a job is synced to the real Scheduler
  * there's no live-edit-a-running-job wire primitive, so every mutating
- * control here becomes a no-op and dims; stop the sequence to unlock it
- * again (`EkosRemoteController.toggleJobRun` clears `synced` on stop).
+ * control here becomes a no-op and dims; remove the job from Ekos to unlock
+ * it again (`EkosRemoteController.removeJob` clears `synced`).
  */
 @Composable
 private fun BlockDetails(block: Block, ctrl: SessionController, jobId: String, autofocusRule: String, onOpenAutofocusRules: () -> Unit, locked: Boolean = false) {
@@ -594,52 +687,86 @@ private fun <T> SegmentedRow(options: List<T>, selected: T, labelOf: (T) -> Stri
 }
 
 /**
- * Real bug found live (2026-08-23, user report): this used to say "Pause after this sub" while
- * running, but [SessionController.toggleJobRun]'s real stop path — real Ekos has no distinct
- * pause primitive, no "edit a synced job" wire call either, see that method's own doc — actually
- * stops the real Scheduler *and removes the job from it entirely*. A single accidental tap while
- * a real job was genuinely BUSY silently deleted it, no warning, nothing resembling a pause. Now
- * named for what actually happens, and (only for the destructive stop direction — starting stays
- * a single tap, matching this app's existing norm) gated behind a confirm dialog.
+ * Replaces the old combined `StartButton` (2026-08-23 push/start/stop split) — that button used
+ * to say "Pause after this sub" while running, but the real stop path had no distinct pause
+ * primitive at all: it stopped the real Scheduler *and removed the job entirely*, and separately
+ * conflated "push to Ekos" with "start the whole Scheduler" in one tap (a raw toggle, not
+ * idempotent — starting a second job while a first was already running silently stopped it,
+ * confirmed live). Now split into the two real, independent actions: **Push to Ekos**
+ * (non-destructive, plain tap, [SessionController.pushJob]) while not yet synced, and **Remove
+ * from Ekos** once it is — starting/stopping the Scheduler itself is a separate global control
+ * (see `NightPlanBar`'s `SchedulerToggleButton`).
+ *
+ * **No confirm dialog on remove (2026-08-23, user feedback)** — first cut gated every remove tap
+ * behind an "are you sure?" dialog regardless of whether removal was actually risky. Real Ekos
+ * itself already refuses to remove an active job; [SessionController.removeJob] now checks that
+ * client-side first and refuses instantly with [SimState.jobRemoveRefused] if so — a plain tap
+ * removes immediately when it's actually safe, no dialog either way.
  */
 @Composable
-private fun StartButton(state: SimState, ctrl: SessionController, job: SequenceJob) {
+private fun PushOrRemoveRow(state: SimState, ctrl: SessionController, job: SequenceJob) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val ready = state.ready
-    val running = job.running
-    val color = if (ready) c.accent else c.neutral700
-    val label = when {
-        !ready -> "Blocked — connect ${state.missing}"
-        running -> "Stop sequence"
-        else -> "Start sequence"
+    if (!ready) {
+        TextC("Blocked — connect ${state.missing}", style = t.Button14, color = c.neutral700)
+        return
     }
-    var showStopConfirm by remember { mutableStateOf(false) }
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .height(48.dp)
-            .border(1.dp, color, RoundedCornerShape(10.dp))
-            .clickable {
-                if (running) showStopConfirm = true else ctrl.toggleJobRun(job.id)
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Phosphor.Icon(if (running) Phosphor.Pause else Phosphor.Play, size = 17.dp, tint = color)
-            Spacer(Modifier.width(8.dp))
-            TextC(label, style = t.Button14, color = color)
+    val real = state.wireJobFor(job)
+    val targetName = state.targetNameFor(job)
+    if (!job.synced) {
+        val refused = state.jobPushRefused == targetName
+        Column {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .border(1.dp, c.accent, RoundedCornerShape(10.dp))
+                    .clickable { ctrl.pushJob(job.id) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Phosphor.Icon(Phosphor.Plus, size = 17.dp, tint = c.accent)
+                    Spacer(Modifier.width(8.dp))
+                    TextC("Push to Ekos", style = t.Button14, color = c.accent)
+                }
+            }
+            if (refused) {
+                Spacer(Modifier.height(6.dp))
+                TextC(
+                    "Can't push — a job named \"${state.jobPushRefused}\" is already on Ekos's Scheduler.",
+                    style = t.MonoMicro, color = c.warn,
+                )
+            }
         }
+        return
     }
-    if (showStopConfirm) {
-        ConfirmDialog(
-            title = "Stop sequence?",
-            message = "Ekos has no way to pause a running job — stopping removes it from the " +
-                "Scheduler entirely. You'll need to add and start it again to resume tonight.",
-            confirmText = "Stop & remove",
-            confirmStyle = BtnStyle.DANGER,
-            onConfirm = { showStopConfirm = false; ctrl.toggleJobRun(job.id) },
-            onDismiss = { showStopConfirm = false },
-        )
+    val refused = state.jobRemoveRefused == targetName
+    Column {
+        if (real != null) {
+            TextC(real.jobStatusLabel, style = t.MonoMicro, color = c.textFaint)
+            Spacer(Modifier.height(6.dp))
+        }
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .border(1.dp, c.danger, RoundedCornerShape(10.dp))
+                .clickable { ctrl.removeJob(job.id) },
+            contentAlignment = Alignment.Center,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Phosphor.Icon(Phosphor.X, size = 17.dp, tint = c.danger)
+                Spacer(Modifier.width(8.dp))
+                TextC("Remove from Ekos", style = t.Button14, color = c.danger)
+            }
+        }
+        if (refused) {
+            Spacer(Modifier.height(6.dp))
+            TextC(
+                "Can't remove while the Scheduler is running — stop it first.",
+                style = t.MonoMicro, color = c.warn,
+            )
+        }
     }
 }

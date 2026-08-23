@@ -46,6 +46,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.nocturne.protocol.SchedulerJobStatus
+import com.nocturne.protocol.jobStatusLabel
 import com.nocturne.session.ALERTS
 import com.nocturne.session.FlipConfirm
 import com.nocturne.session.SheetType
@@ -53,6 +55,7 @@ import com.nocturne.session.SimState
 import com.nocturne.session.contractJob
 import com.nocturne.session.currentBlockIndex
 import com.nocturne.session.findTarget
+import com.nocturne.session.wireJobFor
 import com.nocturne.transport.ConnectionState
 import com.nocturne.transport.ConnectionStatus
 import com.nocturne.ui.connect.ConnectScreen
@@ -338,7 +341,12 @@ private fun NocturneHeader(
         ) {
             Column(Modifier.weight(1f)) {
                 if (tab == NocturneTab.Session && contractJob != null) {
-                    val statusColor = if (contractJob.running) colors.ok else colors.warn
+                    // Real status once pushed (see SimState.wireJobFor) — "Not pushed" while
+                    // still local-only, matching this app's own vocabulary elsewhere for the
+                    // same condition (2026-08-23 push/start/stop split).
+                    val real = state.wireJobFor(contractJob)
+                    val label = if (contractJob.synced) real?.jobStatusLabel ?: "Queued" else "Not pushed"
+                    val statusColor = if (real?.state == SchedulerJobStatus.BUSY) colors.ok else colors.warn
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             modifier = Modifier
@@ -347,7 +355,7 @@ private fun NocturneHeader(
                         )
                         Spacer(Modifier.width(NocturneTheme.spacing.s2))
                         Text(
-                            if (contractJob.running) "Imaging" else "Paused",
+                            label,
                             style = NocturneTheme.type.StatusLabel, color = statusColor,
                         )
                         val blockIndex = contractJob.currentBlockIndex

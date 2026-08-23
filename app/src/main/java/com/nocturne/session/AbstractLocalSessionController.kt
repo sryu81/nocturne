@@ -85,7 +85,7 @@ abstract class AbstractLocalSessionController : SessionController {
                 id = "b1", filter = FILTER_CYCLE.first(), exposureSec = 300, subCount = 10, doneCount = 0,
                 gain = 100, offset = 50, binning = 1, ditherEvery = 2,
             )
-            val job = SequenceJob(id = "j${s.jobSeq}", targetId = targetId, blocks = listOf(block), blockSeq = 2, running = false)
+            val job = SequenceJob(id = "j${s.jobSeq}", targetId = targetId, blocks = listOf(block), blockSeq = 2)
             s.copy(jobs = s.jobs + job, jobSeq = s.jobSeq + 1, activeJobId = job.id, openBlockId = null)
         }
     }
@@ -102,26 +102,24 @@ abstract class AbstractLocalSessionController : SessionController {
     override fun openJob(jobId: String) = update { it.copy(activeJobId = jobId, openBlockId = null) }
     override fun closeJob() = update { it.copy(activeJobId = null, openBlockId = null) }
 
-    override open fun toggleJobRun(jobId: String) = update { s ->
-        val running = !(s.jobs.firstOrNull { it.id == jobId }?.running ?: false)
-        s.mapJob(jobId) { it.copy(running = running) }
-            .copy(lastActiveJobId = if (running) jobId else s.lastActiveJobId)
-    }
-
-    override fun endSession() = update { s ->
-        val contract = s.contractJob
-        val stopped = if (contract != null) s.mapJob(contract.id) { it.copy(running = false) } else s
-        stopped.copy(sheet = SheetType.SUMMARY, lastEndedJobId = contract?.id)
-    }
+    /**
+     * Pure local navigation only — "is this job actually running" is answered by real Ekos state
+     * (`SimState.wireJobFor`) since the push/start/stop split (2026-08-23), not a local flag, so
+     * there's nothing per-job left to mutate here; these three just move `sheet`/`lastEndedJobId`/
+     * `lastActiveJobId` around. [EkosRemoteController] overrides all three to also drive the real
+     * Scheduler (stop+remove / push+start) around this same local navigation — a deliberate,
+     * explicit whole-night lifecycle action, unlike the passive connect/add-to-sequence path.
+     */
+    override fun endSession() = update { s -> s.copy(sheet = SheetType.SUMMARY, lastEndedJobId = s.contractJob?.id) }
 
     override fun resumeSession() = update { s ->
         val id = s.lastEndedJobId ?: return@update s.copy(sheet = null)
-        s.mapJob(id) { it.copy(running = true) }.copy(sheet = null, lastEndedJobId = null, lastActiveJobId = id)
+        s.copy(sheet = null, lastEndedJobId = null, lastActiveJobId = id)
     }
 
     override fun startNextJob() = update { s ->
         val next = s.jobs.firstOrNull { it.id != s.lastEndedJobId } ?: return@update s
-        s.mapJob(next.id) { it.copy(running = true) }.copy(sheet = null, lastEndedJobId = null, lastActiveJobId = next.id)
+        s.copy(sheet = null, lastEndedJobId = null, lastActiveJobId = next.id)
     }
 
     override fun finishNight() = update { s ->

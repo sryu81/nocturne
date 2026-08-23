@@ -101,45 +101,28 @@ class EkosRemoteController(
      * actually lands (matched by name against the next `scheduler_get_jobs` reply) — set right
      * alongside [pendingSyncJobId]/[pendingSyncName] but consumed separately in
      * [sendFollowUpCommands], since [applySchedulerJobs] already clears those two on match before
-     * [sendFollowUpCommands] runs. Toggling the Scheduler on is only safe once the add is
-     * confirmed real, not merely attempted — see [toggleJobRun]'s doc for why the add can fail.
-     */
-    private var pendingSchedulerStart: String? = null
-
-    /**
-     * Mirror of whether `scheduler_start_job` (a toggle, not exclusively "start" — see its own
-     * doc in the command reference) currently has the real Scheduler running — consulted before
-     * ever removing a job, since **real Ekos silently refuses `scheduler_remove_jobs` while the
-     * Scheduler is actively running** — confirmed live (2026-08-09) via the Scheduler's own log:
-     * `"Cannot delete currently running job 'M 104'"`.
+     * [sendFollowUpCommands] runs.
      *
-     * **Real bug found live (2026-08-23)**: this used to be purely optimistic — set locally right
-     * after *this app itself* sent the toggle, with nothing to correct it if reality diverged
-     * (the real Scheduler stopped from the real Ekos UI directly, or an app restart reset this to
-     * `false` while a real job was still BUSY, or it errored/aborted on its own). A stale `true`
-     * belief made [stopSchedulerThenRemove] send the stop-toggle against a Scheduler already
-     * idle — which **starts** it again, confirmed live: exactly the "tapped stop, Ekos started
-     * running again" surprise a real user report described. Now kept in sync by
-     * [EkosEvent.NewSchedulerState]'s real `status` field (see that event's own doc for the
-     * confirmed real enum) — true only for `STARTUP`/`RUNNING`/`PAUSED`/`SHUTDOWN`/`LOADING`,
-     * false for `IDLE`/`ABORTED`. Still seeded `false` at construction and by
-     * [reconcileSchedulerJobs]'s safety-exception (a real BUSY job unambiguously means running),
-     * since there's no eager "get current status" request on this wire — only this push, which
-     * fires on any real transition regardless of who caused it.
+     * **Redesigned 2026-08-23 (push/start/stop split)**: this used to fire unconditionally
+     * whenever *any* confirmed add landed — a real, live-confirmed bug, since a second job's add
+     * confirming while the Scheduler was already running (from a first job's own start) sent the
+     * toggle again and silently **stopped** it, aborting the first job's genuinely in-progress
+     * run. Now [alsoStart] is only ever `true` for [pushRealJob] calls from [resumeSession]/
+     * [startNextJob] — deliberate "push and start together" lifecycle actions — and even then only
+     * sends the toggle if `!schedulerRunning`. A plain [pushJob] never sets it, so pushing a
+     * second job while the first is running can no longer touch the Scheduler toggle at all.
      */
-    private var schedulerRunning = false
-
-    /** See [applyEvent]'s `NewConnectionState` arm — set on `online`, consumed once in
-     *  [sendFollowUpCommands]'s `SchedulerJobs` arm to fire [reconcileSchedulerJobs]. */
-    private var pendingInitialReconcile = false
+    private data class PendingSchedulerStart(val name: String, val alsoStart: Boolean)
+    private var pendingSchedulerStart: PendingSchedulerStart? = null
 
     /**
-     * [toggleJobRun]'s save→settings→add→get→start chain is split at this point because
+     * [pushRealJob]'s save→settings→add→get→(start) chain is split at this point because
      * `sequenceEdit` needs the *server-resolved* absolute path from the save reply, not a
      * client-guessed one — see [EkosEvent.SchedulerSaveSequenceFile]'s doc. Holds everything the
-     * rest of the chain needs once that reply lands.
+     * rest of the chain needs once that reply lands. [alsoStart] carries through to
+     * [pendingSchedulerStart] — see its doc for why only [resumeSession]/[startNextJob] set it.
      */
-    private data class PendingJobStart(val jobId: String, val targetName: String, val raDec: Pair<String, String>?, val trainName: String?)
+    private data class PendingJobStart(val jobId: String, val targetName: String, val raDec: Pair<String, String>?, val trainName: String?, val alsoStart: Boolean = false)
     private var pendingJobStart: PendingJobStart? = null
 
     /** In-memory mirror of the reboot daemon's port/token — [SimState] only ever exposes
@@ -216,13 +199,12 @@ class EkosRemoteController(
         }
 
         sequenceRepo?.let { repo ->
-            // Restore whatever was queued last, before this connection's own online-transition
-            // reconcile (see applyEvent's NewConnectionState arm) pushes it back out to real
-            // Ekos — this load must land first, or the reconcile would push an empty queue and
-            // wipe a real job that should have been re-synced instead. Loading is a single
-            // suspend read (DataStore's own in-memory cache after first launch), effectively
-            // immediate; the reconcile can't fire before `online` anyway, which is always at
-            // least one full connect roundtrip away.
+            // Restore whatever was queued last — purely local session continuity, fully decoupled
+            // from whatever real Ekos's Scheduler currently holds (push/start/stop split,
+            // 2026-08-23): the app no longer force-syncs anything on connect, so there's no race
+            // to land ahead of here, just the ordinary "don't flash an empty list before this
+            // loads" concern. Loading is a single suspend read (DataStore's own in-memory cache
+            // after first launch), effectively immediate.
             scope.launch {
                 val saved = repo.current()
                 if (saved.jobs.isNotEmpty() || saved.lastActiveJobId != null) {
@@ -231,9 +213,9 @@ class EkosRemoteController(
                     }
                 }
             }
-            // Persists on every subsequent change, from any source (addToSequence, toggleJobRun,
-            // removeJob, endSession, finishNight, the reconcile below, ...) — one place instead of
-            // threading a save() call through every mutator.
+            // Persists on every subsequent change, from any source (addToSequence, pushJob,
+            // removeJob, endSession, finishNight, ...) — one place instead of threading a save()
+            // call through every mutator.
             scope.launch {
                 _state.map { SequenceSnapshot(it.jobs, it.jobSeq, it.lastActiveJobId) }
                     .distinctUntilChanged()
@@ -251,19 +233,10 @@ class EkosRemoteController(
         // hasn't started yet (see NocturneApp — the shell is now reachable at that point
         // specifically so Start Ekos is tappable). activeProfile mirrors whatever get_profiles
         // already told us is selected, only while actually online.
-        is EkosEvent.NewConnectionState -> {
-            // Marks the *next* scheduler_get_jobs reply (EkosRemoteClient sends one eagerly
-            // whenever `online` fires, alongside GET_DEVICES etc) as the connect-time reconcile
-            // trigger — consumed once in sendFollowUpCommands' own SchedulerJobs arm. Set
-            // unconditionally on every online=true (not just a false->true transition — `s.ekosRunning`
-            // defaults to `true` per the comment below, so a transition check would miss the very
-            // first, most important real connection).
-            if (event.online) pendingInitialReconcile = true
-            s.copy(
-                ekosRunning = event.online,
-                activeProfile = if (event.online) s.selectedProfile else null,
-            )
-        }
+        is EkosEvent.NewConnectionState -> s.copy(
+            ekosRunning = event.online,
+            activeProfile = if (event.online) s.selectedProfile else null,
+        )
         is EkosEvent.NewCaptureState -> s.copy(wireCaptureStatus = event.status)
         // Merges non-null fields rather than overwriting — see NewMountState's own doc: the
         // far-more-frequent coordinate-shaped push carries none of these 4 fields, and must not
@@ -286,12 +259,12 @@ class EkosRemoteController(
             wirePolarMessage = event.message ?: s.wirePolarMessage,
         )
 
-        // Real ground truth for schedulerRunning (see that field's own doc) — the `log`-shaped
-        // pushes carry no status and are ignored here; only a `status`-shaped push updates it.
-        is EkosEvent.NewSchedulerState -> {
-            event.status?.let { schedulerRunning = it != 0 && it != 5 }
-            s
-        }
+        // Real ground truth for SimState.schedulerRunning (see that field's own doc) — the
+        // `log`-shaped pushes carry no status and are ignored here; only a `status`-shaped push
+        // updates it. Real `Ekos::SchedulerState`: IDLE=0/STARTUP=1/RUNNING=2/PAUSED=3/
+        // SHUTDOWN=4/ABORTED=5/LOADING=6 — true for everything except IDLE/ABORTED.
+        is EkosEvent.NewSchedulerState ->
+            event.status?.let { s.copy(schedulerRunning = it != 0 && it != 5) } ?: s
 
         is EkosEvent.Devices -> s.copy(wireDevices = event.devices.map { it.toLiveDevice() })
         is EkosEvent.DeviceProperties -> event.properties.fold(s) { acc, prop ->
@@ -364,7 +337,7 @@ class EkosRemoteController(
 
         is EkosEvent.SchedulerJobs -> applySchedulerJobs(s, event)
         // No state of its own — purely a trigger for sendFollowUpCommands to continue the
-        // toggleJobRun chain once the resolved absolute path is known (see the event's own doc).
+        // pushRealJob chain once the resolved absolute path is known (see the event's own doc).
         is EkosEvent.SchedulerSaveSequenceFile -> s
 
         // A fresh astro_search_objects reply clears prior results (loading state) — the
@@ -451,164 +424,75 @@ class EkosRemoteController(
     }
 
     /**
-     * `scheduler_get_jobs` reply — always stored as-is, plus two derived effects:
-     * 1. If a sync is pending ([pendingSyncJobId]), find the just-added job by
-     *    the `nameEdit` we sent (matching [WireSchedulerJob.name]) and capture
-     *    its `wireIndex`, flipping `synced = true`.
-     * 2. Whichever synced job is currently `SCHEDJOB_BUSY` gets its blocks'
-     *    `doneCount` approximated from the wire job's `completedCount` — a
-     *    per-job total, not per-block, so it's waterfall-filled across blocks
-     *    in order (real per-block progress needs `capture_get_sequences`,
-     *    undocumented shape, deferred past M3 — see plan §"Protocol facts").
+     * `scheduler_get_jobs` reply — always stored as-is (this alone is the whole "read Ekos's real
+     * state and mirror it" contract now — no wipe, no force-sync, ever, per the push/start/stop
+     * redesign 2026-08-23), plus two derived effects:
+     * 1. If a sync is pending ([pendingSyncJobId]), and the just-pushed name is actually present,
+     *    flip that job's `synced = true`. No index capture anymore — [SimState.wireJobFor]
+     *    resolves a job's real counterpart fresh, by name, whenever anything needs it, since
+     *    `WireSchedulerJob` has no server-assigned id and a cached index goes stale the instant
+     *    anything else on the real queue is added/removed (confirmed live: this exact staleness
+     *    is what let a duplicate-name push latch onto a different job's slot).
+     * 2. Whichever synced job is currently `SCHEDJOB_BUSY` gets its blocks' `doneCount`
+     *    approximated from the wire job's `completedCount` — a per-job total, not per-block, so
+     *    it's waterfall-filled across blocks in order (real per-block progress needs
+     *    `capture_get_sequences`, undocumented shape, deferred past M3 — see plan §"Protocol facts").
      */
     private fun applySchedulerJobs(s: SimState, event: EkosEvent.SchedulerJobs): SimState {
         var next = s.copy(wireSchedulerJobs = event.jobs)
 
         val syncJobId = pendingSyncJobId
         val syncName = pendingSyncName
-        var justSyncedJobId: String? = null
-        if (syncJobId != null && syncName != null) {
-            val idx = event.jobs.indexOfLast { it.name == syncName }
-            if (idx >= 0) {
-                next = next.mapJob(syncJobId) { it.copy(synced = true, wireIndex = idx) }
-                pendingSyncJobId = null
-                pendingSyncName = null
-                justSyncedJobId = syncJobId
-            }
+        if (syncJobId != null && syncName != null && event.jobs.any { it.name == syncName }) {
+            next = next.mapJob(syncJobId) { it.copy(synced = true) }
+            pendingSyncJobId = null
+            pendingSyncName = null
         }
 
-        val busyIndex = event.jobs.indexOfFirst { it.state == SchedulerJobStatus.BUSY }
-        if (busyIndex >= 0) {
-            val busyJobId = next.jobs.firstOrNull { it.wireIndex == busyIndex }?.id
+        val busyJob = event.jobs.firstOrNull { it.state == SchedulerJobStatus.BUSY }
+        if (busyJob != null) {
+            val busyJobId = next.jobs.firstOrNull { it.synced && next.targetNameFor(it) == busyJob.name }?.id
             if (busyJobId != null) {
-                val completed = event.jobs[busyIndex].completedCount
-                next = next.mapJob(busyJobId) { it.copy(blocks = distributeCompleted(it.blocks, completed)) }
+                next = next.mapJob(busyJobId) { it.copy(blocks = distributeCompleted(it.blocks, busyJob.completedCount)) }
             }
         }
-        return reconcileSyncedJobStatus(next, event.jobs, skipJobId = justSyncedJobId)
+        return reconcileSyncedJobStatus(next, event.jobs)
     }
 
     /**
-     * Real bug found live (2026-08-23, user reports #4/#6): every *other* piece of local job
-     * state (`running`/`synced`/`wireIndex`) only ever moved forward — set once by
-     * [toggleJobRun]'s own add/start chain — with nothing to notice if reality then diverged: a
-     * real stop/removal from Ekos's own UI directly, a real error/abort, or the job finishing
-     * naturally all left the local job stuck claiming "running" indefinitely, no live feedback
-     * loop at all. Called on every `scheduler_get_jobs` reply now that one arrives continuously
-     * (see the `NewSchedulerState` arm in [sendFollowUpCommands] above), not just right after
-     * this app's own add.
+     * Real bug found live (2026-08-23, user reports #4/#6): `synced` only ever moved forward —
+     * set once by [pushRealJob]'s own add chain — with nothing to notice if reality then
+     * diverged: a real stop/removal from Ekos's own UI directly, a real error/abort, or the job
+     * finishing naturally all left the local job stuck claiming synced indefinitely, no live
+     * feedback loop at all. Called on every `scheduler_get_jobs` reply now that one arrives
+     * continuously (see the `NewSchedulerState` arm in [sendFollowUpCommands] above), not just
+     * right after this app's own add.
      *
-     * Only ever touches a job that's already `synced == true` — matches by the same real
-     * lookup-name [startRealJob] uses to add it in the first place, deliberately not by
-     * [SequenceJob.wireIndex], since a *different* job being removed shifts every later index
-     * (same reasoning as [finishNight]'s descending-index removal) and a stale index could
-     * otherwise silently match the wrong real job. If that name is missing from [realJobs]
-     * entirely, or present but no longer in an active state
-     * ([SchedulerJobStatus.EVALUATION]/[SCHEDULED]/[BUSY]), the local job is reset to
-     * unsynced/not-running — safe by construction: a job this app never itself marked `synced`
-     * is never touched here at all.
+     * Only ever touches a job that's already `synced == true`, matched by name (see
+     * [SimState.targetNameFor]/[SimState.wireJobFor]) — safe by construction: a job this app
+     * never itself marked `synced` is never touched here at all.
      *
-     * **Real bug found live (2026-08-23, same session this was first added)**: [applySchedulerJobs]
-     * calls this on *every* `scheduler_get_jobs` reply — including the exact one that confirms a
-     * just-added job (the `syncJobId`/`syncName` block right above, in the same function). At
-     * that instant the real job has been added but not yet told to start —
-     * [sendFollowUpCommands]'s own `SchedulerJobs` arm, reacting to this *same* event, is what
-     * actually sends `SCHEDULER_START_JOB`, but only runs *after* this state-reducer pass
-     * completes (`applyEvent` then `sendFollowUpCommands`, in that order, on every event — see
-     * the controller's own event-collection loop). So the real job's state here is still
-     * whatever "added but not started" is server-side (confirmed live: not one of the three
-     * active states above) — this function was un-syncing the very job the user just tapped to
-     * start, a few lines before the real start command even went out. Confirmed live via two
-     * cascading symptoms in one session: the header stuck showing "Paused" even though real Ekos
-     * had genuinely started the job, and — worse — a subsequent remove tap silently only removed
-     * the job locally ([removeJob] checks `synced == true` before sending any real command),
-     * leaving it running on the real Scheduler untouched. Fixed by never reconciling the one job
-     * that was *just* synced in this exact call ([skipJobId]) — it hasn't had a chance to reach
-     * an active real state yet by construction, and the very next `scheduler_get_jobs` reply
-     * (triggered by the `new_scheduler_state` push once the real start actually lands) reconciles
-     * it normally, correctly, once its real state has caught up.
+     * **Simplified 2026-08-23 (push/start/stop split)**: used to also flip back to unsynced the
+     * moment a real job's *state* left [ACTIVE_SCHEDULER_STATES] (e.g. the instant it went
+     * `COMPLETE`/`ERROR`/`ABORTED`) — now it only reacts to the name *disappearing* from
+     * [realJobs] entirely. A job that finished with an error, say, stays `synced` and keeps
+     * showing that real terminal status (via [SimState.wireJobFor]'s own live lookup, block editor
+     * still locked) rather than silently reverting to "not pushed" — more honest, since Ekos
+     * itself still lists it. The old `skipJobId` guard (for a job [applySchedulerJobs] had *just*
+     * synced in the very same call, before it had a chance to reach an active state) is gone too
+     * — presence-by-name can't race that way: a name that just matched in this exact
+     * `realJobs` list is, by construction, still in it a few lines later.
      */
-    private fun reconcileSyncedJobStatus(s: SimState, realJobs: List<WireSchedulerJob>, skipJobId: String? = null): SimState {
+    private fun reconcileSyncedJobStatus(s: SimState, realJobs: List<WireSchedulerJob>): SimState {
         var next = s
         for (local in s.jobs) {
-            if (!local.synced || local.id == skipJobId) continue
-            val target = s.findTarget(local.targetId)
-            val targetName = target?.common ?: target?.id ?: local.targetId
-            val real = realJobs.firstOrNull { it.name == targetName }
-            val stillActive = real != null && real.state in ACTIVE_SCHEDULER_STATES
-            if (!stillActive) {
-                next = next.mapJob(local.id) { it.copy(running = false, synced = false, wireIndex = null) }
+            if (!local.synced) continue
+            val targetName = s.targetNameFor(local)
+            if (realJobs.none { it.name == targetName }) {
+                next = next.mapJob(local.id) { it.copy(synced = false) }
             }
         }
         return next
-    }
-
-    /**
-     * Connect-time reconcile (M3.4) — user's explicit call: the app's own local job queue is the
-     * source of truth, not whatever real Ekos's Scheduler happens to already hold (leftover from
-     * a previous app session, manual KStars use, or anything else). Fires once per `online`
-     * transition, right off the eager `scheduler_get_jobs` [EkosRemoteClient] now sends alongside
-     * its other bootstrap fetches.
-     *
-     * **Safety exception, non-negotiable**: never touches the real Scheduler at all if any real
-     * job is in [ACTIVE_SCHEDULER_STATES] ([SchedulerJobStatus.EVALUATION]/[SCHEDULED]/[BUSY]) —
-     * Ekos has already committed to running it, whether or not the mount has physically moved
-     * yet. A reconnect or app relaunch must never be able to silently abort a real overnight run.
-     * Every other real state (idle/error/aborted/invalid/complete) is safe to clear — none of
-     * those mean Ekos is currently running or about to run anything.
-     *
-     * **Real bug found live (2026-08-22)**: this safety exception correctly left the BUSY job
-     * alone, but never restored [schedulerRunning] — that field is a plain in-memory `var`, reset
-     * to `false` on every app restart regardless of the real Scheduler's actual state. Confirmed
-     * live: force-stopped+relaunched the app while a real job was BUSY (this exact exception
-     * fired, job correctly left untouched) — but a subsequent tap on "remove job" then silently
-     * failed against the real rig (`removeJob` → [stopSchedulerThenRemove] skipped its stop-toggle
-     * since `schedulerRunning` read `false`, so a bare `scheduler_remove_jobs` went out while the
-     * real Scheduler was still running; real Ekos logged `"Cannot delete currently running job"`
-     * and refused, but the app's own local state had already optimistically removed it — a real
-     * app/rig desync, confirmed via a direct DBus probe against `org.kde.kstars`'s own
-     * `Scheduler.status` property). Same underlying brittleness as the "no `new_scheduler_state`
-     * wiring at all" gap noted this session — a BUSY job unambiguously means the Scheduler is
-     * running, so this exact branch is exactly where [schedulerRunning] must be resynced.
-     *
-     * **Widened from BUSY-only to [ACTIVE_SCHEDULER_STATES] (2026-08-23, user report #8 —
-     * "restarting Ekos auto-resumed a stale queued job on its own")**: the original BUSY-only
-     * check left a real gap matching that report almost exactly. `kcfg_RememberJobProgress` is
-     * confirmed `true` on this rig (Scheduler-settings sheet), so a fresh Ekos start can pick a
-     * previously-queued job back up and run it through its own EVALUATION → SCHEDULED → BUSY
-     * pipeline entirely on its own, with no app involvement — and EVALUATION/SCHEDULED can sit
-     * for real seconds-to-minutes (twilight/altitude re-checks; see note #2's own
-     * "found not slewing, restarting" loop for how long a job can dwell short of BUSY). If the
-     * app's connect-time `scheduler_get_jobs` lands inside that window — a real possibility, since
-     * both the app's own reconnect and Ekos's own restart happen around the same time — the old
-     * check saw no BUSY job, concluded nothing was happening, and wiped Ekos's own in-progress
-     * resume out from under it via `scheduler_remove_jobs`, moments before it would have reached
-     * BUSY on its own. Nothing has physically moved yet at that point, but Ekos has already
-     * decided to run it — exactly the same "committed but not yet BUSY" shape as `a4202f7`'s own
-     * `reconcileSyncedJobStatus` race, which already treats EVALUATION/SCHEDULED as active for
-     * the same reason. This exception now matches that precedent instead of being narrower than
-     * it. **Not yet live-verified** — needs a real Ekos restart with a stale queued job, timed to
-     * land an app reconnect mid-EVALUATION/SCHEDULED, deliberately not attempted without asking
-     * first (real mount motion risk if the timing guess is wrong).
-     *
-     * Otherwise: removes every real job (descending index — same reasoning as [finishNight],
-     * removing ascending shifts every later index), resets local `synced`/`wireIndex` bookkeeping
-     * (whatever it pointed to just got wiped, so a later [toggleJobRun] must not think a job is
-     * already on the real scheduler), then re-pushes the local queue's own running job, if any,
-     * via [startRealJob] — the same real chain a manual Start tap already uses, not a bespoke bulk
-     * path. Mirrors [SimState.contractJob]'s own "the running one" singular model — this app has
-     * never supported more than one truly-live job at once.
-     */
-    private fun reconcileSchedulerJobs(realJobs: List<WireSchedulerJob>) {
-        if (realJobs.any { it.state in ACTIVE_SCHEDULER_STATES }) {
-            schedulerRunning = true
-            return
-        }
-        realJobs.indices.sortedDescending().forEach { i ->
-            client.sendCommand(Commands.SCHEDULER_REMOVE_JOBS, buildJsonObject { put("index", i) })
-        }
-        _state.update { s -> s.copy(jobs = s.jobs.map { it.copy(synced = false, wireIndex = null) }) }
-        _state.value.jobs.firstOrNull { it.running }?.let { startRealJob(it.id) }
     }
 
     private fun distributeCompleted(blocks: List<Block>, completed: Int): List<Block> {
@@ -664,7 +548,7 @@ class EkosRemoteController(
                     client.sendCommand(Commands.ASTRO_GET_OBJECTS_RISESET, namesPayload)
                 }
             }
-            // Continues toggleJobRun's chain — see PendingJobStart's doc for why this waits for
+            // Continues pushRealJob's chain — see PendingJobStart's doc for why this waits for
             // the resolved absolute path rather than sending sequenceEdit right after the save.
             is EkosEvent.SchedulerSaveSequenceFile -> {
                 val pending = pendingJobStart
@@ -681,30 +565,32 @@ class EkosRemoteController(
                     client.sendCommand(Commands.SCHEDULER_ADD_JOBS)
                     pendingSyncJobId = pending.jobId
                     pendingSyncName = pending.targetName
-                    pendingSchedulerStart = pending.targetName
-                    client.sendCommand(Commands.SCHEDULER_GET_JOBS) // confirms + captures wireIndex, see applySchedulerJobs
+                    pendingSchedulerStart = PendingSchedulerStart(pending.targetName, pending.alsoStart)
+                    client.sendCommand(Commands.SCHEDULER_GET_JOBS) // confirms the add landed, see applySchedulerJobs
                 }
             }
             // Only toggle the real Scheduler on once the add above is confirmed to have actually
-            // taken (matched by name) — never blindly, in case it silently failed again.
+            // taken (matched by name) — never blindly, in case it silently failed again — and even
+            // then only if `alsoStart` was requested (see PendingSchedulerStart's doc for why a
+            // plain pushJob never reaches this) and the Scheduler isn't already running (the
+            // guard that fixes the live-confirmed "second job's start silently stopped the
+            // first" bug — SCHEDULER_START_JOB is a raw toggle, sending it while already running
+            // stops it).
             is EkosEvent.SchedulerJobs -> {
-                val waitingName = pendingSchedulerStart
-                if (waitingName != null && event.jobs.any { it.name == waitingName }) {
+                val waiting = pendingSchedulerStart
+                if (waiting != null && event.jobs.any { it.name == waiting.name }) {
                     pendingSchedulerStart = null
-                    client.sendCommand(Commands.SCHEDULER_START_JOB)
-                    schedulerRunning = true
-                }
-                if (pendingInitialReconcile) {
-                    pendingInitialReconcile = false
-                    reconcileSchedulerJobs(event.jobs)
+                    if (waiting.alsoStart && !_state.value.schedulerRunning) {
+                        client.sendCommand(Commands.SCHEDULER_START_JOB)
+                    }
                 }
             }
             // Real gap found live (2026-08-23, user reports #4/#6): before this, the app only
             // ever re-fetched scheduler_get_jobs right after its own add/start chain — a job
             // stopped or removed from real Ekos's own UI directly (not through this app) left
-            // the local job stuck showing "running"/synced forever, with no live feedback loop
-            // at all. new_scheduler_state fires on any real transition regardless of who caused
-            // it (see that event's own doc) — re-fetching the job list on every one keeps
+            // the local job stuck showing synced forever, with no live feedback loop at all.
+            // new_scheduler_state fires on any real transition regardless of who caused it (see
+            // that event's own doc) — re-fetching the job list on every one keeps
             // applySchedulerJobs's per-job reconciliation (see reconcileSyncedJobStatus) current
             // without needing to inspect this push's own status value here.
             is EkosEvent.NewSchedulerState -> client.sendCommand(Commands.SCHEDULER_GET_JOBS)
@@ -718,7 +604,7 @@ class EkosRemoteController(
      * above generate it literally) — into `raBox`/`decBox`'s own wire format. Confirmed live:
      * colon-separated `"HH:MM:SS"` input round-trips correctly through `scheduler_add_jobs`.
      * Returns null for anything that doesn't match (e.g. a free-text custom target) rather than
-     * guessing — [toggleJobRun] simply omits `raBox`/`decBox` in that case.
+     * guessing — [pushRealJob] simply omits `raBox`/`decBox` in that case.
      */
     private fun parseCoordsToRaDecBox(coords: String): Pair<String, String>? {
         val m = COORDS_REGEX.find(coords) ?: return null
@@ -973,7 +859,7 @@ class EkosRemoteController(
     /**
      * Real `mount_goto_target` — resolved server-side via KStars' own fuzzy object-name lookup
      * (`findByName`), the same resolution the Scheduler's `nameEdit` gets for free (unlike
-     * `scheduler_add_jobs`, which needs `raBox`/`decBox` set directly — see `toggleJobRun`'s own
+     * `scheduler_add_jobs`, which needs `raBox`/`decBox` set directly — see `pushJob`'s own
      * doc for that near-miss; this command is documented to do its own name→coordinate
      * resolution). Not-found is a silent no-op server-side, no error surfaces back. No direct
      * reply — watch `new_mount_state`.
@@ -1442,8 +1328,8 @@ class EkosRemoteController(
      * Same fire-and-forget shape as [sendMountSetting] et al — `scheduler_set_all_settings` only
      * touches the keys present in the map, and no immediate `scheduler_get_all_settings`
      * re-fetch, per the same command-ordering-race lesson documented on [sendMountSetting]. Note
-     * this shares the wire endpoint with [toggleJobRun]'s own per-job-add send (bug #19) — no
-     * conflict, since that send only ever fires as part of adding a specific job, not from this
+     * this shares the wire endpoint with [pushRealJob]'s own per-job-add send (bug #19) — no
+     * conflict, since that send only ever fires as part of pushing a specific job, not from this
      * sheet.
      */
     private fun sendSchedulerSetting(field: String, value: JsonElement) {
@@ -1729,14 +1615,21 @@ class EkosRemoteController(
     // ── Sequence tab — Scheduler + .esq (M3 §5) ─────────────────────────
 
     /**
-     * Real Ekos has no "edit a synced job" wire primitive — `scheduler_add_jobs`
-     * only ever adds from the Scheduler's current form state, there's no
-     * update. So: starting a not-yet-synced job writes its `.esq`, points the
-     * Scheduler's form at it, and adds it (`synced` flips true once
-     * `scheduler_get_jobs` confirms it — see [applySchedulerJobs]). Stopping a
-     * synced job removes it from the real Scheduler entirely and clears
-     * `synced`/`wireIndex` locally, unlocking the block editor again — the
-     * only way to "edit" a synced job is stop, edit, restart fresh.
+     * Real Ekos has no "edit a synced job" wire primitive — `scheduler_add_jobs` only ever adds
+     * from the Scheduler's current form state, there's no update. So: pushing a not-yet-synced
+     * job writes its `.esq`, points the Scheduler's form at it, and adds it (`synced` flips true
+     * once `scheduler_get_jobs` confirms it — see [applySchedulerJobs]). The only way to "edit" a
+     * synced job is remove it, edit, push fresh.
+     *
+     * **Push/start/stop split (2026-08-23)** — user's explicit design call: pushing a job to Ekos
+     * and starting the Scheduler used to be one collapsed action (tapping "Start sequence" did
+     * both). That collapsing caused two real, live-confirmed bugs: a duplicate target name got
+     * refused server-side but the app's name-match still latched onto the *other* job's real
+     * slot, and starting a second job while the first was already running silently **stopped**
+     * the Scheduler (a raw toggle, not idempotent), aborting the first job's genuinely in-progress
+     * run. Fixed by refusing a duplicate name locally before ever sending anything (below), and by
+     * making "also start" an explicit opt-in only [resumeSession]/[startNextJob] request (see
+     * [PendingSchedulerStart]'s doc) — a plain push never touches the Scheduler toggle at all.
      *
      * **Confirmed live (2026-08-09) that the original minimum field set silently added nothing**:
      * `scheduler_add_jobs` needs `raBox`/`decBox` populated directly — typing a name into
@@ -1750,32 +1643,31 @@ class EkosRemoteController(
      * because `sequenceEdit` also needs the *server-resolved* absolute path from that reply, not
      * the bare relative filename saved here (confirmed live: a relative `sequenceEdit` value
      * produces a broken, unresolved `file:` URI, not a home-relative one like the save itself).
-     * Finally, real Ekos never actually *runs* an added job on its own — `scheduler_start_job`
-     * (`SCHEDULER_START_JOB`) is a separate toggle that was never sent at all before this fix, so
-     * even a successfully-added job would just sit there; now sent once [pendingSchedulerStart]'s
-     * name is confirmed present in a `scheduler_get_jobs` reply (not sent blindly right after
-     * `scheduler_add_jobs`, in case the add silently failed again for some other reason).
      */
-    override fun toggleJobRun(jobId: String) {
-        val job = _state.value.jobs.firstOrNull { it.id == jobId } ?: return
-        if (job.running) {
-            if (job.synced && job.wireIndex != null) {
-                stopSchedulerThenRemove(job.wireIndex)
-            }
-            super.toggleJobRun(jobId)
-            update { s -> s.mapJob(jobId) { it.copy(synced = false, wireIndex = null) } }
+    override fun pushJob(jobId: String) {
+        val s = _state.value
+        val job = s.jobs.firstOrNull { it.id == jobId } ?: return
+        if (job.synced) return
+        val targetName = s.targetNameFor(job)
+        if (s.wireSchedulerJobs.orEmpty().any { it.name == targetName }) {
+            update { it.copy(jobPushRefused = targetName) }
             return
         }
-        startRealJob(jobId)
-        super.toggleJobRun(jobId) // optimistic running=true; synced flips true once the chain below confirms
+        update { it.copy(jobPushRefused = null) }
+        pushRealJob(jobId, alsoStart = false)
     }
 
-    /** The "start" half of [toggleJobRun] — see its own doc for the full save→settings→add→get→start chain. Factored out so [resumeSession]/[startNextJob] can re-run it without re-triggering the running-vs-not branch above. */
-    private fun startRealJob(jobId: String) {
-        val job = _state.value.jobs.firstOrNull { it.id == jobId } ?: return
+    /** The global Scheduler toggle — see [SimState.schedulerRunning]'s doc for why this never optimistically flips it itself; the button's own label follows the real `new_scheduler_state` push instead. */
+    override fun toggleScheduler() {
+        client.sendCommand(Commands.SCHEDULER_START_JOB)
+    }
+
+    /** The save→settings→add→get→(start) chain — see [pushJob]'s doc. Factored out so [resumeSession]/[startNextJob] can also request the [alsoStart] tail. */
+    private fun pushRealJob(jobId: String, alsoStart: Boolean = false) {
         val s = _state.value
+        val job = s.jobs.firstOrNull { it.id == jobId } ?: return
         val target = s.findTarget(job.targetId)
-        val targetName = target?.common ?: target?.id ?: job.targetId
+        val targetName = s.targetNameFor(job)
         val path = "nocturne_$jobId.esq"
         client.sendCommand(Commands.SCHEDULER_SAVE_SEQUENCE_FILE, buildJsonObject {
             put("filedata", EsqWriter.write(job, targetName, s.afRefocusMin, s.afTempDeltaC))
@@ -1786,70 +1678,118 @@ class EkosRemoteController(
             targetName = targetName,
             raDec = target?.coords?.let { parseCoordsToRaDecBox(it) },
             trainName = s.moduleTrainAssignments?.get("capture") ?: s.wireTrains?.firstOrNull()?.name,
+            alsoStart = alsoStart,
         )
     }
 
+    /**
+     * **No forced stop first, and no blanket confirm dialog (2026-08-23 redesign, refined twice
+     * same day on user feedback)** — first cut sent `scheduler_remove_jobs` directly and let real
+     * Ekos refuse on its own if still active, with the UI asking "are you sure?" on *every* tap
+     * regardless of whether removal was actually risky. Second cut checked the job's own real
+     * `state` against [SchedulerJobStatus]'s active values ([SchedulerJobStatus.EVALUATION]/
+     * [SCHEDULED]/[BUSY]) — **wrong signal, caught live**: a job can show real `SCHEDULED` purely
+     * from Ekos's own one-shot evaluation on add, with the *Scheduler itself* still `IDLE` (never
+     * toggled on) — confirmed live: pushed a job, real Scheduler status stayed `IDLE`, job read
+     * `SCHEDULED`, and the app refused to remove it citing a state that was never actually
+     * guarded by anything ticking. The real refusal this app saw earlier today
+     * (`"Cannot delete currently running job"`) happened while the *Scheduler* was actually
+     * running (`SimState.schedulerRunning`, a different, Scheduler-level real signal from
+     * `new_scheduler_state` — see that field's own doc) — not tied to any one job's own state at
+     * all. Fixed: gate on [SimState.schedulerRunning] instead. If refused, nothing is sent and the
+     * local row stays exactly as-is (same as [pushJob]'s own refusal shape) — a refusal must never
+     * silently forget a real, still-active job.
+     */
     override fun removeJob(jobId: String) {
-        val job = _state.value.jobs.firstOrNull { it.id == jobId }
-        if (job?.synced == true && job.wireIndex != null) {
-            stopSchedulerThenRemove(job.wireIndex)
+        val s = _state.value
+        val job = s.jobs.firstOrNull { it.id == jobId } ?: return
+        val targetName = s.targetNameFor(job)
+        if (job.synced && s.schedulerRunning) {
+            update { it.copy(jobRemoveRefused = targetName) }
+            return
         }
+        update { it.copy(jobRemoveRefused = null) }
+        if (job.synced) removeRealJobByName(targetName)
         super.removeJob(jobId)
+    }
+
+    /** Same status-check-first shape as [removeJob] — see its own doc. */
+    override fun removeUnmanagedJob(name: String) {
+        if (_state.value.schedulerRunning) {
+            update { it.copy(jobRemoveRefused = name) }
+            return
+        }
+        update { it.copy(jobRemoveRefused = null) }
+        removeRealJobByName(name)
+    }
+
+    /**
+     * Resolves the real index fresh, by name, against the latest `scheduler_get_jobs` reply —
+     * deliberately not a cached index (`WireSchedulerJob` has no server-assigned id; a locally
+     * cached index goes stale the instant anything else on the real queue is added/removed).
+     */
+    /**
+     * Real bug found live (2026-08-23): a successful remove doesn't always make Ekos push a
+     * `new_scheduler_state` (that only fires on a genuine Scheduler-*status* transition — removing
+     * a queued-but-never-started job leaves the Scheduler at `IDLE` throughout, no transition to
+     * report), and nothing else was re-fetching `scheduler_get_jobs` afterward. Confirmed live:
+     * removed a job, real Ekos cleared it, but `SimState.wireSchedulerJobs` stayed stale with the
+     * removed name still in it — which [SimState.unmanagedWireJobs] then rendered right back as an
+     * "unmanaged" card, since no local job claims that name anymore, making the app look like the
+     * remove hadn't worked. Fixed by explicitly re-fetching right after, same as [pushRealJob]'s
+     * own add→get pattern — same "server processes commands over one connection in order" precedent.
+     */
+    private fun removeRealJobByName(targetName: String) {
+        val idx = _state.value.wireSchedulerJobs.orEmpty().indexOfLast { it.name == targetName }
+        if (idx >= 0) {
+            client.sendCommand(Commands.SCHEDULER_REMOVE_JOBS, buildJsonObject { put("index", idx) })
+            client.sendCommand(Commands.SCHEDULER_GET_JOBS)
+        }
     }
 
     /**
      * Real Ekos has no "session" concept of its own — the base `endSession()`/`finishNight()`
-     * only ever flip local state (`running = false`, or wipe `jobs` entirely). Neither had an
-     * `EkosRemoteController` override at all before this fix, confirmed by a real user report:
-     * tapping "End session" on a real, still-synced job left it exactly as-is on the real
-     * Scheduler — still added, possibly still actively imaging — while the app itself moved on to
-     * the Summary sheet as if it had stopped. Same real-Scheduler-must-be-toggled-off-first
-     * requirement as [removeJob]/[toggleJobRun]'s stop path (see [stopSchedulerThenRemove]'s doc).
+     * only ever move local navigation state around. `endSession`/`finishNight`/`resumeSession`/
+     * `startNextJob` **deliberately keep forcing a real stop+remove / push+start** even after the
+     * 2026-08-23 push/start/stop redesign — user's explicit call: these are deliberate, explicit
+     * whole-night lifecycle actions, not an incidental side effect of an unrelated navigation tap,
+     * so the new "never force real side effects" rule elsewhere in this file doesn't apply to them.
      */
     override fun endSession() {
         val contract = _state.value.contractJob
-        if (contract != null && contract.synced && contract.wireIndex != null) {
-            stopSchedulerThenRemove(contract.wireIndex)
-        }
+        if (contract != null && contract.synced) stopThenRemove(_state.value.targetNameFor(contract))
         super.endSession()
-        if (contract != null) {
-            update { s -> s.mapJob(contract.id) { it.copy(synced = false, wireIndex = null) } }
-        }
     }
 
-    /** See [endSession]'s doc. Removes highest wireIndex first — removing by index shifts every later job's real index, so ascending order would remove the wrong jobs partway through. */
+    /** See [endSession]'s doc. */
     override fun finishNight() {
-        _state.value.jobs.filter { it.synced && it.wireIndex != null }
-            .sortedByDescending { it.wireIndex }
-            .forEach { job -> stopSchedulerThenRemove(job.wireIndex!!) }
+        val s = _state.value
+        s.jobs.filter { it.synced }.forEach { job -> stopThenRemove(s.targetNameFor(job)) }
         super.finishNight()
     }
 
     /**
      * Direct consequence of [endSession] now correctly removing the real job: resuming (or
-     * advancing to the next job) must redo the real start sequence, or the app would claim
-     * "running" again while nothing is actually on the real Scheduler. Before the endSession fix,
-     * resume "worked" only by accident — nothing had ever been removed in the first place.
+     * advancing to the next job) must redo the real push — and, since this is the one deliberate
+     * "push and start together" lifecycle action (see [PendingSchedulerStart]'s doc), start it
+     * too, not just push it.
      */
     override fun resumeSession() {
         val id = _state.value.lastEndedJobId
         super.resumeSession()
-        if (id != null) startRealJob(id)
+        if (id != null) pushRealJob(id, alsoStart = true)
     }
 
     override fun startNextJob() {
         val next = _state.value.jobs.firstOrNull { it.id != _state.value.lastEndedJobId }
         super.startNextJob()
-        if (next != null) startRealJob(next.id)
+        if (next != null) pushRealJob(next.id, alsoStart = true)
     }
 
-    /** See [schedulerRunning]'s doc — a running real Scheduler must be toggled off first. */
-    private fun stopSchedulerThenRemove(wireIndex: Int) {
-        if (schedulerRunning) {
-            client.sendCommand(Commands.SCHEDULER_START_JOB) // toggle: stops it, since it's running
-            schedulerRunning = false
-        }
-        client.sendCommand(Commands.SCHEDULER_REMOVE_JOBS, buildJsonObject { put("index", wireIndex) })
+    /** See [SimState.schedulerRunning]'s doc — a running real Scheduler must be toggled off before a remove can land. */
+    private fun stopThenRemove(targetName: String) {
+        if (_state.value.schedulerRunning) client.sendCommand(Commands.SCHEDULER_START_JOB) // toggle: stops it, since it's running
+        removeRealJobByName(targetName)
     }
 }
 
@@ -2001,9 +1941,6 @@ private fun WireAstroObject.toTarget(riseset: WireRiseset?): Target = Target(
 
 /** Matches "20h59m17s +44°31′44″" — see [EkosRemoteController.parseCoordsToRaDecBox]. */
 private val COORDS_REGEX = Regex("""(\d+)h(\d+)m(\d+)s\s+([+-])(\d+)°(\d+)′(\d+)″""")
-
-/** Real job states meaning "still genuinely queued or running" — see [EkosRemoteController.reconcileSyncedJobStatus]. */
-private val ACTIVE_SCHEDULER_STATES = setOf(SchedulerJobStatus.EVALUATION, SchedulerJobStatus.SCHEDULED, SchedulerJobStatus.BUSY)
 
 /** J2000 RA hours → "20h59m17s". */
 private fun formatRaHours(hours: Double): String {

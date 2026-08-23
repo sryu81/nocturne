@@ -23,9 +23,14 @@ private val sequenceJson = Json { ignoreUnknownKeys = true }
  * relaunch silently loses the sequence" report: [EkosRemoteController] previously reset
  * `SimState.jobs` to `emptyList()` unconditionally on every fresh connection, so a killed-and-
  * reopened app forgot everything it had queued, even though nothing about the job itself had
- * actually changed. The app's own list is the source of truth (user's explicit call, see
- * [EkosRemoteController]'s connect-time reconcile) — real Ekos's own Scheduler state is treated
- * as disposable and gets overwritten from this on every connect, not the other way around.
+ * actually changed.
+ *
+ * **Fully decoupled from real Ekos (2026-08-23 push/start/stop redesign)**: this used to also be
+ * "the source of truth" that got force-pushed over whatever Ekos's own Scheduler already held on
+ * every connect — that connect-time reconcile is gone. This snapshot is now purely local session
+ * continuity; syncing a job to the real Scheduler is an explicit, separate, user-driven action
+ * ([SessionController.pushJob]/`toggleScheduler`/`removeJob`), never an automatic side effect of
+ * this persistence layer or of connecting.
  */
 data class SequenceSnapshot(
     val jobs: List<SequenceJob> = emptyList(),

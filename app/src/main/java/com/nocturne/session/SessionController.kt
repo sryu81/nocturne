@@ -32,7 +32,12 @@ interface SessionController {
     fun removeJob(jobId: String)
     fun openJob(jobId: String)
     fun closeJob()
-    fun toggleJobRun(jobId: String)
+    /** Pushes this local job to Ekos's real Scheduler queue (`scheduler_add_jobs`) — does not start it. */
+    fun pushJob(jobId: String)
+    /** Toggles the real Scheduler as a whole on/off (`scheduler_start_job` — a real toggle, not per-job start/stop). */
+    fun toggleScheduler()
+    /** Removes a real Scheduler job that has no local counterpart (added directly in KStars, or left over). */
+    fun removeUnmanagedJob(name: String)
     fun endSession()
     fun resumeSession()
     fun startNextJob()

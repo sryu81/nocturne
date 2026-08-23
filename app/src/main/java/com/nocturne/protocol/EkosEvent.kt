@@ -465,6 +465,35 @@ object SchedulerJobStatus {
 }
 
 /**
+ * Real states meaning "Ekos has committed to this job" — evaluating it, scheduled for a future
+ * window, or actually running it. Moved here (was a private file-scope val in
+ * `EkosRemoteController.kt`) once `SimState.contractJob` needed it too, not just the controller's
+ * own reconcile logic. See `EkosRemoteController`'s `reconcileSyncedJobStatus`/`contractJob`'s doc
+ * for the live-confirmed history of why `EVALUATION`/`SCHEDULED` count as "active" alongside `BUSY`.
+ */
+val ACTIVE_SCHEDULER_STATES = setOf(SchedulerJobStatus.EVALUATION, SchedulerJobStatus.SCHEDULED, SchedulerJobStatus.BUSY)
+
+/**
+ * Raw `state` int → short UI label. Same "named only where confirmed, honest fallback otherwise"
+ * shape as `SimState.mountPierSideLabel` — every value here is directly enumerated in
+ * [SchedulerJobStatus] against the real `schedulertypes.h` source, so `"raw $state"` should never
+ * actually be reachable, but stays as a non-inventing fallback rather than an unchecked `!!`/crash
+ * if a future Ekos version ever adds a 9th value. `BUSY` deliberately reuses "Imaging" — the exact
+ * word `NocturneApp.kt`'s header already uses for the same real condition.
+ */
+val WireSchedulerJob.jobStatusLabel: String get() = when (state) {
+    SchedulerJobStatus.IDLE -> "Idle"
+    SchedulerJobStatus.EVALUATION -> "Evaluating"
+    SchedulerJobStatus.SCHEDULED -> "Scheduled"
+    SchedulerJobStatus.BUSY -> "Imaging"
+    SchedulerJobStatus.ERROR -> "Error"
+    SchedulerJobStatus.ABORTED -> "Aborted"
+    SchedulerJobStatus.INVALID -> "Invalid"
+    SchedulerJobStatus.COMPLETE -> "Complete"
+    else -> "raw $state"
+}
+
+/**
  * `SchedulerJob::JOBStage` (`schedulertypes.h`) — full 15-value enum (there's
  * no separate ERROR/ABORTED stage; those live on [SchedulerJobStatus]
  * instead). M3's UI only branches on [IDLE]/[CAPTURING]/[COMPLETE].

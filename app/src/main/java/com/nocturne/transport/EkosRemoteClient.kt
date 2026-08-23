@@ -144,9 +144,10 @@ class EkosRemoteClient(
                 sendCommand(Commands.ASTRO_GET_ALMANAC)
                 sendCommand(Commands.ASTRO_GET_LOCATION)
                 // Real Scheduler's current job queue — previously never fetched at all, so the
-                // app had no way to know (let alone reconcile against) whatever real Ekos already
-                // had queued. The reply also drives EkosRemoteController's connect-time reconcile
-                // (see reconcileSchedulerJobs) — the app's own local queue is the source of truth.
+                // app had no way to even see whatever real Ekos already had queued. Purely
+                // read+mirror (2026-08-23 push/start/stop redesign) — this reply just populates
+                // SimState.wireSchedulerJobs for display; nothing here forces or clears anything
+                // on the real Scheduler.
                 sendCommand(Commands.SCHEDULER_GET_JOBS)
                 // Scheduler-wide policy settings (Startup/Constraints/Completion/Observatory
                 // startup-shutdown/Aborted-job handling, curated subset) — same eager-on-online
