@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.unit.dp
 import com.nocturne.session.CaptureProgress
+import com.nocturne.session.FILTER_CYCLE
 import com.nocturne.session.SessionController
 import com.nocturne.session.SheetType
 import com.nocturne.session.SimState
@@ -43,6 +44,7 @@ import com.nocturne.session.indiNumber
 import com.nocturne.session.mountParkedReal
 import com.nocturne.session.mountTrackingOn
 import com.nocturne.session.paTotal
+import com.nocturne.session.realFilterNames
 import com.nocturne.session.realSlewRateProp
 import com.nocturne.ui.components.BtnStyle
 import com.nocturne.ui.components.HatchBg
@@ -90,8 +92,13 @@ fun ControlsScreen(
                     val real = state.wireDevices != null
                     val cam = state.wireCaptureSettings
                     val progress = if (real) state.captureProgress(state.primaryTrain.camera, cam?.captureExposureN ?: 2.0) else null
+                    // Filter added to both the tag and previewControls (2026-08-23, user report:
+                    // no filter test feature here at all, and the placeholder didn't show the
+                    // current filter next to exposure/bin) — real FilterPosCombo, confirmed live
+                    // (`"FilterPosCombo":"L"` in a real capture_get_all_settings reply), same
+                    // "Capture module's own currently-loaded value" shape as exposure/gain/bin.
                     SnapPanel(
-                        tag = if (cam != null) "${"%.0f".format(cam.captureExposureN)} s · bin ${cam.captureBinHN}" else "2 s · bin 2",
+                        tag = if (cam != null) "${"%.0f".format(cam.captureExposureN)} s · bin ${cam.captureBinHN} · ${cam.FilterPosCombo}" else "2 s · bin 2",
                         label = benchSnapLabel(real, state.snappedMain, state.wireCaptureStatus, "★ 1 482 · HFR 2.31 · ADU 1 093"),
                         snapLabel = "Snap main",
                         onSnap = ctrl::snapMain,
@@ -104,7 +111,12 @@ fun ControlsScreen(
                                     gain = it.captureGainN, onGainChange = ctrl::setCapturePreviewGain,
                                 )
                                 Spacer(Modifier.height(8.dp))
-                                BinCycleChip(it.captureBinHN, BIN_OPTIONS, labelOf = { "${it}x$it" }) { ctrl.setCapturePreviewBinning(it) }
+                                Row(Modifier.fillMaxWidth()) {
+                                    BinCycleChip(it.captureBinHN, BIN_OPTIONS, labelOf = { "${it}x$it" }) { ctrl.setCapturePreviewBinning(it) }
+                                    Spacer(Modifier.width(8.dp))
+                                    val filterNames = state.realFilterNames ?: FILTER_CYCLE
+                                    FilterCycleChip(it.FilterPosCombo, filterNames) { ctrl.setCameraFilter(it) }
+                                }
                             }
                         },
                     )
@@ -349,6 +361,32 @@ private fun <T> BinCycleChip(value: T, options: List<T>, labelOf: (T) -> String,
         contentAlignment = Alignment.Center,
     ) {
         TextC("bin ${labelOf(value)}", style = t.Body13, color = c.text)
+    }
+}
+
+/**
+ * Tap-to-cycle filter chip for the Primary camera's own bench test (2026-08-23, user report: no
+ * filter test feature here at all) — cycles through [names] (real filter-wheel slot names when
+ * connected, same [com.nocturne.session.realFilterNames] the Sequence tab's block editor already
+ * uses, else the fixture [FILTER_CYCLE]) and writes the real `FilterPosCombo` field directly, not
+ * a Sequence-block concept — this is what a bare `capture_preview`/"Snap main" actually shoots
+ * with, independent of anything queued.
+ */
+@Composable
+private fun FilterCycleChip(value: String, names: List<String>, onSelect: (String) -> Unit) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    val idx = names.indexOf(value)
+    Box(
+        Modifier
+            .height(40.dp)
+            .background(c.bg, RoundedCornerShape(4.dp))
+            .border(1.dp, c.divider, RoundedCornerShape(4.dp))
+            .clickable { onSelect(names[(idx + 1).mod(names.size)]) }
+            .padding(horizontal = 12.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        TextC(value.ifBlank { names.firstOrNull() ?: "—" }, style = t.Body13, color = c.text)
     }
 }
 

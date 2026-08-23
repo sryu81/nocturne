@@ -55,9 +55,6 @@ interface SessionController {
     fun setBlockBinning(jobId: String, blockId: String, bin: Int)
     /** `null` turns dithering off for this block — see [Block.ditherEvery]'s own doc. */
     fun setBlockDither(jobId: String, blockId: String, n: Int?)
-    fun setAutofocusRefocusMin(min: Int)
-    fun setAutofocusTempDelta(deltaC: Double)
-    fun toggleAutofocusOnFilterChange()
     fun toggleChip(index: Int)
     fun setUserCatalogName(name: String)
     fun addUserTarget(name: String, coords: String)
@@ -168,6 +165,14 @@ interface SessionController {
     fun setCameraStartGuideDeviation(arcsec: Double)
     fun setCameraDitherPerJobEnabled(enabled: Boolean)
     fun setCameraDitherPerJobFrequency(everyN: Int)
+    /** Real "Refocus every:" trigger (2026-08-23, merged in from the old Autofocus-rules sheet) — see [com.nocturne.protocol.WireCaptureSettings.enforceRefocusEveryN]'s own doc. */
+    fun setCameraRefocusEveryNEnabled(enabled: Boolean)
+    fun setCameraRefocusEveryN(minutes: Int)
+    /** Real "Refocus if ΔT° >:" trigger — same real source as the pair above. */
+    fun setCameraRefocusOnTemperatureEnabled(enabled: Boolean)
+    fun setCameraMaxFocusTemperatureDelta(deltaC: Double)
+    /** See [com.nocturne.protocol.WireCaptureSettings.FilterPosCombo]'s own doc. */
+    fun setCameraFilter(filter: String)
 
     // ── M3.3: Align settings (curated subset, see docs/M3.3-plan.md) ──────
     fun setAlignExposure(sec: Double)
@@ -245,4 +250,6 @@ interface SessionController {
     fun setSchedulerAbortRestartQueue()
     fun setSchedulerAbortRescheduleErrors(enabled: Boolean)
     fun setSchedulerAbortDelay(minutes: Int)
+    /** See [com.nocturne.protocol.WireSchedulerSettings.kcfg_RememberJobProgress]'s own doc. */
+    fun setSchedulerRememberJobProgress(enabled: Boolean)
 }

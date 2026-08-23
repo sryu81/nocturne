@@ -16,19 +16,34 @@ package com.nocturne.session
  *   blank out whatever the Pi's Capture module already has configured,
  *   which omitting the element avoids.
  * - `HFRCheck` is omitted — Nocturne has no "HFR deviation %" setting to
- *   source it from (`afTempDeltaC`/`afRefocusMin` map to the two fields
- *   below, not this one).
- * - `afOnFilterChange` has no `.esq` field at all (README §8) — not written here. (The
- *   per-block `forceAfOnStart` toggle that used to share this same gap was removed 2026-08-23 —
- *   real per-block autofocus stays deferred past M4, see docs/app-side-feature-backlog.md.)
+ *   source it from (`enforceAutofocusOnTemperature`/`enforceRefocusEveryN` map to the two
+ *   fields below, not this one).
+ * - `afOnFilterChange` had no `.esq` field at all (README §8), and turned out to have no real
+ *   Ekos equivalent anywhere else either — removed entirely 2026-08-23, same call as the
+ *   per-block `forceAfOnStart` toggle that shared this exact gap (real per-block autofocus
+ *   stays deferred past M4, see docs/app-side-feature-backlog.md).
+ *
+ * **`enabled='true'`/`'false'` fixed 2026-08-23** — previously hardcoded `enabled='true'` on
+ * both refocus elements unconditionally, so there was no way to actually turn either off. Real
+ * Ekos writes/reads this as a literal string attribute, not a magic value (confirmed
+ * `sequencequeue.cpp:283-287` write / `:146` read: `!strcmp(findXMLAttValu(ep, "enabled"),
+ * "true")`) — and, confirmed the same source, loading an `.esq` with these set actually writes
+ * straight through to the same global `Options::enforceRefocusEveryN`/`refocusEveryN` etc. the
+ * Camera-settings sheet's own `capture_set_all_settings` call uses (`sequencequeue.cpp:213-214`)
+ * — genuinely the same underlying setting via two different real paths, not two independent
+ * ones, so feeding this from [SimState.wireCaptureSettings] can't drift out of sync with itself.
  */
 object EsqWriter {
 
-    fun write(job: SequenceJob, targetName: String, afRefocusMin: Int, afTempDeltaC: Double): String = buildString {
+    fun write(
+        job: SequenceJob, targetName: String,
+        enforceRefocusEveryN: Boolean, refocusEveryN: Int,
+        enforceAutofocusOnTemperature: Boolean, maxFocusTemperatureDelta: Double,
+    ): String = buildString {
         append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
         append("<SequenceQueue version='2.6'>\n")
-        append("<RefocusOnTemperatureDelta enabled='true'>${formatDecimal(afTempDeltaC)}</RefocusOnTemperatureDelta>\n")
-        append("<RefocusEveryN enabled='true'>$afRefocusMin</RefocusEveryN>\n")
+        append("<RefocusOnTemperatureDelta enabled='$enforceAutofocusOnTemperature'>${formatDecimal(maxFocusTemperatureDelta)}</RefocusOnTemperatureDelta>\n")
+        append("<RefocusEveryN enabled='$enforceRefocusEveryN'>$refocusEveryN</RefocusEveryN>\n")
         job.blocks.forEach { append(writeJob(it, targetName)) }
         append("</SequenceQueue>\n")
     }

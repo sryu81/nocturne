@@ -120,14 +120,13 @@ fun SheetHost(state: SimState, ctrl: SessionController, landscape: Boolean) {
         )
         SheetType.PA -> "Polar alignment" to "live status"
         SheetType.PREFS -> "Alert rules" to "push + on-screen"
-        SheetType.AUTOFOCUS_RULES -> "Autofocus rules" to "when to refocus"
         SheetType.SETUP -> (if (state.setupEditingName != null) "Edit rig profile" else "New rig profile") to "name + device connections"
         SheetType.OPTICAL_TRAIN -> "Optical train" to "primary + secondary roles"
         SheetType.MODULE_ASSIGNMENTS -> "Module assignments" to "which train each Ekos module uses"
         SheetType.SCOPES -> "Scopes" to "add, edit, remove"
         SheetType.MAINTENANCE -> "Rig maintenance" to "reboot the Pi if Ekos hangs"
         SheetType.MOUNT_SETTINGS -> "Mount settings" to "flip, limits, auto-park"
-        SheetType.CAMERA_SETTINGS -> "Camera settings" to "save path, guide guard, dither"
+        SheetType.CAMERA_SETTINGS -> "Camera settings" to "save path, dither"
         SheetType.ALIGN_SETTINGS -> "Align settings" to "exposure, gain, filter, accuracy"
         SheetType.GUIDE_SETTINGS -> "Guide settings" to "accuracy threshold, dither"
         SheetType.FOCUS_SETTINGS -> "Focus settings" to "exposure, gain, filter"
@@ -167,7 +166,6 @@ fun SheetHost(state: SimState, ctrl: SessionController, landscape: Boolean) {
                 SheetType.SUMMARY -> SummarySheet(state, ctrl)
                 SheetType.PA -> PaRealSheet(state, ctrl)
                 SheetType.PREFS -> PrefsSheet(state, ctrl)
-                SheetType.AUTOFOCUS_RULES -> AutofocusRulesSheet(state, ctrl)
                 SheetType.SETUP -> SetupBody(state, ctrl)
                 SheetType.OPTICAL_TRAIN -> OpticalTrainSheet(state, ctrl)
                 SheetType.MODULE_ASSIGNMENTS -> ModuleAssignmentsSheet(state, ctrl)
@@ -344,82 +342,6 @@ private fun PrefsSheet(state: SimState, ctrl: SessionController) {
         TextC(
             "Critical alerts (unsafe weather, disconnect, mount fault) always sound, even in quiet hours.",
             style = t.MonoMicro, color = c.textMuted, modifier = Modifier.padding(end = 4.dp),
-        )
-    }
-}
-
-// ── Autofocus rules ─────────────────────────────────────────────────────────
-
-/**
- * One rule for the whole running sequence — matches real Ekos, which enforces
- * refocus/HFR/temperature triggers per-session (`capture_get_all_settings`),
- * not per-job. Every block shows this same text; edit it here.
- */
-@Composable
-private fun AutofocusRulesSheet(state: SimState, ctrl: SessionController) {
-    val c = NocturneTheme.colors
-    val t = NocturneTheme.type
-    Column {
-        FieldLabel("Refocus every")
-        Spacer(Modifier.height(5.dp))
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .height(48.dp)
-                .background(c.bg, RoundedCornerShape(4.dp))
-                .border(1.dp, c.divider, RoundedCornerShape(4.dp))
-                .padding(horizontal = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            BasicTextField(
-                value = state.afRefocusMin.toString(),
-                onValueChange = { text -> ctrl.setAutofocusRefocusMin(text.filter { it.isDigit() }.take(3).toIntOrNull() ?: 0) },
-                singleLine = true,
-                textStyle = t.Body13.copy(color = c.text),
-                cursorBrush = SolidColor(c.accent),
-                modifier = Modifier.weight(1f),
-            )
-            TextC("min", style = t.MonoSmall, color = c.neutral500)
-        }
-        Spacer(Modifier.height(11.2.dp))
-        FieldLabel("Or on temperature drift")
-        Spacer(Modifier.height(5.dp))
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .height(48.dp)
-                .background(c.bg, RoundedCornerShape(4.dp))
-                .border(1.dp, c.divider, RoundedCornerShape(4.dp))
-                .padding(horizontal = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            BasicTextField(
-                value = "%.1f".format(state.afTempDeltaC),
-                onValueChange = { text ->
-                    text.filter { it.isDigit() || it == '.' }.toDoubleOrNull()?.let(ctrl::setAutofocusTempDelta)
-                },
-                singleLine = true,
-                textStyle = t.Body13.copy(color = c.text),
-                cursorBrush = SolidColor(c.accent),
-                modifier = Modifier.weight(1f),
-            )
-            TextC("°C", style = t.MonoSmall, color = c.neutral500)
-        }
-        Spacer(Modifier.height(11.2.dp))
-        SwitchRow(
-            label = "Refocus on filter change",
-            sub = "run autofocus whenever the active filter changes",
-            checked = state.afOnFilterChange,
-            onToggle = ctrl::toggleAutofocusOnFilterChange,
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(c.bg, RoundedCornerShape(4.dp))
-                .padding(horizontal = 11.2.dp),
-        )
-        Spacer(Modifier.height(11.2.dp))
-        TextC(
-            "Applies to the whole running sequence, not per block — matches how Ekos enforces autofocus triggers.",
-            style = t.MonoMicro, color = c.textMuted,
         )
     }
 }
@@ -908,40 +830,6 @@ private fun CameraSettingsSheet(state: SimState, ctrl: SessionController) {
                 cursorBrush = SolidColor(c.accent),
                 modifier = Modifier.fillMaxWidth(),
             )
-        }
-        Spacer(Modifier.height(16.dp))
-        HDivider()
-        Spacer(Modifier.height(16.dp))
-
-        SwitchRow(
-            label = "Guide deviation guard",
-            sub = "abort capture if the guide star drifts past this many arcsec",
-            checked = cam.enforceGuideDeviation,
-            onToggle = { ctrl.setCameraGuideDeviationEnabled(!cam.enforceGuideDeviation) },
-            modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
-        )
-        if (cam.enforceGuideDeviation) {
-            Spacer(Modifier.height(8.4.dp))
-            FieldLabel("Max deviation")
-            Spacer(Modifier.height(5.dp))
-            DegreeField(cam.guideDeviation, "\"", ctrl::setCameraGuideDeviation)
-        }
-        Spacer(Modifier.height(16.dp))
-        HDivider()
-        Spacer(Modifier.height(16.dp))
-
-        SwitchRow(
-            label = "Start-of-job drift guard",
-            sub = "wait for the guide star to settle within this many arcsec before starting a job",
-            checked = cam.enforceStartGuiderDrift,
-            onToggle = { ctrl.setCameraStartGuideDriftEnabled(!cam.enforceStartGuiderDrift) },
-            modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
-        )
-        if (cam.enforceStartGuiderDrift) {
-            Spacer(Modifier.height(8.4.dp))
-            FieldLabel("Max drift")
-            Spacer(Modifier.height(5.dp))
-            DegreeField(cam.startGuideDeviation, "\"", ctrl::setCameraStartGuideDeviation)
         }
         Spacer(Modifier.height(16.dp))
         HDivider()
@@ -1451,6 +1339,106 @@ private fun SchedulerSettingsSheet(state: SimState, ctrl: SessionController) {
             onToggle = { ctrl.setSchedulerAbortRescheduleErrors(!sc.errorHandlingRescheduleErrorsCB) },
             modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
         )
+        Spacer(Modifier.height(16.dp))
+        HDivider()
+        Spacer(Modifier.height(16.dp))
+
+        // Un-excluded 2026-08-23 — the real root cause behind this app's own "Ekos auto-resumes
+        // a stale queued job on its own restart" investigation. See its own doc for why.
+        SwitchRow(
+            label = "Remember job progress", sub = "Ekos can auto-resume a queued job on its own, even before this app reconnects",
+            checked = sc.kcfg_RememberJobProgress,
+            onToggle = { ctrl.setSchedulerRememberJobProgress(!sc.kcfg_RememberJobProgress) },
+            modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
+        )
+
+        // ── Guide & Focus Limits (2026-08-23, user's own call) ──────────────────────
+        // Real Ekos itself groups these fields (guide-deviation abort, start-of-job drift,
+        // refocus triggers) in one dialog literally titled "Guide & Focus Limits" (limits.ui) —
+        // moved here from Camera settings, which was the wrong conceptual home even though it's
+        // the same real capture_set_all_settings wire command (Capture module owns the dialog,
+        // Nocturne's own sheet split is a UI-only grouping, not a wire-protocol one; each row
+        // below still calls the same real setCameraXxx→sendCaptureSetting path it always did).
+        // Dither stays in Camera settings — it already has a real, distinct per-block home
+        // (Block.ditherEvery), so it's not part of this "when to abort/refocus" group at all.
+        val cam = state.wireCaptureSettings
+        if (cam == null) {
+            Spacer(Modifier.height(16.dp))
+            HDivider()
+            Spacer(Modifier.height(16.dp))
+            TextC("Fetching guide/focus limits…", style = t.Body13, color = c.textMuted)
+        } else {
+            Spacer(Modifier.height(16.dp))
+            HDivider()
+            Spacer(Modifier.height(16.dp))
+            TextC("GUIDE & FOCUS LIMITS", style = t.MicroUppercase, color = c.textFaint)
+            Spacer(Modifier.height(8.4.dp))
+
+            SwitchRow(
+                label = "Guide deviation guard",
+                sub = "abort capture if the guide star drifts past this many arcsec",
+                checked = cam.enforceGuideDeviation,
+                onToggle = { ctrl.setCameraGuideDeviationEnabled(!cam.enforceGuideDeviation) },
+                modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
+            )
+            if (cam.enforceGuideDeviation) {
+                Spacer(Modifier.height(8.4.dp))
+                FieldLabel("Max deviation")
+                Spacer(Modifier.height(5.dp))
+                DegreeField(cam.guideDeviation, "\"", ctrl::setCameraGuideDeviation)
+            }
+            Spacer(Modifier.height(16.dp))
+            HDivider()
+            Spacer(Modifier.height(16.dp))
+
+            SwitchRow(
+                label = "Start-of-job drift guard",
+                sub = "wait for the guide star to settle within this many arcsec before starting a job",
+                checked = cam.enforceStartGuiderDrift,
+                onToggle = { ctrl.setCameraStartGuideDriftEnabled(!cam.enforceStartGuiderDrift) },
+                modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
+            )
+            if (cam.enforceStartGuiderDrift) {
+                Spacer(Modifier.height(8.4.dp))
+                FieldLabel("Max drift")
+                Spacer(Modifier.height(5.dp))
+                DegreeField(cam.startGuideDeviation, "\"", ctrl::setCameraStartGuideDeviation)
+            }
+            Spacer(Modifier.height(16.dp))
+            HDivider()
+            Spacer(Modifier.height(16.dp))
+
+            SwitchRow(
+                label = "Refocus every N minutes",
+                sub = "force an autofocus on this timer, reset at each autofocus",
+                checked = cam.enforceRefocusEveryN,
+                onToggle = { ctrl.setCameraRefocusEveryNEnabled(!cam.enforceRefocusEveryN) },
+                modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
+            )
+            if (cam.enforceRefocusEveryN) {
+                Spacer(Modifier.height(8.4.dp))
+                FieldLabel("Every N minutes")
+                Spacer(Modifier.height(5.dp))
+                IntField(cam.refocusEveryN, ctrl::setCameraRefocusEveryN)
+            }
+            Spacer(Modifier.height(16.dp))
+            HDivider()
+            Spacer(Modifier.height(16.dp))
+
+            SwitchRow(
+                label = "Refocus on temperature drift",
+                sub = "force an autofocus once temperature has drifted this much since the last one",
+                checked = cam.enforceAutofocusOnTemperature,
+                onToggle = { ctrl.setCameraRefocusOnTemperatureEnabled(!cam.enforceAutofocusOnTemperature) },
+                modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
+            )
+            if (cam.enforceAutofocusOnTemperature) {
+                Spacer(Modifier.height(8.4.dp))
+                FieldLabel("Max ΔT")
+                Spacer(Modifier.height(5.dp))
+                DegreeField(cam.maxFocusTemperatureDelta, "°C", ctrl::setCameraMaxFocusTemperatureDelta)
+            }
+        }
     }
 }
 

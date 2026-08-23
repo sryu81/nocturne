@@ -61,7 +61,11 @@ class EsqWriterTest {
         }
         val job = SequenceJob(id = "j1", targetId = "t1", blocks = blocks)
 
-        val generated = EsqWriter.write(job, targetName = "EasternVeil", afRefocusMin = 60, afTempDeltaC = 1.0)
+        val generated = EsqWriter.write(
+            job, targetName = "EasternVeil",
+            enforceRefocusEveryN = true, refocusEveryN = 60,
+            enforceAutofocusOnTemperature = true, maxFocusTemperatureDelta = 1.0,
+        )
         val generatedDoc = parse(generated)
         val generatedJobs = jobElements(generatedDoc)
 
@@ -89,11 +93,11 @@ class EsqWriterTest {
     fun `formatDecimal drops trailing zero for whole numbers, keeps fraction otherwise`() {
         val job = SequenceJob(id = "j1", targetId = "t1", blocks = emptyList())
 
-        val whole = EsqWriter.write(job, "T", afRefocusMin = 45, afTempDeltaC = 1.0)
+        val whole = EsqWriter.write(job, "T", enforceRefocusEveryN = true, refocusEveryN = 45, enforceAutofocusOnTemperature = true, maxFocusTemperatureDelta = 1.0)
         assertTrue(whole.contains(">1</RefocusOnTemperatureDelta>"))
 
         // Matches the fixture's own <HFRDeviation>1.12</HFRDeviation> style — a real non-integer value on the wire.
-        val fraction = EsqWriter.write(job, "T", afRefocusMin = 45, afTempDeltaC = 1.12)
+        val fraction = EsqWriter.write(job, "T", enforceRefocusEveryN = true, refocusEveryN = 45, enforceAutofocusOnTemperature = true, maxFocusTemperatureDelta = 1.12)
         assertTrue(fraction.contains(">1.12</RefocusOnTemperatureDelta>"))
     }
 
@@ -105,7 +109,7 @@ class EsqWriterTest {
         )
         val job = SequenceJob(id = "j1", targetId = "t1", blocks = listOf(block))
 
-        val xml = EsqWriter.write(job, targetName = "M31 <test>", afRefocusMin = 45, afTempDeltaC = 1.0)
+        val xml = EsqWriter.write(job, targetName = "M31 <test>", enforceRefocusEveryN = true, refocusEveryN = 45, enforceAutofocusOnTemperature = true, maxFocusTemperatureDelta = 1.0)
 
         assertTrue(xml.contains("H&amp;Alpha"))
         assertTrue(xml.contains("M31 &lt;test&gt;"))

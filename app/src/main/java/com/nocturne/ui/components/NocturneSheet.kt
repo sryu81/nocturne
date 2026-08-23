@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
@@ -75,6 +76,13 @@ fun NocturneSheet(
                         else RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp),
                     )
                     .let { if (fullscreen) it.statusBarsPadding() else it }
+                    // Real bug found live (2026-08-23): the panel is BottomCenter-aligned and
+                    // reaches the physical screen edge (by design, to read as a bottom sheet),
+                    // but had no inset for the phone's own system navigation bar — confirmed
+                    // live, a 3-button nav bar covered the last field in a long sheet
+                    // (Scheduler settings' own "Max ΔT"). Only affects the bottom edge; the top
+                    // (status bar) is already handled above, only for the fullscreen case.
+                    .navigationBarsPadding()
                     .padding(18.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {

@@ -27,7 +27,7 @@ import kotlin.math.sin
 
 /** Which detail sheet is open. */
 enum class SheetType {
-    GUIDE, FOCUS, ALERTS, PREFS, SETUP, PA, DEVICE, SUMMARY, AUTOFOCUS_RULES,
+    GUIDE, FOCUS, ALERTS, PREFS, SETUP, PA, DEVICE, SUMMARY,
     OPTICAL_TRAIN, SCOPES, MODULE_ASSIGNMENTS, MAINTENANCE, MOUNT_SETTINGS, CAMERA_SETTINGS, ALIGN_SETTINGS,
     GUIDE_SETTINGS, FOCUS_SETTINGS, SCHEDULER_SETTINGS,
 }
@@ -154,15 +154,6 @@ data class SimState(
         camera = "ASI174MM mini", rotator = "None", scope = "OAG",
         filterWheel = "None", focuser = "None",
     ),
-    /**
-     * Sequence-wide autofocus trigger rule. Real Ekos enforces this once per
-     * running queue (`enforceRefocusEveryN`/`refocusEveryN`, `maxFocusTemperatureDelta`
-     * via `capture_get_all_settings`) — there's no per-job override on the wire,
-     * so this is deliberately one setting, not per-block.
-     */
-    val afRefocusMin: Int = 45,
-    val afTempDeltaC: Double = 1.0,
-    val afOnFilterChange: Boolean = true,
     /** Focus sheet: snapshot from the last "Run autofocus now" tap. */
     val focusLastBestPos: Int = 18422,
     val focusLastHfr: Double = 2.27,
@@ -1424,8 +1415,8 @@ val SimState.rms: Double get() = 0.48 + sin(t / 7.0) * 0.04
 val SimState.guideStarSnr: Double get() = 38.0 + sin(t / 11.0) * 4.0
 val SimState.fNow: Double get() = 0.485 + t / 9000.0
 
-/** Minutes until the next scheduled autofocus — real countdown off [afRefocusMin] and the last run's timestamp. */
-val SimState.focusNextAfMin: Int get() = (afRefocusMin - (t - focusLastAfAt) / 60).coerceAtLeast(0)
+/** Minutes until the next scheduled autofocus — real countdown off the real [WireCaptureSettings.refocusEveryN] (2026-08-23) and the last run's timestamp. */
+val SimState.focusNextAfMin: Int get() = ((wireCaptureSettings?.refocusEveryN ?: 45) - (t - focusLastAfAt) / 60).coerceAtLeast(0)
 
 /** Live EAF focuser temperature — reads the user's own edits first, falls back to the driver fixture default. */
 val SimState.eafTemp: Double get() = indiNumber("EAF", "FOCUS_TEMPERATURE") ?: -0.6
@@ -1572,16 +1563,6 @@ val SimState.missing: String get() {    val parts = buildList {
         if (!isOn("cam")) add("camera")
     }
     return parts.joinToString(" + ")
-}
-
-/** "45 min · 1.0 °C · filter change" — same rule shown on every block, since it's global. */
-val SimState.autofocusRuleText: String get() {
-    val parts = buildList {
-        add("$afRefocusMin min")
-        add("${"%.1f".format(afTempDeltaC)} °C")
-        if (afOnFilterChange) add("filter change")
-    }
-    return parts.joinToString(" · ")
 }
 
 /** The prototype's trace generator: x = i + t*0.6 + seed, summed sines. */

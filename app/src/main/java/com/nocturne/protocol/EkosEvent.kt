@@ -256,10 +256,11 @@ sealed interface EkosEvent {
      * fields (`kcfg_SchedulerWeather*`, `kcfg_SchedulerSafetyMonitorConnectionString` — same scope
      * as the deferred Sky & Site weather pass), deeper Options-page align-recovery/greedy-
      * scheduling toggles (`kcfg_AlignCheck*`, `kcfg_*ResetMountModel*`, `kcfg_ForceAlignmentBeforeJob`,
-     * `kcfg_RealignAfterCalibrationFailure`, `kcfg_GreedyScheduling`, `kcfg_RememberJobProgress`),
+     * `kcfg_RealignAfterCalibrationFailure`, `kcfg_GreedyScheduling`),
      * and `executionSequenceLimit`/`schedulerProfileCombo`/`epochCB`/`positionAngleSpin`/`groupEdit`/
      * `fitsEdit`/`leadFollowerSelectionCB` (job-form or unclear-purpose, not scheduler policy).
-     * `ignoreUnknownKeys` drops all of the above.
+     * `ignoreUnknownKeys` drops all of the above. **`kcfg_RememberJobProgress` was un-excluded
+     * 2026-08-23** — see [WireSchedulerSettings.kcfg_RememberJobProgress]'s own doc for why.
      */
     @Serializable
     data class SchedulerSettings(val settings: WireSchedulerSettings) : EkosEvent
@@ -714,6 +715,14 @@ data class WireSchedulerSettings(
     val errorHandlingRestartQueueButton: Boolean = false,
     val errorHandlingRescheduleErrorsCB: Boolean = false,
     val errorHandlingStrategyDelay: Int = 0,
+    /**
+     * Added 2026-08-23, previously on the exclusion list above — real root cause behind this
+     * app's own "Ekos auto-resumes a stale queued job on its own restart" investigation (see
+     * `docs/app-side-feature-backlog.md`/project notes): confirmed `true` on this rig via a
+     * one-off wire probe well before this field had any UI at all. Surfaced now for real
+     * visibility given how central it turned out to be to that whole incident.
+     */
+    val kcfg_RememberJobProgress: Boolean = true,
 )
 
 /**
@@ -742,7 +751,11 @@ data class WireSchedulerSettings(
  * matching real Ekos at the start of a session.
  *
  * Still excluded: capture count/offset/frame/format fields (Sequence-job concepts, not a
- * preview's), autofocus/refocus/calibration/script fields (one-time setup, not per-session).
+ * preview's), HFR-deviation/meridian-flip refocus triggers and calibration/script fields
+ * (deeper, deferred). **`enforceRefocusEveryN`/`refocusEveryN`/`enforceAutofocusOnTemperature`/
+ * `maxFocusTemperatureDelta` were added 2026-08-23** — see their own doc below; no longer
+ * "one-time setup, not per-session" once the app actually needed real autofocus-trigger
+ * settings.
  */
 @Serializable
 data class WireCaptureSettings(
@@ -758,6 +771,33 @@ data class WireCaptureSettings(
     val captureBinHN: Int = 1,
     val captureBinVN: Int = 1,
     val cameraTemperatureN: Double = -10.0,
+    /**
+     * Real "Refocus every:" trigger (2026-08-23) — confirmed against real KStars source
+     * (`limits.ui`: `enforceRefocusEveryN` checkbox + `refocusEveryN` spinbox,
+     * `sequencequeue.cpp:245`: `Options::enforceRefocusEveryN()`). Previously excluded from
+     * this curated subset as "one-time setup, not per-session" — revisited once the app's own
+     * `Block`-level "force AF at block start" idea turned out to have no real backing at all;
+     * this pair is the genuine, real, always-global equivalent (`capture_set_all_settings`, no
+     * job index — confirmed `message.cpp:542,546`). Merged into Camera settings rather than a
+     * separate sheet since it's the exact same wire command already used there.
+     */
+    val enforceRefocusEveryN: Boolean = true,
+    val refocusEveryN: Int = 60,
+    /** Real "Refocus if ΔT° >:" trigger — same real source/command as [enforceRefocusEveryN] above. */
+    val enforceAutofocusOnTemperature: Boolean = false,
+    val maxFocusTemperatureDelta: Double = 1.0,
+    /**
+     * The Capture tab's own current filter selection (real `camera.ui`'s `FilterPosCombo`
+     * `QComboBox`, confirmed live 2026-08-23 — real reply carried `"FilterPosCombo":"L"` for
+     * this rig) — what a bare `capture_preview`/Bench "Snap main" actually shoots with, same
+     * "whatever the Capture module's own currently-loaded values are" shape as
+     * [captureExposureN]/[captureGainN]/[captureBinHN]/[captureBinVN] above. Kept as the exact
+     * wire key verbatim (capital-leading, unlike every other field here) rather than renamed to
+     * a lowerCamelCase Kotlin-style name — same precedent as the `kcfg_`-prefixed Scheduler
+     * fields keeping their own unusual real casing, so the property name stays a direct,
+     * grep-able match to the wire.
+     */
+    val FilterPosCombo: String = "",
 )
 
 /**

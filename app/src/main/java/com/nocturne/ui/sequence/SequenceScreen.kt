@@ -42,7 +42,7 @@ import com.nocturne.session.SequenceJob
 import com.nocturne.session.SessionController
 import com.nocturne.session.SheetType
 import com.nocturne.session.SimState
-import com.nocturne.session.autofocusRuleText
+import com.nocturne.session.contractJob
 import com.nocturne.session.displayName
 import com.nocturne.session.findTarget
 import com.nocturne.session.formatSiteTime
@@ -318,16 +318,26 @@ private fun JobDetailHeader(state: SimState, job: SequenceJob, onBack: () -> Uni
 
 /**
  * Real dusk/dawn (`state.realNightWindow`, same source as `NightArcCard`'s Session-tab fix,
- * M2026-08) replaces the "21:48 → 04:12" literal once it's arrived. Only the header time label
- * is real — the bar's own segments (`cal`/`Ha`/`flip`/`OIII`/`SII` widths) stay fixture, no real
- * per-filter breakdown exists here (out of scope for this pass, same as `NightArcCard`'s "flip"
- * tick being omitted rather than fabricated).
+ * M2026-08) replaces the "21:48 → 04:12" literal once it's arrived.
+ *
+ * **Segments/labels wired to real per-block data (2026-08-23, user report)** — the bar used to
+ * show a fixed fixture split (`cal`/`Ha`/`flip`/`OIII`/`SII`) regardless of what was actually
+ * queued (confirmed live: a real 1-block, 30s×1, `L`-filter job still showed the old `Ha`/`OIII`/
+ * `SII` labels, no relation to it at all). Now [state.contractJob]'s own blocks drive both the
+ * segment widths (proportional to each block's real `subCount × exposureSec`) and labels (each
+ * block's real, possibly-real-wheel-sourced filter name — see `SimState.realFilterNames`).
+ * `cal` stays a small fixed fixture bookend, and `flip` is dropped entirely rather than guessed
+ * a placement — neither has real per-block data to derive from (no calibration-block concept,
+ * and flip timing depends on real mount position, not block data); both explicitly deferred to a
+ * later pass, per the user's own call, rather than solved or faked here. Falls back to the full
+ * original fixture bar if there's no contract job or its blocks carry no real planned time yet
+ * (e.g. exposureSec/subCount still zero).
  *
  * **Real bug found live (2026-08-22, user report)**: with zero jobs queued (the "No targets
  * queued" card right below this one), the fixture bar+filter-labels rendered anyway —
  * illustrative fixture content with zero relation to anything real, right above an honest
  * "nothing queued" message, reading as a real plan that doesn't exist. Fixed: the bar+labels are
- * now only shown when there's actually a job to (fixture-)illustrate, same honesty norm as
+ * now only shown when there's actually a job to illustrate, same honesty norm as
  * `NightArcCard`/`FlipBanner` omitting fixture elements rather than fabricating them.
  */
 @Composable
@@ -336,15 +346,42 @@ private fun NightPlanBar(state: SimState, ctrl: SessionController) {
     val t = NocturneTheme.type
     val window = state.realNightWindow
     val showFixturePlan = state.jobs.isNotEmpty()
+    val realBlocks = state.contractJob?.blocks
+        ?.map { it.filter to (it.subCount.toLong() * it.exposureSec.toLong()) }
+        ?.filter { it.second > 0 }
+        ?: emptyList()
+    val totalPlannedSec = realBlocks.sumOf { it.second }
+    val planSegPalette = listOf(c.accent, c.accentMuted, c.accent800, c.warn.copy(alpha = 0.55f), Color(0xFF5D5294))
     Card {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TextC("NIGHT PLAN", style = t.Caption, color = c.textFaint, modifier = Modifier.weight(1f))
+            // Bumped from t.Caption/c.textFaint (2026-08-23, user feedback: too small and too
+            // low-contrast next to the big "Start Scheduler" button right below it) — this is the
+            // Sequence tab's own title, not a mere section divider like a sheet's internal
+            // "STARTUP CONDITION"-style labels, so it should read with more weight than those.
+            TextC("NIGHT PLAN", style = t.Body135, color = c.text, modifier = Modifier.weight(1f))
             TextC(
                 if (window != null) "${state.formatSiteTime(window.first)} → ${state.formatSiteTime(window.second)}" else "21:48 → 04:12",
                 style = t.Mono13, color = c.textMuted,
             )
-            Spacer(Modifier.width(8.dp))
-            IconBtn(Phosphor.SlidersHorizontal, onClick = { ctrl.openSheet(SheetType.SCHEDULER_SETTINGS) }, size = 28, iconSize = 14.dp)
+        }
+        Spacer(Modifier.height(9.dp))
+        // Own full-width button, not an inline icon+label next to the title (2026-08-23, user
+        // feedback: still not visible enough even labeled) — same treatment as
+        // SchedulerToggleButton right below it, so both real Scheduler entry points read with
+        // equal weight instead of one being a small aside next to the header.
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(40.dp)
+                .border(1.dp, c.divider, RoundedCornerShape(10.dp))
+                .clickable { ctrl.openSheet(SheetType.SCHEDULER_SETTINGS) },
+            contentAlignment = Alignment.Center,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Phosphor.Icon(Phosphor.SlidersHorizontal, size = 15.dp, tint = c.textMuted)
+                Spacer(Modifier.width(8.dp))
+                TextC("Scheduler settings", style = t.Button14, color = c.textMuted)
+            }
         }
         Spacer(Modifier.height(9.dp))
         SchedulerToggleButton(state, ctrl)
@@ -356,19 +393,33 @@ private fun NightPlanBar(state: SimState, ctrl: SessionController) {
                     .height(39.dp)
                     .background(Color.Transparent, RoundedCornerShape(4.dp)),
             ) {
-                PlanSeg(0.12f, Color(0xFF5D5294))
-                PlanSeg(0.31f, c.accent)
-                PlanSeg(0.06f, c.warn.copy(alpha = 0.55f))
-                PlanSeg(0.33f, c.accentMuted)
-                PlanSeg(0.18f, c.accent800)
+                if (totalPlannedSec > 0) {
+                    PlanSeg(0.10f, Color(0xFF5D5294)) // "cal" — still a fixed fixture bookend, deferred
+                    realBlocks.forEachIndexed { i, (_, sec) ->
+                        PlanSeg(0.90f * (sec.toFloat() / totalPlannedSec), planSegPalette[i % planSegPalette.size])
+                    }
+                } else {
+                    PlanSeg(0.12f, Color(0xFF5D5294))
+                    PlanSeg(0.31f, c.accent)
+                    PlanSeg(0.06f, c.warn.copy(alpha = 0.55f))
+                    PlanSeg(0.33f, c.accentMuted)
+                    PlanSeg(0.18f, c.accent800)
+                }
             }
             Spacer(Modifier.height(12.6.dp))
             Row(Modifier.fillMaxWidth()) {
-                TextC("cal", style = t.Mono13, color = c.textFaint, modifier = Modifier.weight(1f))
-                TextC("Ha · now", style = t.Mono13, color = c.text, modifier = Modifier.weight(1f))
-                TextC("flip", style = t.Mono13, color = c.warn, modifier = Modifier.weight(1f))
-                TextC("OIII", style = t.Mono13, color = c.textFaint, modifier = Modifier.weight(1f))
-                TextC("SII", style = t.Mono13, color = c.textFaint, modifier = Modifier.weight(1f))
+                if (totalPlannedSec > 0) {
+                    TextC("cal", style = t.Mono13, color = c.textFaint, modifier = Modifier.weight(1f))
+                    realBlocks.forEach { (filter, _) ->
+                        TextC(filter, style = t.Mono13, color = c.text, modifier = Modifier.weight(1f))
+                    }
+                } else {
+                    TextC("cal", style = t.Mono13, color = c.textFaint, modifier = Modifier.weight(1f))
+                    TextC("Ha · now", style = t.Mono13, color = c.text, modifier = Modifier.weight(1f))
+                    TextC("flip", style = t.Mono13, color = c.warn, modifier = Modifier.weight(1f))
+                    TextC("OIII", style = t.Mono13, color = c.textFaint, modifier = Modifier.weight(1f))
+                    TextC("SII", style = t.Mono13, color = c.textFaint, modifier = Modifier.weight(1f))
+                }
             }
         }
     }
@@ -443,8 +494,6 @@ private fun BlocksList(state: SimState, ctrl: SessionController, job: SequenceJo
                 ctrl = ctrl,
                 jobId = job.id,
                 filterNames = filterNames,
-                autofocusRule = state.autofocusRuleText,
-                onOpenAutofocusRules = { ctrl.openSheet(SheetType.AUTOFOCUS_RULES) },
                 modifier = Modifier
                     .onGloballyPositioned { heights[b.id] = it.size.height }
                     .zIndex(if (isDragging) 1f else 0f)
@@ -492,8 +541,6 @@ private fun BlockCard(
     ctrl: SessionController,
     jobId: String,
     filterNames: List<String>,
-    autofocusRule: String,
-    onOpenAutofocusRules: () -> Unit,
     modifier: Modifier = Modifier,
     dragModifier: Modifier = Modifier,
 ) {
@@ -571,7 +618,7 @@ private fun BlockCard(
             Spacer(Modifier.height(9.dp))
             HDivider()
             Spacer(Modifier.height(9.dp))
-            BlockDetails(block, ctrl, jobId, autofocusRule, onOpenAutofocusRules, locked)
+            BlockDetails(block, ctrl, jobId, locked)
         }
     }
 }
@@ -583,7 +630,7 @@ private fun BlockCard(
  * it again (`EkosRemoteController.removeJob` clears `synced`).
  */
 @Composable
-private fun BlockDetails(block: Block, ctrl: SessionController, jobId: String, autofocusRule: String, onOpenAutofocusRules: () -> Unit, locked: Boolean = false) {
+private fun BlockDetails(block: Block, ctrl: SessionController, jobId: String, locked: Boolean = false) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     Column(Modifier.then(if (locked) Modifier.alpha(0.45f) else Modifier)) {
@@ -617,18 +664,6 @@ private fun BlockDetails(block: Block, ctrl: SessionController, jobId: String, a
             labelOf = { it?.toString() ?: "Off" },
             onSelect = { if (!locked) ctrl.setBlockDither(jobId, block.id, it) },
         )
-    }
-    Spacer(Modifier.height(8.4.dp))
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onOpenAutofocusRules),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        TextC("Autofocus", style = t.Body135, color = c.text, modifier = Modifier.weight(1f))
-        TextC(autofocusRule, style = t.Mono14, color = c.textMuted)
-        Spacer(Modifier.width(6.dp))
-        Phosphor.Icon(Phosphor.CaretRight, size = 12.dp, tint = c.neutral700)
     }
     }
 }

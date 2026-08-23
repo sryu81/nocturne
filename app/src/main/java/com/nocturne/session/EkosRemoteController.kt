@@ -1191,6 +1191,26 @@ class EkosRemoteController(
         sendCaptureSetting("guideDitherPerJobFrequency", JsonPrimitive(everyN))
         super.setCameraDitherPerJobFrequency(everyN)
     }
+    override fun setCameraRefocusEveryNEnabled(enabled: Boolean) {
+        sendCaptureSetting("enforceRefocusEveryN", JsonPrimitive(enabled))
+        super.setCameraRefocusEveryNEnabled(enabled)
+    }
+    override fun setCameraRefocusEveryN(minutes: Int) {
+        sendCaptureSetting("refocusEveryN", JsonPrimitive(minutes))
+        super.setCameraRefocusEveryN(minutes)
+    }
+    override fun setCameraRefocusOnTemperatureEnabled(enabled: Boolean) {
+        sendCaptureSetting("enforceAutofocusOnTemperature", JsonPrimitive(enabled))
+        super.setCameraRefocusOnTemperatureEnabled(enabled)
+    }
+    override fun setCameraMaxFocusTemperatureDelta(deltaC: Double) {
+        sendCaptureSetting("maxFocusTemperatureDelta", JsonPrimitive(deltaC))
+        super.setCameraMaxFocusTemperatureDelta(deltaC)
+    }
+    override fun setCameraFilter(filter: String) {
+        sendCaptureSetting("FilterPosCombo", JsonPrimitive(filter))
+        super.setCameraFilter(filter)
+    }
 
     /**
      * Align settings (M3.3 phase 3, curated subset). Same fire-and-forget shape as
@@ -1513,6 +1533,10 @@ class EkosRemoteController(
         sendSchedulerSetting("errorHandlingStrategyDelay", JsonPrimitive(minutes))
         super.setSchedulerAbortDelay(minutes)
     }
+    override fun setSchedulerRememberJobProgress(enabled: Boolean) {
+        sendSchedulerSetting("kcfg_RememberJobProgress", JsonPrimitive(enabled))
+        super.setSchedulerRememberJobProgress(enabled)
+    }
 
     /**
      * `train_add`/`train_update` payload shape is undocumented (plan §"Protocol
@@ -1670,7 +1694,16 @@ class EkosRemoteController(
         val targetName = s.targetNameFor(job)
         val path = "nocturne_$jobId.esq"
         client.sendCommand(Commands.SCHEDULER_SAVE_SEQUENCE_FILE, buildJsonObject {
-            put("filedata", EsqWriter.write(job, targetName, s.afRefocusMin, s.afTempDeltaC))
+            put(
+                "filedata",
+                EsqWriter.write(
+                    job, targetName,
+                    enforceRefocusEveryN = s.wireCaptureSettings?.enforceRefocusEveryN ?: true,
+                    refocusEveryN = s.wireCaptureSettings?.refocusEveryN ?: 60,
+                    enforceAutofocusOnTemperature = s.wireCaptureSettings?.enforceAutofocusOnTemperature ?: false,
+                    maxFocusTemperatureDelta = s.wireCaptureSettings?.maxFocusTemperatureDelta ?: 1.0,
+                ),
+            )
             put("path", path)
         })
         pendingJobStart = PendingJobStart(

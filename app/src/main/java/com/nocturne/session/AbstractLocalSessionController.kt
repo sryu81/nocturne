@@ -179,9 +179,6 @@ abstract class AbstractLocalSessionController : SessionController {
     override fun setBlockBinning(jobId: String, blockId: String, bin: Int) = update { s -> s.mapJobBlock(jobId, blockId) { it.copy(binning = bin) } }
     override fun setBlockDither(jobId: String, blockId: String, n: Int?) = update { s -> s.mapJobBlock(jobId, blockId) { it.copy(ditherEvery = n) } }
 
-    override fun setAutofocusRefocusMin(min: Int) = update { it.copy(afRefocusMin = min.coerceIn(0, 240)) }
-    override fun setAutofocusTempDelta(deltaC: Double) = update { it.copy(afTempDeltaC = deltaC.coerceIn(0.0, 10.0)) }
-    override fun toggleAutofocusOnFilterChange() = update { it.copy(afOnFilterChange = !it.afOnFilterChange) }
 
     override fun toggleChip(index: Int) = update { s ->
         s.copy(chips = if (s.chips.contains(index)) s.chips.filter { it != index } else s.chips + index)
@@ -327,6 +324,21 @@ abstract class AbstractLocalSessionController : SessionController {
     }
     override open fun setCameraDitherPerJobFrequency(everyN: Int) = update { s ->
         s.copy(wireCaptureSettings = s.wireCaptureSettings?.copy(guideDitherPerJobFrequency = everyN))
+    }
+    override open fun setCameraRefocusEveryNEnabled(enabled: Boolean) = update { s ->
+        s.copy(wireCaptureSettings = s.wireCaptureSettings?.copy(enforceRefocusEveryN = enabled))
+    }
+    override open fun setCameraRefocusEveryN(minutes: Int) = update { s ->
+        s.copy(wireCaptureSettings = s.wireCaptureSettings?.copy(refocusEveryN = minutes))
+    }
+    override open fun setCameraRefocusOnTemperatureEnabled(enabled: Boolean) = update { s ->
+        s.copy(wireCaptureSettings = s.wireCaptureSettings?.copy(enforceAutofocusOnTemperature = enabled))
+    }
+    override open fun setCameraMaxFocusTemperatureDelta(deltaC: Double) = update { s ->
+        s.copy(wireCaptureSettings = s.wireCaptureSettings?.copy(maxFocusTemperatureDelta = deltaC))
+    }
+    override open fun setCameraFilter(filter: String) = update { s ->
+        s.copy(wireCaptureSettings = s.wireCaptureSettings?.copy(FilterPosCombo = filter))
     }
 
     // Align settings (M3.3 phase 3): same shape as Mount/Camera settings
@@ -540,6 +552,9 @@ abstract class AbstractLocalSessionController : SessionController {
     }
     override open fun setSchedulerAbortDelay(minutes: Int) = update { s ->
         s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(errorHandlingStrategyDelay = minutes))
+    }
+    override open fun setSchedulerRememberJobProgress(enabled: Boolean) = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(kcfg_RememberJobProgress = enabled))
     }
 
     override fun snapMain() = update { it.copy(snappedMain = true) }
