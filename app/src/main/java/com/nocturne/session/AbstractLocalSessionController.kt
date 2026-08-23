@@ -66,8 +66,8 @@ abstract class AbstractLocalSessionController : SessionController {
             // Matches real Ekos's meridian-flip delay — push the deadline back 10 min.
             FlipConfirm.DEFER -> s.copy(flipDeferSec = s.flipDeferSec + 600)
             // No manual-trigger command exists on the real wire (executeMeridianFlip is
-            // an enable/disable setting, not an RPC) — Nocturne-only, same as
-            // forceAfOnStart. Zeroes the countdown; no real flip sequence fires.
+            // an enable/disable setting, not an RPC) — Nocturne-only. Zeroes the countdown;
+            // no real flip sequence fires.
             FlipConfirm.NOW -> s.copy(flipDeferSec = s.t - 2530)
             null -> s
         }
@@ -177,11 +177,7 @@ abstract class AbstractLocalSessionController : SessionController {
     override fun setBlockGain(jobId: String, blockId: String, gain: Int) = update { s -> s.mapJobBlock(jobId, blockId) { it.copy(gain = gain.coerceIn(0, 600)) } }
     override fun setBlockOffset(jobId: String, blockId: String, offset: Int) = update { s -> s.mapJobBlock(jobId, blockId) { it.copy(offset = offset.coerceIn(0, 255)) } }
     override fun setBlockBinning(jobId: String, blockId: String, bin: Int) = update { s -> s.mapJobBlock(jobId, blockId) { it.copy(binning = bin) } }
-    override fun setBlockDither(jobId: String, blockId: String, n: Int) = update { s -> s.mapJobBlock(jobId, blockId) { it.copy(ditherEvery = n) } }
-
-    // Stub: flips the local flag only. Actually firing `focus_start` when this
-    // block becomes active needs real capture-state pushes — M3.
-    override fun toggleBlockForceAf(jobId: String, blockId: String) = update { s -> s.mapJobBlock(jobId, blockId) { it.copy(forceAfOnStart = !it.forceAfOnStart) } }
+    override fun setBlockDither(jobId: String, blockId: String, n: Int?) = update { s -> s.mapJobBlock(jobId, blockId) { it.copy(ditherEvery = n) } }
 
     override fun setAutofocusRefocusMin(min: Int) = update { it.copy(afRefocusMin = min.coerceIn(0, 240)) }
     override fun setAutofocusTempDelta(deltaC: Double) = update { it.copy(afTempDeltaC = deltaC.coerceIn(0.0, 10.0)) }

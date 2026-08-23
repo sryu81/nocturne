@@ -53,8 +53,8 @@ interface SessionController {
     fun setBlockGain(jobId: String, blockId: String, gain: Int)
     fun setBlockOffset(jobId: String, blockId: String, offset: Int)
     fun setBlockBinning(jobId: String, blockId: String, bin: Int)
-    fun setBlockDither(jobId: String, blockId: String, n: Int)
-    fun toggleBlockForceAf(jobId: String, blockId: String)
+    /** `null` turns dithering off for this block — see [Block.ditherEvery]'s own doc. */
+    fun setBlockDither(jobId: String, blockId: String, n: Int?)
     fun setAutofocusRefocusMin(min: Int)
     fun setAutofocusTempDelta(deltaC: Double)
     fun toggleAutofocusOnFilterChange()

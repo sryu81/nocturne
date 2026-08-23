@@ -18,8 +18,9 @@ package com.nocturne.session
  * - `HFRCheck` is omitted — Nocturne has no "HFR deviation %" setting to
  *   source it from (`afTempDeltaC`/`afRefocusMin` map to the two fields
  *   below, not this one).
- * - `afOnFilterChange` has no `.esq` field at all — same documented gap as
- *   `Block.forceAfOnStart` (README §8) — neither is written here.
+ * - `afOnFilterChange` has no `.esq` field at all (README §8) — not written here. (The
+ *   per-block `forceAfOnStart` toggle that used to share this same gap was removed 2026-08-23 —
+ *   real per-block autofocus stays deferred past M4, see docs/app-side-feature-backlog.md.)
  */
 object EsqWriter {
 
@@ -43,7 +44,9 @@ object EsqWriter {
         append("<Count>${b.subCount}</Count>\n")
         append("<Delay>0</Delay>\n")
         append("<TargetName>${xmlEscape(targetName)}</TargetName>\n")
-        append("<GuideDitherPerJob>${b.ditherEvery}</GuideDitherPerJob>\n")
+        // Real "-1 means off" sentinel (confirmed against sequencejob.cpp:1069-1070) — kept
+        // confined to this one write site; the app's own Block.ditherEvery uses a real `null`.
+        append("<GuideDitherPerJob>${b.ditherEvery ?: -1}</GuideDitherPerJob>\n")
         append("<PlaceholderFormat>/%t/%T/%F/%t_%T_%F_%e_%D</PlaceholderFormat>\n")
         append("<UploadMode>0</UploadMode>\n")
         append("<Properties>\n")

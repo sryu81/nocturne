@@ -11,9 +11,11 @@ protocol investigation before any code is written.
 
 ## Autofocus at block start (per-block)
 
-**Status: real gap confirmed, not started.**
+**Status: real gap confirmed; the stub UI was removed 2026-08-23 (user's own call — "this will
+be handled after M4"), rather than left in place as dead/no-op. Nothing to pick back up in the
+UI when this is eventually built for real; start from this doc entry instead.**
 
-The per-block `Block.forceAfOnStart` toggle (Sequence tab, block editor) has
+The old per-block `Block.forceAfOnStart` toggle (Sequence tab, block editor) had
 no real Ekos equivalent at any level — confirmed against real KStars source
 (`message.cpp:542,546`, README §8): `capture_set_all_settings` writes
 straight through to *global* `Options` (`enforceRefocusEveryN`,

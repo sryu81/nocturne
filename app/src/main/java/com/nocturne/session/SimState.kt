@@ -1018,15 +1018,19 @@ data class Block(
     val gain: Int,
     val offset: Int,
     val binning: Int,
-    val ditherEvery: Int,
     /**
-     * App-side override, not an Ekos setting: force one `focus_start` right as
-     * this block begins, layered on top of (not replacing) the global
-     * autofocus rule. Wiring the actual trigger needs real capture-state
-     * pushes to detect "this block just started" — M2/M3; this flag is a
-     * no-op stub under [SimulatedController].
+     * `null` means dithering is off for this block — a genuine, real per-block Ekos concept
+     * (`SequenceJob::SJ_DitherPerJobEnabled`, confirmed against real KStars source,
+     * `sequencejob.cpp`), unlike autofocus rules which are purely global. Real Ekos itself
+     * encodes "off" as `-1` in the written `<GuideDitherPerJob>` element (`sequencejob.cpp:1070`:
+     * `ditherPerJobEnabled ? ditherPerJobFrequency : -1`) and reads it back the same way
+     * (`value >= 0` → enabled at that frequency, `value < 0` → disabled;
+     * `sequencejob.cpp:841-850`) — note `0` itself is a *valid* real frequency ("dither every
+     * frame"), not a stand-in for off, so `null`/`-1` had to be a distinct value from `0`. This
+     * wire-specific `-1` encoding stays confined to [EsqWriter] — the app's own model uses a
+     * real `null`, not a magic number, for "off".
      */
-    val forceAfOnStart: Boolean = false,
+    val ditherEvery: Int?,
 )
 
 val DEFAULT_BLOCKS = listOf(
@@ -1170,7 +1174,8 @@ val SimState.realFilterNames: List<String>? get() {
     return prop?.elements?.map { it.second }?.filter { it.isNotBlank() }?.takeIf { it.isNotEmpty() }
 }
 val BINNING_OPTIONS = listOf(1, 2, 3, 4)
-val DITHER_OPTIONS = listOf(1, 2, 3, 5)
+/** `null` ("Off") leads the list — see [Block.ditherEvery]'s own doc for why real Ekos needs a distinct off-value from `0`. */
+val DITHER_OPTIONS: List<Int?> = listOf(null, 1, 2, 3, 5)
 
 /** "300 s × 40" — collapsed-card headline, derived so an edit is reflected immediately. */
 val Block.spec: String get() = "$exposureSec s × $subCount"

@@ -614,17 +614,10 @@ private fun BlockDetails(block: Block, ctrl: SessionController, jobId: String, a
         SegmentedRow(
             options = DITHER_OPTIONS,
             selected = block.ditherEvery,
-            labelOf = { it.toString() },
+            labelOf = { it?.toString() ?: "Off" },
             onSelect = { if (!locked) ctrl.setBlockDither(jobId, block.id, it) },
         )
     }
-    Spacer(Modifier.height(8.4.dp))
-    SwitchRow(
-        label = "Force autofocus at block start",
-        sub = "in addition to the global rule below",
-        checked = block.forceAfOnStart,
-        onToggle = { if (!locked) ctrl.toggleBlockForceAf(jobId, block.id) },
-    )
     Spacer(Modifier.height(8.4.dp))
     Row(
         Modifier
