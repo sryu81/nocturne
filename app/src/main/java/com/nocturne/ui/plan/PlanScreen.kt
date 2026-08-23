@@ -43,7 +43,9 @@ import com.nocturne.session.formatSiteTime
 import com.nocturne.session.realDayFraction
 import com.nocturne.session.realDayWindow
 import com.nocturne.session.realLookupName
+import com.nocturne.session.realNightWindow
 import com.nocturne.session.realUsableSeconds
+import java.time.Instant
 import com.nocturne.session.TARGETS
 import com.nocturne.session.Target
 import com.nocturne.session.displayName
@@ -258,6 +260,13 @@ private fun TargetRow(tg: Target, selected: Boolean, onClick: () -> Unit) {
     }
 }
 
+/** Where [instant] falls within [window] as a 0..1 fraction — same units as [SimState.realDayFraction]/[AltitudeChart]'s `realNowFraction`. Not clamped: a caller checking placement should already know the instant belongs inside the window. */
+private fun fractionOfWindow(instant: Instant, window: Pair<Instant, Instant>): Double {
+    val total = window.second.epochSecond - window.first.epochSecond
+    if (total <= 0) return 0.0
+    return (instant.epochSecond - window.first.epochSecond).toDouble() / total
+}
+
 /**
  * Real per-target altitude data ([SimState.wireTargetRiseset], fetched on demand — see
  * [SessionController.ensureTargetRiseset]) replaces the chart's fixture curve and the "21:48"/
@@ -295,6 +304,17 @@ private fun TargetCard(state: SimState, ctrl: SessionController, tgt: Target) {
     val maxAlt = riseset?.altitudes?.maxOrNull()?.let { kotlin.math.round(it).toInt() } ?: tgt.max
     val peak = riseset?.transit ?: tgt.peak
     val usable = riseset?.let { state.realUsableSeconds(it) }?.let { formatHm(it) } ?: tgt.usable
+    // Real dusk/dawn (same source as the Session tab's night arc) expressed as fractions of this
+    // chart's own day window, so they land on the same x-axis realNowFraction/the curve itself
+    // use. User-requested addition (2026-08-22): shades which part of the curve is actually
+    // observable-dark versus daylight, directly on the chart rather than only in NightPlanBar.
+    val nightWindow = if (real) state.realNightWindow else null
+    val duskFraction = if (window != null && nightWindow != null) fractionOfWindow(nightWindow.first, window) else null
+    val dawnFraction = if (window != null && nightWindow != null) fractionOfWindow(nightWindow.second, window) else null
+    // Same peak-sample index AltitudeChart computes internally for its own dashed line — recomputed
+    // here (a Canvas draw can't hand a value back up) purely so this label can sit at the same x.
+    val peakFraction = realAltitudes?.withIndex()?.maxByOrNull { it.value }?.index
+        ?.let { idx -> idx.toDouble() / (realAltitudes.size - 1) }
     com.nocturne.ui.components.Card {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -310,16 +330,27 @@ private fun TargetCard(state: SimState, ctrl: SessionController, tgt: Target) {
         BoxWithConstraints(
             Modifier
                 .fillMaxWidth()
-                .height(176.dp),
+                .height(176.dp)
+                // Real bug found live (2026-08-22, user report): the whole Plan tab is one
+                // single scrolling column (see TabPane) — the chart has no scrollable content
+                // of its own, so a drag starting on it was just silently forwarded up to that
+                // outer page scroll, which could fling the *entire* tab (search bar down to the
+                // action buttons) far past the chart. Consuming drags here stops that — this
+                // area has nothing to swipe through, so there's nothing lost by absorbing the
+                // gesture instead of passing it up.
+                .pointerInput(Unit) { detectDragGestures(onDrag = { change, _ -> change.consume() }) },
         ) {
-            AltitudeChart(Modifier.fillMaxSize(), realAltitudes = realAltitudes, realNowFraction = nowFraction)
+            AltitudeChart(
+                Modifier.fillMaxSize(), realAltitudes = realAltitudes, realNowFraction = nowFraction,
+                realDuskFraction = duskFraction, realDawnFraction = dawnFraction,
+            )
             TextC(
                 window?.let { state.formatSiteTime(it.first) } ?: "21:48",
                 style = t.MonoSmall, color = c.textMuted, modifier = Modifier.align(Alignment.BottomStart),
             )
             if (realAltitudes != null && nowFraction != null) {
                 TextC(
-                    "now", style = t.Mono115, color = c.text,
+                    "now ${state.formatSiteTime(Instant.now())}", style = t.Mono115, color = c.text,
                     modifier = Modifier.align(Alignment.BottomStart).padding(start = maxWidth * nowFraction.toFloat()),
                 )
             } else {
@@ -334,6 +365,29 @@ private fun TargetCard(state: SimState, ctrl: SessionController, tgt: Target) {
                 "max ${maxAlt?.let { "$it°" } ?: "—"} @ ${peak ?: "—"}", style = t.Mono115, color = c.text,
                 modifier = Modifier.align(Alignment.TopEnd),
             )
+            // Time labels for the chart's own dusk/dawn dashed lines (the lines themselves are
+            // drawn inside AltitudeChart) — same top-aligned placement so they don't collide with
+            // the bottom-row window-edge/now labels.
+            if (duskFraction != null && nightWindow != null) {
+                TextC(
+                    "dusk ${state.formatSiteTime(nightWindow.first)}", style = t.MonoMicro, color = c.textFaint,
+                    modifier = Modifier.align(Alignment.TopStart).padding(start = (maxWidth * duskFraction.toFloat() - 20.dp).coerceAtLeast(0.dp), top = 20.dp),
+                )
+            }
+            if (dawnFraction != null && nightWindow != null) {
+                TextC(
+                    "dawn ${state.formatSiteTime(nightWindow.second)}", style = t.MonoMicro, color = c.textFaint,
+                    modifier = Modifier.align(Alignment.TopStart).padding(start = (maxWidth * dawnFraction.toFloat() - 20.dp).coerceAtLeast(0.dp), top = 20.dp),
+                )
+            }
+            // Peak label — own row (top = 40.dp, below the dusk/dawn row above) so it doesn't
+            // collide when the peak time sits close to either twilight edge on the x-axis.
+            if (peakFraction != null) {
+                TextC(
+                    "peak ${peak ?: "—"}", style = t.MonoMicro, color = c.textMuted,
+                    modifier = Modifier.align(Alignment.TopStart).padding(start = (maxWidth * peakFraction.toFloat() - 20.dp).coerceAtLeast(0.dp), top = 40.dp),
+                )
+            }
         }
     }
 }

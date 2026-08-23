@@ -127,9 +127,24 @@ fun NightArc(
  * lands) this keeps rendering the exact same fixture shape it always has, zero regression. There's
  * no real "flip" (meridian-flip time) data anywhere in this app (see `FlipBanner`'s own doc) so
  * that dashed line is real-mode-only omitted, same treatment as Session tab's `NightArcCard`.
+ *
+ * **User-requested improvements (2026-08-22)**: [realDuskFraction]/[realDawnFraction] (both
+ * fractions of the same day window [realNowFraction] is measured against — see
+ * `PlanScreen.kt`'s `fractionOfDayWindow`) shade the real astronomical-dark span between them and
+ * draw thin dashed edges, so it's visually obvious which part of the curve is actually
+ * observable versus daylight. A dashed line also now marks the real curve's own peak (its
+ * highest-altitude sample) — previously only named in the corner "max X° @ time" text, with
+ * nothing tying that time to a position on the curve itself. All three are real-mode only, same
+ * gating as [realNowFraction] — no equivalent data exists for the fixture curve.
  */
 @Composable
-fun AltitudeChart(modifier: Modifier, realAltitudes: List<Double>? = null, realNowFraction: Double? = null) {
+fun AltitudeChart(
+    modifier: Modifier,
+    realAltitudes: List<Double>? = null,
+    realNowFraction: Double? = null,
+    realDuskFraction: Double? = null,
+    realDawnFraction: Double? = null,
+) {
     val colors = com.nocturne.ui.theme.NocturneTheme.colors
     val fixtureCurve = listOf(
         "0,96", "40,80", "80,64", "120,48", "160,33", "200,26", "240,32", "280,48", "320,70", "348,86",
@@ -153,6 +168,23 @@ fun AltitudeChart(modifier: Modifier, realAltitudes: List<Double>? = null, realN
             Offset(0f, sy(50f)), Offset(size.width, sy(50f)), strokeWidth = 1f,
         )
         if (realAltitudes != null && realAltitudes.size >= 2) {
+            // Astronomical-dark band (real dusk→dawn) — drawn first, as a background layer, so the
+            // curve/horizon/peak/now marks all sit on top of it. Only drawn when both edges are
+            // known and actually fall within this chart's own day-window (they always should, by
+            // construction — dusk/dawn are always within the ±12h day window they're offset from
+            // — but `dawnF > duskF` is asserted defensively rather than assumed).
+            if (realDuskFraction != null && realDawnFraction != null && realDawnFraction > realDuskFraction) {
+                val duskX = sx((realDuskFraction * 348f).toFloat())
+                val dawnX = sx((realDawnFraction * 348f).toFloat())
+                drawRect(
+                    Color(0xFF5D5294).copy(alpha = 0.12f),
+                    topLeft = Offset(duskX, 0f),
+                    size = androidx.compose.ui.geometry.Size(dawnX - duskX, size.height),
+                )
+                val duskDashPathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 4f))
+                drawLine(Color(0xFF5D5294).copy(alpha = 0.6f), Offset(duskX, 0f), Offset(duskX, size.height), strokeWidth = 1f, pathEffect = duskDashPathEffect)
+                drawLine(Color(0xFF5D5294).copy(alpha = 0.6f), Offset(dawnX, 0f), Offset(dawnX, size.height), strokeWidth = 1f, pathEffect = duskDashPathEffect)
+            }
             // Real horizon (alt=0) line, in place of the fixture's second fixed guide line.
             drawLine(
                 colors.warn.copy(alpha = 0.3f),
@@ -167,6 +199,19 @@ fun AltitudeChart(modifier: Modifier, realAltitudes: List<Double>? = null, realN
                 }
             }
             drawPath(path, colors.accent, style = Stroke(width = 2f))
+            // Real peak (curve's own highest-altitude sample) — previously only named in the
+            // corner "max X° @ time" text with no visual tie to a position on the curve. Bright
+            // near-white (same family as the "now" mark below, not the muted dusk/dawn indigo) —
+            // confirmed live the first cut's colors.accent400 was too close to the dusk/dawn
+            // lines' own hue to tell apart at a glance.
+            val peakIdx = realAltitudes.withIndex().maxByOrNull { it.value }?.index
+            if (peakIdx != null) {
+                val peakX = sx(peakIdx.toFloat() / (n - 1) * 348f)
+                drawLine(
+                    Color(0xFFE9E9ED).copy(alpha = 0.55f), Offset(peakX, 0f), Offset(peakX, size.height),
+                    strokeWidth = 1f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f)),
+                )
+            }
             if (realNowFraction != null) {
                 val idx = (realNowFraction * (n - 1)).coerceIn(0.0, (n - 1).toDouble())
                 val lo = idx.toInt().coerceIn(0, n - 1)
