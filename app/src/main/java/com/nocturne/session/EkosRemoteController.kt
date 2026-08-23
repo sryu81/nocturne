@@ -364,7 +364,19 @@ class EkosRemoteController(
             s.copy(wireSearchResults = buildSearchResults())
         }
         is EkosEvent.AstroObjectsRiseset -> {
-            lastRiseset = event.entries
+            // Real bug found live (2026-08-22, user report): this reply shape serves two
+            // independent consumers sharing one cache — the full search-results merge (below)
+            // and ensureTargetRiseset's own one-off, single-name fetch for whatever target the
+            // Plan tab currently has framed. A plain `lastRiseset = event.entries` replace meant
+            // every time a target got selected/framed, its scoped 1-entry reply wholesale
+            // clobbered the full list's cached riseset data — every *other* row in the results
+            // list immediately lost its real "X° max" (fell back to "—"), only the just-framed
+            // one kept it. Upserting instead — replace entries that reappear, keep everything
+            // else — fixes both consumers: a fresh search's `AstroSearchResult` arm already
+            // resets this to empty first, so a genuinely fresh full-list reply still populates
+            // cleanly from empty; a later single-target fetch just adds/updates its own entry.
+            val incomingNames = event.entries.map { it.name }.toSet()
+            lastRiseset = lastRiseset.filterNot { it.name in incomingNames } + event.entries
             // Same reply shape serves two independent consumers: search results (above) and a
             // one-off riseset fetch for whatever target the Plan tab currently has framed (see
             // ensureTargetRiseset's doc) — only claim it for the latter if the pending name is
