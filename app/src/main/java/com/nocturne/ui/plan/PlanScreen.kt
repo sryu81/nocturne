@@ -38,10 +38,12 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import com.nocturne.session.SessionController
 import com.nocturne.session.SimState
+import com.nocturne.session.formatHm
 import com.nocturne.session.formatSiteTime
 import com.nocturne.session.realDayFraction
 import com.nocturne.session.realDayWindow
 import com.nocturne.session.realLookupName
+import com.nocturne.session.realUsableSeconds
 import com.nocturne.session.TARGETS
 import com.nocturne.session.Target
 import com.nocturne.session.displayName
@@ -292,6 +294,7 @@ private fun TargetCard(state: SimState, ctrl: SessionController, tgt: Target) {
     val window = if (real) state.realDayWindow else null
     val maxAlt = riseset?.altitudes?.maxOrNull()?.let { kotlin.math.round(it).toInt() } ?: tgt.max
     val peak = riseset?.transit ?: tgt.peak
+    val usable = riseset?.let { state.realUsableSeconds(it) }?.let { formatHm(it) } ?: tgt.usable
     com.nocturne.ui.components.Card {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -301,7 +304,7 @@ private fun TargetCard(state: SimState, ctrl: SessionController, tgt: Target) {
                     style = t.MonoSmall, color = c.textMuted,
                 )
             }
-            TextC("${tgt.usable ?: "—"} usable", style = t.Mono115, color = c.accent400)
+            TextC("${usable ?: "—"} usable", style = t.Mono115, color = c.accent400)
         }
         Spacer(Modifier.height(8.dp))
         BoxWithConstraints(

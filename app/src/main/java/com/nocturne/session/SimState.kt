@@ -1164,6 +1164,51 @@ val SimState.realDayWindow: Pair<Instant, Instant>? get() {
     return anchor.minusSeconds(43_200) to anchor.plusSeconds(43_200)
 }
 
+/**
+ * Real "usable tonight" duration for [riseset] — replaces the fixture `Target.usable` string
+ * (M1, same fixed value every night regardless of date/season/real sky) once real riseset data
+ * for this exact target has arrived. Total time [riseset]'s real altitude curve (see
+ * [WireRiseset.altitudes]'s own doc — 49 points, every 30 min, spanning [realDayWindow]) is both
+ * above [thresholdDeg] — 40° by default, matching this app's own existing "Alt > 40°" Plan-tab
+ * filter chip, no other "usable" altitude convention exists anywhere else in this codebase to
+ * borrow instead — *and* within [realNightWindow]'s real dusk-to-dawn dark window. Linear
+ * interpolation between the 30-min samples for the threshold-crossing instant, same "the curve is
+ * linear between samples" assumption [AltitudeChart] itself already renders under. Null until
+ * both [realDayWindow] (site tz) and [realNightWindow] (dusk/dawn) have arrived, or if [riseset]
+ * has fewer than 2 samples.
+ */
+fun SimState.realUsableSeconds(riseset: WireRiseset, thresholdDeg: Double = 40.0): Int? {
+    val dayStart = realDayWindow?.first ?: return null
+    val night = realNightWindow ?: return null
+    val alts = riseset.altitudes.takeIf { it.size >= 2 } ?: return null
+    val stepSec = 1800L
+    var usable = 0.0
+    for (i in 0 until alts.size - 1) {
+        val t0 = dayStart.epochSecond + i * stepSec
+        val t1 = dayStart.epochSecond + (i + 1) * stepSec
+        val lo = maxOf(t0, night.first.epochSecond)
+        val hi = minOf(t1, night.second.epochSecond)
+        if (lo >= hi) continue
+        usable += aboveThresholdSeconds(t0, t1, alts[i], alts[i + 1], lo, hi, thresholdDeg)
+    }
+    return usable.roundToInt()
+}
+
+/**
+ * Within absolute time range `[lo, hi]` (a subset of `[t0, t1]`), the seconds where a straight
+ * line from `(t0, a0)` to `(t1, a1)` is above `threshold`. Shared math behind [realUsableSeconds].
+ */
+private fun aboveThresholdSeconds(t0: Long, t1: Long, a0: Double, a1: Double, lo: Long, hi: Long, threshold: Double): Double {
+    if (a0 == a1) return if (a0 > threshold) (hi - lo).toDouble() else 0.0
+    val frac = (threshold - a0) / (a1 - a0)
+    val tc = (t0 + frac * (t1 - t0)).coerceIn(t0.toDouble(), t1.toDouble())
+    return if (a1 > a0) {
+        (hi - maxOf(lo.toDouble(), tc)).coerceAtLeast(0.0)
+    } else {
+        (minOf(hi.toDouble(), tc) - lo).coerceAtLeast(0.0)
+    }
+}
+
 /** Real fraction of [realDayWindow] elapsed right now — always defined once the window is (by construction, "now" sits within ±12h of its own nearest midnight). */
 val SimState.realDayFraction: Double? get() {
     val (start, end) = realDayWindow ?: return null
