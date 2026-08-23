@@ -31,9 +31,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import com.nocturne.session.SessionController
@@ -217,6 +222,7 @@ private fun ResultsList(
         Column(
             Modifier
                 .heightIn(max = RESULT_ROW_HEIGHT * VISIBLE_RESULT_ROWS)
+                .nestedScroll(remember { boundedListNestedScrollConnection() })
                 .verticalScroll(rememberScrollState()),
         ) {
             matches.forEach { tg ->
@@ -258,6 +264,21 @@ private fun TargetRow(tg: Target, selected: Boolean, onClick: () -> Unit) {
             style = t.MonoMicro, color = tg.max?.let { if (it > 40) c.ok else c.warn } ?: c.textFaint,
         )
     }
+}
+
+/**
+ * **Real bug found live (2026-08-22, user report)**: a bounded results list — [ResultsList]'s
+ * matches, [UserCatalogSection]'s custom targets — has its own `verticalScroll` capped to
+ * [VISIBLE_RESULT_ROWS] rows, but Compose's default nested-scroll behavior lets any leftover
+ * scroll/fling velocity, once that inner list hits its own top/bottom bound, keep going into
+ * whatever scrollable contains it — here, the *entire* Plan tab's own single page scroll (see
+ * `TabPane`). A strong swipe that reaches the end of a short results list was carrying straight
+ * through into flinging the whole page. This connection claims all left-over scroll/fling for
+ * itself instead, so hitting the list's own bound is really the end of the gesture.
+ */
+private fun boundedListNestedScrollConnection() = object : NestedScrollConnection {
+    override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset = available
+    override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity = available
 }
 
 /** Where [instant] falls within [window] as a 0..1 fraction — same units as [SimState.realDayFraction]/[AltitudeChart]'s `realNowFraction`. Not clamped: a caller checking placement should already know the instant belongs inside the window. */
@@ -422,6 +443,7 @@ private fun UserCatalogSection(state: SimState, ctrl: SessionController, matches
             Modifier
                 .fillMaxWidth()
                 .heightIn(max = RESULT_ROW_HEIGHT * VISIBLE_RESULT_ROWS)
+                .nestedScroll(remember { boundedListNestedScrollConnection() })
                 .verticalScroll(rememberScrollState()),
         ) {
             matches.forEach { tg ->
