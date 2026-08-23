@@ -107,14 +107,25 @@ class EkosRemoteController(
     private var pendingSchedulerStart: String? = null
 
     /**
-     * Optimistic mirror of whether `scheduler_start_job` (a toggle, not exclusively "start" — see
-     * its own doc in the command reference) currently has the real Scheduler running — no wire
-     * push cleanly exposes this as a plain boolean, and blindly re-sending the toggle without
-     * knowing its current state would risk starting it instead of stopping it. Set true right
-     * after we send it to actually start a job; consulted (and cleared) before ever removing a
-     * job, since **real Ekos silently refuses `scheduler_remove_jobs` while the Scheduler is
-     * actively running** — confirmed live (2026-08-09) via the Scheduler's own log:
-     * `"Cannot delete currently running job 'M 104'"`. Stays false under [SimulatedController].
+     * Mirror of whether `scheduler_start_job` (a toggle, not exclusively "start" — see its own
+     * doc in the command reference) currently has the real Scheduler running — consulted before
+     * ever removing a job, since **real Ekos silently refuses `scheduler_remove_jobs` while the
+     * Scheduler is actively running** — confirmed live (2026-08-09) via the Scheduler's own log:
+     * `"Cannot delete currently running job 'M 104'"`.
+     *
+     * **Real bug found live (2026-08-23)**: this used to be purely optimistic — set locally right
+     * after *this app itself* sent the toggle, with nothing to correct it if reality diverged
+     * (the real Scheduler stopped from the real Ekos UI directly, or an app restart reset this to
+     * `false` while a real job was still BUSY, or it errored/aborted on its own). A stale `true`
+     * belief made [stopSchedulerThenRemove] send the stop-toggle against a Scheduler already
+     * idle — which **starts** it again, confirmed live: exactly the "tapped stop, Ekos started
+     * running again" surprise a real user report described. Now kept in sync by
+     * [EkosEvent.NewSchedulerState]'s real `status` field (see that event's own doc for the
+     * confirmed real enum) — true only for `STARTUP`/`RUNNING`/`PAUSED`/`SHUTDOWN`/`LOADING`,
+     * false for `IDLE`/`ABORTED`. Still seeded `false` at construction and by
+     * [reconcileSchedulerJobs]'s safety-exception (a real BUSY job unambiguously means running),
+     * since there's no eager "get current status" request on this wire — only this push, which
+     * fires on any real transition regardless of who caused it.
      */
     private var schedulerRunning = false
 
@@ -274,6 +285,13 @@ class EkosRemoteController(
             wirePolarEnabled = event.enabled ?: s.wirePolarEnabled,
             wirePolarMessage = event.message ?: s.wirePolarMessage,
         )
+
+        // Real ground truth for schedulerRunning (see that field's own doc) — the `log`-shaped
+        // pushes carry no status and are ignored here; only a `status`-shaped push updates it.
+        is EkosEvent.NewSchedulerState -> {
+            event.status?.let { schedulerRunning = it != 0 && it != 5 }
+            s
+        }
 
         is EkosEvent.Devices -> s.copy(wireDevices = event.devices.map { it.toLiveDevice() })
         is EkosEvent.DeviceProperties -> event.properties.fold(s) { acc, prop ->

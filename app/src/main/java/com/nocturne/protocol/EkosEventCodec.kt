@@ -34,6 +34,7 @@ object EkosEventCodec {
                 "new_guide_state" -> protocolJson.decodeFromJsonElement<EkosEvent.NewGuideState>(envelope.payload)
                 "new_align_state" -> protocolJson.decodeFromJsonElement<EkosEvent.NewAlignState>(envelope.payload)
                 "new_polar_state" -> protocolJson.decodeFromJsonElement<EkosEvent.NewPolarState>(envelope.payload)
+                "new_scheduler_state" -> protocolJson.decodeFromJsonElement<EkosEvent.NewSchedulerState>(envelope.payload)
                 "get_profiles" -> protocolJson.decodeFromJsonElement<EkosEvent.Profiles>(envelope.payload)
                 "get_devices" -> EkosEvent.Devices(protocolJson.decodeFromJsonElement(envelope.payload))
                 "device_get" -> {

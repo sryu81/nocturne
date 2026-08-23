@@ -69,6 +69,23 @@ sealed interface EkosEvent {
     @Serializable
     data class NewPolarState(val stage: String? = null, val enabled: Boolean? = null, val message: String? = null) : EkosEvent
 
+    /**
+     * `new_scheduler_state` push — same "independent partial shapes" pattern as [NewPolarState]:
+     * confirmed live (2026-08-23) it fires with **either** `{"status": Int}` (the real
+     * `Ekos::SchedulerState` enum — `0`=IDLE, `1`=STARTUP, `2`=RUNNING, `3`=PAUSED, `4`=SHUTDOWN,
+     * `5`=ABORTED, `6`=LOADING, confirmed against the real KStars source
+     * `kstars/ekos/ekos.h`, not guessed) **or** `{"log": String}` (the Scheduler's own running
+     * log history, re-pushed on every new log line, unrelated to status and not modeled here —
+     * only [status] is read). Fires on ANY real transition, not just ones this app's own
+     * `scheduler_start_job` toggle caused — confirmed live it also fires from the real Ekos
+     * Scheduler evaluating on its own with an empty queue. This is what [EkosRemoteController]'s
+     * `schedulerRunning` was missing before this — an in-memory optimistic bool with no real
+     * feedback loop, confirmed live to go stale and send `scheduler_start_job` in the *wrong*
+     * direction (re-starting an already-stopped real Scheduler) once reality diverged from it.
+     */
+    @Serializable
+    data class NewSchedulerState(val status: Int? = null, val log: String? = null) : EkosEvent
+
     // ── M3: profiles ────────────────────────────────────────────────────
 
     /** `get_profiles` reply — also the auto-reply after `profile_add`/`update`/`delete`. */

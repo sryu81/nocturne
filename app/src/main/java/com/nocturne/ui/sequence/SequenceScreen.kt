@@ -48,7 +48,9 @@ import com.nocturne.session.pct
 import com.nocturne.session.realNightWindow
 import com.nocturne.session.spec
 import com.nocturne.session.ready
+import com.nocturne.ui.components.BtnStyle
 import com.nocturne.ui.components.Card
+import com.nocturne.ui.components.ConfirmDialog
 import com.nocturne.ui.components.HDivider
 import com.nocturne.ui.components.IconBtn
 import com.nocturne.ui.components.SwitchRow
@@ -591,6 +593,15 @@ private fun <T> SegmentedRow(options: List<T>, selected: T, labelOf: (T) -> Stri
     }
 }
 
+/**
+ * Real bug found live (2026-08-23, user report): this used to say "Pause after this sub" while
+ * running, but [SessionController.toggleJobRun]'s real stop path — real Ekos has no distinct
+ * pause primitive, no "edit a synced job" wire call either, see that method's own doc — actually
+ * stops the real Scheduler *and removes the job from it entirely*. A single accidental tap while
+ * a real job was genuinely BUSY silently deleted it, no warning, nothing resembling a pause. Now
+ * named for what actually happens, and (only for the destructive stop direction — starting stays
+ * a single tap, matching this app's existing norm) gated behind a confirm dialog.
+ */
 @Composable
 private fun StartButton(state: SimState, ctrl: SessionController, job: SequenceJob) {
     val c = NocturneTheme.colors
@@ -600,15 +611,18 @@ private fun StartButton(state: SimState, ctrl: SessionController, job: SequenceJ
     val color = if (ready) c.accent else c.neutral700
     val label = when {
         !ready -> "Blocked — connect ${state.missing}"
-        running -> "Pause after this sub"
+        running -> "Stop sequence"
         else -> "Start sequence"
     }
+    var showStopConfirm by remember { mutableStateOf(false) }
     Box(
         Modifier
             .fillMaxWidth()
             .height(48.dp)
             .border(1.dp, color, RoundedCornerShape(10.dp))
-            .clickable { ctrl.toggleJobRun(job.id) },
+            .clickable {
+                if (running) showStopConfirm = true else ctrl.toggleJobRun(job.id)
+            },
         contentAlignment = Alignment.Center,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -616,5 +630,16 @@ private fun StartButton(state: SimState, ctrl: SessionController, job: SequenceJ
             Spacer(Modifier.width(8.dp))
             TextC(label, style = t.Button14, color = color)
         }
+    }
+    if (showStopConfirm) {
+        ConfirmDialog(
+            title = "Stop sequence?",
+            message = "Ekos has no way to pause a running job — stopping removes it from the " +
+                "Scheduler entirely. You'll need to add and start it again to resume tonight.",
+            confirmText = "Stop & remove",
+            confirmStyle = BtnStyle.DANGER,
+            onConfirm = { showStopConfirm = false; ctrl.toggleJobRun(job.id) },
+            onDismiss = { showStopConfirm = false },
+        )
     }
 }
