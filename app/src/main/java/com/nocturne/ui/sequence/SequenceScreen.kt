@@ -37,6 +37,7 @@ import com.nocturne.protocol.jobStatusLabel
 import com.nocturne.session.BINNING_OPTIONS
 import com.nocturne.session.Block
 import com.nocturne.session.DITHER_OPTIONS
+import com.nocturne.session.FILTER_CYCLE
 import com.nocturne.session.SequenceJob
 import com.nocturne.session.SessionController
 import com.nocturne.session.SheetType
@@ -48,6 +49,7 @@ import com.nocturne.session.formatSiteTime
 import com.nocturne.session.meta
 import com.nocturne.session.missing
 import com.nocturne.session.pct
+import com.nocturne.session.realFilterNames
 import com.nocturne.session.realNightWindow
 import com.nocturne.session.spec
 import com.nocturne.session.ready
@@ -427,6 +429,7 @@ private fun BlocksList(state: SimState, ctrl: SessionController, job: SequenceJo
     val heights = remember { mutableStateMapOf<String, Int>() }
 
     val locked = job.synced
+    val filterNames = state.realFilterNames ?: FILTER_CYCLE
     Column(Modifier.fillMaxWidth()) {
         job.blocks.forEach { b ->
             val isDragging = b.id == draggingId
@@ -439,6 +442,7 @@ private fun BlocksList(state: SimState, ctrl: SessionController, job: SequenceJo
                 onRemove = { ctrl.removeBlock(job.id, b.id) },
                 ctrl = ctrl,
                 jobId = job.id,
+                filterNames = filterNames,
                 autofocusRule = state.autofocusRuleText,
                 onOpenAutofocusRules = { ctrl.openSheet(SheetType.AUTOFOCUS_RULES) },
                 modifier = Modifier
@@ -487,6 +491,7 @@ private fun BlockCard(
     onRemove: () -> Unit,
     ctrl: SessionController,
     jobId: String,
+    filterNames: List<String>,
     autofocusRule: String,
     onOpenAutofocusRules: () -> Unit,
     modifier: Modifier = Modifier,
@@ -516,7 +521,7 @@ private fun BlockCard(
                         RoundedCornerShape(6.dp),
                     )
                     .border(1.dp, if (first) c.accent.copy(alpha = 0.6f) else c.divider, RoundedCornerShape(6.dp))
-                    .then(if (locked) Modifier else Modifier.clickable { ctrl.cycleBlockFilter(jobId, block.id) })
+                    .then(if (locked) Modifier else Modifier.clickable { ctrl.cycleBlockFilter(jobId, block.id, filterNames) })
                     .padding(horizontal = 10.dp),
                 contentAlignment = Alignment.Center,
             ) {

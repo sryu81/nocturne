@@ -270,11 +270,12 @@ class EkosRemoteController(
         is EkosEvent.DeviceProperties -> event.properties.fold(s) { acc, prop ->
             if (shouldThrottleNumberPush(event.device, prop, acc)) acc
             else acc.withProperty(event.device, prop).withConnectionState(event.device, prop).withCcdInfo(event.device, prop)
-        }
+        }.withValidBlockFilters()
         is EkosEvent.DeviceProperty -> if (shouldThrottleNumberPush(event.property.device, event.property, s)) s
         else s.withProperty(event.property.device, event.property)
             .withConnectionState(event.property.device, event.property)
             .withCcdInfo(event.property.device, event.property)
+            .withValidBlockFilters()
 
         // `state.profiles` is directly overwritten, not additive — get_profiles is always
         // the authoritative full list (plan §3). Diffed against the *old* s.profiles (still
@@ -672,16 +673,15 @@ class EkosRemoteController(
         super.setIndiNumber(deviceKey, propName, value)
     }
 
-    override fun setIndiText(deviceKey: String, propName: String, value: String) {
-        val prop = currentIndiProp<IndiProperty.TextProp>(deviceKey, propName)
-        if (prop != null && _state.value.wireDevices != null) {
+    override fun setIndiText(deviceKey: String, propName: String, elementName: String, value: String) {
+        if (_state.value.wireDevices != null) {
             client.sendCommand(Commands.DEVICE_PROPERTY_SET, buildJsonObject {
                 put("device", deviceKey)
                 put("property", propName)
-                putJsonArray("elements") { addJsonObject { put("name", prop.elementName); put("text", value) } }
+                putJsonArray("elements") { addJsonObject { put("name", elementName); put("text", value) } }
             })
         }
-        super.setIndiText(deviceKey, propName, value)
+        super.setIndiText(deviceKey, propName, elementName, value)
     }
 
     private inline fun <reified T : IndiProperty> currentIndiProp(deviceKey: String, propName: String): T? =
@@ -1856,6 +1856,29 @@ private fun SimState.withCcdInfo(device: String, property: WireProperty): SimSta
     return copy(wireCcdInfoByDevice = wireCcdInfoByDevice + (device to CcdInfo(maxX, maxY, pixelUm)))
 }
 
+/**
+ * Real user requirement (2026-08-23): a block must never keep — or let the user pick — a filter
+ * name that isn't actually one of the real filter wheel's current slots, since that name is what
+ * ends up in the real `.esq` (`EsqWriter.writeJob`'s `<Filter>` element) sent straight to Ekos.
+ * [SessionController.cycleBlockFilter] already only cycles through
+ * [SimState.realFilterNames] once known, so a *new* pick can't go wrong — but a block created
+ * (or last cycled) before the wheel was connected/renamed can still be sitting on a stale
+ * fixture name that's no longer real. Run on every device-property push (cheap — a handful of
+ * jobs/blocks at most) so a block self-corrects the moment real names actually become known,
+ * rather than waiting for the user to notice and tap it themselves. Never touches a block whose
+ * filter is already valid, so this can't fight a user's own just-made pick.
+ */
+private fun SimState.withValidBlockFilters(): SimState {
+    val names = realFilterNames ?: return this
+    val fallback = names.first()
+    var next = this
+    for (job in jobs) {
+        if (job.blocks.none { it.filter !in names }) continue
+        next = next.mapJob(job.id) { j -> j.copy(blocks = j.blocks.map { if (it.filter in names) it else it.copy(filter = fallback) }) }
+    }
+    return next
+}
+
 /** Merges one real property-vector push into [SimState.indiProps], keyed by real device name. */
 private fun SimState.withProperty(device: String, property: WireProperty): SimState {
     val current = indiProps[device] ?: emptyList()
@@ -1904,13 +1927,15 @@ private fun WireProperty.toIndiProperty(existing: IndiProperty?): IndiProperty =
     }
     is WireProperty.Text -> {
         val ex = existing as? IndiProperty.TextProp
-        val el = texts.firstOrNull()
         IndiProperty.TextProp(
             name = name,
             label = label ?: ex?.label ?: name,
             group = group ?: ex?.group ?: "",
-            value = el?.text ?: ex?.value ?: "",
-            elementName = el?.name ?: ex?.elementName ?: name,
+            // Real INDI text-vector pushes are whole-vector snapshots, not per-element diffs
+            // (same assumption Switch/Light already make) — only fall back to the previous
+            // elements if this push carried none at all (a compact push omitting this vector
+            // entirely), never a partial merge.
+            elements = texts.map { it.name to it.text }.ifEmpty { ex?.elements ?: emptyList() },
         )
     }
     is WireProperty.Light -> IndiProperty.LightProp(

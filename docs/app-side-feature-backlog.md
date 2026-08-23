@@ -49,32 +49,34 @@ protocol, no orchestration needed. This is coarser than per-block (whole
 job, not a specific mid-sequence filter/exposure block) but worth doing on
 its own if a per-job version of this toggle is ever wanted.
 
-## Setting real filter wheel slot names from the app
+## Setting real filter wheel slot names, and wiring the block picker to them
 
-**Status: likely already works via the generic INDI Controls panel — needs live confirmation, not new code.**
+**Status: done, live-verified.**
 
-Found alongside the above: the block editor's filter *picker* (`FILTER_CYCLE`
-— `Ha, OIII, SII, L, R, G, B`) is a fixed fixture list, identical for every
-rig, also reused for the Align/Focus module filter pickers — that part is a
-real gap (see below). But the user's actual ask — the app should let you
-*set* the real filter wheel's slot names, at the INDI property level — may
-already work today, with zero new code: the Device detail sheet (Gear tab
-→ tap a device card) already has a fully generic "INDI Controls" panel
-(`IndiPropertyPanel`, `Sheets.kt`) that renders *any* real INDI property for
-that device, including editable text properties via `ctrl.setIndiText` →
-real `DEVICE_PROPERTY_SET` — already wired end-to-end, not a stub. If the
-real EFW driver reports `FILTER_NAME` (the standard INDI filter-wheel
-property), it should already show up there as an editable field.
+The Device detail sheet's generic "INDI Controls" panel (Gear tab → tap the
+filter wheel device) showed `FILTER_NAME` but wasn't usably editable — two
+real bugs found live, both fixed:
+1. `IndiProperty.TextProp` only ever kept the *first* element of a
+   multi-element text vector — `FILTER_NAME` has one element per filter
+   slot, so every slot past the first was silently dropped. Now holds all
+   elements (`elements: List<Pair<String, String>>`, same shape
+   `LightProp` already used), and the panel renders one editable row per
+   element — a real numbered table, not a single field.
+2. Typing more than one character didn't register — the field was bound
+   straight to the live server value, and a real INDI echo/refresh landing
+   mid-keystroke snapped it back to the stale value, fighting typing one
+   character at a time. Fixed with a local text buffer decoupled from the
+   live prop (`IndiTextElementRow`), same "clear-and-retype" fix this
+   codebase already used for numeric fields (`NumberField` etc.) — just not
+   yet applied here.
 
-**Not yet confirmed live** — check on the rig: Gear tab → tap the filter
-wheel device → does "INDI CONTROLS" show a `FILTER_NAME` text field? If
-yes, done, just wasn't discoverable. If genuinely missing, that means the
-real driver isn't reporting it (or something's filtering it), which is a
-different, real investigation — not this same fix.
-
-Separately, still a real gap either way: the block editor's own filter
-*picker* (`FILTER_CYCLE`) doesn't read from `FILTER_NAME` even once it's
-set for real — it'd need its own fetch-and-populate wiring to stop being a
-fixture list. Not started.
+Separately, the block editor's own filter *picker* (`FILTER_CYCLE`) now
+prefers real slot names too: new `SimState.realFilterNames` (looked up via
+the filter wheel's real device name, not the `"efw"` role key) feeds
+`cycleBlockFilter` (now takes an explicit `names: List<String>` rather than
+hardcoding the fixture), plus the same real-vs-fixture fallback in
+`addBlock`/`addToSequence`'s default-filter picks. Fixture `FILTER_CYCLE`
+stays the fallback whenever the wheel isn't connected or hasn't reported
+names yet.
 
 ## (add more entries here as found)

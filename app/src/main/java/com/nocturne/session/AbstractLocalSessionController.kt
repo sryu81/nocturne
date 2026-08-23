@@ -87,7 +87,7 @@ abstract class AbstractLocalSessionController : SessionController {
     override fun addToSequence(targetId: String) {
         update { s ->
             val block = Block(
-                id = "b1", filter = FILTER_CYCLE.first(), exposureSec = 300, subCount = 10, doneCount = 0,
+                id = "b1", filter = (s.realFilterNames ?: FILTER_CYCLE).first(), exposureSec = 300, subCount = 10, doneCount = 0,
                 gain = 100, offset = 50, binning = 1, ditherEvery = 2,
             )
             val job = SequenceJob(id = "j${s.jobSeq}", targetId = targetId, blocks = listOf(block), blockSeq = 2)
@@ -137,8 +137,9 @@ abstract class AbstractLocalSessionController : SessionController {
 
     override fun addBlock(jobId: String) = update { s ->
         val job = s.jobs.firstOrNull { it.id == jobId } ?: return@update s
+        val names = s.realFilterNames ?: FILTER_CYCLE
         val used = job.blocks.map { it.filter }.toSet()
-        val filter = FILTER_CYCLE.firstOrNull { it !in used } ?: FILTER_CYCLE[job.blockSeq % FILTER_CYCLE.size]
+        val filter = names.firstOrNull { it !in used } ?: names[job.blockSeq % names.size]
         val block = Block(
             id = "b${job.blockSeq}", filter = filter, exposureSec = 300, subCount = 10, doneCount = 0,
             gain = 100, offset = 50, binning = 1, ditherEvery = 2,
@@ -164,10 +165,10 @@ abstract class AbstractLocalSessionController : SessionController {
         }
     }
 
-    override fun cycleBlockFilter(jobId: String, blockId: String) = update { s ->
+    override fun cycleBlockFilter(jobId: String, blockId: String, names: List<String>) = update { s ->
         s.mapJobBlock(jobId, blockId) { b ->
-            val i = FILTER_CYCLE.indexOf(b.filter)
-            b.copy(filter = FILTER_CYCLE[(i + 1).mod(FILTER_CYCLE.size)])
+            val i = names.indexOf(b.filter)
+            b.copy(filter = names[(i + 1).mod(names.size)])
         }
     }
 
@@ -645,10 +646,12 @@ abstract class AbstractLocalSessionController : SessionController {
         }))
     }
 
-    override open fun setIndiText(deviceKey: String, propName: String, value: String) = update { s ->
+    override open fun setIndiText(deviceKey: String, propName: String, elementName: String, value: String) = update { s ->
         val current = s.indiProps[deviceKey] ?: DRIVER_INDI_PROPS[deviceKey] ?: emptyList()
         s.copy(indiProps = s.indiProps + (deviceKey to current.map { p ->
-            if (p is IndiProperty.TextProp && p.name == propName) p.copy(value = value) else p
+            if (p is IndiProperty.TextProp && p.name == propName) {
+                p.copy(elements = p.elements.map { if (it.first == elementName) elementName to value else it })
+            } else p
         }))
     }
 

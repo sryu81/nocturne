@@ -2108,19 +2108,19 @@ private fun IndiPropertyPanel(deviceKey: String, props: List<IndiProperty>, ctrl
                         onClick = { ctrl.setIndiNumber(deviceKey, prop.name, prop.value + prop.step) },
                     )
                 }
-                is IndiProperty.TextProp -> BasicTextField(
-                    value = prop.value,
-                    onValueChange = { ctrl.setIndiText(deviceKey, prop.name, it) },
-                    singleLine = true,
-                    textStyle = t.Body13.copy(color = c.text),
-                    cursorBrush = SolidColor(c.accent),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(42.dp)
-                        .background(c.surface, RoundedCornerShape(4.dp))
-                        .border(1.dp, c.divider, RoundedCornerShape(4.dp))
-                        .padding(horizontal = 10.dp),
-                )
+                // One row per element (2026-08-23) — a text vector can hold several at once
+                // (e.g. FILTER_NAME, one per filter-wheel slot); this renders identically to the
+                // old single-field layout for every other, genuinely single-element text
+                // property, so nothing else changes shape.
+                is IndiProperty.TextProp -> Column {
+                    prop.elements.forEachIndexed { i, (elementName, value) ->
+                        if (i > 0) Spacer(Modifier.height(6.dp))
+                        IndiTextElementRow(
+                            index = i, showIndex = prop.elements.size > 1, value = value,
+                            onChange = { ctrl.setIndiText(deviceKey, prop.name, elementName, it) },
+                        )
+                    }
+                }
                 is IndiProperty.LightProp -> Row {
                     prop.elements.forEach { (label, ipState) ->
                         val dotColor = when (ipState) {
@@ -2139,6 +2139,41 @@ private fun IndiPropertyPanel(deviceKey: String, props: List<IndiProperty>, ctrl
             }
         }
         Spacer(Modifier.height(8.dp))
+    }
+}
+
+/**
+ * Local `text` state, not a `value`-derived one — same clear-and-retype fix `NumberField`/
+ * `Sheets.kt`'s own `DegreeField`/`IntField`/`MmField` already use, needed here for a different
+ * real reason (2026-08-23, user report typing multiple characters wasn't registering): a real
+ * INDI text vector doesn't necessarily echo the new value back instantly (the driver may not
+ * apply/re-push it until later, or at all until some other trigger) — binding the field straight
+ * to the live prop value meant every recomposition in between could snap the field back to the
+ * stale server value mid-keystroke, fighting typing one character at a time. Local text is
+ * keyed by [index] so each row in a multi-element vector keeps its own independent buffer.
+ */
+@Composable
+private fun IndiTextElementRow(index: Int, showIndex: Boolean, value: String, onChange: (String) -> Unit) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    var text by remember(index) { mutableStateOf(value) }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (showIndex) {
+            TextC("${index + 1}", style = t.MonoSmall, color = c.textFaint, modifier = Modifier.width(20.dp))
+        }
+        BasicTextField(
+            value = text,
+            onValueChange = { text = it; onChange(it) },
+            singleLine = true,
+            textStyle = t.Body13.copy(color = c.text),
+            cursorBrush = SolidColor(c.accent),
+            modifier = Modifier
+                .weight(1f)
+                .height(42.dp)
+                .background(c.surface, RoundedCornerShape(4.dp))
+                .border(1.dp, c.divider, RoundedCornerShape(4.dp))
+                .padding(horizontal = 10.dp),
+        )
     }
 }
 

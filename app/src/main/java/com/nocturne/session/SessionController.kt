@@ -46,7 +46,8 @@ interface SessionController {
     fun addBlock(jobId: String)
     fun removeBlock(jobId: String, blockId: String)
     fun moveBlock(jobId: String, blockId: String, toIndex: Int)
-    fun cycleBlockFilter(jobId: String, blockId: String)
+    /** [names] to cycle through — real filter-wheel slot names when known ([SimState.realFilterNames]), else the fixture [FILTER_CYCLE]; the caller decides, this just advances through whatever it's given. */
+    fun cycleBlockFilter(jobId: String, blockId: String, names: List<String>)
     fun setBlockExposure(jobId: String, blockId: String, sec: Int)
     fun setBlockSubCount(jobId: String, blockId: String, count: Int)
     fun setBlockGain(jobId: String, blockId: String, gain: Int)
@@ -111,7 +112,8 @@ interface SessionController {
 
     fun setIndiSwitch(deviceKey: String, propName: String, selected: Int)
     fun setIndiNumber(deviceKey: String, propName: String, value: Double)
-    fun setIndiText(deviceKey: String, propName: String, value: String)
+    /** [elementName] picks which element of the vector to write — a text vector can hold several (e.g. `FILTER_NAME`, one per filter-wheel slot). */
+    fun setIndiText(deviceKey: String, propName: String, elementName: String, value: String)
 
     fun openPa()
     fun paNext()

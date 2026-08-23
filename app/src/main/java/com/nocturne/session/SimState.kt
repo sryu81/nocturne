@@ -813,11 +813,17 @@ sealed class IndiProperty {
         val state: Int = 1,
     ) : IndiProperty()
 
+    /**
+     * Multi-element (2026-08-23, real gap found live): used to hold a single `value`/
+     * `elementName` — real INDI text vectors can carry several elements at once (confirmed
+     * live: `FILTER_NAME`, one element per filter-wheel slot), and the old shape silently kept
+     * only the first, with no way to even represent the rest. `elements` is (real INDI element
+     * name, current value), same `Pair`-list shape [LightProp.elements] already uses for the
+     * same reason.
+     */
     data class TextProp(
         override val name: String, override val label: String, override val group: String,
-        val value: String,
-        /** Real INDI element name within this vector (M3) — see [SwitchProp.elementNames]. */
-        val elementName: String = name,
+        val elements: List<Pair<String, String>>,
     ) : IndiProperty()
 
     /** Read-only — IPState per element: 0 Idle, 1 Ok, 2 Busy, 3 Alert. */
@@ -1148,6 +1154,21 @@ val SequenceJob.currentBlockIndex: Int? get() =
     if (blocks.isEmpty()) null else blocks.indexOfFirst { it.doneCount < it.subCount }.let { if (it == -1) blocks.lastIndex else it }
 
 val FILTER_CYCLE = listOf("Ha", "OIII", "SII", "L", "R", "G", "B")
+
+/**
+ * Real filter-wheel slot names (INDI's `FILTER_NAME`, one element per slot), if the real filter
+ * wheel is connected and has reported them (2026-08-23, wired once `FILTER_NAME` itself became
+ * editable) — null otherwise, letting every caller fall back to the fixture [FILTER_CYCLE].
+ * Looked up by the filter wheel's own real device *name*, not the `"efw"` role key —
+ * `indiProps` is keyed by whatever name the driver reports (see `IndiPropertyPanel`'s call
+ * sites), found here via the same [DeviceRole]-filtered [wireDevices] lookup
+ * `realDeviceOptions` already uses for the same role.
+ */
+val SimState.realFilterNames: List<String>? get() {
+    val filterWheel = wireDevices?.firstOrNull { DeviceRole.FILTER in it.roles } ?: return null
+    val prop = indiProps[filterWheel.name]?.firstOrNull { it.name == "FILTER_NAME" } as? IndiProperty.TextProp
+    return prop?.elements?.map { it.second }?.filter { it.isNotBlank() }?.takeIf { it.isNotEmpty() }
+}
 val BINNING_OPTIONS = listOf(1, 2, 3, 4)
 val DITHER_OPTIONS = listOf(1, 2, 3, 5)
 
