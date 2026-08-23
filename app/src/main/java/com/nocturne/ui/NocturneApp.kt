@@ -110,9 +110,26 @@ fun NocturneApp() {
                 vm = vm,
                 redMode = redMode,
                 onToggleRed = { redMode = !redMode },
-                // Session tab reached ONLINE at least once — a subsequent drop stays
-                // on this shell with a reconnecting banner, never a forced ConnectScreen.
-                banner = if (mode.status.state != ConnectionState.ONLINE) "Reconnecting to rig…" else null,
+                // Session tab reached ONLINE at least once — a subsequent drop stays on this
+                // shell with a banner, never a forced ConnectScreen.
+                //
+                // Real bug found live (2026-08-23, user report): this used to say
+                // "Reconnecting to rig…" for *any* non-ONLINE state, including SOCKET_OPEN —
+                // but SOCKET_OPEN means the WebSocket itself is fine, only Ekos stopped (the
+                // real `online` field of new_connection_state tracks Ekos's own run state, not
+                // the socket — see ConnectionState's own doc). Confirmed live: after a real
+                // Scheduler-driven auto-shutdown (mount parked, Ekos stopped, socket never
+                // dropped), the banner claimed "Reconnecting" for 20+ minutes while the app was
+                // rendering perfectly live data the whole time — actively misleading, reads as
+                // a network problem when there wasn't one. Now matches the identical, already-
+                // correct SOCKET_OPEN message the pre-ONLINE Connecting branch above uses — an
+                // actual socket-level drop (CONNECTING/DISCONNECTED) is the only case that still
+                // says "Reconnecting".
+                banner = when (mode.status.state) {
+                    ConnectionState.ONLINE -> null
+                    ConnectionState.SOCKET_OPEN -> "Connected — Ekos isn't running"
+                    else -> "Reconnecting to rig…"
+                },
             )
         }
     }

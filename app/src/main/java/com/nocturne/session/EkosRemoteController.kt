@@ -483,6 +483,41 @@ class EkosRemoteController(
                 next = next.mapJob(busyJobId) { it.copy(blocks = distributeCompleted(it.blocks, completed)) }
             }
         }
+        return reconcileSyncedJobStatus(next, event.jobs)
+    }
+
+    /**
+     * Real bug found live (2026-08-23, user reports #4/#6): every *other* piece of local job
+     * state (`running`/`synced`/`wireIndex`) only ever moved forward — set once by
+     * [toggleJobRun]'s own add/start chain — with nothing to notice if reality then diverged: a
+     * real stop/removal from Ekos's own UI directly, a real error/abort, or the job finishing
+     * naturally all left the local job stuck claiming "running" indefinitely, no live feedback
+     * loop at all. Called on every `scheduler_get_jobs` reply now that one arrives continuously
+     * (see the `NewSchedulerState` arm in [sendFollowUpCommands] above), not just right after
+     * this app's own add.
+     *
+     * Only ever touches a job that's already `synced == true` — matches by the same real
+     * lookup-name [startRealJob] uses to add it in the first place, deliberately not by
+     * [SequenceJob.wireIndex], since a *different* job being removed shifts every later index
+     * (same reasoning as [finishNight]'s descending-index removal) and a stale index could
+     * otherwise silently match the wrong real job. If that name is missing from [realJobs]
+     * entirely, or present but no longer in an active state
+     * ([SchedulerJobStatus.EVALUATION]/[SCHEDULED]/[BUSY]), the local job is reset to
+     * unsynced/not-running — safe by construction: a job this app never itself marked `synced`
+     * is never touched here at all.
+     */
+    private fun reconcileSyncedJobStatus(s: SimState, realJobs: List<WireSchedulerJob>): SimState {
+        var next = s
+        for (local in s.jobs) {
+            if (!local.synced) continue
+            val target = s.findTarget(local.targetId)
+            val targetName = target?.common ?: target?.id ?: local.targetId
+            val real = realJobs.firstOrNull { it.name == targetName }
+            val stillActive = real != null && real.state in ACTIVE_SCHEDULER_STATES
+            if (!stillActive) {
+                next = next.mapJob(local.id) { it.copy(running = false, synced = false, wireIndex = null) }
+            }
+        }
         return next
     }
 
@@ -621,6 +656,15 @@ class EkosRemoteController(
                     reconcileSchedulerJobs(event.jobs)
                 }
             }
+            // Real gap found live (2026-08-23, user reports #4/#6): before this, the app only
+            // ever re-fetched scheduler_get_jobs right after its own add/start chain — a job
+            // stopped or removed from real Ekos's own UI directly (not through this app) left
+            // the local job stuck showing "running"/synced forever, with no live feedback loop
+            // at all. new_scheduler_state fires on any real transition regardless of who caused
+            // it (see that event's own doc) — re-fetching the job list on every one keeps
+            // applySchedulerJobs's per-job reconciliation (see reconcileSyncedJobStatus) current
+            // without needing to inspect this push's own status value here.
+            is EkosEvent.NewSchedulerState -> client.sendCommand(Commands.SCHEDULER_GET_JOBS)
             else -> {}
         }
     }
@@ -1914,6 +1958,9 @@ private fun WireAstroObject.toTarget(riseset: WireRiseset?): Target = Target(
 
 /** Matches "20h59m17s +44°31′44″" — see [EkosRemoteController.parseCoordsToRaDecBox]. */
 private val COORDS_REGEX = Regex("""(\d+)h(\d+)m(\d+)s\s+([+-])(\d+)°(\d+)′(\d+)″""")
+
+/** Real job states meaning "still genuinely queued or running" — see [EkosRemoteController.reconcileSyncedJobStatus]. */
+private val ACTIVE_SCHEDULER_STATES = setOf(SchedulerJobStatus.EVALUATION, SchedulerJobStatus.SCHEDULED, SchedulerJobStatus.BUSY)
 
 /** J2000 RA hours → "20h59m17s". */
 private fun formatRaHours(hours: Double): String {
