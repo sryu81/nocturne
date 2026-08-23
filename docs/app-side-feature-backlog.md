@@ -49,4 +49,22 @@ protocol, no orchestration needed. This is coarser than per-block (whole
 job, not a specific mid-sequence filter/exposure block) but worth doing on
 its own if a per-job version of this toggle is ever wanted.
 
+## Filter selection reflecting the real filter wheel — not an app fix, INDI-level
+
+**Status: resolved as out of scope, no code change.**
+
+Found alongside the above: the block editor's filter picker (`FILTER_CYCLE`
+— `Ha, OIII, SII, L, R, G, B`) is a fixed fixture list, identical for every
+rig, also reused for the Align/Focus module filter pickers. The real
+filter wheel's slot *names* (INDI's `FILTER_NAME` text-vector property) are
+never fetched anywhere — only the numeric slot position
+(`FILTER_SLOT_VALUE`) is wired, via the generic `indiProps` mechanism. The
+Gear tab's EFW device card "Slots" text is fixture too.
+
+User's own call: this belongs at the INDI/driver-configuration level (set
+real filter names via INDI Control Panel / KStars directly on the rig),
+not something Nocturne's wire protocol needs to read and mirror. No
+backlog item — documented here only so the "why is this still a fixture
+list" question doesn't need re-investigating later.
+
 ## (add more entries here as found)
