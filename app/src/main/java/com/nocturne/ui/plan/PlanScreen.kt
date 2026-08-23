@@ -318,12 +318,11 @@ private fun TargetCard(state: SimState, ctrl: SessionController, tgt: Target) {
         }
     }
     @Suppress("UNUSED_EXPRESSION") tick
-    val real = state.isRealRig
     val targetName = tgt.realLookupName
     val riseset = state.wireTargetRiseset?.takeIf { it.name == targetName }
     val realAltitudes = riseset?.altitudes?.takeIf { it.size >= 2 }
-    val nowFraction = if (real) state.realDayFraction else null
-    val window = if (real) state.realDayWindow else null
+    val nowFraction = state.realDayFraction
+    val window = state.realDayWindow
     // Real max/peak restricted to tonight's real dark window (see realNightMaxAltitude's own
     // doc) — fixes a user-found confusion where the absolute *daily* peak could fall during
     // broad daylight, pairing e.g. "max 86° @ 15:39" with a correctly-computed "0h 00m usable"
@@ -345,7 +344,7 @@ private fun TargetCard(state: SimState, ctrl: SessionController, tgt: Target) {
     // chart's own day window, so they land on the same x-axis realNowFraction/the curve itself
     // use. User-requested addition (2026-08-22): shades which part of the curve is actually
     // observable-dark versus daylight, directly on the chart rather than only in NightPlanBar.
-    val nightWindow = if (real) state.realNightWindow else null
+    val nightWindow = state.realNightWindow
     val duskFraction = if (window != null && nightWindow != null) fractionOfWindow(nightWindow.first, window) else null
     val dawnFraction = if (window != null && nightWindow != null) fractionOfWindow(nightWindow.second, window) else null
     // Same peak-sample index AltitudeChart computes internally for its own dashed line — recomputed

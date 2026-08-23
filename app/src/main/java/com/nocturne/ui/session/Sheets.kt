@@ -56,7 +56,6 @@ import com.nocturne.session.indiNumber
 import com.nocturne.session.doneSpec
 import com.nocturne.session.endedJob
 import com.nocturne.session.fRatio
-import com.nocturne.session.formatHm
 import com.nocturne.session.get
 import com.nocturne.session.opticNote
 import com.nocturne.session.ScopeDef
@@ -64,13 +63,10 @@ import com.nocturne.session.coolBarPct
 import com.nocturne.session.coolPowerPct
 import com.nocturne.session.isOn
 import com.nocturne.session.isSelected
-import com.nocturne.session.keepCount
-import com.nocturne.session.medHfr
 import com.nocturne.session.missing
 import com.nocturne.session.paTotal
 import com.nocturne.session.pct
 import com.nocturne.session.ready
-import com.nocturne.session.rejectCount
 import com.nocturne.session.eafTemp
 import com.nocturne.session.benchFocPos
 import com.nocturne.session.realSlewRateProp
@@ -105,16 +101,6 @@ private fun alertStyle(a: com.nocturne.session.Alert): AlertStyle = when (a.icon
     AlertIcon.CHECKS -> AlertStyle(NocturnePalette.Ok, Phosphor.CheckCircle)
 }
 
-@Composable
-private fun paColorOf(s: SimState): Color {
-    val c = NocturneTheme.colors
-    return when {
-        s.paTotal < 1 -> c.ok
-        s.paTotal < 3 -> c.warn
-        else -> c.danger
-    }
-}
-
 /** Hosts whichever sheet is open. */
 @Composable
 fun SheetHost(state: SimState, ctrl: SessionController, landscape: Boolean) {
@@ -125,16 +111,14 @@ fun SheetHost(state: SimState, ctrl: SessionController, landscape: Boolean) {
         SheetType.FOCUS -> "Focus" to "V-curve · 9 points"
         SheetType.ALERTS -> "Alerts" to "tonight"
         // Real dusk/dawn (same `state.realNightWindow` source as `NightArcCard`'s Session-tab
-        // fix, M2026-08) once it's arrived; falls back to the fixture literal under the
-        // simulator or before the fetch lands.
+        // fix, M2026-08) once it's arrived; falls back to the fixture literal before the fetch
+        // lands.
         SheetType.SUMMARY -> "Session summary" to (
-            (if (state.isRealRig) state.realNightWindow else null)?.let {
+            state.realNightWindow?.let {
                 "${state.formatSiteTime(it.first)} → ${state.formatSiteTime(it.second)}"
             } ?: "21:48 → 04:12"
         )
-        // "three steps" is the fixture wizard's own framing — misleading verbatim in real mode,
-        // where PaSheet shows raw new_polar_state stage/message passthrough instead (see its doc).
-        SheetType.PA -> "Polar alignment" to (if (state.isRealRig) "live status" else "three steps")
+        SheetType.PA -> "Polar alignment" to "live status"
         SheetType.PREFS -> "Alert rules" to "push + on-screen"
         SheetType.AUTOFOCUS_RULES -> "Autofocus rules" to "when to refocus"
         SheetType.SETUP -> (if (state.setupEditingName != null) "Edit rig profile" else "New rig profile") to "name + device connections"
@@ -181,7 +165,7 @@ fun SheetHost(state: SimState, ctrl: SessionController, landscape: Boolean) {
                 SheetType.FOCUS -> FocusSheet(state, ctrl)
                 SheetType.ALERTS -> AlertsSheet(ctrl)
                 SheetType.SUMMARY -> SummarySheet(state, ctrl)
-                SheetType.PA -> PaSheet(state, ctrl, landscape)
+                SheetType.PA -> PaRealSheet(state, ctrl)
                 SheetType.PREFS -> PrefsSheet(state, ctrl)
                 SheetType.AUTOFOCUS_RULES -> AutofocusRulesSheet(state, ctrl)
                 SheetType.SETUP -> SetupBody(state, ctrl)
@@ -442,7 +426,6 @@ private fun AutofocusRulesSheet(state: SimState, ctrl: SessionController) {
 
 // ── Setup ────────────────────────────────────────────────────────────────
 
-private val PA_STEPS = listOf("Point", "Rotate + capture", "Adjust knobs")
 private val DEVICE_ICONS: Map<String, ImageVector> = mapOf(
     "mount" to Phosphor.CompassTool,
     "cam" to Phosphor.Camera,
@@ -740,10 +723,6 @@ private fun MountSettingsSheet(state: SimState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
 
-    if (!state.isRealRig) {
-        TextC("Simulator has no real Mount module settings to show — connect to a rig first.", style = t.Body13, color = c.textMuted)
-        return
-    }
     val m = state.wireMountSettings
     if (m == null) {
         TextC("Fetching mount settings…", style = t.Body13, color = c.textMuted)
@@ -905,10 +884,6 @@ private fun CameraSettingsSheet(state: SimState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
 
-    if (!state.isRealRig) {
-        TextC("Simulator has no real Camera module settings to show — connect to a rig first.", style = t.Body13, color = c.textMuted)
-        return
-    }
     val cam = state.wireCaptureSettings
     if (cam == null) {
         TextC("Fetching camera settings…", style = t.Body13, color = c.textMuted)
@@ -1036,10 +1011,6 @@ private fun AlignSettingsSheet(state: SimState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
 
-    if (!state.isRealRig) {
-        TextC("Simulator has no real Align module settings to show — connect to a rig first.", style = t.Body13, color = c.textMuted)
-        return
-    }
     val a = state.wireAlignSettings
     if (a == null) {
         TextC("Fetching align settings…", style = t.Body13, color = c.textMuted)
@@ -1112,10 +1083,6 @@ private fun GuideSettingsSheet(state: SimState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
 
-    if (!state.isRealRig) {
-        TextC("Simulator has no real Guide module settings to show — connect to a rig first.", style = t.Body13, color = c.textMuted)
-        return
-    }
     val g = state.wireGuideSettings
     if (g == null) {
         TextC("Fetching guide settings…", style = t.Body13, color = c.textMuted)
@@ -1176,10 +1143,6 @@ private fun FocusSettingsSheet(state: SimState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
 
-    if (!state.isRealRig) {
-        TextC("Simulator has no real Focus module settings to show — connect to a rig first.", style = t.Body13, color = c.textMuted)
-        return
-    }
     val f = state.wireFocusSettings
     if (f == null) {
         TextC("Fetching focus settings…", style = t.Body13, color = c.textMuted)
@@ -1258,10 +1221,6 @@ private fun SchedulerSettingsSheet(state: SimState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
 
-    if (!state.isRealRig) {
-        TextC("Simulator has no real Scheduler settings to show — connect to a rig first.", style = t.Body13, color = c.textMuted)
-        return
-    }
     val sc = state.wireSchedulerSettings
     if (sc == null) {
         TextC("Fetching scheduler settings…", style = t.Body13, color = c.textMuted)
@@ -1534,22 +1493,12 @@ private fun TextFieldBox(value: String, onChange: (String) -> Unit) {
  * OS-level reboot command (and couldn't rely on one anyway: a hung/crashed
  * Ekos process is exactly the case a reboot needs to recover from). Talks
  * instead to a small companion daemon on the Pi over its own HTTP+token
- * channel (`pi-tools/reboot-daemon/`, [RigRebootClient]). Only meaningful
- * under a real rig — [SimState.isRealRig] gates everything below the
- * top warning.
+ * channel (`pi-tools/reboot-daemon/`, [RigRebootClient]).
  */
 @Composable
 private fun MaintenanceSheet(state: SimState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
-
-    if (!state.isRealRig) {
-        TextC(
-            "Simulator has no real Pi to reboot — connect to a rig first.",
-            style = t.Body13, color = c.textMuted,
-        )
-        return
-    }
 
     var portText by remember { mutableStateOf(state.rigRebootPort.toString()) }
     var token by remember { mutableStateOf("") }
@@ -1867,65 +1816,8 @@ private fun ReducerField(value: Double, onChange: (Double) -> Unit) {
     }
 }
 
-
-@Composable
-private fun StepPills(labels: List<String>, current: Int) {
-    val c = NocturneTheme.colors
-    val t = NocturneTheme.type
-    Row(Modifier.fillMaxWidth()) {
-        labels.forEachIndexed { i, label ->
-            val active = current == i
-            val done = current > i
-            Row(
-                Modifier
-                    .weight(1f)
-                    .background(c.text.copy(alpha = 0.04f), RoundedCornerShape(4.dp))
-                    .padding(7.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(
-                    Modifier
-                        .size(18.dp)
-                        .background(
-                            if (active) c.accent else if (done) c.ok.copy(alpha = 0.2f) else c.text.copy(alpha = 0.07f),
-                            RoundedCornerShape(50),
-                        ),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    TextC(
-                        "${i + 1}",
-                        style = t.MonoMicro,
-                        color = if (active) c.surfaceDeep else if (done) c.ok else c.textMuted,
-                    )
-                }
-                Spacer(Modifier.width(6.dp))
-                TextC(label, style = t.Caption10, color = c.neutral400)
-            }
-            if (i < labels.lastIndex) Spacer(Modifier.width(6.dp))
-        }
-    }
-}
-
 // ── Polar align ──────────────────────────────────────────────────────────
 
-@Composable
-private fun PaSheet(state: SimState, ctrl: SessionController, landscape: Boolean) {
-    if (state.isRealRig) {
-        PaRealSheet(state, ctrl)
-        return
-    }
-    val c = NocturneTheme.colors
-    val t = NocturneTheme.type
-    Column {
-        StepPills(labels = PA_STEPS, current = state.paStep)
-        Spacer(Modifier.height(14.dp))
-        when (state.paStep) {
-            0 -> PaStep0(ctrl)
-            1 -> PaStep1(ctrl)
-            else -> PaStep2(state, ctrl, landscape)
-        }
-    }
-}
 
 /**
  * Real-mode Polar Align — raw `new_polar_state` passthrough, not a stage-driven wizard. Real
@@ -1974,213 +1866,6 @@ private fun PaRealSheet(state: SimState, ctrl: SessionController) {
             style = if (state.polarRunning) com.nocturne.ui.components.BtnStyle.SOLID else com.nocturne.ui.components.BtnStyle.OUTLINE,
             modifier = Modifier.fillMaxWidth().height(44.dp),
         )
-    }
-}
-
-@Composable
-private fun PaStep0(ctrl: SessionController) {
-    val c = NocturneTheme.colors
-    val t = NocturneTheme.type
-    Column {
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(170.dp)
-                .background(c.surfaceDeep, RoundedCornerShape(4.dp)),
-        ) {
-            HatchBg(Modifier.fillMaxSize(), color = c.surfaceRaised)
-        }
-        Spacer(Modifier.height(11.2.dp))
-        TextC(
-            "No need to see Polaris. Point anywhere near the meridian, 30–60° altitude, and let the routine plate-solve three frames as the mount rotates.",
-            style = t.Mono115, color = c.neutral500,
-        )
-        Spacer(Modifier.height(11.2.dp))
-        NocturneButton(
-            text = "Solve here & start",
-            onClick = ctrl::paNext,
-            style = com.nocturne.ui.components.BtnStyle.OUTLINE,
-            modifier = Modifier.fillMaxWidth().height(46.dp),
-        )
-    }
-}
-
-@Composable
-private fun PaStep1(ctrl: SessionController) {
-    val c = NocturneTheme.colors
-    val t = NocturneTheme.type
-    Column {
-        Row(Modifier.fillMaxWidth()) {
-            PaFrame("solved 0°", done = true, Modifier.weight(1f))
-            Spacer(Modifier.width(6.dp))
-            PaFrame("solved 30°", done = true, Modifier.weight(1f))
-            Spacer(Modifier.width(6.dp))
-            PaFrame("60°…", done = false, Modifier.weight(1f))
-        }
-        Spacer(Modifier.height(11.2.dp))
-        TextC(
-            "Mount is rotating 60° in RA. Keep hands off the tripod — two frames solved, one to go.",
-            style = t.Mono115, color = c.neutral500,
-        )
-        Spacer(Modifier.height(11.2.dp))
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(4.dp)
-                .background(c.text.copy(alpha = 0.1f), RoundedCornerShape(2.dp)),
-        ) {
-            Box(
-                Modifier
-                    .fillMaxWidth(0.66f)
-                    .height(4.dp)
-                    .background(c.accent, RoundedCornerShape(2.dp)),
-            )
-        }
-        Spacer(Modifier.height(11.2.dp))
-        NocturneButton(
-            text = "Capture third frame",
-            onClick = ctrl::paNext,
-            style = com.nocturne.ui.components.BtnStyle.OUTLINE,
-            modifier = Modifier.fillMaxWidth().height(46.dp),
-        )
-    }
-}
-
-@Composable
-private fun PaFrame(label: String, done: Boolean, modifier: Modifier) {
-    val c = NocturneTheme.colors
-    val t = NocturneTheme.type
-    Box(
-        modifier
-            .aspectRatio(1f)
-            .background(
-                if (done) c.accent.copy(alpha = 0.16f)
-                else c.surfaceDeep,
-                RoundedCornerShape(4.dp),
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (!done) HatchBg(Modifier.fillMaxSize(), color = c.surfaceRaised)
-        TextC(label, style = t.MonoMicro, color = if (done) c.accent400 else c.textMuted)
-    }
-}
-
-@Composable
-private fun PaStep2(state: SimState, ctrl: SessionController, landscape: Boolean) {
-    val c = NocturneTheme.colors
-    val t = NocturneTheme.type
-    val left: @Composable () -> Unit = {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            PaDial(state)
-            Spacer(Modifier.width(14.dp))
-            Column {
-                TextC(String.format("%.1f", state.paTotal) + "′", style = t.Mono30, color = paColorOf(state))
-                TextC("TOTAL ERROR · ${if (state.paTotal < 1) "good — under 1′" else "keep adjusting"}", style = t.Caption10, color = c.textMuted)
-                Spacer(Modifier.height(4.dp))
-                TextC("ALT ${String.format("%.1f", abs(state.paAlt))}′ — ${if (state.paAlt >= 0) "lower altitude knob" else "raise altitude knob"}", style = t.Mono115, color = c.neutral400)
-                TextC("AZ ${String.format("%.1f", abs(state.paAz))}′ — ${if (state.paAz >= 0) "turn azimuth east" else "turn azimuth west"}", style = t.Mono115, color = c.neutral400)
-            }
-        }
-    }
-    val right: @Composable () -> Unit = {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .background(c.bg, RoundedCornerShape(4.dp))
-                .padding(11.2.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Phosphor.Icon(Phosphor.ArrowsClockwise, size = 15.dp, tint = c.accent)
-                Spacer(Modifier.width(9.dp))
-                TextC("RE-SOLVE EVERY", style = t.MicroLabel, color = c.textMuted, modifier = Modifier.weight(1f))
-                TextC(
-                    if (state.t % PA_SECS[state.paRate] == 0) "solving…"
-                    else "next in ${PA_SECS[state.paRate] - (state.t % PA_SECS[state.paRate])} s",
-                    style = t.Mono115, color = c.accent400,
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, c.divider, RoundedCornerShape(4.dp)),
-            ) {
-                listOf("1 s", "2 s", "5 s", "10 s").forEachIndexed { i, label ->
-                    val sel = state.paRate == i
-                    Box(
-                        Modifier
-                            .weight(1f)
-                            .height(40.dp)
-                            .background(if (sel) c.accent.copy(alpha = 0.2f) else Color.Transparent)
-                            .clickable { ctrl.setPaRate(i) },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        TextC(label, style = t.MonoSmall, color = if (sel) c.accent400 else c.neutral500)
-                    }
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-            TextC(
-                if (state.paRate <= 1)
-                    "fast — short exposures, noisier solve; good for coarse knob turns"
-                else "slow — longer exposures, steadier reading; use for the last arcminute",
-                style = t.MonoMicro, color = c.textMuted,
-            )
-        }
-        Spacer(Modifier.height(11.2.dp))
-        TextC(
-            "Turn the mount's own alt and az knobs — the app never moves them. Motorised wedges appear here as a Slew control instead.",
-            style = t.MonoMicro, color = c.textMuted,
-        )
-        Spacer(Modifier.height(11.2.dp))
-        NocturneButton(
-            text = "Accept & finish",
-            onClick = ctrl::closeSheet,
-            style = com.nocturne.ui.components.BtnStyle.OUTLINE,
-            modifier = Modifier.fillMaxWidth().height(46.dp),
-        )
-    }
-    if (landscape) {
-        Row(Modifier.fillMaxWidth()) {
-            Column(Modifier.weight(1f)) { left() }
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) { right() }
-        }
-    } else {
-        Column {
-            left()
-            Spacer(Modifier.height(11.2.dp))
-            right()
-        }
-    }
-}
-
-@Composable
-private fun PaDial(state: SimState) {
-    val c = NocturneTheme.colors
-    val dotColor = paColorOf(state)
-    Canvas(Modifier.size(150.dp)) {
-        val cx = size.width / 2f
-        val cy = size.height / 2f
-        val r = size.width / 2f
-        drawCircle(c.bg, radius = r)
-        drawCircle(
-            c.text.copy(alpha = 0.1f), radius = r,
-            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1f),
-        )
-        drawCircle(
-            c.text.copy(alpha = 0.08f), radius = r - 26.dp.toPx(),
-            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1f),
-        )
-        drawCircle(
-            c.ok.copy(alpha = 0.35f), radius = r - 52.dp.toPx(),
-            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1f),
-        )
-        drawLine(c.text.copy(alpha = 0.07f), Offset(cx, 8.dp.toPx()), Offset(cx, size.height - 8.dp.toPx()), 1f)
-        drawLine(c.text.copy(alpha = 0.07f), Offset(8.dp.toPx(), cy), Offset(size.width - 8.dp.toPx(), cy), 1f)
-        val dotX = cx + state.paAz.toFloat() * 0.05f * r
-        val dotY = cy - state.paAlt.toFloat() * 0.05f * r
-        drawCircle(dotColor, radius = 5.5.dp.toPx(), center = Offset(dotX, dotY))
     }
 }
 
@@ -2466,17 +2151,17 @@ private fun SummarySheet(state: SimState, ctrl: SessionController) {
     val canResume = state.lastEndedJobId != null
     val hasNext = state.jobs.any { it.id != state.lastEndedJobId }
     val job = state.endedJob
-    // Frames carry no per-sub exposure/filter of their own (fixture list, §8) — approximate
-    // using the ended job's first block's exposure, same assumption the export report makes.
-    val exposureSec = job?.blocks?.firstOrNull()?.exposureSec ?: 0
     val barColors = listOf(Color(0xFF9184D9), Color(0xFF796CBF), Color(0xFF5D5294), c.accentMuted, c.accent800)
     Column {
+        // KEPT/DISCARDED/MED HFR all derive from per-frame data (SimState.frames) that doesn't
+        // exist for real yet — blocked on the Media channel (M4), same gap as the Frames tab
+        // (see docs/simulator-removal-plan.md) — honest placeholder instead of fixture numbers.
         Row(Modifier.fillMaxWidth()) {
-            SumStat("KEPT", formatHm(state.keepCount * exposureSec), Modifier.weight(1f))
+            SumStat("KEPT", "—", Modifier.weight(1f), sub = "M4")
             Spacer(Modifier.width(8.4.dp))
-            SumStat("DISCARDED", formatHm(state.rejectCount * exposureSec), Modifier.weight(1f))
+            SumStat("DISCARDED", "—", Modifier.weight(1f), sub = "M4")
             Spacer(Modifier.width(8.4.dp))
-            SumStat("MED HFR", "%.2f".format(state.medHfr), Modifier.weight(1f))
+            SumStat("MED HFR", "—", Modifier.weight(1f), sub = "M4")
         }
         Spacer(Modifier.height(11.2.dp))
         Column(
@@ -2496,8 +2181,11 @@ private fun SummarySheet(state: SimState, ctrl: SessionController) {
             }
         }
         Spacer(Modifier.height(11.2.dp))
+        // Was a hardcoded fictional narrative ("Lost 20m — cloud 01:04–01:18...") shown
+        // unconditionally regardless of what actually happened — no real session-log/weather
+        // event mechanism exists anywhere in this app to derive a real version of this from.
         TextC(
-            "Lost 20m — cloud 01:04–01:18, one failed plate solve.\nBattery 12.1 V at teardown · dew never reached ambient.",
+            "No session-event log yet — not wired to anything real.",
             style = t.MonoSmall, color = c.neutral500,
         )
         Spacer(Modifier.height(11.2.dp))
@@ -2591,7 +2279,7 @@ private fun Stat(label: String, value: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun SumStat(label: String, value: String, modifier: Modifier = Modifier) {
+private fun SumStat(label: String, value: String, modifier: Modifier = Modifier, sub: String? = null) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     Column(
@@ -2601,6 +2289,9 @@ private fun SumStat(label: String, value: String, modifier: Modifier = Modifier)
     ) {
         TextC(label, style = t.MicroLabel, color = c.textMuted)
         TextC(value, style = t.Mono20, color = c.text)
+        if (sub != null) {
+            TextC(sub, style = t.MonoMicro, color = c.textFaint)
+        }
     }
 }
 

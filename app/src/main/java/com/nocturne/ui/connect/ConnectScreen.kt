@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.clickable
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -50,7 +49,6 @@ fun ConnectScreen(
     savedHost: String?,
     savedPort: Int,
     onConnect: (host: String, port: Int) -> Unit,
-    onUseSimulator: () -> Unit,
 ) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
@@ -79,7 +77,7 @@ fun ConnectScreen(
             .statusBarsPadding()
             .navigationBarsPadding()
             // No scroll existed here at all before — in landscape's shorter viewport the content
-            // (title/warning/HOST/PORT/Connect/"Use simulator") already didn't fit, and there was
+            // (title/warning/HOST/PORT/Connect) already didn't fit, and there was
             // no way to reach the Connect button at all; confirmed live (a swipe did nothing).
             // Adding the two insets above only made the available height smaller, so this was
             // very possibly already a latent bug, not one introduced by that fix.
@@ -170,11 +168,6 @@ fun ConnectScreen(
                 },
                 style = t.Caption, color = c.textMuted,
             )
-        }
-
-        VSpacer(20)
-        Box(Modifier.fillMaxWidth().clickable(onClick = onUseSimulator), contentAlignment = Alignment.Center) {
-            TextC("Use simulator instead", style = t.Button13, color = c.accent)
         }
     }
 }

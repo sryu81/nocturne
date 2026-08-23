@@ -72,7 +72,7 @@ fun GearScreen(
     state: SimState,
     ctrl: SessionController,
     landscape: Boolean,
-    onExitSimulator: () -> Unit,
+    onDisconnect: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     TabPane(
@@ -80,23 +80,19 @@ fun GearScreen(
         modifier = modifier,
         items = buildList {
             add(TabItem(full = true) { ReadyBanner(state) })
-            // Sole way back to ConnectScreen from the simulator — "Use simulator instead" on
-            // ConnectScreen is otherwise a one-way door (see SessionViewModel.disconnect doc).
-            if (!state.isRealRig) add(TabItem(full = true) { SimulatorExitCard(onExitSimulator) })
             add(TabItem(full = true) { RigProfileCard(state, ctrl) })
             // Right below the profile it belongs to, not buried at the bottom of the tab.
             add(TabItem(full = true) { DeviceList(state, ctrl) })
             add(TabItem { ScopesCard(state, ctrl) })
             add(TabItem { OpticalTrainCard(state, ctrl) })
             // Which Ekos module uses which train (ProfileSettings) — only meaningful once real
-            // trains exist server-side; no fixture equivalent (SimulatedController never sets
-            // wireTrains), so the card itself is simply absent there, not a decorative stand-in.
+            // trains exist server-side, so the card itself is simply absent until then, not a
+            // decorative stand-in.
             if (state.wireTrains != null) add(TabItem { ModuleAssignmentsCard(state, ctrl) })
-            // Rig-level recovery, not an Ekos concept — only worth surfacing once actually
-            // connected to a real Pi (SimulatedController has nothing to reboot).
-            if (state.isRealRig) add(TabItem { MaintenanceCard(state, ctrl) })
+            add(TabItem { MaintenanceCard(state, ctrl) })
             add(TabItem(full = true) { PowerDew(state) })
             add(TabItem(full = true) { CloseRoofButton(state, ctrl) })
+            add(TabItem(full = true) { DisconnectCard(onDisconnect) })
         },
     )
 }
@@ -147,15 +143,11 @@ private fun ReadyBanner(state: SimState) {
                 Spacer(Modifier.width(6.dp))
                 RigChip("● camera", if (state.isOn("cam")) c.ok else c.danger)
                 Spacer(Modifier.width(6.dp))
-                // Real rig: paTotal/paAlt/paAz are pure fixture fields the real controller never
-                // writes (confirmed — no EkosRemoteController override for openPa/paNext/
-                // setPaRate exists) — showing them here would be a fabricated number now that
-                // Polar Align has real wiring elsewhere (Controls tab). Real wirePolarStage instead.
-                if (state.isRealRig) {
-                    RigChip("● polar ${state.wirePolarStage ?: "not run"}", if (state.wirePolarStage != null) c.ok else c.textFaint)
-                } else {
-                    RigChip("● polar ${String.format("%.1f", state.paTotal)}′", paColor(state))
-                }
+                // paTotal/paAlt/paAz are pure fixture fields the real controller never writes
+                // (confirmed — no EkosRemoteController override for openPa/paNext/setPaRate
+                // exists) — showing them here would be a fabricated number, Polar Align has real
+                // wiring elsewhere (Controls tab). Real wirePolarStage instead.
+                RigChip("● polar ${state.wirePolarStage ?: "not run"}", if (state.wirePolarStage != null) c.ok else c.textFaint)
             }
         }
     }
@@ -344,14 +336,13 @@ private fun ScopesCard(state: SimState, ctrl: SessionController) {
 }
 
 /**
- * Simulator's escape hatch — without this, "Use simulator instead" on ConnectScreen is a one-way
- * door: SessionViewModel's launch-time auto-resume re-enters the simulator on every relaunch as
- * long as `useSimulator` stays persisted true, and nothing else in the shell can reach
- * [SessionViewModel.disconnect]. Always visible whenever `!state.isRealRig` (not tucked into
- * MaintenanceCard, which is real-rig-only and wouldn't render here at all).
+ * Real gap found while removing the simulator (2026-08-22, see docs/simulator-removal-plan.md):
+ * the old `SimulatorExitCard` was the *only* UI path to [SessionViewModel.disconnect] anywhere in
+ * the app — deleting it alongside the simulator left literally no way back to ConnectScreen to
+ * switch rigs or reconnect from scratch. This replaces it, real-rig-only wording, always visible.
  */
 @Composable
-private fun SimulatorExitCard(onExitSimulator: () -> Unit) {
+private fun DisconnectCard(onDisconnect: () -> Unit) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     Column(
@@ -362,17 +353,17 @@ private fun SimulatorExitCard(onExitSimulator: () -> Unit) {
             .padding(12.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Phosphor.Icon(Phosphor.Plugs, size = 19.dp, tint = c.accent400)
+            Phosphor.Icon(Phosphor.Plugs, size = 19.dp, tint = c.textFaint)
             Spacer(Modifier.width(9.dp))
             Column(Modifier.weight(1f)) {
-                TextC("Simulator mode", style = t.Body135, color = c.text)
-                TextC("no real rig connected", style = t.MonoMicro, color = c.textFaint)
+                TextC("Disconnect", style = t.Body135, color = c.text)
+                TextC("back to Connect screen — switch rigs or reconnect", style = t.MonoMicro, color = c.textFaint)
             }
         }
         Spacer(Modifier.height(9.dp))
         NocturneButton(
-            text = "Exit simulator / connect to rig",
-            onClick = onExitSimulator,
+            text = "Disconnect from rig",
+            onClick = onDisconnect,
             style = BtnStyle.OUTLINE,
             modifier = Modifier.fillMaxWidth().height(40.dp),
         )
@@ -395,7 +386,7 @@ private fun MaintenanceCard(state: SimState, ctrl: SessionController) {
         Spacer(Modifier.height(5.dp))
         TextC("Rig maintenance", style = t.Body135, color = c.text)
         TextC(
-            if (!state.isRealRig) "simulator" else if (state.rigRebootAvailable) "reboot ready" else "reboot not configured",
+            if (state.rigRebootAvailable) "reboot ready" else "reboot not configured",
             style = t.MonoMicro, color = c.textFaint,
         )
     }
@@ -588,43 +579,28 @@ private fun DewRow(label: String, frac: Float, enabled: Boolean) {
     }
 }
 
-/** Only shown when a Dome is selected in the rig profile; disabled when Ekos isn't running. */
+/**
+ * Only shown when a Dome is selected in the rig profile. Always disabled — confirmed live
+ * (2026-08-22 simulator-removal inventory) there is no `setDomeOpen` wire command anywhere in
+ * `EkosRemote-Command-Reference.md`; this used to look like a real hardware control under the
+ * simulator's "this is fake, don't worry" framing, and needs to say so honestly now that framing
+ * is gone. Also matches the user's own standing call (see project notes) that real dome hardware
+ * is out of scope indefinitely — not wired for real because there's genuinely nothing to test
+ * against, not an oversight.
+ */
 @Composable
 private fun CloseRoofButton(state: SimState, ctrl: SessionController) {
     if (!state.isSelected("dome")) return
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
-    val enabled = state.ekosRunning
-    if (!enabled) {
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(52.dp)
-                .border(1.dp, c.textFaint.copy(alpha = 0.55f), RoundedCornerShape(10.dp)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Phosphor.Icon(Phosphor.Garage, size = 18.dp, tint = c.textFaint)
-                Spacer(Modifier.width(9.dp))
-                TextC("Dome offline — start Ekos", style = t.Button13, color = c.textFaint)
-            }
+    Column {
+        Row(Modifier.fillMaxWidth()) {
+            RoofButton(label = "Open roof", enabled = false, onClick = {}, modifier = Modifier.weight(1f))
+            Spacer(Modifier.width(8.4.dp))
+            RoofButton(label = "Close roof", enabled = false, onClick = {}, modifier = Modifier.weight(1f))
         }
-        return
-    }
-    Row(Modifier.fillMaxWidth()) {
-        RoofButton(
-            label = "Open roof",
-            enabled = !state.domeOpen,
-            onClick = { ctrl.setDomeOpen(true) },
-            modifier = Modifier.weight(1f),
-        )
-        Spacer(Modifier.width(8.4.dp))
-        RoofButton(
-            label = "Close roof",
-            enabled = state.domeOpen,
-            onClick = { ctrl.setDomeOpen(false) },
-            modifier = Modifier.weight(1f),
-        )
+        Spacer(Modifier.height(6.dp))
+        TextC("no real dome command exists yet", style = t.MonoMicro, color = c.textFaint)
     }
 }
 

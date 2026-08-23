@@ -319,8 +319,6 @@ data class SimState(
      * target changes; check `.name` matches the framed target before trusting it — real-rig only.
      */
     val wireTargetRiseset: WireRiseset? = null,
-    /** True under [EkosRemoteController]; false under [SimulatedController] — gates [MAINTENANCE] sheet's rig-reboot UI, which is meaningless without a real Pi. */
-    val isRealRig: Boolean = false,
     /** Companion reboot daemon's port on the rig's Pi — separate from the EkosRemote wire port (see `pi-tools/reboot-daemon/`). */
     val rigRebootPort: Int = 9001,
     /** Whether a reboot token has been configured — the token itself never enters [SimState] (kept only inside the controller), so nothing display-worthy leaks it into logs/recompositions. */
@@ -1121,9 +1119,8 @@ val SequenceJob.plannedHM: String get() = formatHM(totalPlannedSec)
  * signed day-fraction-from-midnight offsets against the *site's* own local "today" (per
  * [SimState.wireSiteTz]) — deliberately not the Android device's own timezone, since the almanac
  * itself is anchored to the Pi's configured site, which could differ from wherever the phone
- * happens to be. Null until all three wire fields have arrived (real-rig only, no fixture
- * equivalent — [SessionScreen.kt]'s `NightArcCard` keeps its hardcoded "21:48 → 04:12" under
- * `!isRealRig`/before this arrives).
+ * happens to be. Null until all three wire fields have arrived — [SessionScreen.kt]'s
+ * `NightArcCard` keeps its hardcoded "21:48 → 04:12" until then.
  */
 val SimState.realNightWindow: Pair<Instant, Instant>? get() {
     val dusk = wireDusk ?: return null
@@ -1318,12 +1315,6 @@ private fun hhmm(s: Int): String {
 
 val SimState.elapsed: Int get() = (128 + t) % 300
 val SimState.expRemain: String get() = hhmm(300 - elapsed)
-val SimState.flipIn: String get() {
-    val total = (2530 + flipDeferSec - t).coerceAtLeast(0)
-    val m = total / 60
-    val r = total % 60
-    return "T−$m:${r.toString().padStart(2, '0')}"
-}
 val SimState.rms: Double get() = 0.48 + sin(t / 7.0) * 0.04
 val SimState.guideStarSnr: Double get() = 38.0 + sin(t / 11.0) * 4.0
 val SimState.fNow: Double get() = 0.485 + t / 9000.0

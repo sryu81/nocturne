@@ -9,17 +9,17 @@ import kotlinx.coroutines.flow.update
  * Every [SessionController] method that's pure local UI/state mutation with
  * no real-time wire dependency — sheet navigation, job/block list editing,
  * target search/catalog, prefs toggles, device-picker, train editor, rig
- * profile wizard, PA step navigation, and so on. Shared by
- * [SimulatedController] (M1's demo driver) and [EkosRemoteController] (M2's
- * real-connection driver) so this logic — and its M3 command-sending
- * upgrade path — exists exactly once.
+ * profile wizard, and so on. [EkosRemoteController] extends this and
+ * overrides whichever of these have since gained a real wire-command
+ * implementation; anything not overridden here is still local-only under a
+ * real connection today (see docs/simulator-removal-plan.md's inventory for
+ * the current list — most of it is harmless permanent local UI chrome, a
+ * few items genuinely have no wire command to send at all).
  *
- * Neither subclass overrides any of these in M2: [SimulatedController] adds
- * only its 1 Hz ticker on top, [EkosRemoteController] adds only its
- * `EkosEvent` → [SimState] translation on top. The wire itself is
- * receive-only in M2 — nothing here sends a real command yet (that's M3;
- * see README §8's "Push-driven state" bullet for the optimistic-update-then-
- * reconcile pattern M3 must follow once these do send commands).
+ * (Historical: this class used to also be [SimulatedController]'s entire
+ * behavior, M1's demo driver — that class was removed 2026-08-22 once the
+ * app went real-rig-only. This base class stays; only the "shared with a
+ * fake driver" framing is gone.)
  */
 abstract class AbstractLocalSessionController : SessionController {
 
@@ -259,7 +259,7 @@ abstract class AbstractLocalSessionController : SessionController {
     }
 
     // Local-only bookkeeping; [EkosRemoteController] overrides both to actually talk to the
-    // rig's companion reboot daemon. Under [SimulatedController] there's no real Pi, so a
+    // rig's companion reboot daemon. There's no real Pi under a bare local mutation, so a
     // reboot attempt fails honestly rather than pretending to succeed.
     override open fun setRigRebootConfig(port: Int, token: String) = update { s ->
         s.copy(rigRebootPort = port, rigRebootTokenSet = token.isNotBlank())
@@ -269,9 +269,9 @@ abstract class AbstractLocalSessionController : SessionController {
         s.copy(rigRebootState = RigRebootState.FAILED, rigRebootError = "No real rig connected — nothing to reboot")
     }
 
-    // Mount settings (M3.3): SimulatedController never populates wireMountSettings (there's no
+    // Mount settings (M3.3): Nothing populates wireMountSettings here (there's no
     // real mount_get_all_settings reply to translate), so these are safe no-ops there — the
-    // sheet itself is gated on wireMountSettings != null and never calls them under the simulator.
+    // sheet itself is gated on wireMountSettings != null and never calls them before it's arrived.
     override open fun setMountMeridianFlip(enabled: Boolean) = update { s ->
         s.copy(wireMountSettings = s.wireMountSettings?.copy(executeMeridianFlip = enabled))
     }
@@ -303,10 +303,10 @@ abstract class AbstractLocalSessionController : SessionController {
         s.copy(wireMountSettings = s.wireMountSettings?.copy(autoParkTime = time))
     }
 
-    // Camera settings (M3.3): same no-op-under-simulator shape as Mount settings above —
-    // SimulatedController never populates wireCaptureSettings (there's no real
+    // Camera settings (M3.3): same shape as Mount settings above —
+    // nothing populates wireCaptureSettings here (there's no real
     // capture_get_all_settings reply to translate), so these only ever touch a null field; the
-    // sheet itself is gated on wireCaptureSettings != null and never calls them under the simulator.
+    // sheet itself is gated on wireCaptureSettings != null and never calls them before it's arrived.
     override open fun setCameraSaveDir(path: String) = update { s ->
         s.copy(wireCaptureSettings = s.wireCaptureSettings?.copy(fileDirectoryT = path))
     }
@@ -329,8 +329,8 @@ abstract class AbstractLocalSessionController : SessionController {
         s.copy(wireCaptureSettings = s.wireCaptureSettings?.copy(guideDitherPerJobFrequency = everyN))
     }
 
-    // Align settings (M3.3 phase 3): same no-op-under-simulator shape as Mount/Camera settings
-    // above — SimulatedController never populates wireAlignSettings.
+    // Align settings (M3.3 phase 3): same shape as Mount/Camera settings
+    // above — nothing populates wireAlignSettings here.
     override open fun setAlignExposure(sec: Double) = update { s ->
         s.copy(wireAlignSettings = s.wireAlignSettings?.copy(alignExposure = sec))
     }
@@ -347,8 +347,8 @@ abstract class AbstractLocalSessionController : SessionController {
         s.copy(wireAlignSettings = s.wireAlignSettings?.copy(alignAccuracyThreshold = arcsec))
     }
 
-    // Guide settings (M3.3 phase 4): same no-op-under-simulator shape as Align above —
-    // SimulatedController never populates wireGuideSettings, so these are dead in practice
+    // Guide settings (M3.3 phase 4): same shape as Align above —
+    // nothing populates wireGuideSettings here, so these are dead in practice
     // (the settings card/sheet are real-rig-gated) but kept consistent with the pattern.
     override open fun setGuideAccuracyThreshold(arcsec: Double) = update { s ->
         s.copy(wireGuideSettings = s.wireGuideSettings?.copy(guiderAccuracyThreshold = arcsec))
@@ -366,7 +366,7 @@ abstract class AbstractLocalSessionController : SessionController {
         s.copy(wireGuideSettings = s.wireGuideSettings?.copy(kcfg_ReuseGuideCalibration = enabled))
     }
 
-    // Focus settings (M3.3 phase 6): same no-op-under-simulator shape as Guide above.
+    // Focus settings (M3.3 phase 6): same shape as Guide above.
     override open fun setFocusExposure(sec: Double) = update { s ->
         s.copy(wireFocusSettings = s.wireFocusSettings?.copy(focusExposure = sec))
     }
@@ -383,8 +383,8 @@ abstract class AbstractLocalSessionController : SessionController {
         s.copy(wireFocusSettings = s.wireFocusSettings?.copy(focusAlgorithm = algorithm))
     }
 
-    // Primary/guide preview capture params: same no-op-under-simulator shape as every other
-    // module setting above — SimulatedController never populates wireCaptureSettings/
+    // Primary/guide preview capture params: same shape as every other
+    // module setting above — nothing populates wireCaptureSettings/
     // wireGuideSettings's new fields any differently than the rest of those structs.
     override open fun setCapturePreviewExposure(sec: Double) = update { s ->
         s.copy(wireCaptureSettings = s.wireCaptureSettings?.copy(captureExposureN = sec))
@@ -583,7 +583,7 @@ abstract class AbstractLocalSessionController : SessionController {
     override fun setMountTracking(enabled: Boolean) = update { it.copy(mountTracking = enabled) }
 
     override fun plateSolveHere() = update { it.copy(mountSolved = true) }
-    // Fixture has no modeled mount position (mountAlt/mountAz are simulator-display-only, never
+    // No real mount-position model exists here (mountAlt/mountAz are display-only, never
     // driven by an actual slew) — nothing meaningful to simulate for a plain goto. "& center"
     // pretends the same solved-success gesture as plateSolveHere.
     override fun gotoTarget(targetId: String) {}

@@ -179,7 +179,6 @@ class EkosRemoteController(
         _state.update {
             it.copy(
                 jobs = emptyList(), activeJobId = null, jobSeq = 1, lastActiveJobId = null, openBlockId = null,
-                isRealRig = true,
             )
         }
         scope.launch {

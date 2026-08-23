@@ -3,9 +3,10 @@ package com.nocturne.session
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * The single interface the whole UI consumes (PLAN §4.3). M1 ships
- * [SimulatedController]; M2 swaps in [EkosRemoteController] over the wire
- * protocol behind the same contract.
+ * The single interface the whole UI consumes (PLAN §4.3). [EkosRemoteController] is the only
+ * implementation — the app is real-rig-only (the earlier [SimulatedController] demo driver was
+ * removed 2026-08-22, see docs/simulator-removal-plan.md); [AbstractLocalSessionController]
+ * remains as its base class for pure local UI-state mutation.
  */
 interface SessionController {
     val state: StateFlow<SimState>
@@ -62,7 +63,7 @@ interface SessionController {
     fun setQuery(text: String)
     fun clearQuery()
     fun selectTarget(id: String)
-    /** Fetch real per-target altitude data for the Plan tab's altitude chart, if not already cached. No-op under the simulator. */
+    /** Fetch real per-target altitude data for the Plan tab's altitude chart, if not already cached. */
     fun ensureTargetRiseset(targetId: String)
     fun togglePref(key: String)
     fun toggleQuietHours()
@@ -132,8 +133,8 @@ interface SessionController {
      * Configures the rig's companion reboot daemon (port + shared-secret token, see
      * `pi-tools/reboot-daemon/`) — a channel entirely separate from the EkosRemote wire, since
      * that wire has no OS-level reboot command and can't be relied on anyway when it's a hung
-     * Ekos process that needs the reboot. No-op-ish under [SimulatedController] (nothing to
-     * reboot); persisted and wired for real under [EkosRemoteController].
+     * Ekos process that needs the reboot. Persisted and wired for real under
+     * [EkosRemoteController].
      */
     fun setRigRebootConfig(port: Int, token: String)
 

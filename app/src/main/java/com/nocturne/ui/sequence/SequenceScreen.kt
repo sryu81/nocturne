@@ -240,28 +240,25 @@ private fun JobDetailHeader(state: SimState, job: SequenceJob, onBack: () -> Uni
 }
 
 /**
- * Real-rig dusk/dawn (`state.realNightWindow`, same source as `NightArcCard`'s Session-tab fix,
- * M2026-08) replaces the "21:48 → 04:12" literal once it's arrived; falls back to the original
- * fixture literal under the simulator or before the fetch lands. Only the header time label is
- * real — the bar's own segments (`cal`/`Ha`/`flip`/`OIII`/`SII` widths) stay fixture, no real
+ * Real dusk/dawn (`state.realNightWindow`, same source as `NightArcCard`'s Session-tab fix,
+ * M2026-08) replaces the "21:48 → 04:12" literal once it's arrived. Only the header time label
+ * is real — the bar's own segments (`cal`/`Ha`/`flip`/`OIII`/`SII` widths) stay fixture, no real
  * per-filter breakdown exists here (out of scope for this pass, same as `NightArcCard`'s "flip"
- * tick being omitted rather than fabricated under a real rig).
+ * tick being omitted rather than fabricated).
  *
- * **Real bug found live (2026-08-22, user report)**: on a real rig with zero jobs queued (the
- * "No targets queued" card right below this one), the fixture bar+filter-labels rendered anyway
- * — illustrative fixture content with zero relation to anything real, right above an honest
+ * **Real bug found live (2026-08-22, user report)**: with zero jobs queued (the "No targets
+ * queued" card right below this one), the fixture bar+filter-labels rendered anyway —
+ * illustrative fixture content with zero relation to anything real, right above an honest
  * "nothing queued" message, reading as a real plan that doesn't exist. Fixed: the bar+labels are
- * now only shown when there's actually a job to (fixture-)illustrate — hidden under a real rig
- * with an empty queue, same honesty norm as `NightArcCard`/`FlipBanner` omitting fixture elements
- * rather than fabricating them. Left showing under the simulator regardless of queue state — the
- * simulator's own fixture jobs are its whole point, not misleading in that context.
+ * now only shown when there's actually a job to (fixture-)illustrate, same honesty norm as
+ * `NightArcCard`/`FlipBanner` omitting fixture elements rather than fabricating them.
  */
 @Composable
 private fun NightPlanBar(state: SimState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
-    val window = if (state.isRealRig) state.realNightWindow else null
-    val showFixturePlan = !state.isRealRig || state.jobs.isNotEmpty()
+    val window = state.realNightWindow
+    val showFixturePlan = state.jobs.isNotEmpty()
     Card {
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextC("NIGHT PLAN", style = t.Caption, color = c.textFaint, modifier = Modifier.weight(1f))
@@ -270,12 +267,7 @@ private fun NightPlanBar(state: SimState, ctrl: SessionController) {
                 style = t.Mono13, color = c.textMuted,
             )
             Spacer(Modifier.width(8.dp))
-            // Scheduler-wide policy (Startup/Constraints/Completion/Observatory/Aborted-job) —
-            // real-rig only, same gating as the sheet itself; hidden under the simulator rather
-            // than opening to a dead "connect to a rig first" sheet every time.
-            if (state.isRealRig) {
-                IconBtn(Phosphor.SlidersHorizontal, onClick = { ctrl.openSheet(SheetType.SCHEDULER_SETTINGS) }, size = 28, iconSize = 14.dp)
-            }
+            IconBtn(Phosphor.SlidersHorizontal, onClick = { ctrl.openSheet(SheetType.SCHEDULER_SETTINGS) }, size = 28, iconSize = 14.dp)
         }
         if (showFixturePlan) {
             Spacer(Modifier.height(12.6.dp))

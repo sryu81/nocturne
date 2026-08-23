@@ -84,7 +84,6 @@ fun NocturneApp() {
                 savedHost = vm.savedHost,
                 savedPort = vm.savedPort,
                 onConnect = vm::connect,
-                onUseSimulator = vm::useSimulator,
             )
             // SOCKET_OPEN means the WebSocket handshake succeeded and get_profiles/get_devices
             // are already flowing — there's a real, useful app to show. Only the pre-socket
@@ -105,15 +104,8 @@ fun NocturneApp() {
                     savedHost = vm.savedHost,
                     savedPort = vm.savedPort,
                     onConnect = vm::connect,
-                    onUseSimulator = vm::useSimulator,
                 )
             }
-            is ConnectionMode.Simulated -> NocturneShell(
-                vm = vm,
-                redMode = redMode,
-                onToggleRed = { redMode = !redMode },
-                banner = null,
-            )
             is ConnectionMode.Connected -> NocturneShell(
                 vm = vm,
                 redMode = redMode,
@@ -246,7 +238,7 @@ private fun NocturneShell(
                             SequenceScreen(state, ctrl, landscape, onFixInGear = { navigate(NocturneTab.Gear) })
                         }
                         composable(NocturneTab.Frames.route) { FramesScreen(state, ctrl, landscape) }
-                        composable(NocturneTab.Gear.route) { GearScreen(state, ctrl, landscape, onExitSimulator = vm::disconnect) }
+                        composable(NocturneTab.Gear.route) { GearScreen(state, ctrl, landscape, onDisconnect = vm::disconnect) }
                         composable(NocturneTab.Controls.route) { ControlsScreen(state, ctrl, landscape) }
                     }
                 }
@@ -267,13 +259,15 @@ private fun NocturneShell(
             com.nocturne.ui.frames.FrameExpandOverlay(state = state, ctrl = ctrl)
         }
 
+        // Unreachable in practice — FlipBanner's FLIP NOW/DEFER are always disabled (no wire
+        // command exists for either, see FlipBanner's own doc), so pendingFlipConfirm can never
+        // be set. Left in place rather than torn out, in case a real trigger is ever wired.
         state.pendingFlipConfirm?.let { pending ->
             val isNow = pending == FlipConfirm.NOW
             com.nocturne.ui.components.ConfirmDialog(
                 title = if (isNow) "Flip now?" else "Defer flip by 10 min?",
                 message = if (isNow) {
-                    "Triggers the meridian flip immediately. In the simulator this only " +
-                        "resets the countdown — no real mount/guide action fires yet."
+                    "Triggers the meridian flip immediately."
                 } else {
                     "Pushes the flip deadline back 10 minutes."
                 },

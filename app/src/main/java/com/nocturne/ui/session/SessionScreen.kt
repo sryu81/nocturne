@@ -32,21 +32,18 @@ import com.nocturne.session.expRemain
 import com.nocturne.session.fNow
 import com.nocturne.session.doneHM
 import com.nocturne.session.filterBreakdown
-import com.nocturne.session.flipIn
 import com.nocturne.session.formatSiteTime
 import com.nocturne.session.mountPierSideLabel
 import com.nocturne.session.plannedHM
 import com.nocturne.session.realCountdownToDusk
 import com.nocturne.session.realNightWindow
 import com.nocturne.session.realNowFraction
-import com.nocturne.session.rms
 import com.nocturne.session.totalDone
 import com.nocturne.session.totalPlannedSec
 import com.nocturne.session.totalSubs
 import com.nocturne.ui.components.Card
 import com.nocturne.ui.components.HatchBg
 import com.nocturne.ui.components.IconBtn
-import com.nocturne.ui.components.MiniTrace
 import com.nocturne.ui.components.NightArc
 import com.nocturne.ui.components.NocturneButton
 import com.nocturne.ui.components.TabItem
@@ -136,9 +133,8 @@ private fun NightArcCard(state: SimState) {
     @Suppress("UNUSED_EXPRESSION") tick
     val job = state.contractJob
     val realProgress = job != null && job.synced
-    val real = state.isRealRig
-    val window = if (real) state.realNightWindow else null
-    val nowFrac = if (real) state.realNowFraction else null
+    val window = state.realNightWindow
+    val nowFrac = state.realNowFraction
     Card {
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextC("NIGHT ARC", style = t.MicroLabel, color = c.textFaint, modifier = Modifier.weight(1f))
@@ -148,7 +144,7 @@ private fun NightArcCard(state: SimState) {
             )
         }
         Spacer(Modifier.height(4.dp))
-        if (real && nowFrac == null) {
+        if (nowFrac == null) {
             Box(Modifier.fillMaxWidth().height(176.dp), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     TextC(
@@ -208,12 +204,6 @@ private fun NightArcCard(state: SimState) {
                     if (window != null) state.formatSiteTime(window.second) else "04:12", style = t.MonoMicro, color = c.textFaint,
                     modifier = Modifier.align(Alignment.BottomEnd).padding(bottom = 6.dp),
                 )
-                if (!real) {
-                    TextC(
-                        "flip", style = t.MonoMicro, color = c.warn,
-                        modifier = Modifier.align(Alignment.TopEnd).padding(end = 62.dp),
-                    )
-                }
             }
         }
         Row(Modifier.fillMaxWidth()) {
@@ -227,13 +217,11 @@ private fun NightArcCard(state: SimState) {
 }
 
 /**
- * Real connection (`state.isRealRig`): a real `capture_preview` is triggerable but the resulting
- * image/HFR/ADU numbers arrive over the Media channel, which doesn't exist yet (M4, `MediaChannel`
- * is a stub) — so the honest thing to show is that gap, not a fabricated readout. Simulator keeps
- * the canned fixture text, unchanged. Same idiom as `ControlsScreen.kt`'s `benchSnapLabel`.
+ * A real `capture_preview` is triggerable but the resulting image/HFR/ADU numbers arrive over the
+ * Media channel, which doesn't exist yet (M4, `MediaChannel` is a stub) — so the honest thing to
+ * show is that gap, not a fabricated readout. Same idiom as `ControlsScreen.kt`'s `benchSnapLabel`.
  */
-private fun subPreviewLine(real: Boolean, fixtureText: String): String =
-    if (real) "no live preview yet — needs the Media channel, M4" else fixtureText
+private const val SUB_PREVIEW_LINE = "no live preview yet — needs the Media channel, M4"
 
 @Composable
 private fun SubPreview(state: SimState, ctrl: SessionController) {
@@ -265,7 +253,7 @@ private fun SubPreview(state: SimState, ctrl: SessionController) {
             verticalAlignment = Alignment.Bottom,
         ) {
             TextC(
-                subPreviewLine(state.isRealRig, "★ 1 482 · HFR 2.31 · ADU 1 093"),
+                SUB_PREVIEW_LINE,
                 style = t.MonoMid, color = c.textDim, modifier = Modifier.weight(1f),
             )
             IconBtn(icon = Phosphor.ArrowsOut, onClick = ctrl::openSubPreview, size = 30)
@@ -306,7 +294,7 @@ fun SubPreviewOverlay(state: SimState, onDismiss: () -> Unit) {
             modifier = Modifier.align(Alignment.TopEnd).padding(16.dp),
         )
         TextC(
-            subPreviewLine(state.isRealRig, "★ 1 482 · HFR 2.31 · ADU 1 093"),
+            SUB_PREVIEW_LINE,
             style = t.Mono17, color = c.textDim,
             modifier = Modifier.align(Alignment.BottomStart).padding(16.dp),
         )
@@ -330,36 +318,29 @@ private fun ChipTag(text: String, accent: Boolean) {
 /** No real HFR/RMS/SNR numbers exist anywhere on the wire yet — genuinely blocked on the Media channel (M4). */
 @Composable
 private fun StatsRow(state: SimState, ctrl: SessionController) {
-    val real = state.isRealRig
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
         MiniStat(
             label = "HFR",
-            value = if (real) "—" else "2.31",
-            sub = if (real) "not available (M4)" else "▼ 0.04",
-            subColor = if (real) NocturneTheme.colors.textFaint else NocturneTheme.colors.ok,
+            value = "—",
+            sub = "not available (M4)",
+            subColor = NocturneTheme.colors.textFaint,
             onClick = { ctrl.openSheet(SheetType.FOCUS) },
             modifier = Modifier.weight(1f),
         )
         Spacer(Modifier.width(8.4.dp))
         MiniStat(
             label = "RMS",
-            value = if (real) "—" else String.format("%.2f", state.rms) + "\"",
-            sub = if (real) "not available (M4)" else null,
+            value = "—",
+            sub = "not available (M4)",
             subColor = NocturneTheme.colors.textFaint,
             onClick = { ctrl.openSheet(SheetType.GUIDE) },
             modifier = Modifier.weight(1f),
-            content = if (real) null else {
-                {
-                    Spacer(Modifier.height(4.dp))
-                    MiniTrace(t = state.t, modifier = Modifier.fillMaxWidth().height(16.dp))
-                }
-            },
         )
         Spacer(Modifier.width(8.4.dp))
         MiniStat(
             label = "SNR",
-            value = if (real) "—" else "41.2",
-            sub = if (real) "not available (M4)" else "bkg 1 093",
+            value = "—",
+            sub = "not available (M4)",
             subColor = NocturneTheme.colors.textMuted,
             modifier = Modifier.weight(1f),
         )
@@ -409,7 +390,6 @@ private fun MiniStat(
 private fun FlipBanner(state: SimState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
-    val real = state.isRealRig
     Row(
         Modifier
             .fillMaxWidth()
@@ -422,38 +402,37 @@ private fun FlipBanner(state: SimState, ctrl: SessionController) {
         Spacer(Modifier.width(11.2.dp))
         Column(Modifier.weight(1f)) {
             TextC("MERIDIAN FLIP", style = t.MicroLabel, color = c.warn)
-            if (real) {
-                val pier = state.mountPierSideLabel ?: "unknown"
-                val autoFlip = when (state.wireMountSettings?.executeMeridianFlip) {
-                    true -> "auto-flip on"
-                    false -> "auto-flip off"
-                    null -> "auto-flip ?"
-                }
-                TextC("pier $pier · $autoFlip", style = t.Mono15, color = c.text)
-                TextC(
-                    "no real trigger — flip is an enable/disable setting, not a manual command",
-                    style = t.MonoMicro, color = c.textFaint,
-                )
-            } else {
-                TextC("${state.flipIn} · auto, pauses guiding", style = t.Mono15, color = c.text)
+            val pier = state.mountPierSideLabel ?: "unknown"
+            val autoFlip = when (state.wireMountSettings?.executeMeridianFlip) {
+                true -> "auto-flip on"
+                false -> "auto-flip off"
+                null -> "auto-flip ?"
             }
+            TextC("pier $pier · $autoFlip", style = t.Mono15, color = c.text)
+            TextC(
+                "no real trigger — flip is an enable/disable setting, not a manual command",
+                style = t.MonoMicro, color = c.textFaint,
+            )
         }
+        // FLIP NOW/DEFER are always disabled — no real wire command exists for either (see the
+        // "no real trigger" text above); no simulator left to enable them (removed 2026-08-22,
+        // see docs/simulator-removal-plan.md). Kept visible with an honest disabled state rather
+        // than removed, same pattern as rotator/dome (ControlsScreen.kt) and the other genuinely
+        // unwired controls this app is honest about instead of hiding.
         Box(
             Modifier
-                .border(1.dp, c.warn.copy(alpha = if (real) 0.25f else 1f), RoundedCornerShape(8.dp))
-                .let { if (real) it else it.clickable { ctrl.requestFlipNow() } }
+                .border(1.dp, c.warn.copy(alpha = 0.25f), RoundedCornerShape(8.dp))
                 .padding(horizontal = 9.dp, vertical = 6.dp),
         ) {
-            TextC("FLIP NOW", style = t.Button12, color = c.warn.copy(alpha = if (real) 0.4f else 1f))
+            TextC("FLIP NOW", style = t.Button12, color = c.warn.copy(alpha = 0.4f))
         }
         Spacer(Modifier.width(8.dp))
         Box(
             Modifier
-                .border(1.dp, c.warn.copy(alpha = if (real) 0.15f else 0.5f), RoundedCornerShape(8.dp))
-                .let { if (real) it else it.clickable { ctrl.requestDeferFlip() } }
+                .border(1.dp, c.warn.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
                 .padding(horizontal = 9.dp, vertical = 6.dp),
         ) {
-            TextC("DEFER", style = t.Button12, color = c.warn.copy(alpha = if (real) 0.4f else 1f))
+            TextC("DEFER", style = t.Button12, color = c.warn.copy(alpha = 0.4f))
         }
     }
 }

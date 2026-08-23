@@ -112,8 +112,8 @@ fun ControlsScreen(
             )
             add(TabItem(full = true) { CoolerCard(state, ctrl) })
             add(TabItem(full = true) { FocuserCard(state, ctrl) })
-            if (state.isRealRig) add(TabItem { FocusSettingsCard(state, ctrl) })
-            if (state.isRealRig) add(TabItem { CameraSettingsCard(state, ctrl) })
+            add(TabItem { FocusSettingsCard(state, ctrl) })
+            add(TabItem { CameraSettingsCard(state, ctrl) })
             // Plate solving (align_solve) folds into this section rather than getting its own —
             // user asked for "primary camera + focuser (manual, auto) + plate solving" as one
             // grouping. Inline sub-label (same MicroLabel/textMuted style already used inside
@@ -121,11 +121,11 @@ fun ControlsScreen(
             // full SectionHeader weight.
             add(TabItem(full = true) { SectionHeader("PLATE SOLVE", sub = true) })
             add(TabItem(full = true) { AlignSolveCard(ctrl) })
-            if (state.isRealRig) add(TabItem { AlignSettingsCard(state, ctrl) })
+            add(TabItem { AlignSettingsCard(state, ctrl) })
 
             add(TabItem(full = true) { SectionHeader("MOUNT") })
             add(TabItem(full = true) { MountControlCard(state, ctrl) })
-            if (state.isRealRig) add(TabItem { MountSettingsCard(state, ctrl) })
+            add(TabItem { MountSettingsCard(state, ctrl) })
 
             add(TabItem(full = true) { SectionHeader("GUIDE") })
             add(
@@ -155,7 +155,7 @@ fun ControlsScreen(
                 },
             )
             add(TabItem(full = true) { GuideControlCard(state, ctrl) })
-            if (state.isRealRig) add(TabItem { GuideSettingsCard(state, ctrl) })
+            add(TabItem { GuideSettingsCard(state, ctrl) })
 
             add(TabItem(full = true) { SectionHeader("POLAR ALIGNMENT") })
             add(TabItem { PaCard(state, ctrl) })
@@ -890,30 +890,9 @@ private fun PaCard(state: SimState, ctrl: SessionController) {
         Phosphor.Icon(Phosphor.Target, size = 20.dp, tint = c.accent400)
         Spacer(Modifier.height(5.dp))
         TextC("Polar align", style = t.Body135, color = c.text)
-        if (state.isRealRig) {
-            TextC(
-                state.wirePolarStage ?: if (state.polarRunning) "running…" else "not started",
-                style = t.MonoMicro, color = if (state.polarRunning) c.warn else c.textFaint,
-            )
-        } else {
-            TextC(
-                "${String.format("%.1f", state.paTotal)}′ total error",
-                style = t.MonoMicro, color = paColor(state),
-            )
-        }
-    }
-}
-
-/** Duplicated from `GearScreen.kt`'s own `paColor` (small, file-local, 8 lines) rather than
- * extracted to a shared file — [PaCard]'s fixture-mode summary needs the same 3-band coloring
- * as Gear's `RigChip` polar indicator; matches this codebase's existing tolerance for small
- * file-local duplication. */
-@Composable
-private fun paColor(state: SimState): Color {
-    val c = NocturneTheme.colors
-    return when {
-        state.paTotal < 1 -> c.ok
-        state.paTotal < 3 -> c.warn
-        else -> c.danger
+        TextC(
+            state.wirePolarStage ?: if (state.polarRunning) "running…" else "not started",
+            style = t.MonoMicro, color = if (state.polarRunning) c.warn else c.textFaint,
+        )
     }
 }
