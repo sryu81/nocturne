@@ -100,22 +100,38 @@ fun ControlsScreen(
                     SnapPanel(
                         tag = if (cam != null) "${"%.0f".format(cam.captureExposureN)} s · bin ${cam.captureBinHN} · ${cam.FilterPosCombo}" else "2 s · bin 2",
                         label = benchSnapLabel(real, state.snappedMain, state.wireCaptureStatus, "★ 1 482 · HFR 2.31 · ADU 1 093"),
-                        snapLabel = "Snap main",
+                        // "Preview Main Cam"/"Preview Guide Cam" (2026-08-23, user's own naming
+                        // call) — "Preview" matches real Ekos's own button label for this exact
+                        // action (camera.ui's previewB, tooltip "Capture a Preview...").
+                        snapLabel = "Preview Main Cam",
                         onSnap = ctrl::snapMain,
                         progress = progress,
                         onStop = { ctrl.setIndiSwitch(state.primaryTrain.camera, "CCD_ABORT_EXPOSURE", 0) },
+                        // All four in one row (2026-08-23, user report) rather than exposure/gain
+                        // on their own row above a second bin/filter row — BIN/FILTER get a
+                        // matching label above the chip so all four line up at the same box
+                        // height as EXP/GAIN's own labeled fields.
                         previewControls = cam?.let {
                             {
-                                PreviewParamRow(
-                                    exposure = it.captureExposureN, onExposureChange = ctrl::setCapturePreviewExposure,
-                                    gain = it.captureGainN, onGainChange = ctrl::setCapturePreviewGain,
-                                )
-                                Spacer(Modifier.height(8.dp))
+                                val cc = NocturneTheme.colors
+                                val tt = NocturneTheme.type
                                 Row(Modifier.fillMaxWidth()) {
-                                    BinCycleChip(it.captureBinHN, BIN_OPTIONS, labelOf = { "${it}x$it" }) { ctrl.setCapturePreviewBinning(it) }
+                                    MiniField("EXP", it.captureExposureN, "s", Modifier.weight(1f), ctrl::setCapturePreviewExposure)
                                     Spacer(Modifier.width(8.dp))
-                                    val filterNames = state.realFilterNames ?: FILTER_CYCLE
-                                    FilterCycleChip(it.FilterPosCombo, filterNames) { ctrl.setCameraFilter(it) }
+                                    MiniField("GAIN", it.captureGainN, "", Modifier.weight(1f), ctrl::setCapturePreviewGain)
+                                    Spacer(Modifier.width(8.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        TextC("BIN", style = tt.MonoMicro, color = cc.textMuted)
+                                        Spacer(Modifier.height(3.dp))
+                                        BinCycleChip(it.captureBinHN, BIN_OPTIONS, labelOf = { "${it}x$it" }, modifier = Modifier.fillMaxWidth()) { ctrl.setCapturePreviewBinning(it) }
+                                    }
+                                    Spacer(Modifier.width(8.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        TextC("FILTER", style = tt.MonoMicro, color = cc.textMuted)
+                                        Spacer(Modifier.height(3.dp))
+                                        val filterNames = state.realFilterNames ?: FILTER_CYCLE
+                                        FilterCycleChip(it.FilterPosCombo, filterNames, modifier = Modifier.fillMaxWidth()) { ctrl.setCameraFilter(it) }
+                                    }
                                 }
                             }
                         },
@@ -149,18 +165,28 @@ fun ControlsScreen(
                     SnapPanel(
                         tag = if (guide != null) "${"%.0f".format(guide.guideExposure)} s · bin ${guide.guideBinning}" else "guide cam",
                         label = benchSnapLabel(real, state.snappedGuide, state.wireGuideStatus, "★ 214 · SNR 18.4"),
-                        snapLabel = "Snap guide",
+                        snapLabel = "Preview Guide Cam",
                         onSnap = ctrl::snapGuide,
                         progress = progress,
                         onStop = guideCam?.let { cam -> { ctrl.setIndiSwitch(cam, "CCD_ABORT_EXPOSURE", 0) } },
+                        // Same one-row treatment as Primary camera's own preview row (2026-08-23,
+                        // user's own call to match) — no filter chip here, guide cameras have no
+                        // FilterPosCombo equivalent, so it's EXP/GAIN/BIN, three not four.
                         previewControls = guide?.let {
                             {
-                                PreviewParamRow(
-                                    exposure = it.guideExposure, onExposureChange = ctrl::setGuidePreviewExposure,
-                                    gain = it.guideGain, onGainChange = ctrl::setGuidePreviewGain,
-                                )
-                                Spacer(Modifier.height(8.dp))
-                                BinCycleChip(it.guideBinning, GUIDE_BIN_OPTIONS, labelOf = { it }) { ctrl.setGuidePreviewBinning(it) }
+                                val cc = NocturneTheme.colors
+                                val tt = NocturneTheme.type
+                                Row(Modifier.fillMaxWidth()) {
+                                    MiniField("EXP", it.guideExposure, "s", Modifier.weight(1f), ctrl::setGuidePreviewExposure)
+                                    Spacer(Modifier.width(8.dp))
+                                    MiniField("GAIN", it.guideGain, "", Modifier.weight(1f), ctrl::setGuidePreviewGain)
+                                    Spacer(Modifier.width(8.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        TextC("BIN", style = tt.MonoMicro, color = cc.textMuted)
+                                        Spacer(Modifier.height(3.dp))
+                                        BinCycleChip(it.guideBinning, GUIDE_BIN_OPTIONS, labelOf = { it }, modifier = Modifier.fillMaxWidth()) { ctrl.setGuidePreviewBinning(it) }
+                                    }
+                                }
                             }
                         },
                     )
@@ -293,16 +319,6 @@ private fun SnapPanel(
     }
 }
 
-/** Compact Exposure/Gain editors shared by [SnapPanel]'s primary/guide preview controls. */
-@Composable
-private fun PreviewParamRow(exposure: Double, onExposureChange: (Double) -> Unit, gain: Double, onGainChange: (Double) -> Unit) {
-    Row(Modifier.fillMaxWidth()) {
-        MiniField("EXP", exposure, "s", Modifier.weight(1f), onExposureChange)
-        Spacer(Modifier.width(8.dp))
-        MiniField("GAIN", gain, "", Modifier.weight(1f), onGainChange)
-    }
-}
-
 /**
  * Local `text` state, not a `value`-derived one — same clear-and-retype fix as `DegreeField`/
  * `IntField` in `Sheets.kt`: the old version rendered `"%.1f".format(value)` directly and only
@@ -346,13 +362,19 @@ private fun MiniField(label: String, value: Double, unit: String, modifier: Modi
     }
 }
 
-/** Tap-to-cycle binning chip shared by [SnapPanel]'s primary (`Int`, e.g. `1`/`2`/`3`/`4`) and guide (`String`, e.g. `"1x1"`) binning fields — real wire shapes differ (confirmed live), this stays generic over both. */
+/**
+ * Tap-to-cycle binning chip shared by [SnapPanel]'s primary (`Int`, e.g. `1`/`2`/`3`/`4`) and
+ * guide (`String`, e.g. `"1x1"`) binning fields — real wire shapes differ (confirmed live), this
+ * stays generic over both. [modifier] defaults to empty (natural content width, existing
+ * call sites' behavior unchanged) — pass `Modifier.fillMaxWidth()` when this needs to stretch to
+ * match a sibling's own full-width field, e.g. inside a `weight(1f)` column next to a `MiniField`.
+ */
 @Composable
-private fun <T> BinCycleChip(value: T, options: List<T>, labelOf: (T) -> String, onSelect: (T) -> Unit) {
+private fun <T> BinCycleChip(value: T, options: List<T>, labelOf: (T) -> String, modifier: Modifier = Modifier, onSelect: (T) -> Unit) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     Box(
-        Modifier
+        modifier
             .height(40.dp)
             .background(c.bg, RoundedCornerShape(4.dp))
             .border(1.dp, c.divider, RoundedCornerShape(4.dp))
@@ -373,12 +395,12 @@ private fun <T> BinCycleChip(value: T, options: List<T>, labelOf: (T) -> String,
  * with, independent of anything queued.
  */
 @Composable
-private fun FilterCycleChip(value: String, names: List<String>, onSelect: (String) -> Unit) {
+private fun FilterCycleChip(value: String, names: List<String>, modifier: Modifier = Modifier, onSelect: (String) -> Unit) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val idx = names.indexOf(value)
     Box(
-        Modifier
+        modifier
             .height(40.dp)
             .background(c.bg, RoundedCornerShape(4.dp))
             .border(1.dp, c.divider, RoundedCornerShape(4.dp))
