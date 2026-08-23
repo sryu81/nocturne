@@ -466,12 +466,14 @@ class EkosRemoteController(
 
         val syncJobId = pendingSyncJobId
         val syncName = pendingSyncName
+        var justSyncedJobId: String? = null
         if (syncJobId != null && syncName != null) {
             val idx = event.jobs.indexOfLast { it.name == syncName }
             if (idx >= 0) {
                 next = next.mapJob(syncJobId) { it.copy(synced = true, wireIndex = idx) }
                 pendingSyncJobId = null
                 pendingSyncName = null
+                justSyncedJobId = syncJobId
             }
         }
 
@@ -483,7 +485,7 @@ class EkosRemoteController(
                 next = next.mapJob(busyJobId) { it.copy(blocks = distributeCompleted(it.blocks, completed)) }
             }
         }
-        return reconcileSyncedJobStatus(next, event.jobs)
+        return reconcileSyncedJobStatus(next, event.jobs, skipJobId = justSyncedJobId)
     }
 
     /**
@@ -505,11 +507,31 @@ class EkosRemoteController(
      * ([SchedulerJobStatus.EVALUATION]/[SCHEDULED]/[BUSY]), the local job is reset to
      * unsynced/not-running — safe by construction: a job this app never itself marked `synced`
      * is never touched here at all.
+     *
+     * **Real bug found live (2026-08-23, same session this was first added)**: [applySchedulerJobs]
+     * calls this on *every* `scheduler_get_jobs` reply — including the exact one that confirms a
+     * just-added job (the `syncJobId`/`syncName` block right above, in the same function). At
+     * that instant the real job has been added but not yet told to start —
+     * [sendFollowUpCommands]'s own `SchedulerJobs` arm, reacting to this *same* event, is what
+     * actually sends `SCHEDULER_START_JOB`, but only runs *after* this state-reducer pass
+     * completes (`applyEvent` then `sendFollowUpCommands`, in that order, on every event — see
+     * the controller's own event-collection loop). So the real job's state here is still
+     * whatever "added but not started" is server-side (confirmed live: not one of the three
+     * active states above) — this function was un-syncing the very job the user just tapped to
+     * start, a few lines before the real start command even went out. Confirmed live via two
+     * cascading symptoms in one session: the header stuck showing "Paused" even though real Ekos
+     * had genuinely started the job, and — worse — a subsequent remove tap silently only removed
+     * the job locally ([removeJob] checks `synced == true` before sending any real command),
+     * leaving it running on the real Scheduler untouched. Fixed by never reconciling the one job
+     * that was *just* synced in this exact call ([skipJobId]) — it hasn't had a chance to reach
+     * an active real state yet by construction, and the very next `scheduler_get_jobs` reply
+     * (triggered by the `new_scheduler_state` push once the real start actually lands) reconciles
+     * it normally, correctly, once its real state has caught up.
      */
-    private fun reconcileSyncedJobStatus(s: SimState, realJobs: List<WireSchedulerJob>): SimState {
+    private fun reconcileSyncedJobStatus(s: SimState, realJobs: List<WireSchedulerJob>, skipJobId: String? = null): SimState {
         var next = s
         for (local in s.jobs) {
-            if (!local.synced) continue
+            if (!local.synced || local.id == skipJobId) continue
             val target = s.findTarget(local.targetId)
             val targetName = target?.common ?: target?.id ?: local.targetId
             val real = realJobs.firstOrNull { it.name == targetName }
