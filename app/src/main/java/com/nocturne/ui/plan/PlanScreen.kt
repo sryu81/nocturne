@@ -351,15 +351,7 @@ private fun TargetCard(state: SimState, ctrl: SessionController, tgt: Target) {
         BoxWithConstraints(
             Modifier
                 .fillMaxWidth()
-                .height(176.dp)
-                // Real bug found live (2026-08-22, user report): the whole Plan tab is one
-                // single scrolling column (see TabPane) — the chart has no scrollable content
-                // of its own, so a drag starting on it was just silently forwarded up to that
-                // outer page scroll, which could fling the *entire* tab (search bar down to the
-                // action buttons) far past the chart. Consuming drags here stops that — this
-                // area has nothing to swipe through, so there's nothing lost by absorbing the
-                // gesture instead of passing it up.
-                .pointerInput(Unit) { detectDragGestures(onDrag = { change, _ -> change.consume() }) },
+                .height(176.dp),
         ) {
             AltitudeChart(
                 Modifier.fillMaxSize(), realAltitudes = realAltitudes, realNowFraction = nowFraction,
