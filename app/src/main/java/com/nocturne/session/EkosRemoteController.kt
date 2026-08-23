@@ -551,10 +551,11 @@ class EkosRemoteController(
      * its other bootstrap fetches.
      *
      * **Safety exception, non-negotiable**: never touches the real Scheduler at all if any real
-     * job is [SchedulerJobStatus.BUSY] — actively imaging, real hardware in motion. A reconnect or
-     * app relaunch must never be able to silently abort a real overnight run. Every other real
-     * state (idle/scheduled/error/aborted/invalid/complete) is safe to clear — none of those mean
-     * anything is physically happening right now.
+     * job is in [ACTIVE_SCHEDULER_STATES] ([SchedulerJobStatus.EVALUATION]/[SCHEDULED]/[BUSY]) —
+     * Ekos has already committed to running it, whether or not the mount has physically moved
+     * yet. A reconnect or app relaunch must never be able to silently abort a real overnight run.
+     * Every other real state (idle/error/aborted/invalid/complete) is safe to clear — none of
+     * those mean Ekos is currently running or about to run anything.
      *
      * **Real bug found live (2026-08-22)**: this safety exception correctly left the BUSY job
      * alone, but never restored [schedulerRunning] — that field is a plain in-memory `var`, reset
@@ -570,6 +571,26 @@ class EkosRemoteController(
      * wiring at all" gap noted this session — a BUSY job unambiguously means the Scheduler is
      * running, so this exact branch is exactly where [schedulerRunning] must be resynced.
      *
+     * **Widened from BUSY-only to [ACTIVE_SCHEDULER_STATES] (2026-08-23, user report #8 —
+     * "restarting Ekos auto-resumed a stale queued job on its own")**: the original BUSY-only
+     * check left a real gap matching that report almost exactly. `kcfg_RememberJobProgress` is
+     * confirmed `true` on this rig (Scheduler-settings sheet), so a fresh Ekos start can pick a
+     * previously-queued job back up and run it through its own EVALUATION → SCHEDULED → BUSY
+     * pipeline entirely on its own, with no app involvement — and EVALUATION/SCHEDULED can sit
+     * for real seconds-to-minutes (twilight/altitude re-checks; see note #2's own
+     * "found not slewing, restarting" loop for how long a job can dwell short of BUSY). If the
+     * app's connect-time `scheduler_get_jobs` lands inside that window — a real possibility, since
+     * both the app's own reconnect and Ekos's own restart happen around the same time — the old
+     * check saw no BUSY job, concluded nothing was happening, and wiped Ekos's own in-progress
+     * resume out from under it via `scheduler_remove_jobs`, moments before it would have reached
+     * BUSY on its own. Nothing has physically moved yet at that point, but Ekos has already
+     * decided to run it — exactly the same "committed but not yet BUSY" shape as `a4202f7`'s own
+     * `reconcileSyncedJobStatus` race, which already treats EVALUATION/SCHEDULED as active for
+     * the same reason. This exception now matches that precedent instead of being narrower than
+     * it. **Not yet live-verified** — needs a real Ekos restart with a stale queued job, timed to
+     * land an app reconnect mid-EVALUATION/SCHEDULED, deliberately not attempted without asking
+     * first (real mount motion risk if the timing guess is wrong).
+     *
      * Otherwise: removes every real job (descending index — same reasoning as [finishNight],
      * removing ascending shifts every later index), resets local `synced`/`wireIndex` bookkeeping
      * (whatever it pointed to just got wiped, so a later [toggleJobRun] must not think a job is
@@ -579,7 +600,7 @@ class EkosRemoteController(
      * never supported more than one truly-live job at once.
      */
     private fun reconcileSchedulerJobs(realJobs: List<WireSchedulerJob>) {
-        if (realJobs.any { it.state == SchedulerJobStatus.BUSY }) {
+        if (realJobs.any { it.state in ACTIVE_SCHEDULER_STATES }) {
             schedulerRunning = true
             return
         }
