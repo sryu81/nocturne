@@ -74,12 +74,17 @@ abstract class AbstractLocalSessionController : SessionController {
         applied.copy(pendingFlipConfirm = null)
     }
 
+    /**
+     * Always creates a new job, even if one already exists for this target — real user need,
+     * found live (2026-08-23): the same target can want more than one queued job with a different
+     * session profile (filters, exposures). Used to dedupe by `targetId` and just reopen the
+     * existing job instead — real Ekos itself has no notion of "job per target" either (only a
+     * `name` per job), so nothing on the real side required this restriction; it was purely this
+     * app's own local model being stricter than it needed to be. See [SimState.targetNameFor]'s
+     * own per-job suffix for how multiple jobs on the same target avoid colliding on Ekos's own
+     * name once pushed.
+     */
     override fun addToSequence(targetId: String) {
-        val existing = _state.value.jobs.firstOrNull { it.targetId == targetId }
-        if (existing != null) {
-            update { it.copy(activeJobId = existing.id, openBlockId = null) }
-            return
-        }
         update { s ->
             val block = Block(
                 id = "b1", filter = FILTER_CYCLE.first(), exposureSec = 300, subCount = 10, doneCount = 0,

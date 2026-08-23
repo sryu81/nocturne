@@ -234,11 +234,24 @@ private fun JobDetailScreen(
             TabItem(full = true) { BlocksList(state, ctrl, job) },
             TabItem(full = true) {
                 if (job.synced) {
-                    TextC(
-                        "Synced to Ekos Scheduler — stop the sequence to edit blocks again",
-                        style = NocturneTheme.type.MonoMicro, color = NocturneTheme.colors.textFaint,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                    )
+                    val c = NocturneTheme.colors
+                    // Same always-visible warning-banner style as ConnectScreen's "No
+                    // authentication" notice (2026-08-23, user feedback: the old plain gray
+                    // caption text here was too easy to miss).
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(c.warn.copy(alpha = 0.1f), RoundedCornerShape(10.dp))
+                            .border(1.dp, c.warn.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+                            .padding(12.dp),
+                    ) {
+                        Phosphor.Icon(Phosphor.Warning, size = 16.dp, tint = c.warn)
+                        Spacer(Modifier.width(10.dp))
+                        TextC(
+                            "Synced to Ekos Scheduler — remove it from Ekos to edit blocks again.",
+                            style = NocturneTheme.type.Caption, color = c.warn,
+                        )
+                    }
                 } else {
                     Box(
                         Modifier
