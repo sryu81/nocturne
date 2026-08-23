@@ -1209,6 +1209,32 @@ private fun aboveThresholdSeconds(t0: Long, t1: Long, a0: Double, a1: Double, lo
     }
 }
 
+/**
+ * Real peak altitude + its instant, restricted to tonight's real dusk-to-dawn window — as opposed
+ * to `riseset.altitudes.maxOrNull()` (the target's absolute *daily* peak, which can fall during
+ * broad daylight for a target whose transit doesn't land at night). User-found confusion
+ * (2026-08-22): pairing that daytime peak's "max 86° @ 15:39" with an honestly-computed
+ * "0h 00m usable" (see [realUsableSeconds] — that target genuinely never climbs back above 40°
+ * before dawn) read as contradictory, even though both numbers were individually correct —
+ * confirmed live against raw wire data down to the minute. This is the fix: a "max"/"peak" that's
+ * restricted to the same real dark window [realUsableSeconds] already is, so the two numbers on
+ * the card can never again look like they disagree. Sample-resolution only (30 min, no
+ * interpolation) — same simplicity level the original whole-day max/peak already had (a bare
+ * `maxOrNull()`/`riseset.transit`, no interpolation there either). Null if no real night window is
+ * known, or [riseset] has no altitude samples.
+ */
+fun SimState.realNightMaxAltitude(riseset: WireRiseset): Pair<Double, Instant>? {
+    val dayStart = realDayWindow?.first ?: return null
+    val night = realNightWindow ?: return null
+    if (riseset.altitudes.isEmpty()) return null
+    val stepSec = 1800L
+    return riseset.altitudes.withIndex()
+        .map { (i, alt) -> alt to dayStart.plusSeconds(i * stepSec) }
+        .filter { (_, t) -> !t.isBefore(night.first) && !t.isAfter(night.second) }
+        .maxByOrNull { (alt, _) -> alt }
+        ?.let { (alt, t) -> alt to t }
+}
+
 /** Real fraction of [realDayWindow] elapsed right now — always defined once the window is (by construction, "now" sits within ±12h of its own nearest midnight). */
 val SimState.realDayFraction: Double? get() {
     val (start, end) = realDayWindow ?: return null

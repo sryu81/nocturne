@@ -48,6 +48,7 @@ import com.nocturne.session.formatSiteTime
 import com.nocturne.session.realDayFraction
 import com.nocturne.session.realDayWindow
 import com.nocturne.session.realLookupName
+import com.nocturne.session.realNightMaxAltitude
 import com.nocturne.session.realNightWindow
 import com.nocturne.session.realUsableSeconds
 import java.time.Instant
@@ -323,8 +324,22 @@ private fun TargetCard(state: SimState, ctrl: SessionController, tgt: Target) {
     val realAltitudes = riseset?.altitudes?.takeIf { it.size >= 2 }
     val nowFraction = if (real) state.realDayFraction else null
     val window = if (real) state.realDayWindow else null
-    val maxAlt = riseset?.altitudes?.maxOrNull()?.let { kotlin.math.round(it).toInt() } ?: tgt.max
-    val peak = riseset?.transit ?: tgt.peak
+    // Real max/peak restricted to tonight's real dark window (see realNightMaxAltitude's own
+    // doc) — fixes a user-found confusion where the absolute *daily* peak could fall during
+    // broad daylight, pairing e.g. "max 86° @ 15:39" with a correctly-computed "0h 00m usable"
+    // that read as contradictory. Only actually *overrides* the whole-day max/peak when the two
+    // disagree (the daily peak sample itself falls outside tonight's window) — when the real
+    // transit already happens at night (the common case), this stays out of the way and keeps
+    // real Ekos's own precise transit time/max instead of degrading to this fallback's coarser
+    // 30-min-sample resolution (confirmed live: NGC 7000's real "00:03" transit briefly became a
+    // less-precise "00:00" here before this check, for a target that never needed the override).
+    val dayMaxAlt = riseset?.altitudes?.maxOrNull()
+    val nightMax = riseset?.let { state.realNightMaxAltitude(it) }
+    val peakAlreadyAtNight = dayMaxAlt != null && nightMax != null && kotlin.math.abs(dayMaxAlt - nightMax.first) < 0.05
+    val maxAlt = if (peakAlreadyAtNight) dayMaxAlt?.let { kotlin.math.round(it).toInt() }
+        else nightMax?.first?.let { kotlin.math.round(it).toInt() } ?: dayMaxAlt?.let { kotlin.math.round(it).toInt() } ?: tgt.max
+    val peak = if (peakAlreadyAtNight) (riseset?.transit ?: tgt.peak)
+        else nightMax?.second?.let { state.formatSiteTime(it) } ?: riseset?.transit ?: tgt.peak
     val usable = riseset?.let { state.realUsableSeconds(it) }?.let { formatHm(it) } ?: tgt.usable
     // Real dusk/dawn (same source as the Session tab's night arc) expressed as fractions of this
     // chart's own day window, so they land on the same x-axis realNowFraction/the curve itself
