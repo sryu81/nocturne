@@ -42,8 +42,8 @@ import com.nocturne.session.totalDone
 import com.nocturne.session.totalPlannedSec
 import com.nocturne.session.totalSubs
 import com.nocturne.ui.components.Card
-import com.nocturne.ui.components.HatchBg
 import com.nocturne.ui.components.IconBtn
+import com.nocturne.ui.components.MediaFramePreview
 import com.nocturne.ui.components.NightArc
 import com.nocturne.ui.components.NocturneButton
 import com.nocturne.ui.components.TabItem
@@ -217,16 +217,24 @@ private fun NightArcCard(state: SimState) {
 }
 
 /**
- * A real `capture_preview` is triggerable but the resulting image/HFR/ADU numbers arrive over the
- * Media channel, which doesn't exist yet (M4, `MediaChannel` is a stub) — so the honest thing to
- * show is that gap, not a fabricated readout. Same idiom as `ControlsScreen.kt`'s `benchSnapLabel`.
+ * Fallback line while no real frame has arrived yet — real ones do now (M4.2, `latestCaptureFrame`,
+ * routed off `/media/ekos`'s `uuid == ""` frames). No per-sub index/HFR/ADU exists on the wire at
+ * all (confirmed against source, docs/M4-plan.md) — the header's own real `exposure`/`gain` are
+ * shown instead of a fabricated "SUB 013"-style counter once a frame lands.
  */
-private const val SUB_PREVIEW_LINE = "no live preview yet — needs the Media channel, M4"
+private const val SUB_PREVIEW_LINE = "no live preview yet — waiting on a real capture"
+
+/** e.g. "300s · g100" from the frame header's own real fields — null pieces are dropped, not guessed. */
+private fun SimState.captureFrameTag(): String? {
+    val h = latestCaptureFrame?.header ?: return null
+    return listOfNotNull(h.exposure?.let { "${it}s" }, h.gain?.let { "g$it" }).joinToString(" · ").ifBlank { null }
+}
 
 @Composable
 private fun SubPreview(state: SimState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
+    val frame = state.latestCaptureFrame
     Box(
         Modifier
             .fillMaxWidth()
@@ -235,15 +243,19 @@ private fun SubPreview(state: SimState, ctrl: SessionController) {
             .background(c.surfaceDeep)
             .border(1.dp, c.divider, RoundedCornerShape(14.dp)),
     ) {
-        HatchBg(Modifier.fillMaxSize())
-        Row(
-            Modifier
-                .align(Alignment.TopStart)
-                .padding(8.dp),
-        ) {
-            ChipTag("SUB 013", accent = true)
-            Spacer(Modifier.width(6.dp))
-            ChipTag("Ha 300s g100", accent = false)
+        MediaFramePreview(frame, Modifier.fillMaxSize())
+        if (frame != null) {
+            Row(
+                Modifier
+                    .align(Alignment.TopStart)
+                    .padding(8.dp),
+            ) {
+                ChipTag("CAPTURE", accent = true)
+                state.captureFrameTag()?.let {
+                    Spacer(Modifier.width(6.dp))
+                    ChipTag(it, accent = false)
+                }
+            }
         }
         Row(
             Modifier
@@ -252,10 +264,14 @@ private fun SubPreview(state: SimState, ctrl: SessionController) {
                 .fillMaxWidth(),
             verticalAlignment = Alignment.Bottom,
         ) {
-            TextC(
-                SUB_PREVIEW_LINE,
-                style = t.MonoMid, color = c.textDim, modifier = Modifier.weight(1f),
-            )
+            if (frame == null) {
+                TextC(
+                    SUB_PREVIEW_LINE,
+                    style = t.MonoMid, color = c.textDim, modifier = Modifier.weight(1f),
+                )
+            } else {
+                Spacer(Modifier.weight(1f))
+            }
             IconBtn(icon = Phosphor.ArrowsOut, onClick = ctrl::openSubPreview, size = 30)
         }
     }
@@ -267,6 +283,7 @@ fun SubPreviewOverlay(state: SimState, onDismiss: () -> Unit) {
     androidx.activity.compose.BackHandler(onBack = onDismiss)
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
+    val frame = state.latestCaptureFrame
     Box(
         Modifier
             .fillMaxSize()
@@ -277,15 +294,19 @@ fun SubPreviewOverlay(state: SimState, onDismiss: () -> Unit) {
                 onClick = onDismiss,
             ),
     ) {
-        HatchBg(Modifier.fillMaxSize())
-        Row(
-            Modifier
-                .align(Alignment.TopStart)
-                .padding(16.dp),
-        ) {
-            ChipTag("SUB 013", accent = true)
-            Spacer(Modifier.width(6.dp))
-            ChipTag("Ha 300s g100", accent = false)
+        MediaFramePreview(frame, Modifier.fillMaxSize())
+        if (frame != null) {
+            Row(
+                Modifier
+                    .align(Alignment.TopStart)
+                    .padding(16.dp),
+            ) {
+                ChipTag("CAPTURE", accent = true)
+                state.captureFrameTag()?.let {
+                    Spacer(Modifier.width(6.dp))
+                    ChipTag(it, accent = false)
+                }
+            }
         }
         IconBtn(
             icon = Phosphor.X,
@@ -293,11 +314,13 @@ fun SubPreviewOverlay(state: SimState, onDismiss: () -> Unit) {
             size = 34,
             modifier = Modifier.align(Alignment.TopEnd).padding(16.dp),
         )
-        TextC(
-            SUB_PREVIEW_LINE,
-            style = t.Mono17, color = c.textDim,
-            modifier = Modifier.align(Alignment.BottomStart).padding(16.dp),
-        )
+        if (frame == null) {
+            TextC(
+                SUB_PREVIEW_LINE,
+                style = t.Mono17, color = c.textDim,
+                modifier = Modifier.align(Alignment.BottomStart).padding(16.dp),
+            )
+        }
     }
 }
 
@@ -315,14 +338,20 @@ private fun ChipTag(text: String, accent: Boolean) {
     }
 }
 
-/** No real HFR/RMS/SNR numbers exist anywhere on the wire yet — genuinely blocked on the Media channel (M4). */
+/**
+ * HFR (M4.2) comes from the real capture frame header's own `hfr` field — real, once a frame has
+ * landed. RMS/SNR stay honest placeholders: confirmed against source (docs/M4-plan.md "Guide/Focus
+ * real telemetry does not exist on this protocol") that `new_guide_state` never carries either
+ * value, on this or any future Media-channel work — not a "not yet wired" gap, a permanent one.
+ */
 @Composable
 private fun StatsRow(state: SimState, ctrl: SessionController) {
+    val hfr = state.latestCaptureFrame?.header?.hfr
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
         MiniStat(
             label = "HFR",
-            value = "—",
-            sub = "not available (M4)",
+            value = hfr?.let { "%.2f".format(it) } ?: "—",
+            sub = if (hfr == null) "not available yet" else null,
             subColor = NocturneTheme.colors.textFaint,
             onClick = { ctrl.openSheet(SheetType.FOCUS) },
             modifier = Modifier.weight(1f),
@@ -331,7 +360,7 @@ private fun StatsRow(state: SimState, ctrl: SessionController) {
         MiniStat(
             label = "RMS",
             value = "—",
-            sub = "not available (M4)",
+            sub = "no wire telemetry",
             subColor = NocturneTheme.colors.textFaint,
             onClick = { ctrl.openSheet(SheetType.GUIDE) },
             modifier = Modifier.weight(1f),
@@ -340,7 +369,7 @@ private fun StatsRow(state: SimState, ctrl: SessionController) {
         MiniStat(
             label = "SNR",
             value = "—",
-            sub = "not available (M4)",
+            sub = "no wire telemetry",
             subColor = NocturneTheme.colors.textMuted,
             modifier = Modifier.weight(1f),
         )

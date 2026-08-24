@@ -71,20 +71,16 @@ import com.nocturne.session.eafTemp
 import com.nocturne.session.benchFocPos
 import com.nocturne.session.realSlewRateProp
 import com.nocturne.session.focusNextAfMin
-import com.nocturne.session.guideStarSnr
-import com.nocturne.session.rms
 import com.nocturne.session.train
 import com.nocturne.session.trainRolePool
-import com.nocturne.session.wiggle
-import com.nocturne.ui.components.GuideTraceChart
 import com.nocturne.ui.components.HDivider
 import com.nocturne.ui.components.HatchBg
 import com.nocturne.ui.components.IconBtn
+import com.nocturne.ui.components.MediaFramePreview
 import com.nocturne.ui.components.NocturneButton
 import com.nocturne.ui.components.NocturneSheet
 import com.nocturne.ui.components.SwitchRow
 import com.nocturne.ui.components.TextC
-import com.nocturne.ui.components.VCurve
 import com.nocturne.ui.icons.Phosphor
 import com.nocturne.ui.theme.NocturnePalette
 import com.nocturne.ui.theme.NocturneTheme
@@ -107,8 +103,8 @@ fun SheetHost(state: SimState, ctrl: SessionController, landscape: Boolean) {
     val sheet = state.sheet ?: return
     val full = sheet == SheetType.PA || sheet == SheetType.SETUP
     val (title, meta) = when (sheet) {
-        SheetType.GUIDE -> "Guiding" to "last 2 min"
-        SheetType.FOCUS -> "Focus" to "V-curve · 9 points"
+        SheetType.GUIDE -> "Guiding" to "status + live frame"
+        SheetType.FOCUS -> "Focus" to "status + live frame"
         SheetType.ALERTS -> "Alerts" to "tonight"
         // Real dusk/dawn (same `state.realNightWindow` source as `NightArcCard`'s Session-tab
         // fix, M2026-08) once it's arrived; falls back to the fixture literal before the fetch
@@ -188,71 +184,83 @@ fun SheetHost(state: SimState, ctrl: SessionController, landscape: Boolean) {
 
 // ── Guide ────────────────────────────────────────────────────────────────
 
+/**
+ * M4.4 — the fixture RA/DEC trace + RMS/PEAK/SNR stat row are gone, not deferred: confirmed
+ * against source (`Message::updateGuideStatus`, `message.cpp:2598-2601` and the two inline
+ * `new_guide_state` construction sites, `:2670-2677`/`:2910-2918`) that a real push is *always*
+ * `{"status": string}` alone — no RA/DEC drift, RMS, or SNR value exists on this wire protocol at
+ * all, for any device, ever. Not something a future Media-channel pass unlocks either. What's
+ * real instead: the status string itself, and the guide camera's own frame image (M4.2).
+ */
 @Composable
 private fun GuideSheet(state: SimState) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
-    val raTrace = wiggle(state.t, 3, 90, 22.0)
-    val decTrace = wiggle(state.t, 41, 90, 14.0)
-    // wiggle()'s amplitude is chart-pixel space (GuideTraceChart's 108-unit viewBox,
-    // center-to-edge = 54 units), calibrated to the chart's own "±2″ scale" label —
-    // convert to arcsec before treating it as a real stat, not a raw pixel deviation.
-    val peak = (raTrace + decTrace).maxOf { kotlin.math.abs(it) } * (2.0 / 54.0)
+    val guide = state.wireGuideSettings
     Column {
         Panel {
-            GuideTraceChart(
-                ra = raTrace,
-                dec = decTrace,
-                modifier = Modifier.fillMaxWidth().height(108.dp),
-            )
-            Row(Modifier.padding(top = 6.dp)) {
-                TextC("— RA 0.41″", style = t.MonoMicro, color = c.accent400)
-                Spacer(Modifier.width(14.dp))
-                TextC("— DEC 0.26″", style = t.MonoMicro, color = c.info)
-                Spacer(Modifier.width(14.dp))
-                TextC("±2″ scale", style = t.MonoMicro, color = c.textMuted)
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(4f / 3f)
+                    .background(c.surfaceDeep, RoundedCornerShape(8.dp)),
+            ) {
+                MediaFramePreview(state.latestGuideFrame, Modifier.fillMaxSize(), hatchColor = c.surfaceRaised)
             }
-        }
-        Spacer(Modifier.height(11.2.dp))
-        Row(Modifier.fillMaxWidth()) {
-            Stat("TOTAL RMS", String.format("%.2f", state.rms) + "″", Modifier.weight(1f))
-            Spacer(Modifier.width(8.4.dp))
-            Stat("PEAK", String.format("%.2f", peak) + "″", Modifier.weight(1f))
-            Spacer(Modifier.width(8.4.dp))
-            Stat("STAR SNR", String.format("%.0f", state.guideStarSnr), Modifier.weight(1f))
+            Spacer(Modifier.height(10.dp))
+            TextC(
+                state.wireGuideStatus?.let { "status: $it" } ?: "no status yet",
+                style = t.Mono17, color = c.text,
+            )
         }
         Spacer(Modifier.height(11.2.dp))
         TextC(
-            "2.1 px/″ · 2s exposure · aggr RA 70 / DEC 60 · backlash comp on",
-            style = t.MonoSmall, color = c.neutral500,
+            "No RA/DEC drift, RMS, or SNR data exists on this wire protocol (confirmed against source) — real Ekos itself only reports guide status text over EkosRemote, not the plotted numbers its own desktop chart shows.",
+            style = t.MonoMicro, color = c.textMuted,
         )
+        if (guide != null) {
+            Spacer(Modifier.height(11.2.dp))
+            TextC(
+                "${"%.0f".format(guide.guideExposure)}s exposure · g${"%.0f".format(guide.guideGain)} · bin ${guide.guideBinning}",
+                style = t.MonoSmall, color = c.neutral500,
+            )
+        }
     }
 }
 
 // ── Focus ────────────────────────────────────────────────────────────────
 
+/**
+ * M4.4 — the fixture hardcoded 9-point V-curve is gone, not deferred: same permanent-gap
+ * reasoning as [GuideSheet] — real `new_focus_state` is `{"status": string}` alone (confirmed
+ * against source), no V-curve position/HFR series rides on it. What's real instead: the status
+ * string, the real HFR off the focus camera's own latest frame header (M4.2), and POSITION/
+ * TEMP Δ/NEXT AF below, which were already real (`focPos`/`eafTemp`/`focusNextAfMin`).
+ */
 @Composable
 private fun FocusSheet(state: SimState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val tempDelta = state.eafTemp - state.focusTempAtLastAf
+    val hfr = state.latestFocusFrame?.header?.hfr
     Column {
         Panel {
-            VCurve(modifier = Modifier.fillMaxWidth().height(130.dp))
-            Box(Modifier.fillMaxWidth().padding(top = 4.dp)) {
-                TextC(
-                    "${state.focusLastBestPos - 240}", style = t.MonoMicro, color = c.textMuted,
-                    modifier = Modifier.align(Alignment.CenterStart),
-                )
-                TextC(
-                    "best ${state.focusLastBestPos} · HFR ${"%.2f".format(state.focusLastHfr)}",
-                    style = t.MonoMicro, color = c.text, modifier = Modifier.align(Alignment.Center),
-                )
-                TextC(
-                    "${state.focusLastBestPos + 240}", style = t.MonoMicro, color = c.textMuted,
-                    modifier = Modifier.align(Alignment.CenterEnd),
-                )
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(4f / 3f)
+                    .background(c.surfaceDeep, RoundedCornerShape(8.dp)),
+            ) {
+                MediaFramePreview(state.latestFocusFrame, Modifier.fillMaxSize(), hatchColor = c.surfaceRaised)
             }
+            Spacer(Modifier.height(10.dp))
+            TextC(
+                listOfNotNull(
+                    state.wireFocusStatus?.let { "status: $it" } ?: "no status yet",
+                    hfr?.let { "HFR %.2f".format(it) },
+                ).joinToString(" · "),
+                style = t.Mono17, color = c.text,
+            )
         }
         Spacer(Modifier.height(11.2.dp))
         Row(Modifier.fillMaxWidth()) {
@@ -1842,6 +1850,38 @@ private fun PaRealSheet(state: SimState, ctrl: SessionController) {
             state.wirePolarMessage ?: "Put the mount either in the home position pointed toward the celestial pole, or pointed anywhere near the meridian, then tap Start.",
             style = t.Body13, color = c.textMuted,
         )
+        // Real align-solve frame (M4.2) — PAH drives its own align solves internally; this is
+        // the same imagery real Ekos's own PAH wizard shows. No directional correction-vector
+        // arrow drawn over it (M4.4) — Qt's QLineF::angle() rotation convention behind
+        // wirePolarVector's pa/mag isn't confirmed against a live solve, so it's not guessed;
+        // the real numeric error fields below it are shown instead, not fabricated.
+        Spacer(Modifier.height(14.dp))
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .aspectRatio(4f / 3f)
+                .background(c.surfaceDeep, RoundedCornerShape(8.dp)),
+        ) {
+            MediaFramePreview(state.latestAlignFrame, Modifier.fillMaxSize(), hatchColor = c.surfaceRaised)
+        }
+        // Real polar error numbers (M4.4) — updatedError/Az/Alt arrive after a correction slew
+        // (setUpdatedErrors); vector.error/azError/altError arrive with the solve itself
+        // (setPolarResults) — shown together, most-recent-of-either-shape wins per field already
+        // (SimState's own merge-not-overwrite). Unit confirmed degrees, not arcmin
+        // (PolarAlignmentAssistant emits `.Degrees()` — polaralignmentassistant.cpp:433,1019).
+        // `-1` is the real "not yet computed" sentinel (polaralignmentassistant.cpp:202,574),
+        // filtered here rather than shown as a fake near-zero error.
+        val azErr = (state.wirePolarUpdatedAzError ?: state.wirePolarVector?.azError)?.takeIf { it >= 0 }
+        val altErr = (state.wirePolarUpdatedAltError ?: state.wirePolarVector?.altError)?.takeIf { it >= 0 }
+        val totalErr = (state.wirePolarUpdatedError ?: state.wirePolarVector?.error)?.takeIf { it >= 0 }
+        if (azErr != null || altErr != null || totalErr != null) {
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.fillMaxWidth()) {
+                totalErr?.let { TextC("total %.2f°".format(it), style = t.MonoMid, color = c.text, modifier = Modifier.weight(1f)) }
+                azErr?.let { TextC("az %.2f°".format(it), style = t.MonoMid, color = c.textMuted, modifier = Modifier.weight(1f)) }
+                altErr?.let { TextC("alt %.2f°".format(it), style = t.MonoMid, color = c.textMuted, modifier = Modifier.weight(1f)) }
+            }
+        }
         Spacer(Modifier.height(20.dp))
         TextC(
             "Real PAH drives its own mount rotation sequence once started — watch the mount. Stop cancels immediately, mid-motion if it's already rotating.",

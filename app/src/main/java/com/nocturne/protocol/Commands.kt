@@ -96,4 +96,8 @@ object Commands {
     const val GUIDE_STOP = "guide_stop"
     const val POLAR_START = "polar_start"
     const val POLAR_STOP = "polar_stop"
+
+    // M4.1 — Media channel. Payload is a bare boolean, not an object-wrapped one like every
+    // other command here — see MediaChannel/EkosRemoteClient call sites.
+    const val SET_BLOBS = "set_blobs"
 }

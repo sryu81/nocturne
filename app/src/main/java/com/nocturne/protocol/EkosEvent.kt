@@ -57,17 +57,31 @@ sealed interface EkosEvent {
     data class NewAlignState(val status: String) : EkosEvent
 
     /**
-     * `new_polar_state` push. Real pushes arrive as independent **partial** shapes "scattered
-     * across several functions" per the protocol reference — `{"stage"}` alone, `{"message"}`
-     * alone, `{"vector": {...}}`, `{"updatedError",...}`, `{"enabled"}` alone, never all three of
-     * these fields at once. All three fields need defaults for that reason — without them, every
-     * partial real payload fails to decode (missing required field) and silently degrades to
-     * [Raw], meaning `wirePolarStage` never actually updates on a real rig. Caught before ever
-     * shipping real Polar Alignment wiring, not found via a live bug — same category of mistake
-     * as [WireAlignSettings]'s `alignBinning` type fix, just caught by inspection this time.
+     * `new_polar_state` push. Real pushes arrive as independent **partial** shapes, confirmed
+     * against the 5 real sender functions in `message.cpp` (`Message::setPAHStage`/
+     * `setPAHMessage`/`setPolarResults`/`setUpdatedErrors`/`setPAHEnabled`) — `{"stage"}` alone,
+     * `{"message"}` alone, `{"vector": {...}}` alone, `{"updatedError","updatedAZError",
+     * "updatedALTError"}` alone (top-level, NOT nested under `vector`), `{"enabled"}` alone,
+     * never combined. Every field needs a default for that reason — without one, every partial
+     * real payload fails to decode (missing required field) and silently degrades to [Raw].
+     * [vector]'s own fields (`setPolarResults`, `message.cpp:1222-1243`) describe the real
+     * correction-vector line Ekos itself overlays on the align image: `center_x`/`center_y` are
+     * the vector's midpoint in the *native* align-frame's own pixel space (matches
+     * [MediaHeader.resolution], not the on-screen scaled size), `mag`/`pa` its length/angle
+     * (`QLineF::length()`/`QLineF::angle()` — Qt's own rotation convention here isn't confirmed
+     * against a live solve, so no directional arrow is drawn from this yet, only the numeric
+     * error fields — see [com.nocturne.session.SimState] doc).
      */
     @Serializable
-    data class NewPolarState(val stage: String? = null, val enabled: Boolean? = null, val message: String? = null) : EkosEvent
+    data class NewPolarState(
+        val stage: String? = null,
+        val enabled: Boolean? = null,
+        val message: String? = null,
+        val vector: WirePolarVector? = null,
+        val updatedError: Double? = null,
+        val updatedAZError: Double? = null,
+        val updatedALTError: Double? = null,
+    ) : EkosEvent
 
     /**
      * `new_scheduler_state` push — same "independent partial shapes" pattern as [NewPolarState]:
@@ -265,9 +279,35 @@ sealed interface EkosEvent {
     @Serializable
     data class SchedulerSettings(val settings: WireSchedulerSettings) : EkosEvent
 
+    /**
+     * `new_camera_state` push (`Message::sendTemperature`, `message.cpp:438-449`) — real per-device
+     * temperature telemetry. **Not** `new_temperature`: that command name is declared in
+     * `commands.h` but never actually sent anywhere in `message.cpp` — confirmed dead, same class
+     * as the already-known `mount_clear`/`device_restart`/`device_blob_get` dead entries (README §8).
+     */
+    @Serializable
+    data class NewCameraState(val name: String, val temperature: Double) : EkosEvent
+
     /** Anything not decoded above — unrecognized `type`, or a shape that failed to parse. */
     data class Raw(val type: String, val payload: JsonElement) : EkosEvent
 }
+
+/**
+ * `new_polar_state`'s `vector` field (`Message::setPolarResults`, `message.cpp:1222-1243`) — the
+ * real correction-vector line Ekos overlays on its own align image. All fields nullable/defaulted
+ * since [EkosEvent.NewPolarState] itself models 5 independently-partial real payload shapes and
+ * this one is never combined with the others.
+ */
+@Serializable
+data class WirePolarVector(
+    @SerialName("center_x") val centerX: Double? = null,
+    @SerialName("center_y") val centerY: Double? = null,
+    val mag: Double? = null,
+    val pa: Double? = null,
+    val error: Double? = null,
+    val azError: Double? = null,
+    val altError: Double? = null,
+)
 
 /**
  * `ProfileInfo::toJson()` (`profileinfo.cpp:135`) — trimmed to the fields M3

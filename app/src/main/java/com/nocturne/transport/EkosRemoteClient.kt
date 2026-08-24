@@ -3,6 +3,7 @@ package com.nocturne.transport
 import com.nocturne.protocol.Commands
 import com.nocturne.protocol.EkosEvent
 import com.nocturne.protocol.EkosEventCodec
+import com.nocturne.protocol.MediaFrame
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -16,6 +17,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import okhttp3.OkHttpClient
@@ -23,10 +25,14 @@ import java.time.Duration
 import kotlin.math.min
 
 /**
- * Owns the Message channel + reconnect state machine. Client owns 100% of
- * reconnect/backoff — the server "just accepts whatever connects to the two
- * paths" (EkosRemote-Client-Guide.md §"Practical notes"). Media channel is
- * not opened here in M2 (see [MediaChannel]).
+ * Owns the Message + Media channels and their shared reconnect state
+ * machine. Client owns 100% of reconnect/backoff — the server "just accepts
+ * whatever connects to the two paths" (EkosRemote-Client-Guide.md §"Practical
+ * notes"). Media channel opens/closes/reconnects in lockstep with Message
+ * (both attempts fire from the same [connect]/[scheduleReconnect] call sites)
+ * — an independent Media-only drop (Message stays healthy) won't trigger its
+ * own reconnect; accepted gap for M4.1, same class as the missing app-level
+ * staleness timer noted below.
  */
 class EkosRemoteClient(
     val host: String,
@@ -42,6 +48,7 @@ class EkosRemoteClient(
         .build()
 
     private val messageChannel = MessageChannel(okHttpClient, "ws://$host:$port/message/ekos")
+    private val mediaChannel = MediaChannel(okHttpClient, "ws://$host:$port/media/ekos")
 
     private val _connectionStatus = MutableStateFlow(ConnectionStatus(ConnectionState.DISCONNECTED, host))
     val connectionStatus: StateFlow<ConnectionStatus> = _connectionStatus.asStateFlow()
@@ -49,12 +56,15 @@ class EkosRemoteClient(
     private val _events = MutableSharedFlow<EkosEvent>(extraBufferCapacity = 64)
     val events: SharedFlow<EkosEvent> = _events.asSharedFlow()
 
+    /** Latest-frame-wins media stream — [MediaChannel] already drops stale intermediates. */
+    val mediaFrames: SharedFlow<MediaFrame> = mediaChannel.frames
+
     private var reconnectJob: Job? = null
     private var backoffAttempt = 0
 
     init {
         // Persistent collectors for the lifetime of this client — reconnects
-        // just reopen the same MessageChannel, no need to relaunch these.
+        // just reopen the same channels, no need to relaunch these.
         scope.launch {
             messageChannel.socketEvents.collect { event ->
                 when (event) {
@@ -67,6 +77,16 @@ class EkosRemoteClient(
         scope.launch {
             messageChannel.inbound.collect { text -> onEvent(EkosEventCodec.decode(text)) }
         }
+        scope.launch {
+            mediaChannel.socketEvents.collect { event ->
+                // set_blobs does NOT persist across a reconnect (confirmed against source, see
+                // docs/M4-plan.md) — re-send it explicitly every time this socket opens, rather
+                // than relying on the server's own "blobs enabled by default" behavior.
+                if (event is MediaChannel.SocketEvent.Open) {
+                    mediaChannel.send(EkosEventCodec.encode(Commands.SET_BLOBS, JsonPrimitive(true)))
+                }
+            }
+        }
     }
 
     /** Fresh, user-initiated connect attempt — resets backoff. */
@@ -75,12 +95,14 @@ class EkosRemoteClient(
         backoffAttempt = 0
         _connectionStatus.update { it.copy(state = ConnectionState.CONNECTING, lastError = null) }
         messageChannel.open()
+        mediaChannel.open()
     }
 
     fun disconnect() {
         reconnectJob?.cancel()
         sendCommand(Commands.SET_CLIENT_STATE, buildJsonObject { put("state", false) })
         messageChannel.close()
+        mediaChannel.close()
         _connectionStatus.update { it.copy(state = ConnectionState.DISCONNECTED) }
     }
 
@@ -176,6 +198,7 @@ class EkosRemoteClient(
         reconnectJob = scope.launch {
             delay(delayMs)
             messageChannel.open()
+            mediaChannel.open()
         }
     }
 }

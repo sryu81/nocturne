@@ -251,57 +251,12 @@ fun AltitudeChart(
     }
 }
 
-/** Guide sheet RA/DEC traces (viewBox 344×108, stretched). */
-@Composable
-fun GuideTraceChart(ra: List<Double>, dec: List<Double>, modifier: Modifier) {
-    val colors = com.nocturne.ui.theme.NocturneTheme.colors
-    Canvas(modifier = modifier) {
-        fun sx(x: Float) = x / 344f * size.width
-        fun sy(y: Float) = y / 108f * size.height
-        drawLine(Color(0xFFE9E9ED).copy(alpha = 0.14f), Offset(0f, sy(54f)), Offset(size.width, sy(54f)), 1f)
-        drawLine(Color(0xFFE9E9ED).copy(alpha = 0.05f), Offset(0f, sy(27f)), Offset(size.width, sy(27f)), 1f)
-        drawLine(Color(0xFFE9E9ED).copy(alpha = 0.05f), Offset(0f, sy(81f)), Offset(size.width, sy(81f)), 1f)
-        fun pts(vals: List<Double>) = vals.mapIndexed { i, v ->
-            val x = if (vals.size < 2) 0f else i / (vals.size - 1f) * size.width
-            Offset(x, sy(54f) - v.toFloat() * (size.height / 108f))
-        }
-        val raPath = Path().apply { polyline(pts(ra)) }
-        val decPath = Path().apply { polyline(pts(dec)) }
-        drawPath(raPath, colors.accent, style = Stroke(width = 1.4f))
-        drawPath(decPath, colors.info, style = Stroke(width = 1.4f))
-    }
-}
-
-/** Focus sheet V-curve (viewBox 344×130, uniform scale). */
-@Composable
-fun VCurve(modifier: Modifier) {
-    val colors = com.nocturne.ui.theme.NocturneTheme.colors
-    val pts = listOf(
-        "14,16", "62,42", "110,68", "158,96", "186,112", "214,96", "262,68", "310,42", "340,18",
-    ).map { p ->
-        val parts = p.split(",")
-        Offset(parts[0].toFloat(), parts[1].toFloat())
-    }
-    Canvas(modifier = modifier) {
-        val scale = min(size.width / 344f, size.height / 130f)
-        val ox = (size.width - 344f * scale) / 2f
-        val oy = (size.height - 130f * scale) / 2f
-        fun v(x: Float, y: Float) = Offset(ox + x * scale, oy + y * scale)
-        val path = Path().apply {
-            moveTo(v(pts[0].x, pts[0].y).x, v(pts[0].x, pts[0].y).y)
-            pts.drop(1).forEach { p ->
-                val o = v(p.x, p.y)
-                lineTo(o.x, o.y)
-            }
-        }
-        drawPath(path, colors.accent.copy(alpha = 0.45f), style = Stroke(width = 1.4f))
-        pts.forEachIndexed { i, p ->
-            val o = v(p.x, p.y)
-            val r = if (i == 4) 5f * scale else 3f * scale
-            drawCircle(if (i == 4) Color(0xFFE9E9ED) else colors.accent, radius = r, center = o)
-        }
-    }
-}
+/**
+ * M4.4: deleted `GuideTraceChart`/`VCurve` — both were fixture-only (Guide/Focus sheets' fake
+ * RA/DEC trace and hardcoded 9-point V-curve), confirmed against source that no real data exists
+ * on the wire to ever back either (see `GuideSheet`/`FocusSheet` in `Sheets.kt`, docs/M4-plan.md
+ * "Guide/Focus real telemetry does not exist"). Not a "not yet wired" case — removed outright.
+ */
 
 /** Frames tab HFR-across-run (viewBox 348×60, stretched). */
 @Composable

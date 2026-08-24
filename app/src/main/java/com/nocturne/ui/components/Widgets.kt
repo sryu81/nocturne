@@ -1,6 +1,8 @@
 package com.nocturne.ui.components
 
+import android.graphics.BitmapFactory
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -17,13 +19,18 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -31,8 +38,11 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.Text
 import androidx.compose.ui.graphics.vector.ImageVector
+import com.nocturne.protocol.MediaFrame
 import com.nocturne.ui.icons.Phosphor
 import com.nocturne.ui.theme.NocturneTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 /** Theme-aware text shim. */
@@ -352,6 +362,50 @@ fun SliderRow(
             }
         }
     }
+}
+
+/**
+ * Renders a real JPEG frame — decode happens off the main thread via
+ * [androidx.compose.runtime.produceState] since a capture frame can be a few hundred KB and
+ * decoding synchronously inside composition would jank a live-updating preview. Falls back to
+ * [HatchBg] while [jpeg] is null or fails to decode (malformed/partial frame) — never blank, so
+ * there's no flash between "no frame yet" and "frame failed to decode." Takes raw bytes rather
+ * than a [MediaFrame] so it works equally for a live `/media/ekos` push (M4.2) and a
+ * Room-persisted [com.nocturne.data.FrameEntity] row (M4.3) — see the [MediaFrame]-typed overload
+ * below for the live-push call sites.
+ */
+@Composable
+fun MediaFramePreview(
+    jpeg: ByteArray?,
+    modifier: Modifier = Modifier,
+    hatchColor: Color? = null,
+) {
+    val bitmap by produceState<ImageBitmap?>(null, jpeg) {
+        value = jpeg?.let { bytes ->
+            withContext(Dispatchers.Default) {
+                runCatching {
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+                }.getOrNull()
+            }
+        }
+    }
+    val bmp = bitmap
+    if (bmp != null) {
+        Image(
+            bitmap = bmp,
+            contentDescription = null,
+            modifier = modifier,
+            contentScale = ContentScale.Fit,
+        )
+    } else {
+        HatchBg(modifier, color = hatchColor)
+    }
+}
+
+/** [MediaFrame]-typed convenience overload for a live `/media/ekos` push (M4.2 call sites). */
+@Composable
+fun MediaFramePreview(frame: MediaFrame?, modifier: Modifier = Modifier, hatchColor: Color? = null) {
+    MediaFramePreview(frame?.jpeg, modifier, hatchColor)
 }
 
 /** Diagonal hatch background — image slots & placeholders. */

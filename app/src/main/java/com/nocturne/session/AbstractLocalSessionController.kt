@@ -228,8 +228,12 @@ abstract class AbstractLocalSessionController : SessionController {
 
     override fun toggleQuietHours() = update { it.copy(quietHoursEnabled = !it.quietHoursEnabled) }
 
+    // Local-only optimistic flip of the matching row's own keep flag — EkosRemoteController
+    // overrides this to also write through to Room (M4.3); real frameRows there gets
+    // re-collected from Room's own Flow right after, so this local edit is superseded almost
+    // immediately, same "optimistic-then-reconcile" shape as every other real override.
     override fun toggleCut(id: String) = update { s ->
-        s.copy(cut = if (s.cut.contains(id)) s.cut - id else s.cut + id)
+        s.copy(frameRows = s.frameRows.map { if (it.id.toString() == id) it.copy(keep = !it.keep) else it })
     }
 
     override open fun toggleDevice(key: String) = update { s ->
@@ -575,18 +579,12 @@ abstract class AbstractLocalSessionController : SessionController {
     override fun coolUp() = update { it.copy(coolTarget = (it.coolTarget + 1).coerceAtMost(20.0)) }
     override fun coolDown() = update { it.copy(coolTarget = (it.coolTarget - 1).coerceAtLeast(-25.0)) }
 
-    // Deterministic-but-ticking, same style as `rms`/`fNow` — not a real focus sweep,
-    // but reactive rather than a frozen literal. Unrelated to startAutofocus/stopAutofocus
-    // below — this is FocusSheet's dedicated one-shot "run once, bump HFR" fixture, kept
-    // separate on purpose (see startAutofocus's own doc).
+    // focusLastAfAt/focusTempAtLastAf are real bookkeeping (feed focusNextAfMin's real countdown
+    // and TEMP Δ) kept optimistically here pending EkosRemoteController's real FOCUS_START send
+    // (see that override) — the old focusLastBestPos/focusLastHfr fabricated-HFR-bump fixture was
+    // removed (M4.4): FocusSheet now shows the real HFR off latestFocusFrame's own header instead.
     override fun runAutofocusNow() = update { s ->
-        val newHfr = 2.2 + kotlin.math.abs(kotlin.math.sin(s.t / 13.0)) * 0.15
-        s.copy(
-            focusLastBestPos = s.focPos,
-            focusLastHfr = newHfr,
-            focusLastAfAt = s.t,
-            focusTempAtLastAf = s.eafTemp,
-        )
+        s.copy(focusLastAfAt = s.t, focusTempAtLastAf = s.eafTemp)
     }
     override fun startAutofocus() = update { it.copy(focusRunning = true) }
     override fun stopAutofocus() = update { it.copy(focusRunning = false) }

@@ -47,7 +47,7 @@ import com.nocturne.session.paTotal
 import com.nocturne.session.realFilterNames
 import com.nocturne.session.realSlewRateProp
 import com.nocturne.ui.components.BtnStyle
-import com.nocturne.ui.components.HatchBg
+import com.nocturne.ui.components.MediaFramePreview
 import com.nocturne.ui.components.NocturneButton
 import com.nocturne.ui.components.TabItem
 import com.nocturne.ui.components.TabPane
@@ -107,6 +107,10 @@ fun ControlsScreen(
                         onSnap = ctrl::snapMain,
                         progress = progress,
                         onStop = { ctrl.setIndiSwitch(state.primaryTrain.camera, "CCD_ABORT_EXPOSURE", 0) },
+                        // Real capture frame (M4.2) — a focus run's own frames land in
+                        // latestFocusFrame instead, shown here too since they're the same physical
+                        // camera and there's only one preview box on this card.
+                        frame = state.latestCaptureFrame ?: state.latestFocusFrame,
                         // All four in one row (2026-08-23, user report) rather than exposure/gain
                         // on their own row above a second bin/filter row — BIN/FILTER get a
                         // matching label above the chip so all four line up at the same box
@@ -169,6 +173,7 @@ fun ControlsScreen(
                         onSnap = ctrl::snapGuide,
                         progress = progress,
                         onStop = guideCam?.let { cam -> { ctrl.setIndiSwitch(cam, "CCD_ABORT_EXPOSURE", 0) } },
+                        frame = state.latestGuideFrame,
                         // Same one-row treatment as Primary camera's own preview row (2026-08-23,
                         // user's own call to match) — no filter chip here, guide cameras have no
                         // FilterPosCombo equivalent, so it's EXP/GAIN/BIN, three not four.
@@ -220,15 +225,16 @@ private fun SectionHeader(text: String, sub: Boolean = false) {
 
 /**
  * Real connection (`real` = [SimState.wireDevices] non-null): `capture_preview`/`guide_capture`
- * (M3.2) really do trigger a capture on the Pi, but the resulting image/HFR/ADU numbers arrive
- * over the Media channel, which doesn't exist yet (M4, `MediaChannel` is a stub) — so the honest
- * thing to show is the real capture/guide status push (already wired, M2), not a fabricated
- * readout. `SimulatedController` keeps the canned fixture text, unchanged.
+ * (M3.2) really do trigger a capture on the Pi; the resulting image now arrives over the Media
+ * channel too (M4.2 — `SnapPanel`'s own `frame` param) — no real HFR/ADU number exists on the
+ * wire for this label though (confirmed against source), so the status line stays the real
+ * capture/guide status push, not a fabricated readout. `SimulatedController` keeps the canned
+ * fixture text, unchanged.
  */
 private fun benchSnapLabel(real: Boolean, snapped: Boolean, status: String?, fixtureText: String): String = when {
     !real -> if (snapped) fixtureText else "no test frame yet"
     status != null -> "status: $status"
-    else -> "tap Snap to trigger a real capture (no live preview yet — needs the Media channel, M4)"
+    else -> "tap Snap to trigger a real capture"
 }
 
 /**
@@ -253,6 +259,8 @@ private fun SnapPanel(
     progress: CaptureProgress? = null,
     /** Real `CCD_ABORT_EXPOSURE` write (see call sites) — null when there's no camera to target yet. */
     onStop: (() -> Unit)? = null,
+    /** Real `/media/ekos` frame for this camera (M4.2) — null renders the hatch placeholder, same as before. */
+    frame: com.nocturne.protocol.MediaFrame? = null,
 ) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
@@ -264,14 +272,14 @@ private fun SnapPanel(
                 .aspectRatio(4f / 3f)
                 // In landscape this card spans the full 2-column grid width (TabItem(full=true)),
                 // so 4:3 against that width alone produced an ~1750px-tall box — confirmed live,
-                // took 3 full-screen swipes to reach the Snap button below it. This is just a
-                // hatched placeholder (no real preview image exists yet, M4), so capping the
-                // height doesn't cost any real content — it just stops growing past a sane size
-                // once the box is wider than a phone's portrait width would ever make it anyway.
+                // took 3 full-screen swipes to reach the Snap button below it. Capping the height
+                // doesn't cost any real content: a real frame (M4.2) fits inside via
+                // ContentScale.Fit same as the hatch placeholder did; it just stops growing past a
+                // sane size once the box is wider than a phone's portrait width would ever make it.
                 .heightIn(max = 260.dp)
                 .background(c.surfaceDeep, RoundedCornerShape(4.dp)),
         ) {
-            HatchBg(Modifier.fillMaxSize(), color = c.surfaceRaised)
+            MediaFramePreview(frame, Modifier.fillMaxSize(), hatchColor = c.surfaceRaised)
             // Bumped from MonoMicro/MonoMini (9-9.5sp, dim neutral500) — per user feedback these
             // were too small/dim to read at a glance, same complaint as SectionHeader above.
             TextC(

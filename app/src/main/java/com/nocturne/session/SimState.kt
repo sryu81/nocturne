@@ -1,5 +1,6 @@
 package com.nocturne.session
 
+import com.nocturne.data.FrameEntity
 import com.nocturne.protocol.ACTIVE_SCHEDULER_STATES
 import com.nocturne.protocol.DeviceRole
 import com.nocturne.protocol.WireAlignSettings
@@ -12,6 +13,7 @@ import com.nocturne.protocol.SchedulerJobStatus
 import com.nocturne.protocol.WireSchedulerJob
 import com.nocturne.protocol.WireSchedulerSettings
 import com.nocturne.protocol.WireTrain
+import com.nocturne.protocol.WirePolarVector
 import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
@@ -145,7 +147,13 @@ data class SimState(
         "frameCut" to false,
         "seqEnd" to true,
     ),
-    val cut: Set<String> = setOf("017", "023"),
+    /**
+     * Real persisted capture frames (M4.3), newest-first — Room-backed via [FrameRepository],
+     * fed by [com.nocturne.session.EkosRemoteController]'s own `frameRepo.observeAll()` collector.
+     * Replaces the old fixture `cut: Set<String>`/`Frame`/`FRAME_IDS`/`FRAME_HFRS` entirely — each
+     * row's own [FrameEntity.keep] *is* the real keep/cut state now, not a separate local set.
+     */
+    val frameRows: List<FrameEntity> = emptyList(),
     val devOff: Set<String> = setOf("rotator", "dome"),
     /** Which catalog entry is assigned per device category — key -> chosen name from that [Device.catalog]. */
     val selectedDeviceNames: Map<String, String> = DEVICES.associate { it.key to it.name },
@@ -154,9 +162,7 @@ data class SimState(
         camera = "ASI174MM mini", rotator = "None", scope = "OAG",
         filterWheel = "None", focuser = "None",
     ),
-    /** Focus sheet: snapshot from the last "Run autofocus now" tap. */
-    val focusLastBestPos: Int = 18422,
-    val focusLastHfr: Double = 2.27,
+    /** Focus sheet: real bookkeeping from the last "Run autofocus now" tap — feeds [focusNextAfMin]/TEMP Δ. */
     val focusLastAfAt: Int = 0,
     val focusTempAtLastAf: Double = -0.6,
     val quietHoursEnabled: Boolean = true,
@@ -188,6 +194,18 @@ data class SimState(
      * [wirePolarStage] rather than discarded. */
     val wirePolarEnabled: Boolean? = null,
     val wirePolarMessage: String? = null,
+    /**
+     * `new_polar_state`'s real correction-vector/error fields (M4.4). [wirePolarVector]'s own
+     * `pa`/`mag` aren't drawn as a directional arrow yet — Qt's `QLineF::angle()` rotation
+     * convention isn't confirmed against a live solve (see [WirePolarVector]'s own doc) — but the
+     * numeric az/alt/total error fields are real and shown as text in [PaRealSheet].
+     * [wirePolarUpdatedError]/Az/Alt come from a *separate* real push (`setUpdatedErrors`, no
+     * `vector` wrapper) that fires after a correction slew, not alongside [wirePolarVector].
+     */
+    val wirePolarVector: WirePolarVector? = null,
+    val wirePolarUpdatedError: Double? = null,
+    val wirePolarUpdatedAzError: Double? = null,
+    val wirePolarUpdatedAltError: Double? = null,
     /**
      * `get_devices` translated to app-friendly shape — null until the first
      * push arrives (still showing the fixture [DEVICES] catalog), populated
@@ -287,6 +305,18 @@ data class SimState(
      * immediately, no dialog. Same shape as [jobPushRefused].
      */
     val jobRemoveRefused: String? = null,
+    /**
+     * Most recent real `/media/ekos` binary frame per device (M4.1), keyed by
+     * [com.nocturne.protocol.MediaFrameType] — no history buffer here, this is just "what's on
+     * screen right now"; [FramesScreen]'s own grid (M4.3) is backed by Room instead, not this.
+     * Null until the first frame of that type actually arrives; [EkosRemoteController] routes
+     * each inbound [com.nocturne.protocol.MediaFrame] into the matching field by its header's
+     * real `uuid` tag ([com.nocturne.protocol.frameType]).
+     */
+    val latestCaptureFrame: com.nocturne.protocol.MediaFrame? = null,
+    val latestAlignFrame: com.nocturne.protocol.MediaFrame? = null,
+    val latestFocusFrame: com.nocturne.protocol.MediaFrame? = null,
+    val latestGuideFrame: com.nocturne.protocol.MediaFrame? = null,
     /**
      * `mount_get_all_settings` translated (M3.3, curated subset — see docs/M3.3-plan.md).
      * Null until the first reply (sent when [MOUNT_SETTINGS] sheet opens); also gates that
@@ -465,7 +495,7 @@ data class RigProfile(
     val name: String,
     val deviceKeys: List<String>,
     /**
-     * Real `get_profiles`' `drivers` map (`{"<DeviceFamily>": [labels...]}`,
+     * Real `get_profiles`'s `drivers` map (device-family name to that family's driver-label list,
      * M3) — [deviceKeys] alone (a flattened label list) can't drive
      * [editProfile]'s per-category picker, since it's lost which family
      * each label came from. Empty for every [SimulatedController] fixture
@@ -989,16 +1019,6 @@ val DRIVER_INDI_PROPS: Map<String, List<IndiProperty>> = mapOf(
     ),
 )
 
-/** Frames grid — 12 sub previews with per-sub HFR. */
-data class Frame(
-    val id: String,
-    val hfr: Double,
-    val cut: Boolean,
-)
-
-val FRAME_IDS = listOf("011", "012", "013", "014", "015", "016", "017", "018", "019", "020", "021", "022")
-val FRAME_HFRS = listOf(2.28, 2.31, 2.30, 2.35, 2.41, 2.33, 2.94, 2.44, 2.38, 2.36, 2.29, 2.32)
-
 @Serializable
 data class Block(
     val id: String,
@@ -1138,10 +1158,10 @@ val Target.displayName: String get() = if (custom) common else "$id — $common"
  */
 val Target.realLookupName: String get() = if (custom) common.ifBlank { id } else id.ifBlank { common }
 
-/** Median of the frame HFR list — real per-frame data, not fixture. */
-val SimState.medHfr: Double get() {
-    val sorted = frames.map { it.hfr }.sorted()
-    return if (sorted.isEmpty()) 0.0 else sorted[sorted.size / 2]
+/** Median of the real per-frame HFR list (M4.3, Room-backed) — null if no frame has an HFR yet. */
+val SimState.medHfr: Double? get() {
+    val sorted = frameRows.mapNotNull { it.hfr }.sorted()
+    return if (sorted.isEmpty()) null else sorted[sorted.size / 2]
 }
 
 /** First not-yet-complete block, or the last block if all are done. */
@@ -1411,8 +1431,6 @@ private fun hhmm(s: Int): String {
 
 val SimState.elapsed: Int get() = (128 + t) % 300
 val SimState.expRemain: String get() = hhmm(300 - elapsed)
-val SimState.rms: Double get() = 0.48 + sin(t / 7.0) * 0.04
-val SimState.guideStarSnr: Double get() = 38.0 + sin(t / 11.0) * 4.0
 val SimState.fNow: Double get() = 0.485 + t / 9000.0
 
 /** Minutes until the next scheduled autofocus — real countdown off the real [WireCaptureSettings.refocusEveryN] (2026-08-23) and the last run's timestamp. */
@@ -1548,11 +1566,11 @@ val SimState.coolBarPct: Int get() {
     return raw.coerceIn(2, 100)
 }
 val SimState.coolPowerPct: Int get() = min(99, (abs(coolNow - 12.4) * 3 + 8).roundToInt())
-val SimState.frames: List<Frame> get() = FRAME_IDS.mapIndexed { i, id ->
-    Frame(id, FRAME_HFRS[i], cut.contains(id))
-}
-val SimState.rejectCount: Int get() = frames.count { it.cut }
-val SimState.keepCount: Int get() = frames.size - rejectCount
+// Real once Room has real rows (M4.3) — was fixture-derived (`frames`/`FRAME_IDS`/`FRAME_HFRS`,
+// all deleted) before. SessionReport's own "kept/cut" export line still says M4-gap elsewhere
+// pending the rest of M4.6; these two counts themselves are real now.
+val SimState.rejectCount: Int get() = frameRows.count { !it.keep }
+val SimState.keepCount: Int get() = frameRows.count { it.keep }
 val SimState.ready: Boolean get() = ekosRunning && isOn("mount") && isOn("cam")
 fun SimState.isOn(key: String): Boolean = ekosRunning && key !in devOff
 

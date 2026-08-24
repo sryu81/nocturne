@@ -1,10 +1,13 @@
 package com.nocturne.session
 
 import com.nocturne.data.ConnectionRepository
+import com.nocturne.data.FrameRepository
 import com.nocturne.data.SequenceRepository
 import com.nocturne.data.SequenceSnapshot
 import com.nocturne.protocol.Commands
 import com.nocturne.protocol.EkosEvent
+import com.nocturne.protocol.MediaFrameType
+import com.nocturne.protocol.frameType
 import com.nocturne.protocol.WireAstroObject
 import com.nocturne.protocol.WireDevice
 import com.nocturne.protocol.WireProfile
@@ -60,6 +63,9 @@ class EkosRemoteController(
      *  source of truth. Optional: pass null and the queue just won't survive process death (used
      *  by tests that don't need it). */
     private val sequenceRepo: SequenceRepository? = null,
+    /** Persists real capture frames for the Frames grid (M4.3) — see [FrameEntity]'s own doc.
+     *  Optional: pass null and the grid just stays empty for the session (used by tests). */
+    private val frameRepo: FrameRepository? = null,
 ) : AbstractLocalSessionController() {
 
     /** Name a `profile_delete` was just sent for — checked against the next [EkosEvent.Profiles]. */
@@ -181,6 +187,35 @@ class EkosRemoteController(
                 sendFollowUpCommands(event)
             }
         }
+        // M4.1 — real `/media/ekos` binary frames, routed by their header's own uuid tag into
+        // the matching SimState field. No history buffer here for non-capture types — this is
+        // deliberately "latest frame per device only." Capture frames additionally persist to
+        // Room (M4.3, frameRepo) — that's the actual history the Frames grid reads.
+        scope.launch {
+            client.mediaFrames.collect { frame ->
+                if (frame.header.frameType == MediaFrameType.CAPTURE) {
+                    frameRepo?.let { repo -> scope.launch { repo.insert(frame, System.currentTimeMillis()) } }
+                }
+                _state.update { s ->
+                    when (frame.header.frameType) {
+                        MediaFrameType.CAPTURE -> s.copy(latestCaptureFrame = frame)
+                        MediaFrameType.ALIGN -> s.copy(latestAlignFrame = frame)
+                        MediaFrameType.FOCUS -> s.copy(latestFocusFrame = frame)
+                        MediaFrameType.GUIDE -> s.copy(latestGuideFrame = frame)
+                        // Live-video (minimal header, no uuid) and dark/hips lookups aren't
+                        // rendered anywhere yet — dropped rather than guessed into a slot.
+                        MediaFrameType.LIVE_VIDEO, MediaFrameType.DARK, MediaFrameType.OTHER -> s
+                    }
+                }
+            }
+        }
+        // M4.3 — Room is the real source of truth for the Frames grid; this just mirrors its
+        // own live Flow into SimState so the UI never reads the database directly.
+        frameRepo?.let { repo ->
+            scope.launch {
+                repo.observeAll().collect { rows -> _state.update { it.copy(frameRows = rows) } }
+            }
+        }
         client.connect()
 
         connectionRepo?.let { repo ->
@@ -257,7 +292,16 @@ class EkosRemoteController(
             wirePolarStage = event.stage ?: s.wirePolarStage,
             wirePolarEnabled = event.enabled ?: s.wirePolarEnabled,
             wirePolarMessage = event.message ?: s.wirePolarMessage,
+            wirePolarVector = event.vector ?: s.wirePolarVector,
+            wirePolarUpdatedError = event.updatedError ?: s.wirePolarUpdatedError,
+            wirePolarUpdatedAzError = event.updatedAZError ?: s.wirePolarUpdatedAzError,
+            wirePolarUpdatedAltError = event.updatedALTError ?: s.wirePolarUpdatedAltError,
         )
+        // CoolerCard already reads the real, more precise CCD_TEMPERATURE INDI number directly
+        // (subscribed live, decimal precision) — this push is a coarser echo of the same sensor,
+        // confirmed real (not the dead `new_temperature`) but with nothing new for the UI to read
+        // that isn't already shown. Decoded so it doesn't silently fall through to Raw; no-op here.
+        is EkosEvent.NewCameraState -> s
 
         // Real ground truth for SimState.schedulerRunning (see that field's own doc) — the
         // `log`-shaped pushes carry no status and are ignored here; only a `status`-shaped push
@@ -791,6 +835,21 @@ class EkosRemoteController(
     override fun setRate(index: Int) {
         client.sendCommand(Commands.MOUNT_SET_SLEW_RATE, buildJsonObject { put("rate", index) })
         super.setRate(index)
+    }
+
+    /**
+     * Real keep/cut write-through (M4.3) — writes to Room, not just the in-memory `frameRows`
+     * super.toggleCut optimistically flips. Room's own Flow (collected in `init` above)
+     * re-emits right after and supersedes the optimistic local copy either way, same pattern as
+     * every other real override in this class.
+     */
+    override fun toggleCut(id: String) {
+        val idLong = id.toLongOrNull() ?: return super.toggleCut(id)
+        val row = _state.value.frameRows.firstOrNull { it.id == idLong }
+        if (row != null && frameRepo != null) {
+            scope.launch { frameRepo.setKeep(idLong, !row.keep) }
+        }
+        super.toggleCut(id)
     }
 
     /** DPad's own key strings are already "N"/"S"/"E"/"W" — exactly mount_set_motion's `direction` values, no translation needed. */

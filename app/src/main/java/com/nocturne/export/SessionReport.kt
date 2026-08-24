@@ -9,7 +9,6 @@ import com.nocturne.session.displayName
 import com.nocturne.session.endedJob
 import com.nocturne.session.findTarget
 import com.nocturne.session.formatSiteTime
-import com.nocturne.session.frames
 import com.nocturne.session.keepCount
 import com.nocturne.session.meta
 import com.nocturne.session.realNightWindow
@@ -30,9 +29,11 @@ fun buildSessionReportHtml(state: SimState): String {
         "<tr><td>${b.filter}</td><td>${b.spec}</td><td>${b.meta}</td></tr>"
     } ?: "<tr><td colspan=\"3\">No job active at export time.</td></tr>"
 
-    val frameRows = state.frames.joinToString("\n") { f ->
-        val status = if (f.cut) "cut" else "kept"
-        "<tr class=\"${if (f.cut) "cut" else ""}\"><td>sub_${f.id}.fits</td><td>${f.hfr}</td><td>$status</td></tr>"
+    // Real once a frame has actually landed (M4.3, Room-backed) — HFR can be null if the real
+    // header didn't carry one for that frame.
+    val frameRows = state.frameRows.joinToString("\n") { f ->
+        val status = if (f.keep) "kept" else "cut"
+        "<tr class=\"${if (!f.keep) "cut" else ""}\"><td>frame_${f.id}.jpg</td><td>${f.hfr?.let { "%.2f".format(it) } ?: "—"}</td><td>$status</td></tr>"
     }
 
     val alertRows = ALERTS.joinToString("\n") { a ->
@@ -61,7 +62,7 @@ fun buildSessionReportHtml(state: SimState): String {
         </style></head>
         <body>
             <h1>${target?.displayName ?: "Nocturne session"}</h1>
-            <div class="meta">$nightWindow · exported from Nocturne (alerts/frames below are still fixture placeholder data, M4)</div>
+            <div class="meta">$nightWindow · exported from Nocturne (session log below is still fixture placeholder data, pending M4.5)</div>
 
             <h2>Sequence</h2>
             <table><tr><th>Filter</th><th>Exposure</th><th>Progress</th></tr>$blockRows</table>
