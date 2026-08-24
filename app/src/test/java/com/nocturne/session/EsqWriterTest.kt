@@ -102,6 +102,30 @@ class EsqWriterTest {
     }
 
     @Test
+    fun `real bug fix - FITSDirectory and PlaceholderFormat are threaded through, not omitted-hardcoded`() {
+        val block = Block(id = "b1", filter = "L", exposureSec = 30, subCount = 2, doneCount = 0, gain = 100, offset = 50, binning = 1, ditherEvery = null)
+        val job = SequenceJob(id = "j1", targetId = "t1", blocks = listOf(block))
+
+        val withDir = EsqWriter.write(
+            job, "T", enforceRefocusEveryN = true, refocusEveryN = 45, enforceAutofocusOnTemperature = true, maxFocusTemperatureDelta = 1.0,
+            fitsDirectory = "/home/soo/Pictures", placeholderFormat = "/%t/%F",
+        )
+        assertTrue(withDir.contains("<FITSDirectory>/home/soo/Pictures</FITSDirectory>"))
+        assertTrue(withDir.contains("<PlaceholderFormat>/%t/%F</PlaceholderFormat>"))
+
+        // Null/blank fitsDirectory omits the element entirely (real Ekos default behavior, not a
+        // fabricated empty one) — matches how a job pushed before any Save-path had ever been
+        // read looked before this fix, just now the *other* real case (a set save path) works too.
+        val withoutDir = EsqWriter.write(
+            job, "T", enforceRefocusEveryN = true, refocusEveryN = 45, enforceAutofocusOnTemperature = true, maxFocusTemperatureDelta = 1.0,
+            fitsDirectory = null, placeholderFormat = "",
+        )
+        assertTrue(!withoutDir.contains("FITSDirectory"))
+        // Blank placeholderFormat falls back to Ekos's own real default, not an empty element.
+        assertTrue(withoutDir.contains("<PlaceholderFormat>/%t/%T/%F/%t_%T_%F_%e_%D</PlaceholderFormat>"))
+    }
+
+    @Test
     fun `xml-escapes filter and target names`() {
         val block = Block(
             id = "b1", filter = "H&Alpha", exposureSec = 60, subCount = 1,

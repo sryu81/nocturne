@@ -839,6 +839,30 @@ private fun CameraSettingsSheet(state: AppState, ctrl: SessionController) {
                 modifier = Modifier.fillMaxWidth(),
             )
         }
+        Spacer(Modifier.height(11.2.dp))
+        FieldLabel("Placeholder format")
+        Spacer(Modifier.height(5.dp))
+        Box(
+            Modifier.fillMaxWidth().height(48.dp)
+                .background(c.bg, RoundedCornerShape(4.dp))
+                .border(1.dp, c.divider, RoundedCornerShape(4.dp))
+                .padding(horizontal = 12.dp),
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            BasicTextField(
+                value = cam.placeholderFormatT,
+                onValueChange = ctrl::setCameraPlaceholderFormat,
+                singleLine = true,
+                textStyle = t.Body13.copy(color = c.text),
+                cursorBrush = SolidColor(c.accent),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        Spacer(Modifier.height(5.dp))
+        TextC(
+            "Real subfolder/filename template, applied after Save path — e.g. /%t/%T/%F/ (%t target, %T frame type, %F filter).",
+            style = t.MonoMicro, color = c.textMuted,
+        )
         Spacer(Modifier.height(16.dp))
         HDivider()
         Spacer(Modifier.height(16.dp))

@@ -163,6 +163,8 @@ interface SessionController {
 
     // ── M3.3: Camera settings (curated subset, see docs/M3.3-plan.md) ─────
     fun setCameraSaveDir(path: String)
+    /** See [com.nocturne.protocol.WireCaptureSettings.placeholderFormatT]'s own doc. */
+    fun setCameraPlaceholderFormat(format: String)
     fun setCameraGuideDeviationEnabled(enabled: Boolean)
     fun setCameraGuideDeviation(arcsec: Double)
     fun setCameraStartGuideDriftEnabled(enabled: Boolean)

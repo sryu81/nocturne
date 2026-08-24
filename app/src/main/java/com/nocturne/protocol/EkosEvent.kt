@@ -780,8 +780,9 @@ data class WireSchedulerSettings(
 )
 
 /**
- * Curated subset (12 of 59 real fields, docs/M3.3-plan.md) of real Ekos's Camera module
- * settings — save path, guide-deviation abort guard, start-of-job guide-drift guard, per-job
+ * Curated subset (13 of 59 real fields, docs/M3.3-plan.md) of real Ekos's Camera module
+ * settings — save path (+ its separate placeholder-format template, added 2026-08-23),
+ * guide-deviation abort guard, start-of-job guide-drift guard, per-job
  * dither, plus the live preview capture parameters and cooler setpoint (see below). Field names
  * match the wire verbatim (`Camera::getAllSettings`'s Qt widget object names), confirmed live
  * against the real rig (real values seen: `fileDirectoryT "/home/soo/Pictures"`,
@@ -814,6 +815,17 @@ data class WireSchedulerSettings(
 @Serializable
 data class WireCaptureSettings(
     val fileDirectoryT: String = "",
+    /**
+     * The real save-path *template* applied on top of [fileDirectoryT] — confirmed against
+     * source (`camera_config.cpp:1076`: `m_format = fileDirectoryT->text() +
+     * placeholderFormatT->text() + ...`) that these are two genuinely separate real fields
+     * concatenated, not one. Real default something like `/%t/%T/%F/%t_%T_%F_...`
+     * (`Options::placeholderFormat()`/`PlaceholderPath::defaultFormat()`) — `%t`=target name,
+     * `%T`=frame type (Light/Dark/Flat/...), `%F`=filter. Added 2026-08-23 — previously this app
+     * only exposed [fileDirectoryT], leaving the actual on-disk subfolder structure real
+     * captures land in completely invisible/uneditable.
+     */
+    val placeholderFormatT: String = "",
     val enforceGuideDeviation: Boolean = false,
     val guideDeviation: Double = 2.0,
     val enforceStartGuiderDrift: Boolean = false,

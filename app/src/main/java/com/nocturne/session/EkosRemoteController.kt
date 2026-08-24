@@ -1229,6 +1229,10 @@ class EkosRemoteController(
         sendCaptureSetting("fileDirectoryT", JsonPrimitive(path))
         super.setCameraSaveDir(path)
     }
+    override fun setCameraPlaceholderFormat(format: String) {
+        sendCaptureSetting("placeholderFormatT", JsonPrimitive(format))
+        super.setCameraPlaceholderFormat(format)
+    }
     override fun setCameraGuideDeviationEnabled(enabled: Boolean) {
         sendCaptureSetting("enforceGuideDeviation", JsonPrimitive(enabled))
         super.setCameraGuideDeviationEnabled(enabled)
@@ -1768,6 +1772,11 @@ class EkosRemoteController(
                     refocusEveryN = s.wireCaptureSettings?.refocusEveryN ?: 60,
                     enforceAutofocusOnTemperature = s.wireCaptureSettings?.enforceAutofocusOnTemperature ?: false,
                     maxFocusTemperatureDelta = s.wireCaptureSettings?.maxFocusTemperatureDelta ?: 1.0,
+                    // Real bug fix 2026-08-23 — see EsqWriter's own doc: these two were never
+                    // threaded through before, so every pushed job's FITSDirectory came out empty
+                    // and PlaceholderFormat was a fixed literal regardless of the real setting.
+                    fitsDirectory = s.wireCaptureSettings?.fileDirectoryT,
+                    placeholderFormat = s.wireCaptureSettings?.placeholderFormatT ?: "",
                 ),
             )
             put("path", path)
