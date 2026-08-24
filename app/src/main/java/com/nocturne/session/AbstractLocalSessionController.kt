@@ -567,6 +567,9 @@ abstract class AbstractLocalSessionController : SessionController {
     override open fun setSchedulerRememberJobProgress(enabled: Boolean) = update { s ->
         s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(kcfg_RememberJobProgress = enabled))
     }
+    override open fun setSchedulerForceAlignmentBeforeJob(enabled: Boolean) = update { s ->
+        s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(kcfg_ForceAlignmentBeforeJob = enabled))
+    }
 
     override fun snapMain() = update { it.copy(snappedMain = true) }
     override fun snapGuide() = update { it.copy(snappedGuide = true) }

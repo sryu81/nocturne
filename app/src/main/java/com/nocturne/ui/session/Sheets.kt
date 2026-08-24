@@ -1237,6 +1237,14 @@ private fun SchedulerSettingsSheet(state: AppState, ctrl: SessionController) {
             onToggle = { ctrl.setSchedulerGuideStep(!sc.schedulerGuideStep) },
             modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
         )
+        Spacer(Modifier.height(8.4.dp))
+        SwitchRow(
+            label = "Force alignment before each job",
+            sub = "Only applies to a job whose own Align step is on — doesn't override one with Align off",
+            checked = sc.kcfg_ForceAlignmentBeforeJob,
+            onToggle = { ctrl.setSchedulerForceAlignmentBeforeJob(!sc.kcfg_ForceAlignmentBeforeJob) },
+            modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
+        )
         Spacer(Modifier.height(16.dp))
         HDivider()
         Spacer(Modifier.height(16.dp))

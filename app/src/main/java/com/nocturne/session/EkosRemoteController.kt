@@ -1599,6 +1599,10 @@ class EkosRemoteController(
         sendSchedulerSetting("kcfg_RememberJobProgress", JsonPrimitive(enabled))
         super.setSchedulerRememberJobProgress(enabled)
     }
+    override fun setSchedulerForceAlignmentBeforeJob(enabled: Boolean) {
+        sendSchedulerSetting("kcfg_ForceAlignmentBeforeJob", JsonPrimitive(enabled))
+        super.setSchedulerForceAlignmentBeforeJob(enabled)
+    }
 
     /**
      * `train_add`/`train_update` payload shape is undocumented (plan §"Protocol

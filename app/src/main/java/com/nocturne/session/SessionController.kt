@@ -256,4 +256,6 @@ interface SessionController {
     fun setSchedulerAbortDelay(minutes: Int)
     /** See [com.nocturne.protocol.WireSchedulerSettings.kcfg_RememberJobProgress]'s own doc. */
     fun setSchedulerRememberJobProgress(enabled: Boolean)
+    /** See [com.nocturne.protocol.WireSchedulerSettings.kcfg_ForceAlignmentBeforeJob]'s own doc. */
+    fun setSchedulerForceAlignmentBeforeJob(enabled: Boolean)
 }

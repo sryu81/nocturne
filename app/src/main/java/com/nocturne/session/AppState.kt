@@ -1098,18 +1098,26 @@ val DEFAULT_JOBS = listOf(
 
 /**
  * The name Ekos would know a job by — used to name-match [AppState.wireSchedulerJobs]. Always
- * suffixed with this job's own local id (`"NGC 7000 #j2"`), not just the target's own display
+ * suffixed with this job's own local id (`"NGC 7000_j2"`), not just the target's own display
  * name — real Ekos's Scheduler has no separate job-id field, only `name`, so two local jobs for
  * the *same target* (different filters/exposures — a real user need: "different session
  * profile") would otherwise both resolve to the identical wire name and collide, either racing
  * this app's own duplicate-name refusal or (worse) real Ekos's own. The suffix is stable for a
  * given job's whole lifetime (the id never changes), so a job's wire identity never shifts out
  * from under a live sync just because a sibling job for the same target was added or removed.
+ *
+ * **Real bug, found live 2026-08-23**: this used a literal `#` separator (`"$base #${job.id}"`)
+ * until now — confirmed against source (`ksutils.cpp:1924` `KSUtils::sanitize()`) that real
+ * Ekos's own filename sanitizer does NOT strip `#` (only whitespace/`/`/`(`/`)`/`:`/`*`/`+`/`~`/
+ * `"`), so every job this app ever pushed had a `#` baked into its real save-path target name —
+ * real symptom: "image write failed" once a job with a `#`-suffixed name actually reached
+ * capture. Switched to `_`, which Ekos's own sanitizer already treats as the safe replacement
+ * character for everything else it strips.
  */
 fun AppState.targetNameFor(job: SequenceJob): String {
     val target = findTarget(job.targetId)
     val base = target?.common ?: target?.id ?: job.targetId
-    return "$base #${job.id}"
+    return "${base}_${job.id}"
 }
 
 /**

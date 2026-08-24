@@ -269,12 +269,13 @@ sealed interface EkosEvent {
      * `opticalTrainCombo`/`startupTimeConditionR` — bug #19's `toggleJobRun` chain), Weather-tied
      * fields (`kcfg_SchedulerWeather*`, `kcfg_SchedulerSafetyMonitorConnectionString` — same scope
      * as the deferred Sky & Site weather pass), deeper Options-page align-recovery/greedy-
-     * scheduling toggles (`kcfg_AlignCheck*`, `kcfg_*ResetMountModel*`, `kcfg_ForceAlignmentBeforeJob`,
+     * scheduling toggles (`kcfg_AlignCheck*`, `kcfg_*ResetMountModel*`,
      * `kcfg_RealignAfterCalibrationFailure`, `kcfg_GreedyScheduling`),
      * and `executionSequenceLimit`/`schedulerProfileCombo`/`epochCB`/`positionAngleSpin`/`groupEdit`/
      * `fitsEdit`/`leadFollowerSelectionCB` (job-form or unclear-purpose, not scheduler policy).
      * `ignoreUnknownKeys` drops all of the above. **`kcfg_RememberJobProgress` was un-excluded
      * 2026-08-23** — see [WireSchedulerSettings.kcfg_RememberJobProgress]'s own doc for why.
+     * **`kcfg_ForceAlignmentBeforeJob` was un-excluded 2026-08-23 too** — see that field's own doc.
      */
     @Serializable
     data class SchedulerSettings(val settings: WireSchedulerSettings) : EkosEvent
@@ -730,6 +731,19 @@ data class WireSchedulerSettings(
     val schedulerFocusStep: Boolean = true,
     val schedulerAlignStep: Boolean = true,
     val schedulerGuideStep: Boolean = true,
+    /**
+     * `Options::forceAlignmentBeforeJob()` (real default `false`, `kstars.kcfg:3365-3368`) —
+     * "force alignment before starting or restarting each job." **Confirmed against source
+     * (`schedulerprocess.cpp:306,364,417`): this is still gated by `SchedulerJob::USE_ALIGN`**
+     * (`getStepPipeline() & USE_ALIGN && forceAlignmentBeforeJob()`) — it does NOT override a job
+     * whose Align step is genuinely off; it only adds *extra* align-before-(re)start moments for
+     * a job that already has Align enabled. Not the fix for "I unchecked Align but it keeps
+     * aligning" (that's almost certainly the *other* real mechanic: [schedulerAlignStep] here is
+     * only the **default for a newly-created job** — editing it after a job already exists on the
+     * real Scheduler doesn't retroactively change that job's own already-baked-in step pipeline).
+     * Surfaced anyway since it's a real, previously-invisible-to-this-app toggle in its own right.
+     */
+    val kcfg_ForceAlignmentBeforeJob: Boolean = false,
     // Completion condition
     val schedulerCompleteSequences: Boolean = true,
     val schedulerRepeatSequences: Boolean = false,
