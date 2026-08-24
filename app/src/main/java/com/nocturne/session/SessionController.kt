@@ -9,7 +9,7 @@ import kotlinx.coroutines.flow.StateFlow
  * remains as its base class for pure local UI-state mutation.
  */
 interface SessionController {
-    val state: StateFlow<SimState>
+    val state: StateFlow<AppState>
 
     fun openSheet(sheet: SheetType)
     fun openDevice(key: String)
@@ -46,7 +46,7 @@ interface SessionController {
     fun addBlock(jobId: String)
     fun removeBlock(jobId: String, blockId: String)
     fun moveBlock(jobId: String, blockId: String, toIndex: Int)
-    /** [names] to cycle through — real filter-wheel slot names when known ([SimState.realFilterNames]), else the fixture [FILTER_CYCLE]; the caller decides, this just advances through whatever it's given. */
+    /** [names] to cycle through — real filter-wheel slot names when known ([AppState.realFilterNames]), else the fixture [FILTER_CYCLE]; the caller decides, this just advances through whatever it's given. */
     fun cycleBlockFilter(jobId: String, blockId: String, names: List<String>)
     fun setBlockExposure(jobId: String, blockId: String, sec: Int)
     fun setBlockSubCount(jobId: String, blockId: String, count: Int)
@@ -75,7 +75,7 @@ interface SessionController {
     fun selectDeviceName(key: String, name: String)
     fun setTrainRole(slot: TrainSlot, role: TrainRole, value: String)
     fun setTrainReducer(slot: TrainSlot, value: Double)
-    /** Assigns which real train (by name) one Ekos module uses — real `train_set` mechanism, see [SimState.moduleTrainAssignments]. */
+    /** Assigns which real train (by name) one Ekos module uses — real `train_set` mechanism, see [AppState.moduleTrainAssignments]. */
     fun setModuleTrain(module: String, trainName: String)
 
     fun snapMain()
@@ -142,7 +142,7 @@ interface SessionController {
      */
     fun setRigRebootConfig(port: Int, token: String)
 
-    /** Sends the actual reboot request. See [SimState.rigRebootState] for the result. */
+    /** Sends the actual reboot request. See [AppState.rigRebootState] for the result. */
     fun rebootRig()
 
     // ── M3.3: Mount settings (curated subset, see docs/M3.3-plan.md) ──────

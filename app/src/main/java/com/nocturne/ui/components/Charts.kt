@@ -122,7 +122,7 @@ fun NightArc(
 /**
  * Plan-tab altitude chart (viewBox 348×118, stretched). [realAltitudes] (49 real points spanning
  * ±12h around local midnight, see `WireRiseset.altitudes`'s own doc) and [realNowFraction] (see
- * `SimState.realDayFraction`) replace the decorative fixture curve + fixed-pixel "now" dot once
+ * `AppState.realDayFraction`) replace the decorative fixture curve + fixed-pixel "now" dot once
  * both have arrived for the currently-framed target — until then (simulator, or before the fetch
  * lands) this keeps rendering the exact same fixture shape it always has, zero regression. There's
  * no real "flip" (meridian-flip time) data anywhere in this app (see `FlipBanner`'s own doc) so

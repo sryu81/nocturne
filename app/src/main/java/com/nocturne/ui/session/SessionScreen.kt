@@ -25,7 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.nocturne.session.SessionController
-import com.nocturne.session.SimState
+import com.nocturne.session.AppState
 import com.nocturne.session.SheetType
 import com.nocturne.session.contractJob
 import com.nocturne.session.expRemain
@@ -54,7 +54,7 @@ import com.nocturne.ui.theme.NocturneTheme
 
 @Composable
 fun SessionScreen(
-    state: SimState,
+    state: AppState,
     ctrl: SessionController,
     landscape: Boolean,
     modifier: Modifier = Modifier,
@@ -86,7 +86,7 @@ fun SessionScreen(
 }
 
 @Composable
-private fun IdleSessionCard(state: SimState, modifier: Modifier) {
+private fun IdleSessionCard(state: AppState, modifier: Modifier) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     Column(modifier.fillMaxWidth().padding(NocturneTheme.spacing.s4)) {
@@ -120,7 +120,7 @@ private fun IdleSessionCard(state: SimState, modifier: Modifier) {
  * a redraw every 30s so real time keeps advancing on screen without needing an unrelated event.
  */
 @Composable
-private fun NightArcCard(state: SimState) {
+private fun NightArcCard(state: AppState) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     var tick by remember { mutableStateOf(0) }
@@ -225,13 +225,13 @@ private fun NightArcCard(state: SimState) {
 private const val SUB_PREVIEW_LINE = "no live preview yet — waiting on a real capture"
 
 /** e.g. "300s · g100" from the frame header's own real fields — null pieces are dropped, not guessed. */
-private fun SimState.captureFrameTag(): String? {
+private fun AppState.captureFrameTag(): String? {
     val h = latestCaptureFrame?.header ?: return null
     return listOfNotNull(h.exposure?.let { "${it}s" }, h.gain?.let { "g$it" }).joinToString(" · ").ifBlank { null }
 }
 
 @Composable
-private fun SubPreview(state: SimState, ctrl: SessionController) {
+private fun SubPreview(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val frame = state.latestCaptureFrame
@@ -279,7 +279,7 @@ private fun SubPreview(state: SimState, ctrl: SessionController) {
 
 /** Full-screen sub preview — tap anywhere or the system back button dismisses it. */
 @Composable
-fun SubPreviewOverlay(state: SimState, onDismiss: () -> Unit) {
+fun SubPreviewOverlay(state: AppState, onDismiss: () -> Unit) {
     androidx.activity.compose.BackHandler(onBack = onDismiss)
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
@@ -345,7 +345,7 @@ private fun ChipTag(text: String, accent: Boolean) {
  * value, on this or any future Media-channel work — not a "not yet wired" gap, a permanent one.
  */
 @Composable
-private fun StatsRow(state: SimState, ctrl: SessionController) {
+private fun StatsRow(state: AppState, ctrl: SessionController) {
     val hfr = state.latestCaptureFrame?.header?.hfr
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
         MiniStat(
@@ -416,7 +416,7 @@ private fun MiniStat(
  * exists on the wire — would need real RA + local sidereal time, neither modeled anywhere today).
  */
 @Composable
-private fun FlipBanner(state: SimState, ctrl: SessionController) {
+private fun FlipBanner(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     Row(

@@ -133,7 +133,7 @@ add on the wire side.
   ByteString)`, not the `String` overload.
 - Frames tab was **deleted down to an honest placeholder card** during the
   simulator-removal pass, not merely left fixture — `FrameExpandOverlay`
-  and `SimState.frames`/`FRAME_IDS`/`FRAME_HFRS` still exist but are
+  and `AppState.frames`/`FRAME_IDS`/`FRAME_HFRS` still exist but are
   unreachable dead code today.
 - Session tab's `SubPreview`/`SubPreviewOverlay` and `StatsRow`
   (HFR/RMS/SNR) are honest `"—"`/`M4` placeholders already — no fixture
@@ -148,7 +148,7 @@ add on the wire side.
   all; `focusLastBestPos`/`focusLastHfr` are static defaults. (`eafTemp`/
   `focusNextAfMin` nearby are already real — untouched, not part of this gap.)
 - Alerts sheet: fully static 4-item fixture list, doesn't even take `state`.
-- Prefs sheet: toggle *state* is real (in-memory `SimState`, not persisted),
+- Prefs sheet: toggle *state* is real (in-memory `AppState`, not persisted),
   but rules have zero wire effect — no `option_get`/`option_set` exists in
   `Commands.kt` at all yet.
 - Summary: KEPT/DISCARDED/MED HFR are honest `M4` placeholders; the
@@ -186,7 +186,7 @@ add on the wire side.
   socket opens — matches the real "always re-enabled on fresh connect"
   server behavior, this is just being explicit about it rather than relying
   on the default.
-- New additive `SimState` fields, one per real frame type, holding the most
+- New additive `AppState` fields, one per real frame type, holding the most
   recent frame only (no history buffer yet — that's Frames tab's own job,
   §4.3): `latestCaptureFrame`, `latestAlignFrame`, `latestFocusFrame`,
   `latestGuideFrame: MediaFrame? = null`. `EkosRemoteController` routes each
@@ -223,9 +223,9 @@ add on the wire side.
 - Rebuild the deleted grid UI in `FramesScreen.kt` on top of the Room-backed
   list — real thumbnails (Coil, same frames persisted above, not
   re-fetched), real HFR chips, tap-to-expand keeps `FrameExpandOverlay`'s
-  existing shape but reads Room instead of the dead `SimState.frames`
+  existing shape but reads Room instead of the dead `AppState.frames`
   fixture. Keep/cut toggles write through to Room directly.
-- `FRAME_IDS`/`FRAME_HFRS`/`SimState.frames`/`Frame` data class: delete once
+- `FRAME_IDS`/`FRAME_HFRS`/`AppState.frames`/`Frame` data class: delete once
   the grid reads Room instead — no fixture fallback needed here (unlike
   Guide/Focus's honest-placeholder pattern), since Frames already ships as
   an honest "not available" card today; real data replaces it outright.
@@ -294,7 +294,7 @@ add on the wire side.
   `NewNotification`/`NewCameraState` with literal JSON fixtures matching the
   confirmed real shapes above.
 - Live, real rig: confirm `set_blobs` suppresses/resumes frames as
-  documented; confirm each `uuid` tag routes to the right `SimState` field
+  documented; confirm each `uuid` tag routes to the right `AppState` field
   during an actual capture/align/focus/guide/dark operation; confirm Room
   frame rows survive an app relaunch; confirm a real notification (trigger
   one deliberately, e.g. a meridian-flip warning) actually reaches

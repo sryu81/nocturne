@@ -1,6 +1,7 @@
 package com.nocturne.session
 
 import com.nocturne.data.FrameEntity
+import com.nocturne.data.FrameSource
 import com.nocturne.protocol.ACTIVE_SCHEDULER_STATES
 import com.nocturne.protocol.DeviceRole
 import com.nocturne.protocol.WireAlignSettings
@@ -45,7 +46,7 @@ enum class RigRebootState { IDLE, SENDING, SENT, FAILED }
 enum class FlipConfirm { DEFER, NOW }
 
 /** Every mutable field the simulator drives, mirroring the prototype's state. */
-data class SimState(
+data class AppState(
     val t: Int = 0,
     val sheet: SheetType? = null,
     /** Session tab's sub preview expanded to a full-screen overlay. */
@@ -378,7 +379,7 @@ data class SimState(
     val wireTargetRiseset: WireRiseset? = null,
     /** Companion reboot daemon's port on the rig's Pi — separate from the EkosRemote wire port (see `pi-tools/reboot-daemon/`). */
     val rigRebootPort: Int = 9001,
-    /** Whether a reboot token has been configured — the token itself never enters [SimState] (kept only inside the controller), so nothing display-worthy leaks it into logs/recompositions. */
+    /** Whether a reboot token has been configured — the token itself never enters [AppState] (kept only inside the controller), so nothing display-worthy leaks it into logs/recompositions. */
     val rigRebootTokenSet: Boolean = false,
     /** True once a token is configured under a real rig — [MaintenanceSheet] shows the reboot button only then. */
     val rigRebootAvailable: Boolean = false,
@@ -389,7 +390,7 @@ data class SimState(
 /** One `get_devices` entry, decoded to the roles its `interface` bitmask ORs together. */
 data class LiveDevice(val name: String, val connected: Boolean, val roles: Set<DeviceRole>)
 
-/** A real camera's `CCD_INFO` vector — see [SimState.wireCcdInfoByDevice]. */
+/** A real camera's `CCD_INFO` vector — see [AppState.wireCcdInfoByDevice]. */
 data class CcdInfo(val maxX: Int, val maxY: Int, val pixelUm: Double)
 
 // ── Catalog data (prototype script constants) ──────────────────────────────
@@ -417,7 +418,7 @@ data class Target(
     val custom: Boolean = false,
     /**
      * Resolved J2000 coords/magnitude (M3) — populated only for
-     * [SimState.wireSearchResults] entries (from `astro_get_objects_info`),
+     * [AppState.wireSearchResults] entries (from `astro_get_objects_info`),
      * carried through to [addToSequence]/`SequenceJob.targetRA/DEC`. Null for
      * every fixture/user-catalogue target, which never resolves against the
      * real astro engine.
@@ -487,7 +488,7 @@ fun guideOpticNote(focalMm: Int): String {
  * A saved equipment profile (`get_profiles`/`profile_add` per the wire
  * protocol) — what a real Ekos Profile actually is: name + driver selection
  * + connection mode. Optics (focal length/aperture) live entirely in the
- * Scopes catalog ([ScopeDef]/[SimState.scopes], M3.1), referenced by a
+ * Scopes catalog ([ScopeDef]/[AppState.scopes], M3.1), referenced by a
  * train's [TrainAssignment.scope] — a real Profile carries no optics of its
  * own, that's the Scopes catalog + Optical Train's job.
  */
@@ -514,10 +515,10 @@ val DEFAULT_PROFILES = listOf(
     RigProfile("Bench test · 550 mm", listOf("mount", "cam")),
 )
 
-val SimState.activeRigProfile: RigProfile? get() = profiles.firstOrNull { it.name == activeProfile }
+val AppState.activeRigProfile: RigProfile? get() = profiles.firstOrNull { it.name == activeProfile }
 
 /** Looks up a [ScopeDef] by name (a [TrainAssignment.scope]/[TrainAssignment] reference) — real or fixture catalog, whichever is current. */
-fun SimState.findScope(name: String): ScopeDef? = (wireScopes ?: scopes).firstOrNull { it.name == name }
+fun AppState.findScope(name: String): ScopeDef? = (wireScopes ?: scopes).firstOrNull { it.name == name }
 
 /** "1160 mm · f/8.9" — formats the F-ratio from a [ScopeDef]'s focal length + aperture. */
 fun fRatio(focalMm: Int, apertureMm: Int): String =
@@ -531,7 +532,7 @@ fun fRatio(focalMm: Int, apertureMm: Int): String =
  * the Optical Train dialog in real Ekos — a train's Scope role just
  * references one of these by [name], same as every other role's device pick.
  * `id` is server-assigned once real ([EkosRemoteController] populates
- * [SimState.wireScopes] from the wire); locally it's `"scope_<seq>"`.
+ * [AppState.wireScopes] from the wire); locally it's `"scope_<seq>"`.
  */
 data class ScopeDef(
     val id: String,
@@ -602,12 +603,12 @@ fun TrainAssignment.with(role: TrainRole, value: String): TrainAssignment = when
     TrainRole.ADAPTIVE_OPTICS -> copy(adaptiveOptics = value)
 }
 
-fun SimState.train(slot: TrainSlot): TrainAssignment = when (slot) {
+fun AppState.train(slot: TrainSlot): TrainAssignment = when (slot) {
     TrainSlot.PRIMARY -> primaryTrain
     TrainSlot.SECONDARY -> secondaryTrain
 }
 
-fun SimState.withTrain(slot: TrainSlot, train: TrainAssignment): SimState = when (slot) {
+fun AppState.withTrain(slot: TrainSlot, train: TrainAssignment): AppState = when (slot) {
     TrainSlot.PRIMARY -> copy(primaryTrain = train)
     TrainSlot.SECONDARY -> copy(secondaryTrain = train)
 }
@@ -637,7 +638,7 @@ private val TRAIN_ROLE_DEVICE_ROLES: Map<TrainRole, Set<DeviceRole>> = mapOf(
  * from the devices in the rig profile"). Dust cap/Light box/AO have no
  * backing category there, so they're always just "None".
  */
-fun SimState.trainRolePool(role: TrainRole): List<String> {
+fun AppState.trainRolePool(role: TrainRole): List<String> {
     val live = wireDevices
     val deviceRoles = TRAIN_ROLE_DEVICE_ROLES[role]
     if (live != null && deviceRoles != null) {
@@ -781,7 +782,7 @@ val CATEGORY_TO_DRIVER_FAMILY = mapOf(
  * has arrived yet at all, i.e. not connected — falls back to the fixture
  * catalog then.
  */
-fun SimState.realDeviceOptions(key: String): List<String>? {
+fun AppState.realDeviceOptions(key: String): List<String>? {
     val family = CATEGORY_TO_DRIVER_FAMILY[key]
     val connected = wireDevices?.let { live ->
         val roles = CATEGORY_DEVICE_ROLES[key] ?: return@let emptyList()
@@ -855,13 +856,13 @@ sealed class IndiProperty {
 }
 
 /** Looks up a NumberProp's live value by property name — user's own edit first, else the driver fixture default. */
-fun SimState.indiNumber(deviceName: String, propName: String): Double? {
+fun AppState.indiNumber(deviceName: String, propName: String): Double? {
     val props = indiProps[deviceName] ?: DRIVER_INDI_PROPS[deviceName] ?: emptyList()
     return (props.firstOrNull { it.name == propName } as? IndiProperty.NumberProp)?.value
 }
 
 /** Looks up a NumberProp's own vector-level IPState (see [IndiProperty.NumberProp.state]) by property name. */
-fun SimState.indiBusy(deviceName: String, propName: String): Boolean {
+fun AppState.indiBusy(deviceName: String, propName: String): Boolean {
     val props = indiProps[deviceName] ?: DRIVER_INDI_PROPS[deviceName] ?: emptyList()
     return (props.firstOrNull { it.name == propName } as? IndiProperty.NumberProp)?.state == 2
 }
@@ -1075,7 +1076,7 @@ data class SequenceJob(
      * id, only `name`, so a cached index went stale the instant anything else on the real queue
      * was added/removed (confirmed live — this exact staleness is what let a duplicate-name push
      * silently latch onto a different job's slot). Both are now resolved fresh, by name, against
-     * [SimState.wireSchedulerJobs] at the moment a command needs them, via [wireJobFor].
+     * [AppState.wireSchedulerJobs] at the moment a command needs them, via [wireJobFor].
      */
     val synced: Boolean = false,
 )
@@ -1085,7 +1086,7 @@ val DEFAULT_JOBS = listOf(
 )
 
 /**
- * The name Ekos would know a job by — used to name-match [SimState.wireSchedulerJobs]. Always
+ * The name Ekos would know a job by — used to name-match [AppState.wireSchedulerJobs]. Always
  * suffixed with this job's own local id (`"NGC 7000 #j2"`), not just the target's own display
  * name — real Ekos's Scheduler has no separate job-id field, only `name`, so two local jobs for
  * the *same target* (different filters/exposures — a real user need: "different session
@@ -1094,7 +1095,7 @@ val DEFAULT_JOBS = listOf(
  * given job's whole lifetime (the id never changes), so a job's wire identity never shifts out
  * from under a live sync just because a sibling job for the same target was added or removed.
  */
-fun SimState.targetNameFor(job: SequenceJob): String {
+fun AppState.targetNameFor(job: SequenceJob): String {
     val target = findTarget(job.targetId)
     val base = target?.common ?: target?.id ?: job.targetId
     return "$base #${job.id}"
@@ -1106,7 +1107,7 @@ fun SimState.targetNameFor(job: SequenceJob): String {
  * duplicate-name bug bit before this field was added). This is the one place "is this job really
  * running" gets answered from now on — [SequenceJob] itself carries no local running flag.
  */
-fun SimState.wireJobFor(job: SequenceJob): WireSchedulerJob? =
+fun AppState.wireJobFor(job: SequenceJob): WireSchedulerJob? =
     if (!job.synced) null else wireSchedulerJobs.orEmpty().firstOrNull { it.name == targetNameFor(job) }
 
 /**
@@ -1114,7 +1115,7 @@ fun SimState.wireJobFor(job: SequenceJob): WireSchedulerJob? =
  * KStars, or left over from before this app ever touched them. The app never hides these: it
  * reads Ekos's real state and shows it as-is, it doesn't force/clear anything on connect.
  */
-val SimState.unmanagedWireJobs: List<WireSchedulerJob> get() {
+val AppState.unmanagedWireJobs: List<WireSchedulerJob> get() {
     val claimed = jobs.filter { it.synced }.map { targetNameFor(it) }.toSet()
     return wireSchedulerJobs.orEmpty().filterNot { it.name in claimed }
 }
@@ -1127,17 +1128,17 @@ val SimState.unmanagedWireJobs: List<WireSchedulerJob> get() {
  * simulator fixture it always was — only the header (target name, block progress) is wired to
  * this job.
  */
-val SimState.contractJob: SequenceJob? get() =
+val AppState.contractJob: SequenceJob? get() =
     jobs.firstOrNull { wireJobFor(it)?.state == SchedulerJobStatus.BUSY }
         ?: jobs.firstOrNull { wireJobFor(it)?.state in ACTIVE_SCHEDULER_STATES }
         ?: jobs.firstOrNull { it.id == lastActiveJobId }
         ?: jobs.firstOrNull()
 
 /** The job [endSession] stopped — what the Summary sheet and its export report are about. */
-val SimState.endedJob: SequenceJob? get() = jobs.firstOrNull { it.id == lastEndedJobId }
+val AppState.endedJob: SequenceJob? get() = jobs.firstOrNull { it.id == lastEndedJobId }
 
 /** Looks up a target by id across both catalogs, then the live search results if any (M3). */
-fun SimState.findTarget(id: String): Target? =
+fun AppState.findTarget(id: String): Target? =
     TARGETS.firstOrNull { it.id == id } ?: userTargets.firstOrNull { it.id == id }
         ?: wireSearchResults?.firstOrNull { it.id == id }
 
@@ -1158,8 +1159,24 @@ val Target.displayName: String get() = if (custom) common else "$id — $common"
  */
 val Target.realLookupName: String get() = if (custom) common.ifBlank { id } else id.ifBlank { common }
 
+/**
+ * Real "is a scheduler job actually imaging right now" check (M4.5) — decides Preview/ vs Plan/
+ * on disk for a just-arrived capture frame. A real `BUSY` job means a real target+filter
+ * capture; no `BUSY` job means a test/bench capture. Fragile only around the exact moment a job
+ * starts/stops — no better wire signal exists (frame headers carry no target/filter at all,
+ * confirmed against source) — see docs/M4.5-plan.md.
+ */
+fun AppState.activeFrameSource(): FrameSource {
+    val busyJob = wireSchedulerJobs?.firstOrNull { it.state == SchedulerJobStatus.BUSY } ?: return FrameSource.Test
+    return FrameSource.Plan(
+        target = busyJob.name,
+        filter = wireCaptureSettings?.FilterPosCombo,
+        temperatureC = indiNumber(primaryTrain.camera, "CCD_TEMPERATURE"),
+    )
+}
+
 /** Median of the real per-frame HFR list (M4.3, Room-backed) — null if no frame has an HFR yet. */
-val SimState.medHfr: Double? get() {
+val AppState.medHfr: Double? get() {
     val sorted = frameRows.mapNotNull { it.hfr }.sorted()
     return if (sorted.isEmpty()) null else sorted[sorted.size / 2]
 }
@@ -1179,7 +1196,7 @@ val FILTER_CYCLE = listOf("Ha", "OIII", "SII", "L", "R", "G", "B")
  * sites), found here via the same [DeviceRole]-filtered [wireDevices] lookup
  * `realDeviceOptions` already uses for the same role.
  */
-val SimState.realFilterNames: List<String>? get() {
+val AppState.realFilterNames: List<String>? get() {
     val filterWheel = wireDevices?.firstOrNull { DeviceRole.FILTER in it.roles } ?: return null
     val prop = indiProps[filterWheel.name]?.firstOrNull { it.name == "FILTER_NAME" } as? IndiProperty.TextProp
     return prop?.elements?.map { it.second }?.filter { it.isNotBlank() }?.takeIf { it.isNotEmpty() }
@@ -1231,14 +1248,14 @@ val SequenceJob.doneHM: String get() = formatHM(totalDoneSec)
 val SequenceJob.plannedHM: String get() = formatHM(totalPlannedSec)
 
 /**
- * Real dusk/dawn as absolute instants, resolved from [SimState.wireDusk]/[SimState.wireDawn]'s
+ * Real dusk/dawn as absolute instants, resolved from [AppState.wireDusk]/[AppState.wireDawn]'s
  * signed day-fraction-from-midnight offsets against the *site's* own local "today" (per
- * [SimState.wireSiteTz]) — deliberately not the Android device's own timezone, since the almanac
+ * [AppState.wireSiteTz]) — deliberately not the Android device's own timezone, since the almanac
  * itself is anchored to the Pi's configured site, which could differ from wherever the phone
  * happens to be. Null until all three wire fields have arrived — [SessionScreen.kt]'s
  * `NightArcCard` keeps its hardcoded "21:48 → 04:12" until then.
  */
-val SimState.realNightWindow: Pair<Instant, Instant>? get() {
+val AppState.realNightWindow: Pair<Instant, Instant>? get() {
     val dusk = wireDusk ?: return null
     val dawn = wireDawn ?: return null
     val zone = siteZoneOffset ?: return null
@@ -1247,7 +1264,7 @@ val SimState.realNightWindow: Pair<Instant, Instant>? get() {
 }
 
 /** [wireSiteTz] as a [ZoneOffset] — null until it's arrived (real-rig only). */
-val SimState.siteZoneOffset: ZoneOffset? get() = wireSiteTz?.let { ZoneOffset.ofTotalSeconds((it * 3600).roundToInt()) }
+val AppState.siteZoneOffset: ZoneOffset? get() = wireSiteTz?.let { ZoneOffset.ofTotalSeconds((it * 3600).roundToInt()) }
 
 /**
  * "Local midnight today" is ambiguous by clock time alone — offsets like [wireDusk]/[wireDawn], or
@@ -1271,7 +1288,7 @@ private fun nearestMidnight(zone: ZoneOffset): Instant {
  * (see [WireRiseset.altitudes]'s own doc) — a full day cycle centered on midnight, distinct from
  * [realNightWindow]'s dusk-to-dawn observing window. Null until [wireSiteTz] has arrived.
  */
-val SimState.realDayWindow: Pair<Instant, Instant>? get() {
+val AppState.realDayWindow: Pair<Instant, Instant>? get() {
     val zone = siteZoneOffset ?: return null
     val anchor = nearestMidnight(zone)
     return anchor.minusSeconds(43_200) to anchor.plusSeconds(43_200)
@@ -1290,7 +1307,7 @@ val SimState.realDayWindow: Pair<Instant, Instant>? get() {
  * both [realDayWindow] (site tz) and [realNightWindow] (dusk/dawn) have arrived, or if [riseset]
  * has fewer than 2 samples.
  */
-fun SimState.realUsableSeconds(riseset: WireRiseset, thresholdDeg: Double = 40.0): Int? {
+fun AppState.realUsableSeconds(riseset: WireRiseset, thresholdDeg: Double = 40.0): Int? {
     val dayStart = realDayWindow?.first ?: return null
     val night = realNightWindow ?: return null
     val alts = riseset.altitudes.takeIf { it.size >= 2 } ?: return null
@@ -1336,7 +1353,7 @@ private fun aboveThresholdSeconds(t0: Long, t1: Long, a0: Double, a1: Double, lo
  * `maxOrNull()`/`riseset.transit`, no interpolation there either). Null if no real night window is
  * known, or [riseset] has no altitude samples.
  */
-fun SimState.realNightMaxAltitude(riseset: WireRiseset): Pair<Double, Instant>? {
+fun AppState.realNightMaxAltitude(riseset: WireRiseset): Pair<Double, Instant>? {
     val dayStart = realDayWindow?.first ?: return null
     val night = realNightWindow ?: return null
     if (riseset.altitudes.isEmpty()) return null
@@ -1349,7 +1366,7 @@ fun SimState.realNightMaxAltitude(riseset: WireRiseset): Pair<Double, Instant>? 
 }
 
 /** Real fraction of [realDayWindow] elapsed right now — always defined once the window is (by construction, "now" sits within ±12h of its own nearest midnight). */
-val SimState.realDayFraction: Double? get() {
+val AppState.realDayFraction: Double? get() {
     val (start, end) = realDayWindow ?: return null
     val total = end.epochSecond - start.epochSecond
     if (total <= 0) return null
@@ -1359,7 +1376,7 @@ val SimState.realDayFraction: Double? get() {
 private val SITE_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm")
 
 /** [instant] formatted "HH:mm" in the site's own local time — real replacement for the "21:48"/"04:12" literals. */
-fun SimState.formatSiteTime(instant: Instant): String {
+fun AppState.formatSiteTime(instant: Instant): String {
     val tz = wireSiteTz ?: return "--:--"
     return instant.atZone(ZoneOffset.ofTotalSeconds((tz * 3600).roundToInt())).format(SITE_TIME_FORMATTER)
 }
@@ -1369,7 +1386,7 @@ fun SimState.formatSiteTime(instant: Instant): String {
  * "now" falls outside that span (daytime, or between a stale dawn and the next dusk), so the UI
  * can show an honest "not observing" state instead of plotting a wrong dot position.
  */
-val SimState.realNowFraction: Double? get() {
+val AppState.realNowFraction: Double? get() {
     val (dusk, dawn) = realNightWindow ?: return null
     val now = Instant.now()
     if (now.isBefore(dusk) || now.isAfter(dawn)) return null
@@ -1386,7 +1403,7 @@ val SimState.realNowFraction: Double? get() {
  * without needing a second almanac fetch — confirmed sound because the dawn-to-next-dusk gap is
  * always well under 24h.
  */
-val SimState.realCountdownToDusk: String? get() {
+val AppState.realCountdownToDusk: String? get() {
     val (dusk, _) = realNightWindow ?: return null
     val now = Instant.now()
     val nextDusk = if (!dusk.isBefore(now)) dusk else dusk.plusSeconds(86400)
@@ -1396,10 +1413,10 @@ val SimState.realCountdownToDusk: String? get() {
     return "T-$h:${m.toString().padStart(2, '0')}"
 }
 
-internal fun SimState.mapJob(jobId: String, f: (SequenceJob) -> SequenceJob): SimState =
+internal fun AppState.mapJob(jobId: String, f: (SequenceJob) -> SequenceJob): AppState =
     copy(jobs = jobs.map { if (it.id == jobId) f(it) else it })
 
-internal fun SimState.mapJobBlock(jobId: String, blockId: String, f: (Block) -> Block): SimState =
+internal fun AppState.mapJobBlock(jobId: String, blockId: String, f: (Block) -> Block): AppState =
     mapJob(jobId) { job -> job.copy(blocks = job.blocks.map { if (it.id == blockId) f(it) else it }) }
 
 data class Alert(
@@ -1429,15 +1446,15 @@ private fun hhmm(s: Int): String {
     return "$m:${r.toString().padStart(2, '0')}"
 }
 
-val SimState.elapsed: Int get() = (128 + t) % 300
-val SimState.expRemain: String get() = hhmm(300 - elapsed)
-val SimState.fNow: Double get() = 0.485 + t / 9000.0
+val AppState.elapsed: Int get() = (128 + t) % 300
+val AppState.expRemain: String get() = hhmm(300 - elapsed)
+val AppState.fNow: Double get() = 0.485 + t / 9000.0
 
 /** Minutes until the next scheduled autofocus — real countdown off the real [WireCaptureSettings.refocusEveryN] (2026-08-23) and the last run's timestamp. */
-val SimState.focusNextAfMin: Int get() = ((wireCaptureSettings?.refocusEveryN ?: 45) - (t - focusLastAfAt) / 60).coerceAtLeast(0)
+val AppState.focusNextAfMin: Int get() = ((wireCaptureSettings?.refocusEveryN ?: 45) - (t - focusLastAfAt) / 60).coerceAtLeast(0)
 
 /** Live EAF focuser temperature — reads the user's own edits first, falls back to the driver fixture default. */
-val SimState.eafTemp: Double get() = indiNumber("EAF", "FOCUS_TEMPERATURE") ?: -0.6
+val AppState.eafTemp: Double get() = indiNumber("EAF", "FOCUS_TEMPERATURE") ?: -0.6
 
 /**
  * Real position for Bench check's Focuser card (M3.2) — [focPos] itself stays a plain fixture
@@ -1451,7 +1468,7 @@ val SimState.eafTemp: Double get() = indiNumber("EAF", "FOCUS_TEMPERATURE") ?: -
  * name once `wireTrains` is populated (see `WireTrain.toTrainAssignment`) — falls back to
  * [focPos] whenever that lookup misses (simulator, or before the real value has arrived).
  */
-val SimState.benchFocPos: Int get() =
+val AppState.benchFocPos: Int get() =
     if (wireFocusSettings != null) focPos else (indiNumber(primaryTrain.focuser, "ABS_FOCUS_POSITION")?.roundToInt() ?: focPos)
 
 /**
@@ -1461,7 +1478,7 @@ val SimState.benchFocPos: Int get() =
  * never reconciled against which train the Guide module itself is really using). Null under the
  * simulator or before trains + assignments have both arrived.
  */
-val SimState.guideCameraDevice: String?
+val AppState.guideCameraDevice: String?
     get() = wireTrains?.firstOrNull { it.name == moduleTrainAssignments?.get("guide") }?.camera?.takeIf { it.isNotBlank() }
 
 /**
@@ -1476,7 +1493,7 @@ val SimState.guideCameraDevice: String?
  */
 data class CaptureProgress(val remainingSec: Double?, val totalSec: Double, val busy: Boolean)
 
-fun SimState.captureProgress(cameraDevice: String?, totalSec: Double): CaptureProgress? {
+fun AppState.captureProgress(cameraDevice: String?, totalSec: Double): CaptureProgress? {
     if (cameraDevice.isNullOrBlank()) return null
     return CaptureProgress(
         remainingSec = indiNumber(cameraDevice, "CCD_EXPOSURE"),
@@ -1497,7 +1514,7 @@ fun SimState.captureProgress(cameraDevice: String?, totalSec: Double): CapturePr
  * index Bench check sends for option `i` here needs no translation. Null in the simulator or
  * before the mount's own `device_get` reply has arrived.
  */
-val SimState.realSlewRateProp: IndiProperty.SwitchProp?
+val AppState.realSlewRateProp: IndiProperty.SwitchProp?
     get() = (indiProps[primaryTrain.mount] ?: emptyList())
         .firstOrNull { it.name == "TELESCOPE_SLEW_RATE" } as? IndiProperty.SwitchProp
 
@@ -1509,7 +1526,7 @@ val SimState.realSlewRateProp: IndiProperty.SwitchProp?
  * real `mount_set_tracking` Ekos-level command rather than writing this INDI property directly
  * (this is read-only display; the write goes through the more universal Ekos command).
  */
-val SimState.mountTrackingOn: Boolean get() {
+val AppState.mountTrackingOn: Boolean get() {
     val prop = (indiProps[primaryTrain.mount] ?: emptyList()).firstOrNull { it.name == "TELESCOPE_TRACK_STATE" } as? IndiProperty.SwitchProp
     return prop?.let { it.elementNames.getOrNull(it.selected) == "TRACK_ON" } ?: mountTracking
 }
@@ -1520,7 +1537,7 @@ val SimState.mountTrackingOn: Boolean get() {
  * the fixture-only [mountParked] field. Same read-display/write-via-Ekos-command split as
  * [mountTrackingOn]: writes go through `mount_park`/`mount_unpark`, not this property directly.
  */
-val SimState.mountParkedReal: Boolean get() {
+val AppState.mountParkedReal: Boolean get() {
     val prop = (indiProps[primaryTrain.mount] ?: emptyList()).firstOrNull { it.name == "TELESCOPE_PARK" } as? IndiProperty.SwitchProp
     return prop?.let { it.elementNames.getOrNull(it.selected) == "PARK" } ?: mountParked
 }
@@ -1532,7 +1549,7 @@ val SimState.mountParkedReal: Boolean get() {
  * verified across every sky position; falls back to the raw ordinal (no invented label) for any
  * other value so a wrong guess never gets shown as if confirmed.
  */
-val SimState.mountPierSideLabel: String? get() = when (wireMountPierSide) {
+val AppState.mountPierSideLabel: String? get() = when (wireMountPierSide) {
     1 -> "West"
     0 -> "East"
     null -> null
@@ -1546,37 +1563,37 @@ val SimState.mountPierSideLabel: String? get() = when (wireMountPierSide) {
  * on the simulator that's always, since [wireCcdInfoByDevice] is only ever populated by
  * [EkosRemoteController].
  */
-val SimState.framingPixelScaleArcsecPerPx: Double? get() {
+val AppState.framingPixelScaleArcsecPerPx: Double? get() {
     val focalMm = findScope(primaryTrain.scope)?.focalMm?.takeIf { it > 0 } ?: return null
     val ccd = wireCcdInfoByDevice[primaryTrain.camera] ?: return null
     return 206.265 * ccd.pixelUm / focalMm
 }
 
 /** Real field of view (width, height) in degrees, derived from [framingPixelScaleArcsecPerPx] and the primary camera's sensor resolution. */
-val SimState.framingFovDeg: Pair<Double, Double>? get() {
+val AppState.framingFovDeg: Pair<Double, Double>? get() {
     val scale = framingPixelScaleArcsecPerPx ?: return null
     val ccd = wireCcdInfoByDevice[primaryTrain.camera] ?: return null
     return (scale * ccd.maxX / 3600.0) to (scale * ccd.maxY / 3600.0)
 }
 
-val SimState.paTotal: Double get() = hypot(paAlt, paAz)
-val SimState.coolAtSetPoint: Boolean get() = abs(coolNow - coolTarget) < 0.2
-val SimState.coolBarPct: Int get() {
+val AppState.paTotal: Double get() = hypot(paAlt, paAz)
+val AppState.coolAtSetPoint: Boolean get() = abs(coolNow - coolTarget) < 0.2
+val AppState.coolBarPct: Int get() {
     val raw = ((12.4 - coolNow) / (12.4 - coolTarget) * 100).roundToInt()
     return raw.coerceIn(2, 100)
 }
-val SimState.coolPowerPct: Int get() = min(99, (abs(coolNow - 12.4) * 3 + 8).roundToInt())
+val AppState.coolPowerPct: Int get() = min(99, (abs(coolNow - 12.4) * 3 + 8).roundToInt())
 // Real once Room has real rows (M4.3) — was fixture-derived (`frames`/`FRAME_IDS`/`FRAME_HFRS`,
 // all deleted) before. SessionReport's own "kept/cut" export line still says M4-gap elsewhere
 // pending the rest of M4.6; these two counts themselves are real now.
-val SimState.rejectCount: Int get() = frameRows.count { !it.keep }
-val SimState.keepCount: Int get() = frameRows.count { it.keep }
-val SimState.ready: Boolean get() = ekosRunning && isOn("mount") && isOn("cam")
-fun SimState.isOn(key: String): Boolean = ekosRunning && key !in devOff
+val AppState.rejectCount: Int get() = frameRows.count { !it.keep }
+val AppState.keepCount: Int get() = frameRows.count { it.keep }
+val AppState.ready: Boolean get() = ekosRunning && isOn("mount") && isOn("cam")
+fun AppState.isOn(key: String): Boolean = ekosRunning && key !in devOff
 
 /** Whether a device is picked for the profile being built — independent of Ekos actually running. */
-fun SimState.isSelected(key: String): Boolean = key !in devOff
-val SimState.missing: String get() {    val parts = buildList {
+fun AppState.isSelected(key: String): Boolean = key !in devOff
+val AppState.missing: String get() {    val parts = buildList {
         if (!isOn("mount")) add("mount")
         if (!isOn("cam")) add("camera")
     }

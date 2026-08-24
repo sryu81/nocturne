@@ -368,26 +368,20 @@ fun SliderRow(
  * Renders a real JPEG frame — decode happens off the main thread via
  * [androidx.compose.runtime.produceState] since a capture frame can be a few hundred KB and
  * decoding synchronously inside composition would jank a live-updating preview. Falls back to
- * [HatchBg] while [jpeg] is null or fails to decode (malformed/partial frame) — never blank, so
- * there's no flash between "no frame yet" and "frame failed to decode." Takes raw bytes rather
- * than a [MediaFrame] so it works equally for a live `/media/ekos` push (M4.2) and a
- * Room-persisted [com.nocturne.data.FrameEntity] row (M4.3) — see the [MediaFrame]-typed overload
- * below for the live-push call sites.
+ * [HatchBg] while [key] is null or decoding fails (malformed/partial frame, missing file) — never
+ * blank, so there's no flash between "no frame yet" and "frame failed to decode." [key] doubles
+ * as the [produceState] key — pass whatever value should trigger a re-decode (the raw bytes, or
+ * the file path).
  */
 @Composable
-fun MediaFramePreview(
-    jpeg: ByteArray?,
-    modifier: Modifier = Modifier,
-    hatchColor: Color? = null,
+private fun MediaFramePreviewImpl(
+    key: Any?,
+    modifier: Modifier,
+    hatchColor: Color?,
+    decode: suspend () -> ImageBitmap?,
 ) {
-    val bitmap by produceState<ImageBitmap?>(null, jpeg) {
-        value = jpeg?.let { bytes ->
-            withContext(Dispatchers.Default) {
-                runCatching {
-                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
-                }.getOrNull()
-            }
-        }
+    val bitmap by produceState<ImageBitmap?>(null, key) {
+        value = if (key == null) null else withContext(Dispatchers.Default) { runCatching { decode() }.getOrNull() }
     }
     val bmp = bitmap
     if (bmp != null) {
@@ -402,10 +396,26 @@ fun MediaFramePreview(
     }
 }
 
+/**
+ * Raw-bytes overload — a live `/media/ekos` push's JPEG isn't backed by a file (M4.2 call sites
+ * before a frame is ever persisted); see the [String]-path overload below for a Room-persisted
+ * [com.nocturne.data.FrameEntity] row (M4.5, real on-disk file, not a DB blob).
+ */
+@Composable
+fun MediaFramePreview(jpeg: ByteArray?, modifier: Modifier = Modifier, hatchColor: Color? = null) {
+    MediaFramePreviewImpl(jpeg, modifier, hatchColor) { BitmapFactory.decodeByteArray(jpeg, 0, jpeg!!.size)?.asImageBitmap() }
+}
+
 /** [MediaFrame]-typed convenience overload for a live `/media/ekos` push (M4.2 call sites). */
 @Composable
 fun MediaFramePreview(frame: MediaFrame?, modifier: Modifier = Modifier, hatchColor: Color? = null) {
     MediaFramePreview(frame?.jpeg, modifier, hatchColor)
+}
+
+/** Real on-disk file path overload (M4.5) — a [com.nocturne.data.FrameEntity]'s own `filePath`. */
+@Composable
+fun MediaFramePreviewFile(filePath: String?, modifier: Modifier = Modifier, hatchColor: Color? = null) {
+    MediaFramePreviewImpl(filePath, modifier, hatchColor) { BitmapFactory.decodeFile(filePath)?.asImageBitmap() }
 }
 
 /** Diagonal hatch background — image slots & placeholders. */

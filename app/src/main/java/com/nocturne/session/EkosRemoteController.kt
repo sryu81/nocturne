@@ -39,7 +39,7 @@ import kotlin.math.roundToInt
 
 /**
  * M3 session driver for a real EkosRemote connection. Runs no ticker — `t`
- * and every simulator-only field stay frozen at [SimState]'s defaults;
+ * and every simulator-only field stay frozen at [AppState]'s defaults;
  * real telemetry arrives instead as [EkosEvent] pushes on [client], applied
  * here to the wire-mirror fields (`wireCaptureStatus`, `wireDevices`, ...).
  * The pure local-UI methods (sheet nav, block editing, prefs, ...) inherited
@@ -131,8 +131,8 @@ class EkosRemoteController(
     private data class PendingJobStart(val jobId: String, val targetName: String, val raDec: Pair<String, String>?, val trainName: String?, val alsoStart: Boolean = false)
     private var pendingJobStart: PendingJobStart? = null
 
-    /** In-memory mirror of the reboot daemon's port/token — [SimState] only ever exposes
-     *  whether a token is set ([SimState.rigRebootTokenSet]), never the token itself. */
+    /** In-memory mirror of the reboot daemon's port/token — [AppState] only ever exposes
+     *  whether a token is set ([AppState.rigRebootTokenSet]), never the token itself. */
     private var rigRebootPort: Int = 9001
     private var rigRebootToken: String? = null
 
@@ -143,9 +143,9 @@ class EkosRemoteController(
     private val lastAppliedNumberPushMs = mutableMapOf<Pair<String, String>, Long>()
 
     /**
-     * Real `CCD_EXPOSURE` (M3.4, see [SimState.captureProgress]) pushes several times a second
+     * Real `CCD_EXPOSURE` (M3.4, see [AppState.captureProgress]) pushes several times a second
      * while an exposure is actively counting down — confirmed live. Every device-property push
-     * mutates the *same* shared `SimState` object every composable on screen is called with
+     * mutates the *same* shared `AppState` object every composable on screen is called with
      * (`ControlsScreen(state, ...)` takes it as one parameter), so an unthrottled high-frequency
      * source forces a full-screen recompose — including several genuinely expensive cards
      * (`MountControlCard` etc) — at that same frequency. Confirmed live: tapping Snap main
@@ -157,7 +157,7 @@ class EkosRemoteController(
      * property's very first push, and for anything that isn't currently Busy, so nothing real is
      * ever delayed or dropped, only the redundant mid-exposure churn.
      */
-    private fun shouldThrottleNumberPush(device: String, property: WireProperty, current: SimState): Boolean {
+    private fun shouldThrottleNumberPush(device: String, property: WireProperty, current: AppState): Boolean {
         if (property !is WireProperty.Number) return false
         val wasBusy = (current.indiProps[device]?.firstOrNull { it.name == property.name } as? IndiProperty.NumberProp)?.state == 2
         if (!(wasBusy && property.state == 2)) return false
@@ -170,7 +170,7 @@ class EkosRemoteController(
     }
 
     init {
-        // SimState.jobs/activeJobId/lastActiveJobId/openBlockId default to DEFAULT_JOBS — one
+        // AppState.jobs/activeJobId/lastActiveJobId/openBlockId default to DEFAULT_JOBS — one
         // job pre-marked running = true, a SimulatedController demo convenience. A real
         // connection has no session queued until the user actually adds one (Plan tab "Add to
         // sequence") — or until sequenceRepo's own load below restores whatever was queued last,
@@ -188,13 +188,16 @@ class EkosRemoteController(
             }
         }
         // M4.1 — real `/media/ekos` binary frames, routed by their header's own uuid tag into
-        // the matching SimState field. No history buffer here for non-capture types — this is
+        // the matching AppState field. No history buffer here for non-capture types — this is
         // deliberately "latest frame per device only." Capture frames additionally persist to
         // Room (M4.3, frameRepo) — that's the actual history the Frames grid reads.
         scope.launch {
             client.mediaFrames.collect { frame ->
                 if (frame.header.frameType == MediaFrameType.CAPTURE) {
-                    frameRepo?.let { repo -> scope.launch { repo.insert(frame, System.currentTimeMillis()) } }
+                    frameRepo?.let { repo ->
+                        val source = _state.value.activeFrameSource()
+                        scope.launch { repo.insert(frame, System.currentTimeMillis(), source) }
+                    }
                 }
                 _state.update { s ->
                     when (frame.header.frameType) {
@@ -210,7 +213,7 @@ class EkosRemoteController(
             }
         }
         // M4.3 — Room is the real source of truth for the Frames grid; this just mirrors its
-        // own live Flow into SimState so the UI never reads the database directly.
+        // own live Flow into AppState so the UI never reads the database directly.
         frameRepo?.let { repo ->
             scope.launch {
                 repo.observeAll().collect { rows -> _state.update { it.copy(frameRows = rows) } }
@@ -259,11 +262,11 @@ class EkosRemoteController(
         }
     }
 
-    private fun applyEvent(s: SimState, event: EkosEvent): SimState = when (event) {
+    private fun applyEvent(s: AppState, event: EkosEvent): AppState = when (event) {
         // Socket/dial progress itself is consumed straight from client.connectionStatus by
-        // the connect screen / reconnect banner — not funneled through SimState. But `online`
-        // specifically doubles as SimState.ekosRunning (Gear tab's Start/Stop Ekos, ReadyBanner,
-        // etc. all read that) — SimState defaults ekosRunning = true (M1 fixture default, a
+        // the connect screen / reconnect banner — not funneled through AppState. But `online`
+        // specifically doubles as AppState.ekosRunning (Gear tab's Start/Stop Ekos, ReadyBanner,
+        // etc. all read that) — AppState defaults ekosRunning = true (M1 fixture default, a
         // profile already running), which is wrong the moment a real socket opens and Ekos
         // hasn't started yet (see NocturneApp — the shell is now reachable at that point
         // specifically so Start Ekos is tappable). activeProfile mirrors whatever get_profiles
@@ -303,7 +306,7 @@ class EkosRemoteController(
         // that isn't already shown. Decoded so it doesn't silently fall through to Raw; no-op here.
         is EkosEvent.NewCameraState -> s
 
-        // Real ground truth for SimState.schedulerRunning (see that field's own doc) — the
+        // Real ground truth for AppState.schedulerRunning (see that field's own doc) — the
         // `log`-shaped pushes carry no status and are ignored here; only a `status`-shaped push
         // updates it. Real `Ekos::SchedulerState`: IDLE=0/STARTUP=1/RUNNING=2/PAUSED=3/
         // SHUTDOWN=4/ABORTED=5/LOADING=6 — true for everything except IDLE/ABORTED.
@@ -333,7 +336,7 @@ class EkosRemoteController(
                 selectedProfile = event.selectedProfile ?: s.selectedProfile,
                 profileDeleteRefused = if (refused) attemptedDelete else null,
                 // Every driver label ever saved across any profile on this Pi, unioned — see
-                // SimState.realDeviceOptions. Available pre-online, unlike wireDevices.
+                // AppState.realDeviceOptions. Available pre-online, unlike wireDevices.
                 wireKnownDrivers = event.profiles
                     .flatMap { it.drivers.entries }
                     .groupBy({ it.key }, { it.value })
@@ -473,7 +476,7 @@ class EkosRemoteController(
      * state and mirror it" contract now — no wipe, no force-sync, ever, per the push/start/stop
      * redesign 2026-08-23), plus two derived effects:
      * 1. If a sync is pending ([pendingSyncJobId]), and the just-pushed name is actually present,
-     *    flip that job's `synced = true`. No index capture anymore — [SimState.wireJobFor]
+     *    flip that job's `synced = true`. No index capture anymore — [AppState.wireJobFor]
      *    resolves a job's real counterpart fresh, by name, whenever anything needs it, since
      *    `WireSchedulerJob` has no server-assigned id and a cached index goes stale the instant
      *    anything else on the real queue is added/removed (confirmed live: this exact staleness
@@ -483,7 +486,7 @@ class EkosRemoteController(
      *    it's waterfall-filled across blocks in order (real per-block progress needs
      *    `capture_get_sequences`, undocumented shape, deferred past M3 — see plan §"Protocol facts").
      */
-    private fun applySchedulerJobs(s: SimState, event: EkosEvent.SchedulerJobs): SimState {
+    private fun applySchedulerJobs(s: AppState, event: EkosEvent.SchedulerJobs): AppState {
         var next = s.copy(wireSchedulerJobs = event.jobs)
 
         val syncJobId = pendingSyncJobId
@@ -514,21 +517,21 @@ class EkosRemoteController(
      * right after this app's own add.
      *
      * Only ever touches a job that's already `synced == true`, matched by name (see
-     * [SimState.targetNameFor]/[SimState.wireJobFor]) — safe by construction: a job this app
+     * [AppState.targetNameFor]/[AppState.wireJobFor]) — safe by construction: a job this app
      * never itself marked `synced` is never touched here at all.
      *
      * **Simplified 2026-08-23 (push/start/stop split)**: used to also flip back to unsynced the
      * moment a real job's *state* left [ACTIVE_SCHEDULER_STATES] (e.g. the instant it went
      * `COMPLETE`/`ERROR`/`ABORTED`) — now it only reacts to the name *disappearing* from
      * [realJobs] entirely. A job that finished with an error, say, stays `synced` and keeps
-     * showing that real terminal status (via [SimState.wireJobFor]'s own live lookup, block editor
+     * showing that real terminal status (via [AppState.wireJobFor]'s own live lookup, block editor
      * still locked) rather than silently reverting to "not pushed" — more honest, since Ekos
      * itself still lists it. The old `skipJobId` guard (for a job [applySchedulerJobs] had *just*
      * synced in the very same call, before it had a chance to reach an active state) is gone too
      * — presence-by-name can't race that way: a name that just matched in this exact
      * `realJobs` list is, by construction, still in it a few lines later.
      */
-    private fun reconcileSyncedJobStatus(s: SimState, realJobs: List<WireSchedulerJob>): SimState {
+    private fun reconcileSyncedJobStatus(s: AppState, realJobs: List<WireSchedulerJob>): AppState {
         var next = s
         for (local in s.jobs) {
             if (!local.synced) continue
@@ -550,11 +553,11 @@ class EkosRemoteController(
     }
 
     /**
-     * Side effects that follow a push rather than mutate [SimState] directly
+     * Side effects that follow a push rather than mutate [AppState] directly
      * — right after `get_devices` arrives, fetch each connected device's full
      * property set once ([Commands.DEVICE_GET], non-compact by default, so
      * slider bounds come along) and subscribe to live updates
-     * ([Commands.DEVICE_PROPERTY_SUBSCRIBE]) so [SimState.indiProps] stays
+     * ([Commands.DEVICE_PROPERTY_SUBSCRIBE]) so [AppState.indiProps] stays
      * live from then on.
      *
      * A device that `get_devices` snapshotted as not-yet-connected still gets a narrow
@@ -759,7 +762,7 @@ class EkosRemoteController(
     /**
      * The real `CCD_TEMPERATURE` vector has no separate "target" element (confirmed live —
      * only `CCD_TEMPERATURE_VALUE`, the current reading, is exposed) — `super.coolUp/coolDown()`
-     * still owns [SimState.coolTarget] as Nocturne's own client-side "last commanded" bookkeeping
+     * still owns [AppState.coolTarget] as Nocturne's own client-side "last commanded" bookkeeping
      * (same field/semantics as [SimulatedController]'s fixture), it just now also pushes that
      * number to the real camera afterward. `CoolerCard` reads the live sensor value separately,
      * via [com.nocturne.session.indiNumber].
@@ -805,9 +808,9 @@ class EkosRemoteController(
 
     /**
      * `focus_start`/`focus_stop` — empty request/response each (confirmed against the reference);
-     * progress arrives only via `new_focus_state` (already wired, `SimState.wireFocusStatus`).
+     * progress arrives only via `new_focus_state` (already wired, `AppState.wireFocusStatus`).
      * Doesn't attempt to string-match the real status text — no documented enum of values exists
-     * anywhere for it, only shown verbatim in the UI alongside [SimState.focusRunning]'s own
+     * anywhere for it, only shown verbatim in the UI alongside [AppState.focusRunning]'s own
      * optimistic button state. Distinct from `runAutofocusNow` below (FocusSheet's older one-shot
      * fixture-only button) — both now fire the same real command, kept as separate methods since
      * their fixture behaviors differ and neither call site should have to know about the other.
@@ -879,8 +882,8 @@ class EkosRemoteController(
     /**
      * `mount_set_tracking` — the universal Ekos-level command (works for any mount driver),
      * not a raw INDI property write. Real on/off state for display is read separately via
-     * [SimState.mountTrackingOn] (the mount's own `TELESCOPE_TRACK_STATE`), same read/write
-     * split as [parkMount]/[unparkMount] vs [SimState.mountParkedReal].
+     * [AppState.mountTrackingOn] (the mount's own `TELESCOPE_TRACK_STATE`), same read/write
+     * split as [parkMount]/[unparkMount] vs [AppState.mountParkedReal].
      */
     override fun setMountTracking(enabled: Boolean) {
         client.sendCommand(Commands.MOUNT_SET_TRACKING, buildJsonObject { put("enabled", enabled) })
@@ -971,7 +974,7 @@ class EkosRemoteController(
      * `guide_start`/`guide_stop` — empty request/response each. `guide_stop` maps server-side to
      * `abort()` (confirmed against the reference) — a hard abort, not a distinct graceful-stop
      * concept, worth remembering before anyone expects a gentler pause here. Progress via
-     * `new_guide_state` (already wired, `SimState.wireGuideStatus`), shown raw in the UI —
+     * `new_guide_state` (already wired, `AppState.wireGuideStatus`), shown raw in the UI —
      * same no-string-matching approach as [startAutofocus].
      */
     override fun startGuiding() {
@@ -1676,7 +1679,7 @@ class EkosRemoteController(
 
     /**
      * `astro_search_objects` has no free-text field — only `type`/`direction`/
-     * `maxMagnitude`/`minAlt`/`minDuration`/`minFOV` — so [SimState.chips]
+     * `maxMagnitude`/`minAlt`/`minDuration`/`minFOV` — so [AppState.chips]
      * (which map fairly directly) drive the wire call, while the typed query
      * is applied client-side once names come back ([sendFollowUpCommands]).
      * `type` is a single-value filter server-side (`SkyObject::TYPE`), so the
@@ -1740,7 +1743,7 @@ class EkosRemoteController(
         pushRealJob(jobId, alsoStart = false)
     }
 
-    /** The global Scheduler toggle — see [SimState.schedulerRunning]'s doc for why this never optimistically flips it itself; the button's own label follows the real `new_scheduler_state` push instead. */
+    /** The global Scheduler toggle — see [AppState.schedulerRunning]'s doc for why this never optimistically flips it itself; the button's own label follows the real `new_scheduler_state` push instead. */
     override fun toggleScheduler() {
         client.sendCommand(Commands.SCHEDULER_START_JOB)
     }
@@ -1786,9 +1789,9 @@ class EkosRemoteController(
      * `SCHEDULED`, and the app refused to remove it citing a state that was never actually
      * guarded by anything ticking. The real refusal this app saw earlier today
      * (`"Cannot delete currently running job"`) happened while the *Scheduler* was actually
-     * running (`SimState.schedulerRunning`, a different, Scheduler-level real signal from
+     * running (`AppState.schedulerRunning`, a different, Scheduler-level real signal from
      * `new_scheduler_state` — see that field's own doc) — not tied to any one job's own state at
-     * all. Fixed: gate on [SimState.schedulerRunning] instead. If refused, nothing is sent and the
+     * all. Fixed: gate on [AppState.schedulerRunning] instead. If refused, nothing is sent and the
      * local row stays exactly as-is (same as [pushJob]'s own refusal shape) — a refusal must never
      * silently forget a real, still-active job.
      */
@@ -1825,8 +1828,8 @@ class EkosRemoteController(
      * `new_scheduler_state` (that only fires on a genuine Scheduler-*status* transition — removing
      * a queued-but-never-started job leaves the Scheduler at `IDLE` throughout, no transition to
      * report), and nothing else was re-fetching `scheduler_get_jobs` afterward. Confirmed live:
-     * removed a job, real Ekos cleared it, but `SimState.wireSchedulerJobs` stayed stale with the
-     * removed name still in it — which [SimState.unmanagedWireJobs] then rendered right back as an
+     * removed a job, real Ekos cleared it, but `AppState.wireSchedulerJobs` stayed stale with the
+     * removed name still in it — which [AppState.unmanagedWireJobs] then rendered right back as an
      * "unmanaged" card, since no local job claims that name anymore, making the app look like the
      * remove hadn't worked. Fixed by explicitly re-fetching right after, same as [pushRealJob]'s
      * own add→get pattern — same "server processes commands over one connection in order" precedent.
@@ -1878,7 +1881,7 @@ class EkosRemoteController(
         if (next != null) pushRealJob(next.id, alsoStart = true)
     }
 
-    /** See [SimState.schedulerRunning]'s doc — a running real Scheduler must be toggled off before a remove can land. */
+    /** See [AppState.schedulerRunning]'s doc — a running real Scheduler must be toggled off before a remove can land. */
     private fun stopThenRemove(targetName: String) {
         if (_state.value.schedulerRunning) client.sendCommand(Commands.SCHEDULER_START_JOB) // toggle: stops it, since it's running
         removeRealJobByName(targetName)
@@ -1923,24 +1926,24 @@ internal fun WireTrain.toTrainAssignment() = TrainAssignment(
 )
 
 /**
- * Mirrors a `CONNECTION` switch push into [SimState.wireDevices]'s `connected` flag for the
+ * Mirrors a `CONNECTION` switch push into [AppState.wireDevices]'s `connected` flag for the
  * matching device — the only place other than the initial `get_devices` snapshot (and the
  * optimistic flip in [EkosRemoteController.toggleDevice]) that field ever changes. Needed
  * because a device `get_devices` caught mid-startup (see [EkosRemoteController.sendFollowUpCommands])
  * otherwise stays shown as disconnected forever even after it finishes connecting for real.
  */
-private fun SimState.withConnectionState(device: String, property: WireProperty): SimState {
+private fun AppState.withConnectionState(device: String, property: WireProperty): AppState {
     if (property !is WireProperty.Switch || property.name != "CONNECTION") return this
     val connected = property.switches.any { it.name == "CONNECT" && it.state == 1 }
     return copy(wireDevices = wireDevices?.map { if (it.name == device) it.copy(connected = connected) else it })
 }
 
 /**
- * Captures a real camera's `CCD_INFO` vector into [SimState.wireCcdInfoByDevice] for Plan tab's
+ * Captures a real camera's `CCD_INFO` vector into [AppState.wireCcdInfoByDevice] for Plan tab's
  * Framing card — see that field's doc for why this reads all three elements directly instead of
  * going through the generic (lossy, single-element) [withProperty]/[indiProps] path.
  */
-private fun SimState.withCcdInfo(device: String, property: WireProperty): SimState {
+private fun AppState.withCcdInfo(device: String, property: WireProperty): AppState {
     if (property !is WireProperty.Number || property.name != "CCD_INFO") return this
     val maxX = property.numbers.firstOrNull { it.name == "CCD_MAX_X" }?.value?.roundToInt() ?: return this
     val maxY = property.numbers.firstOrNull { it.name == "CCD_MAX_Y" }?.value?.roundToInt() ?: return this
@@ -1953,14 +1956,14 @@ private fun SimState.withCcdInfo(device: String, property: WireProperty): SimSta
  * name that isn't actually one of the real filter wheel's current slots, since that name is what
  * ends up in the real `.esq` (`EsqWriter.writeJob`'s `<Filter>` element) sent straight to Ekos.
  * [SessionController.cycleBlockFilter] already only cycles through
- * [SimState.realFilterNames] once known, so a *new* pick can't go wrong — but a block created
+ * [AppState.realFilterNames] once known, so a *new* pick can't go wrong — but a block created
  * (or last cycled) before the wheel was connected/renamed can still be sitting on a stale
  * fixture name that's no longer real. Run on every device-property push (cheap — a handful of
  * jobs/blocks at most) so a block self-corrects the moment real names actually become known,
  * rather than waiting for the user to notice and tap it themselves. Never touches a block whose
  * filter is already valid, so this can't fight a user's own just-made pick.
  */
-private fun SimState.withValidBlockFilters(): SimState {
+private fun AppState.withValidBlockFilters(): AppState {
     val names = realFilterNames ?: return this
     val fallback = names.first()
     var next = this
@@ -1971,8 +1974,8 @@ private fun SimState.withValidBlockFilters(): SimState {
     return next
 }
 
-/** Merges one real property-vector push into [SimState.indiProps], keyed by real device name. */
-private fun SimState.withProperty(device: String, property: WireProperty): SimState {
+/** Merges one real property-vector push into [AppState.indiProps], keyed by real device name. */
+private fun AppState.withProperty(device: String, property: WireProperty): AppState {
     val current = indiProps[device] ?: emptyList()
     val existing = current.firstOrNull { it.name == property.name }
     val updated = property.toIndiProperty(existing)

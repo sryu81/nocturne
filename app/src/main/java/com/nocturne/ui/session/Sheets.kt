@@ -48,7 +48,7 @@ import com.nocturne.session.realNightWindow
 import com.nocturne.session.PREF_DEFS
 import com.nocturne.session.SessionController
 import com.nocturne.session.SheetType
-import com.nocturne.session.SimState
+import com.nocturne.session.AppState
 import com.nocturne.session.TrainRole
 import com.nocturne.session.TrainSlot
 import com.nocturne.session.coolAtSetPoint
@@ -99,7 +99,7 @@ private fun alertStyle(a: com.nocturne.session.Alert): AlertStyle = when (a.icon
 
 /** Hosts whichever sheet is open. */
 @Composable
-fun SheetHost(state: SimState, ctrl: SessionController, landscape: Boolean) {
+fun SheetHost(state: AppState, ctrl: SessionController, landscape: Boolean) {
     val sheet = state.sheet ?: return
     val full = sheet == SheetType.PA || sheet == SheetType.SETUP
     val (title, meta) = when (sheet) {
@@ -193,7 +193,7 @@ fun SheetHost(state: SimState, ctrl: SessionController, landscape: Boolean) {
  * real instead: the status string itself, and the guide camera's own frame image (M4.2).
  */
 @Composable
-private fun GuideSheet(state: SimState) {
+private fun GuideSheet(state: AppState) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val guide = state.wireGuideSettings
@@ -238,7 +238,7 @@ private fun GuideSheet(state: SimState) {
  * TEMP Δ/NEXT AF below, which were already real (`focPos`/`eafTemp`/`focusNextAfMin`).
  */
 @Composable
-private fun FocusSheet(state: SimState, ctrl: SessionController) {
+private fun FocusSheet(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val tempDelta = state.eafTemp - state.focusTempAtLastAf
@@ -319,7 +319,7 @@ private fun AlertsSheet(ctrl: SessionController) {
 // ── Prefs ────────────────────────────────────────────────────────────────
 
 @Composable
-private fun PrefsSheet(state: SimState, ctrl: SessionController) {
+private fun PrefsSheet(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     Column {
@@ -374,7 +374,7 @@ private val DEVICE_ICONS: Map<String, ImageVector> = mapOf(
  * from the Gear tab, same pattern as Bench check/Polar align.
  */
 @Composable
-private fun SetupBody(state: SimState, ctrl: SessionController) {
+private fun SetupBody(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     Column {
@@ -519,7 +519,7 @@ private fun MmField(label: String, mm: Int, modifier: Modifier, onChange: (Int) 
  * `trainRolePool(SCOPE)` returns).
  */
 @Composable
-private fun ScopesSheet(state: SimState, ctrl: SessionController) {
+private fun ScopesSheet(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val scopes = state.wireScopes ?: state.scopes
@@ -643,13 +643,13 @@ private fun SetupFooter(ctrl: SessionController) {
 /**
  * Curated subset of real Ekos's Mount tab (10 of 17 real fields — see
  * docs/M3.3-plan.md) — meridian flip, altitude/HA slew limits, auto-park.
- * Real-rig only: [SimState.wireMountSettings] is null under
+ * Real-rig only: [AppState.wireMountSettings] is null under
  * [SimulatedController] (there's no fixture equivalent — matches
  * [ModuleAssignmentsSheet]'s own real-only gating) and briefly null on a
  * real rig too, until the first `mount_get_all_settings` reply lands.
  */
 @Composable
-private fun MountSettingsSheet(state: SimState, ctrl: SessionController) {
+private fun MountSettingsSheet(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
 
@@ -804,13 +804,13 @@ private fun DegreeField(value: Double, unit: String, onChange: (Double) -> Unit)
 /**
  * Curated subset of real Ekos's Camera tab (7 of 59 real fields — see
  * docs/M3.3-plan.md) — save path, guide-deviation abort guard, start-of-job
- * guide-drift guard, per-job dither. Real-rig only: [SimState.wireCaptureSettings]
+ * guide-drift guard, per-job dither. Real-rig only: [AppState.wireCaptureSettings]
  * is null under [SimulatedController] (no fixture equivalent, same real-only
  * gating as [MountSettingsSheet]) and briefly null on a real rig too, until
  * the first `capture_get_all_settings` reply lands.
  */
 @Composable
-private fun CameraSettingsSheet(state: SimState, ctrl: SessionController) {
+private fun CameraSettingsSheet(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
 
@@ -897,13 +897,13 @@ private val ALIGN_BINNING_OPTIONS = listOf("1x1", "2x2", "3x3", "4x4")
 /**
  * Curated subset of real Ekos's Align tab (5 of 98 real fields — see
  * docs/M3.3-plan.md) — exposure, gain, filter, binning, solver accuracy
- * threshold. Real-rig only: [SimState.wireAlignSettings] is null under
+ * threshold. Real-rig only: [AppState.wireAlignSettings] is null under
  * [SimulatedController] (no fixture equivalent, same real-only gating as
  * [MountSettingsSheet]/[CameraSettingsSheet]) and briefly null on a real
  * rig too, until the first `align_get_all_settings` reply lands.
  */
 @Composable
-private fun AlignSettingsSheet(state: SimState, ctrl: SessionController) {
+private fun AlignSettingsSheet(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
 
@@ -970,12 +970,12 @@ private fun CycleChip(value: String, onTap: () -> Unit) {
  * Curated subset of real Ekos's Guide tab (8 of 84 real fields — see
  * docs/M3.3-plan.md and [WireGuideSettings]'s own doc for the live-probe history) —
  * exposure/gain/binning (already live via Bench "Snap guide", shown read-only here for
- * context) plus solver accuracy threshold and dither. Real-rig only: [SimState.wireGuideSettings]
+ * context) plus solver accuracy threshold and dither. Real-rig only: [AppState.wireGuideSettings]
  * is null under [SimulatedController] and briefly null on a real rig too, until the first
  * `guide_get_all_settings` reply lands — same gating shape as [AlignSettingsSheet].
  */
 @Composable
-private fun GuideSettingsSheet(state: SimState, ctrl: SessionController) {
+private fun GuideSettingsSheet(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
 
@@ -1029,13 +1029,13 @@ private fun GuideSettingsSheet(state: SimState, ctrl: SessionController) {
 /**
  * Curated subset of real Ekos's Focus tab (6 of 84 real fields — see
  * docs/M3.3-plan.md and [WireFocusSettings]'s own doc for the live-probe history) —
- * `absTicksSpin` (used elsewhere to seed [SimState.focPos], not shown here) plus
- * exposure/gain/filter/backlash/algorithm. Real-rig only: [SimState.wireFocusSettings]
+ * `absTicksSpin` (used elsewhere to seed [AppState.focPos], not shown here) plus
+ * exposure/gain/filter/backlash/algorithm. Real-rig only: [AppState.wireFocusSettings]
  * is null under [SimulatedController] and briefly null on a real rig too, until the first
  * `focus_get_all_settings` reply lands — same gating shape as [GuideSettingsSheet].
  */
 @Composable
-private fun FocusSettingsSheet(state: SimState, ctrl: SessionController) {
+private fun FocusSettingsSheet(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
 
@@ -1103,7 +1103,7 @@ private fun FocusSettingsSheet(state: SimState, ctrl: SessionController) {
  * Scheduler-wide *policy* settings — Startup condition, Constraints (+ per-job step defaults),
  * Completion condition, Observatory startup/shutdown procedure, Aborted-job handling — matching
  * real Ekos's own Scheduler tab layout. See [WireSchedulerSettings]'s own doc for exactly which
- * ~30 of ~70 real fields are curated here and why. Real-rig only: [SimState.wireSchedulerSettings]
+ * ~30 of ~70 real fields are curated here and why. Real-rig only: [AppState.wireSchedulerSettings]
  * is null under [SimulatedController] (no fixture equivalent, same real-only gating as
  * [MountSettingsSheet]) and briefly null on a real rig too, until the first
  * `scheduler_get_all_settings` reply lands.
@@ -1113,7 +1113,7 @@ private fun FocusSettingsSheet(state: SimState, ctrl: SessionController) {
  * re-selects itself), no separate widget built for this one pass.
  */
 @Composable
-private fun SchedulerSettingsSheet(state: SimState, ctrl: SessionController) {
+private fun SchedulerSettingsSheet(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
 
@@ -1492,7 +1492,7 @@ private fun TextFieldBox(value: String, onChange: (String) -> Unit) {
  * channel (`pi-tools/reboot-daemon/`, [RigRebootClient]).
  */
 @Composable
-private fun MaintenanceSheet(state: SimState, ctrl: SessionController) {
+private fun MaintenanceSheet(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
 
@@ -1639,7 +1639,7 @@ private fun MaintenanceSheet(state: SimState, ctrl: SessionController) {
  * cluttering one long scroll and reading as unrelated to each other).
  */
 @Composable
-private fun OpticalTrainSheet(state: SimState, ctrl: SessionController) {
+private fun OpticalTrainSheet(state: AppState, ctrl: SessionController) {
     var slot by remember { mutableStateOf(TrainSlot.PRIMARY) }
     Column {
         Row(Modifier.border(1.dp, NocturneTheme.colors.divider, RoundedCornerShape(10.dp))) {
@@ -1673,7 +1673,7 @@ private fun OpticalTrainSheet(state: SimState, ctrl: SessionController) {
  * card's entry point rather than showing a decorative stand-in.
  */
 @Composable
-private fun ModuleAssignmentsSheet(state: SimState, ctrl: SessionController) {
+private fun ModuleAssignmentsSheet(state: AppState, ctrl: SessionController) {
     val trainNames = state.wireTrains?.map { it.name } ?: emptyList()
     Column {
         MODULE_ASSIGNMENT_LABELS.forEach { (moduleKey, label) ->
@@ -1731,7 +1731,7 @@ private val TRAIN_ROLE_LABELS = listOf(
 )
 
 @Composable
-private fun TrainForm(state: SimState, ctrl: SessionController, slot: TrainSlot) {
+private fun TrainForm(state: AppState, ctrl: SessionController, slot: TrainSlot) {
     val train = state.train(slot)
     Column {
         TRAIN_ROLE_LABELS.forEach { (role, label) ->
@@ -1828,12 +1828,12 @@ private fun ReducerField(value: Double, onChange: (Double) -> Unit) {
  * `alignBinning` history). Shows the raw text instead; a richer stage-driven UI is a reasonable
  * follow-up once more real PAH runs establish a stable vocabulary.
  *
- * [SimState.polarRunning] is a client-side optimistic flag driving the Start/Stop button only —
+ * [AppState.polarRunning] is a client-side optimistic flag driving the Start/Stop button only —
  * same shape as [FocuserCard][com.nocturne.ui.controls]'s autofocus row — never derived from the
  * wire text.
  */
 @Composable
-private fun PaRealSheet(state: SimState, ctrl: SessionController) {
+private fun PaRealSheet(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     Column {
@@ -1867,7 +1867,7 @@ private fun PaRealSheet(state: SimState, ctrl: SessionController) {
         // Real polar error numbers (M4.4) — updatedError/Az/Alt arrive after a correction slew
         // (setUpdatedErrors); vector.error/azError/altError arrive with the solve itself
         // (setPolarResults) — shown together, most-recent-of-either-shape wins per field already
-        // (SimState's own merge-not-overwrite). Unit confirmed degrees, not arcmin
+        // (AppState's own merge-not-overwrite). Unit confirmed degrees, not arcmin
         // (PolarAlignmentAssistant emits `.Degrees()` — polaralignmentassistant.cpp:433,1019).
         // `-1` is the real "not yet computed" sentinel (polaralignmentassistant.cpp:202,574),
         // filtered here rather than shown as a fake near-zero error.
@@ -1900,7 +1900,7 @@ private fun PaRealSheet(state: SimState, ctrl: SessionController) {
 // ── Device ───────────────────────────────────────────────────────────────
 
 @Composable
-private fun DeviceSheet(state: SimState, ctrl: SessionController) {
+private fun DeviceSheet(state: AppState, ctrl: SessionController) {
     val live = state.wireDevices?.firstOrNull { it.name == state.deviceKey }
     if (live != null) {
         RealDeviceSheetBody(state, ctrl, live)
@@ -1976,7 +1976,7 @@ private fun DeviceSheet(state: SimState, ctrl: SessionController) {
  * static `cfg` rows.
  */
 @Composable
-private fun RealDeviceSheetBody(state: SimState, ctrl: SessionController, d: LiveDevice) {
+private fun RealDeviceSheetBody(state: AppState, ctrl: SessionController, d: LiveDevice) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     Column {
@@ -2013,7 +2013,7 @@ private fun RealDeviceSheetBody(state: SimState, ctrl: SessionController, d: Liv
  * live connect/configure controls.
  */
 @Composable
-private fun DevicePickerBody(state: SimState, ctrl: SessionController, d: Device) {
+private fun DevicePickerBody(state: AppState, ctrl: SessionController, d: Device) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val selected = state.isSelected(d.key)
@@ -2208,7 +2208,7 @@ private fun IndiTextElementRow(index: Int, showIndex: Boolean, value: String, on
 // ── Summary ──────────────────────────────────────────────────────────────
 
 @Composable
-private fun SummarySheet(state: SimState, ctrl: SessionController) {
+private fun SummarySheet(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val canResume = state.lastEndedJobId != null
@@ -2216,7 +2216,7 @@ private fun SummarySheet(state: SimState, ctrl: SessionController) {
     val job = state.endedJob
     val barColors = listOf(Color(0xFF9184D9), Color(0xFF796CBF), Color(0xFF5D5294), c.accentMuted, c.accent800)
     Column {
-        // KEPT/DISCARDED/MED HFR all derive from per-frame data (SimState.frames) that doesn't
+        // KEPT/DISCARDED/MED HFR all derive from per-frame data (AppState.frames) that doesn't
         // exist for real yet — blocked on the Media channel (M4), same gap as the Frames tab
         // (see docs/simulator-removal-plan.md) — honest placeholder instead of fixture numbers.
         Row(Modifier.fillMaxWidth()) {

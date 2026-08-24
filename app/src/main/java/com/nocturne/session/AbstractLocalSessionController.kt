@@ -23,10 +23,10 @@ import kotlinx.coroutines.flow.update
  */
 abstract class AbstractLocalSessionController : SessionController {
 
-    protected val _state = MutableStateFlow(SimState())
-    override val state: StateFlow<SimState> = _state.asStateFlow()
+    protected val _state = MutableStateFlow(AppState())
+    override val state: StateFlow<AppState> = _state.asStateFlow()
 
-    protected inline fun update(crossinline f: (SimState) -> SimState) {
+    protected inline fun update(crossinline f: (AppState) -> AppState) {
         _state.update(f)
     }
 
@@ -80,7 +80,7 @@ abstract class AbstractLocalSessionController : SessionController {
      * session profile (filters, exposures). Used to dedupe by `targetId` and just reopen the
      * existing job instead — real Ekos itself has no notion of "job per target" either (only a
      * `name` per job), so nothing on the real side required this restriction; it was purely this
-     * app's own local model being stricter than it needed to be. See [SimState.targetNameFor]'s
+     * app's own local model being stricter than it needed to be. See [AppState.targetNameFor]'s
      * own per-job suffix for how multiple jobs on the same target avoid colliding on Ekos's own
      * name once pushed.
      */
@@ -109,7 +109,7 @@ abstract class AbstractLocalSessionController : SessionController {
 
     /**
      * Pure local navigation only — "is this job actually running" is answered by real Ekos state
-     * (`SimState.wireJobFor`) since the push/start/stop split (2026-08-23), not a local flag, so
+     * (`AppState.wireJobFor`) since the push/start/stop split (2026-08-23), not a local flag, so
      * there's nothing per-job left to mutate here; these three just move `sheet`/`lastEndedJobId`/
      * `lastActiveJobId` around. [EkosRemoteController] overrides all three to also drive the real
      * Scheduler (stop+remove / push+start) around this same local navigation — a deliberate,

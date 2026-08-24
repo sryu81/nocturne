@@ -70,7 +70,7 @@ sealed interface EkosEvent {
      * [MediaHeader.resolution], not the on-screen scaled size), `mag`/`pa` its length/angle
      * (`QLineF::length()`/`QLineF::angle()` — Qt's own rotation convention here isn't confirmed
      * against a live solve, so no directional arrow is drawn from this yet, only the numeric
-     * error fields — see [com.nocturne.session.SimState] doc).
+     * error fields — see [com.nocturne.session.AppState] doc).
      */
     @Serializable
     data class NewPolarState(
@@ -508,7 +508,7 @@ object SchedulerJobStatus {
 /**
  * Real states meaning "Ekos has committed to this job" — evaluating it, scheduled for a future
  * window, or actually running it. Moved here (was a private file-scope val in
- * `EkosRemoteController.kt`) once `SimState.contractJob` needed it too, not just the controller's
+ * `EkosRemoteController.kt`) once `AppState.contractJob` needed it too, not just the controller's
  * own reconcile logic. See `EkosRemoteController`'s `reconcileSyncedJobStatus`/`contractJob`'s doc
  * for the live-confirmed history of why `EVALUATION`/`SCHEDULED` count as "active" alongside `BUSY`.
  */
@@ -516,7 +516,7 @@ val ACTIVE_SCHEDULER_STATES = setOf(SchedulerJobStatus.EVALUATION, SchedulerJobS
 
 /**
  * Raw `state` int → short UI label. Same "named only where confirmed, honest fallback otherwise"
- * shape as `SimState.mountPierSideLabel` — every value here is directly enumerated in
+ * shape as `AppState.mountPierSideLabel` — every value here is directly enumerated in
  * [SchedulerJobStatus] against the real `schedulertypes.h` source, so `"raw $state"` should never
  * actually be reachable, but stays as a non-inventing fallback rather than an unchecked `!!`/crash
  * if a future Ekos version ever adds a 9th value. `BUSY` deliberately reuses "Imaging" — the exact
@@ -688,7 +688,7 @@ data class WireMountSettings(
  * - [schedulerAltitude]/[schedulerAltitudeValue], [schedulerMoonSeparation]/[schedulerMoonSeparationValue],
  *   [schedulerMoonAltitude]/[schedulerMoonAltitudeMaxValue], [schedulerTwilight], [schedulerHorizon].
  * - [kcfg_DawnOffset]/[kcfg_DuskOffset] — signed hours padding on top of the real astronomical
- *   dawn/dusk instant (same source `SimState.realNightWindow` reads) before twilight constraints
+ *   dawn/dusk instant (same source `AppState.realNightWindow` reads) before twilight constraints
  *   engage.
  * - [schedulerTrackStep]/[schedulerFocusStep]/[schedulerAlignStep]/[schedulerGuideStep] — per-job
  *   step defaults (Track/Focus/Align/Guide), same Constraints tab in real Ekos.
@@ -877,7 +877,7 @@ data class WireCaptureSettings(
  * artifact) — Bench check's Focuser card was reading the raw INDI value, which live-updates
  * correctly on every jog but never matched what real Ekos's own Focus tab actually displays,
  * since Ekos's Focus tab shows *this* field, not the raw hardware property. Fixed by seeding
- * `SimState.focPos` from this value the moment it arrives (see
+ * `AppState.focPos` from this value the moment it arrives (see
  * `EkosRemoteController.applyEvent`'s `FocusSettings` arm) rather than switching the display
  * over to this field permanently — `focPos` already live-tracks jogs via local optimistic
  * increment (`jogFocus`), so seeding it once here gets both properties right: matches Ekos's own

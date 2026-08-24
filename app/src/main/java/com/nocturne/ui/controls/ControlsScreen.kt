@@ -33,7 +33,7 @@ import com.nocturne.session.CaptureProgress
 import com.nocturne.session.FILTER_CYCLE
 import com.nocturne.session.SessionController
 import com.nocturne.session.SheetType
-import com.nocturne.session.SimState
+import com.nocturne.session.AppState
 import com.nocturne.session.benchFocPos
 import com.nocturne.session.captureProgress
 import com.nocturne.session.coolAtSetPoint
@@ -77,7 +77,7 @@ private val GUIDE_BIN_OPTIONS = listOf("1x1", "2x2", "3x3", "4x4")
  */
 @Composable
 fun ControlsScreen(
-    state: SimState,
+    state: AppState,
     ctrl: SessionController,
     landscape: Boolean,
     modifier: Modifier = Modifier,
@@ -224,7 +224,7 @@ private fun SectionHeader(text: String, sub: Boolean = false) {
 }
 
 /**
- * Real connection (`real` = [SimState.wireDevices] non-null): `capture_preview`/`guide_capture`
+ * Real connection (`real` = [AppState.wireDevices] non-null): `capture_preview`/`guide_capture`
  * (M3.2) really do trigger a capture on the Pi; the resulting image now arrives over the Media
  * channel too (M4.2 — `SnapPanel`'s own `frame` param) — no real HFR/ADU number exists on the
  * wire for this label though (confirmed against source), so the status line stays the real
@@ -434,7 +434,7 @@ private fun FilterCycleChip(value: String, names: List<String>, modifier: Modifi
  * populates `wireDevices`/`wireCaptureSettings`).
  */
 @Composable
-private fun CoolerCard(state: SimState, ctrl: SessionController) {
+private fun CoolerCard(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val camera = state.primaryTrain.camera
@@ -505,7 +505,7 @@ private fun CoolBtn(label: String, onClick: () -> Unit) {
 
 /**
  * Manual jog (unchanged) + real Autofocus start/stop. `focus_start`/`focus_stop` have no
- * meaningful params or reply — [SimState.focusRunning] is a client-side optimistic flag driving
+ * meaningful params or reply — [AppState.focusRunning] is a client-side optimistic flag driving
  * the button's own label, not derived from the real wire status text, which is shown verbatim
  * alongside it instead (`state.wireFocusStatus`) — see
  * [com.nocturne.session.EkosRemoteController.startAutofocus]'s doc for why. Known limitation:
@@ -514,7 +514,7 @@ private fun CoolBtn(label: String, onClick: () -> Unit) {
  * Stop tap.
  */
 @Composable
-private fun FocuserCard(state: SimState, ctrl: SessionController) {
+private fun FocuserCard(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     Column(
@@ -588,10 +588,10 @@ private fun FocuserCard(state: SimState, ctrl: SessionController) {
  * sheet was, so this is worth a UX follow-up, but out of scope here.
  */
 @Composable
-private fun MountControlCard(state: SimState, ctrl: SessionController) {
+private fun MountControlCard(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
-    // Real mount's own rate list/labels when available (see SimState.realSlewRateProp doc for
+    // Real mount's own rate list/labels when available (see AppState.realSlewRateProp doc for
     // why this can't just be the fixed 5-option RATES fixture) — falls back to RATES/state.rate
     // for the simulator or before the real property has arrived.
     val realRates = state.realSlewRateProp
@@ -696,7 +696,7 @@ private fun MountControlCard(state: SimState, ctrl: SessionController) {
 }
 
 @Composable
-private fun DPad(state: SimState, ctrl: SessionController) {
+private fun DPad(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     Box(Modifier.width(152.dp).height(152.dp)) {
@@ -738,11 +738,11 @@ private fun DPad(state: SimState, ctrl: SessionController) {
  * Real Guide start/stop — `guide_start`/`guide_stop` (`guide_stop` = server-side `abort()`, not a
  * graceful pause, see [com.nocturne.session.EkosRemoteController.startGuiding]'s doc). Same
  * optimistic-boolean + raw-status-passthrough shape as [FocuserCard]'s autofocus row.
- * **Ungated** — works under the simulator too via [SimState.guiding], matching every other
+ * **Ungated** — works under the simulator too via [AppState.guiding], matching every other
  * Bench-derived live-control card in this file.
  */
 @Composable
-private fun GuideControlCard(state: SimState, ctrl: SessionController) {
+private fun GuideControlCard(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     Column(
@@ -785,7 +785,7 @@ private fun AlignSolveCard(ctrl: SessionController) {
  * this is configuration (exposure, gain, filter, binning, solver accuracy), not live control.
  */
 @Composable
-private fun AlignSettingsCard(state: SimState, ctrl: SessionController) {
+private fun AlignSettingsCard(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val a = state.wireAlignSettings
@@ -814,7 +814,7 @@ private fun AlignSettingsCard(state: SimState, ctrl: SessionController) {
  * threshold, dither, and reuse-calibration — closes out M3.3 phase 4.
  */
 @Composable
-private fun GuideSettingsCard(state: SimState, ctrl: SessionController) {
+private fun GuideSettingsCard(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val g = state.wireGuideSettings
@@ -844,7 +844,7 @@ private fun GuideSettingsCard(state: SimState, ctrl: SessionController) {
  * remains).
  */
 @Composable
-private fun FocusSettingsCard(state: SimState, ctrl: SessionController) {
+private fun FocusSettingsCard(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val f = state.wireFocusSettings
@@ -874,7 +874,7 @@ private fun FocusSettingsCard(state: SimState, ctrl: SessionController) {
  * what the Controls tab is for.
  */
 @Composable
-private fun MountSettingsCard(state: SimState, ctrl: SessionController) {
+private fun MountSettingsCard(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val m = state.wireMountSettings
@@ -908,7 +908,7 @@ private fun MountSettingsCard(state: SimState, ctrl: SessionController) {
  * the app. Moved here from Gear tab — this is exactly what the Controls tab is for.
  */
 @Composable
-private fun CameraSettingsCard(state: SimState, ctrl: SessionController) {
+private fun CameraSettingsCard(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val cam = state.wireCaptureSettings
@@ -944,7 +944,7 @@ private fun CameraSettingsCard(state: SimState, ctrl: SessionController) {
  * only existing home is the fixture-only wizard being replaced.
  */
 @Composable
-private fun PaCard(state: SimState, ctrl: SessionController) {
+private fun PaCard(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     Column(

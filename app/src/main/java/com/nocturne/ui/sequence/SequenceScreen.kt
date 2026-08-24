@@ -41,7 +41,7 @@ import com.nocturne.session.FILTER_CYCLE
 import com.nocturne.session.SequenceJob
 import com.nocturne.session.SessionController
 import com.nocturne.session.SheetType
-import com.nocturne.session.SimState
+import com.nocturne.session.AppState
 import com.nocturne.session.contractJob
 import com.nocturne.session.displayName
 import com.nocturne.session.findTarget
@@ -68,7 +68,7 @@ import com.nocturne.ui.theme.NocturneTheme
 
 @Composable
 fun SequenceScreen(
-    state: SimState,
+    state: AppState,
     ctrl: SessionController,
     landscape: Boolean,
     modifier: Modifier = Modifier,
@@ -84,7 +84,7 @@ fun SequenceScreen(
 
 @Composable
 private fun JobListScreen(
-    state: SimState,
+    state: AppState,
     ctrl: SessionController,
     landscape: Boolean,
     modifier: Modifier,
@@ -100,7 +100,7 @@ private fun JobListScreen(
 }
 
 @Composable
-private fun JobList(state: SimState, ctrl: SessionController) {
+private fun JobList(state: AppState, ctrl: SessionController) {
     val unmanaged = state.unmanagedWireJobs
     if (state.jobs.isEmpty() && unmanaged.isEmpty()) {
         EmptyJobListCard()
@@ -143,7 +143,7 @@ private fun EmptyJobListCard() {
 }
 
 @Composable
-private fun JobCard(state: SimState, job: SequenceJob, onOpen: () -> Unit, onRemove: () -> Unit) {
+private fun JobCard(state: AppState, job: SequenceJob, onOpen: () -> Unit, onRemove: () -> Unit) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val target = state.findTarget(job.targetId)
@@ -185,12 +185,12 @@ private fun JobCard(state: SimState, job: SequenceJob, onOpen: () -> Unit, onRem
 }
 
 /**
- * A real Scheduler job with no local counterpart — see [SimState.unmanagedWireJobs]. No
+ * A real Scheduler job with no local counterpart — see [AppState.unmanagedWireJobs]. No
  * drill-down: there's no local block data for a job this app never wrote the `.esq` for. Same
  * check-status-first, no-confirm-dialog remove shape as `PushOrRemoveRow` — see its own doc.
  */
 @Composable
-private fun UnmanagedJobCard(state: SimState, wireJob: WireSchedulerJob, onRemove: () -> Unit) {
+private fun UnmanagedJobCard(state: AppState, wireJob: WireSchedulerJob, onRemove: () -> Unit) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     Card {
@@ -221,7 +221,7 @@ private fun UnmanagedJobCard(state: SimState, wireJob: WireSchedulerJob, onRemov
 
 @Composable
 private fun JobDetailScreen(
-    state: SimState,
+    state: AppState,
     ctrl: SessionController,
     job: SequenceJob,
     landscape: Boolean,
@@ -296,7 +296,7 @@ private fun JobDetailScreen(
 }
 
 @Composable
-private fun JobDetailHeader(state: SimState, job: SequenceJob, onBack: () -> Unit) {
+private fun JobDetailHeader(state: AppState, job: SequenceJob, onBack: () -> Unit) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val target = state.findTarget(job.targetId)
@@ -325,7 +325,7 @@ private fun JobDetailHeader(state: SimState, job: SequenceJob, onBack: () -> Uni
  * queued (confirmed live: a real 1-block, 30s×1, `L`-filter job still showed the old `Ha`/`OIII`/
  * `SII` labels, no relation to it at all). Now [state.contractJob]'s own blocks drive both the
  * segment widths (proportional to each block's real `subCount × exposureSec`) and labels (each
- * block's real, possibly-real-wheel-sourced filter name — see `SimState.realFilterNames`).
+ * block's real, possibly-real-wheel-sourced filter name — see `AppState.realFilterNames`).
  * `cal` stays a small fixed fixture bookend, and `flip` is dropped entirely rather than guessed
  * a placement — neither has real per-block data to derive from (no calibration-block concept,
  * and flip timing depends on real mount position, not block data); both explicitly deferred to a
@@ -341,7 +341,7 @@ private fun JobDetailHeader(state: SimState, job: SequenceJob, onBack: () -> Uni
  * `NightArcCard`/`FlipBanner` omitting fixture elements rather than fabricating them.
  */
 @Composable
-private fun NightPlanBar(state: SimState, ctrl: SessionController) {
+private fun NightPlanBar(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val window = state.realNightWindow
@@ -435,7 +435,7 @@ private fun NightPlanBar(state: SimState, ctrl: SessionController) {
  * real transition actually lands.
  */
 @Composable
-private fun SchedulerToggleButton(state: SimState, ctrl: SessionController) {
+private fun SchedulerToggleButton(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val running = state.schedulerRunning
@@ -474,7 +474,7 @@ private fun androidx.compose.foundation.layout.RowScope.PlanSeg(width: Float, co
  * without pulling in a dependency for it.
  */
 @Composable
-private fun BlocksList(state: SimState, ctrl: SessionController, job: SequenceJob) {
+private fun BlocksList(state: AppState, ctrl: SessionController, job: SequenceJob) {
     var draggingId by remember { mutableStateOf<String?>(null) }
     var dragOffset by remember { mutableStateOf(0f) }
     val heights = remember { mutableStateMapOf<String, Int>() }
@@ -746,11 +746,11 @@ private fun <T> SegmentedRow(options: List<T>, selected: T, labelOf: (T) -> Stri
  * **No confirm dialog on remove (2026-08-23, user feedback)** — first cut gated every remove tap
  * behind an "are you sure?" dialog regardless of whether removal was actually risky. Real Ekos
  * itself already refuses to remove an active job; [SessionController.removeJob] now checks that
- * client-side first and refuses instantly with [SimState.jobRemoveRefused] if so — a plain tap
+ * client-side first and refuses instantly with [AppState.jobRemoveRefused] if so — a plain tap
  * removes immediately when it's actually safe, no dialog either way.
  */
 @Composable
-private fun PushOrRemoveRow(state: SimState, ctrl: SessionController, job: SequenceJob) {
+private fun PushOrRemoveRow(state: AppState, ctrl: SessionController, job: SequenceJob) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val ready = state.ready

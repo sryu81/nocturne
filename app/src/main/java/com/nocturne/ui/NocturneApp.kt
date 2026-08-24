@@ -51,7 +51,7 @@ import com.nocturne.protocol.jobStatusLabel
 import com.nocturne.session.ALERTS
 import com.nocturne.session.FlipConfirm
 import com.nocturne.session.SheetType
-import com.nocturne.session.SimState
+import com.nocturne.session.AppState
 import com.nocturne.session.contractJob
 import com.nocturne.session.currentBlockIndex
 import com.nocturne.session.findTarget
@@ -305,7 +305,7 @@ private fun NocturneShell(
 @Composable
 private fun NocturneHeader(
     tab: NocturneTab,
-    state: SimState,
+    state: AppState,
     redMode: Boolean,
     landscape: Boolean,
     onToggleRed: () -> Unit,
@@ -341,7 +341,7 @@ private fun NocturneHeader(
         ) {
             Column(Modifier.weight(1f)) {
                 if (tab == NocturneTab.Session && contractJob != null) {
-                    // Real status once pushed (see SimState.wireJobFor) — "Not pushed" while
+                    // Real status once pushed (see AppState.wireJobFor) — "Not pushed" while
                     // still local-only, matching this app's own vocabulary elsewhere for the
                     // same condition (2026-08-23 push/start/stop split).
                     val real = state.wireJobFor(contractJob)

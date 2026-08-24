@@ -4,7 +4,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.content.FileProvider
 import com.nocturne.session.ALERTS
-import com.nocturne.session.SimState
+import com.nocturne.session.AppState
 import com.nocturne.session.displayName
 import com.nocturne.session.endedJob
 import com.nocturne.session.findTarget
@@ -21,7 +21,7 @@ import java.io.File
  * session log (alerts timeline) and frame list side by side, viewable in any
  * browser instead of two separate plain-text exports.
  */
-fun buildSessionReportHtml(state: SimState): String {
+fun buildSessionReportHtml(state: AppState): String {
     val job = state.endedJob
     val target = job?.let { j -> state.findTarget(j.targetId) }
 
@@ -80,7 +80,7 @@ fun buildSessionReportHtml(state: SimState): String {
 }
 
 /** Writes the report to cache and opens it in the user's browser via FileProvider. */
-fun exportSessionReport(context: Context, state: SimState) {
+fun exportSessionReport(context: Context, state: AppState) {
     val dir = File(context.cacheDir, "reports").apply { mkdirs() }
     val file = File(dir, "session_report.html")
     file.writeText(buildSessionReportHtml(state))

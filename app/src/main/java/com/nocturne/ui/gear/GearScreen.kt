@@ -27,7 +27,7 @@ import com.nocturne.session.SessionController
 import com.nocturne.session.activeRigProfile
 import com.nocturne.session.findScope
 import com.nocturne.session.SheetType
-import com.nocturne.session.SimState
+import com.nocturne.session.AppState
 import com.nocturne.session.indiNumber
 import com.nocturne.session.isOn
 import com.nocturne.session.isSelected
@@ -58,7 +58,7 @@ private val DEVICE_ICONS: Map<String, ImageVector> = mapOf(
 )
 
 @Composable
-private fun paColor(state: SimState): Color {
+private fun paColor(state: AppState): Color {
     val c = NocturneTheme.colors
     return when {
         state.paTotal < 1 -> c.ok
@@ -69,7 +69,7 @@ private fun paColor(state: SimState): Color {
 
 @Composable
 fun GearScreen(
-    state: SimState,
+    state: AppState,
     ctrl: SessionController,
     landscape: Boolean,
     onDisconnect: () -> Unit,
@@ -98,7 +98,7 @@ fun GearScreen(
 }
 
 @Composable
-private fun ReadyBanner(state: SimState) {
+private fun ReadyBanner(state: AppState) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
 
@@ -166,7 +166,7 @@ private fun RigChip(text: String, color: Color) {
 }
 
 @Composable
-private fun RigProfileCard(state: SimState, ctrl: SessionController) {
+private fun RigProfileCard(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     Column(
@@ -255,7 +255,7 @@ private fun RigProfileCard(state: SimState, ctrl: SessionController) {
 }
 
 @Composable
-private fun OpticalTrainCard(state: SimState, ctrl: SessionController) {
+private fun OpticalTrainCard(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val primaryMm = state.findScope(state.primaryTrain.scope)?.focalMm
@@ -282,12 +282,12 @@ private fun OpticalTrainCard(state: SimState, ctrl: SessionController) {
  * Which Ekos module (Camera/Focus/Mount/Guide/Align/Dark Library) uses which
  * named train — split out from the Optical Train card/sheet on user
  * feedback (the two were one long scroll, reading as unrelated concerns).
- * Only shown when [SimState.wireTrains] is non-null (see [GearScreen]) —
- * there's no fixture equivalent, [ctrl]'s [SimState.moduleTrainAssignments]
+ * Only shown when [AppState.wireTrains] is non-null (see [GearScreen]) —
+ * there's no fixture equivalent, [ctrl]'s [AppState.moduleTrainAssignments]
  * summary is simply meaningless under `SimulatedController`.
  */
 @Composable
-private fun ModuleAssignmentsCard(state: SimState, ctrl: SessionController) {
+private fun ModuleAssignmentsCard(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val assigned = state.moduleTrainAssignments?.size ?: 0
@@ -313,7 +313,7 @@ private fun ModuleAssignmentsCard(state: SimState, ctrl: SessionController) {
  * exist here before a train can reference it.
  */
 @Composable
-private fun ScopesCard(state: SimState, ctrl: SessionController) {
+private fun ScopesCard(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val scopes = state.wireScopes ?: state.scopes
@@ -371,7 +371,7 @@ private fun DisconnectCard(onDisconnect: () -> Unit) {
 }
 
 @Composable
-private fun MaintenanceCard(state: SimState, ctrl: SessionController) {
+private fun MaintenanceCard(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     Column(
@@ -393,7 +393,7 @@ private fun MaintenanceCard(state: SimState, ctrl: SessionController) {
 }
 
 @Composable
-private fun DeviceList(state: SimState, ctrl: SessionController) {
+private fun DeviceList(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
 
@@ -516,7 +516,7 @@ private fun DeviceRow(
 
 /** Only shown when a Powerbox is selected in the rig profile; dims to idle when Ekos isn't running. */
 @Composable
-private fun PowerDew(state: SimState) {
+private fun PowerDew(state: AppState) {
     if (!state.isSelected("powerbox")) return
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
@@ -589,7 +589,7 @@ private fun DewRow(label: String, frac: Float, enabled: Boolean) {
  * against, not an oversight.
  */
 @Composable
-private fun CloseRoofButton(state: SimState, ctrl: SessionController) {
+private fun CloseRoofButton(state: AppState, ctrl: SessionController) {
     if (!state.isSelected("dome")) return
     val c = NocturneTheme.colors
     val t = NocturneTheme.type

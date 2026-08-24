@@ -31,7 +31,7 @@ package com.nocturne.session
  * straight through to the same global `Options::enforceRefocusEveryN`/`refocusEveryN` etc. the
  * Camera-settings sheet's own `capture_set_all_settings` call uses (`sequencequeue.cpp:213-214`)
  * — genuinely the same underlying setting via two different real paths, not two independent
- * ones, so feeding this from [SimState.wireCaptureSettings] can't drift out of sync with itself.
+ * ones, so feeding this from [AppState.wireCaptureSettings] can't drift out of sync with itself.
  */
 object EsqWriter {
 

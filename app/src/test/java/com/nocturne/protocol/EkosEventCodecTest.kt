@@ -282,7 +282,7 @@ class EkosEventCodecTest {
     @Test
     fun `decodes focus_get_all_settings — curated subset incl phase-6 fields, focusAlgorithm is a string`() {
         // live capture (M3.3 phase 6) — real Focus::getAllSettings() reports 84 fields; 6 are
-        // modeled (absTicksSpin, already used to seed SimState.focPos, plus exposure/gain/filter/
+        // modeled (absTicksSpin, already used to seed AppState.focPos, plus exposure/gain/filter/
         // backlash/algorithm for the Focus settings sheet). ignoreUnknownKeys must drop the other
         // 78 without throwing. Unlike Guide's field-name history, this list carried low risk —
         // EkosRemote-Command-Reference.md flags Focus's field list "Live-captured" (same trusted

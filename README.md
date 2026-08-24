@@ -155,11 +155,11 @@ different ways across this doc and the code, so pin it down here:
   `targetId`, `blocks`, `running`). Always one target ↔ one sequence.
   Mirrors Ekos's `SchedulerJob` (`scheduler_*` commands) — named `SequenceJob`
   rather than bare `Job` to avoid colliding with `kotlinx.coroutines.Job`,
-  already used for the simulator's ticker. `SimState.jobs: List<SequenceJob>`
+  already used for the simulator's ticker. `AppState.jobs: List<SequenceJob>`
   is the whole night's queue — what the Sequence tab lists.
 - **Session** — not a class, no dedicated data object; the implicit "what's
-  happening right now" across the whole app — `SimState` as a whole, viewed
-  through the **contract job** (`SimState.contractJob`: the running job, else
+  happening right now" across the whole app — `AppState` as a whole, viewed
+  through the **contract job** (`AppState.contractJob`: the running job, else
   the first queued job, else null — see §7a). Session tab is a window onto
   whichever job is currently the contract job. "End session" stops that
   contract job and opens a choice: resume it, advance to the next queued job,
@@ -309,7 +309,7 @@ of `SimulatedController`:**
   `AbstractLocalSessionController` holds the ~85 pure local-UI-state methods
   (sheet nav, job/block editing, prefs, device picker, rig wizard, etc.);
   `SimulatedController` adds only its 1 Hz ticker on top, `EkosRemoteController`
-  adds only real-push → `SimState` wire-mirror-field translation on top
+  adds only real-push → `AppState` wire-mirror-field translation on top
   (`wireCaptureStatus`/`wireMountStatus`/etc. — additive, never touching the
   simulator's own fields). Verified end-to-end against a local mock EkosRemote
   server: `set_client_state`→`get_connection`→(`online`)→`get_states`/
@@ -491,7 +491,7 @@ Sequence tabs operate real Ekos end-to-end"):**
   (`pegasus_focuscube3`) drivers *did* turn up, but migrated into core `indi`
   (`drivers/power/`, `drivers/focuser/`), not `indi-3rdparty` — worth knowing
   before assuming a driver's absence from 3rdparty means it doesn't exist.
-  `DRIVER_INDI_PROPS` in `SimState.kt` documents the source file per driver;
+  `DRIVER_INDI_PROPS` in `AppState.kt` documents the source file per driver;
   extending the catalog should cite real source the same way, not guess.
 - **⚠️ The 19-device catalog is a tiny demo sample, not close to comprehensive
   — read this before M2/M3, don't carry the M1 catalog model forward

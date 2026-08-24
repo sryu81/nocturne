@@ -15,7 +15,7 @@ class FrameEntityTest {
             exposure = "30", gain = "100", bin = "1x1", uuid = "",
         )
         val frame = MediaFrame(header, byteArrayOf(1, 2, 3))
-        val entity = FrameEntity.from(frame, timestampMs = 1_000L)
+        val entity = FrameEntity.from(frame, timestampMs = 1_000L, filePath = "/fake/path.jpg")
 
         assertEquals(0L, entity.id) // Room assigns this on insert — default until then.
         assertEquals(1_000L, entity.timestampMs)
@@ -28,13 +28,13 @@ class FrameEntityTest {
         assertEquals("1x1", entity.bin)
         assertEquals("1280x960", entity.resolution)
         assertEquals(true, entity.keep)
-        assertEquals(3, entity.jpeg.size)
+        assertEquals("/fake/path.jpg", entity.filePath)
     }
 
     @Test
     fun `missing header fields map to null, not fabricated defaults`() {
         val header = MediaHeader(resolution = "640x480", uuid = "")
-        val entity = FrameEntity.from(MediaFrame(header, byteArrayOf()), timestampMs = 0L)
+        val entity = FrameEntity.from(MediaFrame(header, byteArrayOf()), timestampMs = 0L, filePath = "/fake/path.jpg")
 
         assertEquals(null, entity.hfr)
         assertEquals(null, entity.mean)

@@ -123,7 +123,7 @@ class EkosRemoteClient(
         // Rig profiles — same pre-online availability as GET_SCOPES above (this is exactly what
         // the Gear tab's profile picker needs before Start Ekos is even tappable). Previously
         // this was only sent inside the `online` branch below, so a fresh connect to a Pi with
-        // Ekos not yet running left SimState.profiles at its SimState() default (DEFAULT_PROFILES
+        // Ekos not yet running left AppState.profiles at its AppState() default (DEFAULT_PROFILES
         // fixture — "Field · 550 mm" etc., never overwritten) with no way to trigger a real fetch
         // short of starting Ekos first. Documented bootstrap order (README §4.1) always had this
         // eager — the actual sendCommand call had just drifted into the online-only block.
@@ -168,7 +168,7 @@ class EkosRemoteClient(
                 // Real Scheduler's current job queue — previously never fetched at all, so the
                 // app had no way to even see whatever real Ekos already had queued. Purely
                 // read+mirror (2026-08-23 push/start/stop redesign) — this reply just populates
-                // SimState.wireSchedulerJobs for display; nothing here forces or clears anything
+                // AppState.wireSchedulerJobs for display; nothing here forces or clears anything
                 // on the real Scheduler.
                 sendCommand(Commands.SCHEDULER_GET_JOBS)
                 // Scheduler-wide policy settings (Startup/Constraints/Completion/Observatory

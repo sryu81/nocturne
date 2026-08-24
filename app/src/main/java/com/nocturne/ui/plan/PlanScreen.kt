@@ -42,7 +42,7 @@ import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import com.nocturne.session.SessionController
-import com.nocturne.session.SimState
+import com.nocturne.session.AppState
 import com.nocturne.session.formatHm
 import com.nocturne.session.formatSiteTime
 import com.nocturne.session.realDayFraction
@@ -76,7 +76,7 @@ private val RESULT_ROW_HEIGHT = 54.dp
 
 @Composable
 fun PlanScreen(
-    state: SimState,
+    state: AppState,
     ctrl: SessionController,
     landscape: Boolean,
     modifier: Modifier = Modifier,
@@ -86,7 +86,7 @@ fun PlanScreen(
     val t = NocturneTheme.type
     val q = state.query.trim().lowercase()
     // M3: a real connection's search bar drives astro_search_objects/astro_get_objects_info
-    // (EkosRemoteController) instead of filtering the fixture catalog — see SimState.wireSearchResults.
+    // (EkosRemoteController) instead of filtering the fixture catalog — see AppState.wireSearchResults.
     val matches = state.wireSearchResults ?: TARGETS.filter { tg ->
         if (q.isNotEmpty() && !"${tg.id} ${tg.common} ${tg.coords}".lowercase().contains(q)) return@filter false
         if (state.chips.contains(1) && (tg.max ?: 0) <= 40) return@filter false
@@ -208,7 +208,7 @@ private fun SearchBar(
 
 @Composable
 private fun ResultsList(
-    state: SimState,
+    state: AppState,
     ctrl: SessionController,
     matches: List<Target>,
     live: Boolean,
@@ -283,7 +283,7 @@ private fun boundedListNestedScrollConnection() = object : NestedScrollConnectio
     override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity = available
 }
 
-/** Where [instant] falls within [window] as a 0..1 fraction — same units as [SimState.realDayFraction]/[AltitudeChart]'s `realNowFraction`. Not clamped: a caller checking placement should already know the instant belongs inside the window. */
+/** Where [instant] falls within [window] as a 0..1 fraction — same units as [AppState.realDayFraction]/[AltitudeChart]'s `realNowFraction`. Not clamped: a caller checking placement should already know the instant belongs inside the window. */
 private fun fractionOfWindow(instant: Instant, window: Pair<Instant, Instant>): Double {
     val total = window.second.epochSecond - window.first.epochSecond
     if (total <= 0) return 0.0
@@ -291,7 +291,7 @@ private fun fractionOfWindow(instant: Instant, window: Pair<Instant, Instant>): 
 }
 
 /**
- * Real per-target altitude data ([SimState.wireTargetRiseset], fetched on demand — see
+ * Real per-target altitude data ([AppState.wireTargetRiseset], fetched on demand — see
  * [SessionController.ensureTargetRiseset]) replaces the chart's fixture curve and the "21:48"/
  * "now"/"04:12" fixed literals once it's arrived *for this exact target*; the fetch itself is
  * cheap enough to just re-request every time the framed target changes (`LaunchedEffect(tgt.id)`)
@@ -306,7 +306,7 @@ private fun fractionOfWindow(instant: Instant, window: Pair<Instant, Instant>): 
  * below exists purely to force a redraw every 30s so real time keeps advancing on screen.
  */
 @Composable
-private fun TargetCard(state: SimState, ctrl: SessionController, tgt: Target) {
+private fun TargetCard(state: AppState, ctrl: SessionController, tgt: Target) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     LaunchedEffect(tgt.id) { ctrl.ensureTargetRiseset(tgt.id) }
@@ -439,7 +439,7 @@ private fun TargetCard(state: SimState, ctrl: SessionController, tgt: Target) {
  * from yet, see [Target]).
  */
 @Composable
-private fun UserCatalogSection(state: SimState, ctrl: SessionController, matches: List<Target>) {
+private fun UserCatalogSection(state: AppState, ctrl: SessionController, matches: List<Target>) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     Column(
@@ -609,7 +609,7 @@ private fun EditableField(label: String, value: String, onChange: (String) -> Un
 }
 
 @Composable
-private fun FramingCard(state: SimState, ctrl: SessionController) {
+private fun FramingCard(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     // Preserves the prototype's exact -11° pose at the default 118.4° angle; tracks live from there.

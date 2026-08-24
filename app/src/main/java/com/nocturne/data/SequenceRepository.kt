@@ -21,7 +21,7 @@ private val sequenceJson = Json { ignoreUnknownKeys = true }
 /**
  * The app's own local job queue, persisted across process death — this is the fix for the "app
  * relaunch silently loses the sequence" report: [EkosRemoteController] previously reset
- * `SimState.jobs` to `emptyList()` unconditionally on every fresh connection, so a killed-and-
+ * `AppState.jobs` to `emptyList()` unconditionally on every fresh connection, so a killed-and-
  * reopened app forgot everything it had queued, even though nothing about the job itself had
  * actually changed.
  *

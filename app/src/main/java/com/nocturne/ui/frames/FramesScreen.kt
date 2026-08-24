@@ -24,13 +24,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.nocturne.data.FrameEntity
 import com.nocturne.session.SessionController
-import com.nocturne.session.SimState
+import com.nocturne.session.AppState
 import com.nocturne.session.keepCount
 import com.nocturne.session.rejectCount
 import com.nocturne.ui.components.Card
 import com.nocturne.ui.components.HfrRunChart
 import com.nocturne.ui.components.IconBtn
-import com.nocturne.ui.components.MediaFramePreview
+import com.nocturne.ui.components.MediaFramePreviewFile
 import com.nocturne.ui.components.TabItem
 import com.nocturne.ui.components.TabPane
 import com.nocturne.ui.components.TextC
@@ -38,14 +38,14 @@ import com.nocturne.ui.icons.Phosphor
 import com.nocturne.ui.theme.NocturneTheme
 
 /**
- * Real capture frames grid (M4.3), Room-backed via [FrameEntity]/[state].[SimState.frameRows] —
+ * Real capture frames grid (M4.3), Room-backed via [FrameEntity]/[state].[AppState.frameRows] —
  * replaces the honest "not available (M4)" placeholder that stood here since the simulator-removal
  * pass (2026-08-22). Empty until a real capture actually lands (routed by
  * [com.nocturne.session.EkosRemoteController] off the Media channel's `uuid == ""` frames, M4.1).
  */
 @Composable
 fun FramesScreen(
-    state: SimState,
+    state: AppState,
     ctrl: SessionController,
     landscape: Boolean,
     modifier: Modifier = Modifier,
@@ -119,7 +119,7 @@ private fun FrameThumb(f: FrameEntity, modifier: Modifier, onClick: () -> Unit) 
             .background(c.surfaceDeep)
             .clickable(onClick = onClick),
     ) {
-        MediaFramePreview(f.jpeg, Modifier.fillMaxSize(), hatchColor = c.surfaceRaised)
+        MediaFramePreviewFile(f.filePath, Modifier.fillMaxSize(), hatchColor = c.surfaceRaised)
         if (!f.keep) {
             Box(Modifier.fillMaxSize().background(c.danger.copy(alpha = 0.28f)))
         }
@@ -138,7 +138,7 @@ private fun FrameThumb(f: FrameEntity, modifier: Modifier, onClick: () -> Unit) 
 
 /** Full-screen frame preview — tap anywhere, the close button, or system back dismisses it. */
 @Composable
-fun FrameExpandOverlay(state: SimState, ctrl: SessionController) {
+fun FrameExpandOverlay(state: AppState, ctrl: SessionController) {
     val frame = state.frameRows.firstOrNull { it.id.toString() == state.expandedFrameId } ?: return
     androidx.activity.compose.BackHandler(onBack = ctrl::closeFrameExpand)
     val c = NocturneTheme.colors
@@ -153,9 +153,10 @@ fun FrameExpandOverlay(state: SimState, ctrl: SessionController) {
                 onClick = ctrl::closeFrameExpand,
             ),
     ) {
-        MediaFramePreview(frame.jpeg, Modifier.fillMaxSize(), hatchColor = c.surfaceRaised)
+        MediaFramePreviewFile(frame.filePath, Modifier.fillMaxSize(), hatchColor = c.surfaceRaised)
         TextC(
-            "frame_${frame.id}.jpg", style = t.Mono17, color = c.textFaint,
+            // Real on-disk filename (M4.5) — the actual Preview/Plan path, not a fabricated label.
+            java.io.File(frame.filePath).name, style = t.Mono17, color = c.textFaint,
             modifier = Modifier.align(Alignment.TopStart).padding(16.dp),
         )
         IconBtn(
