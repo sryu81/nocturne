@@ -56,6 +56,13 @@ abstract class AbstractLocalSessionController : SessionController {
     override fun closeSubPreview() = update { it.copy(subPreviewExpanded = false) }
     override fun expandFrame(id: String) = update { it.copy(expandedFrameId = id) }
     override fun closeFrameExpand() = update { it.copy(expandedFrameId = null) }
+    // Pure local nav, no wire effect — same shape as openBlock/closeBlock. Leaving PLAN's target
+    // list (category set to null or PREVIEW) also clears any drilled-into target, so returning to
+    // the top-level picker never leaves a stale target selection behind.
+    override fun selectFrameCategory(category: FrameCategory?) = update {
+        it.copy(frameCategory = category, frameTarget = null)
+    }
+    override fun selectFrameTarget(target: String?) = update { it.copy(frameTarget = target) }
 
     override fun requestDeferFlip() = update { it.copy(pendingFlipConfirm = FlipConfirm.DEFER) }
     override fun requestFlipNow() = update { it.copy(pendingFlipConfirm = FlipConfirm.NOW) }

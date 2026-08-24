@@ -45,6 +45,9 @@ enum class RigRebootState { IDLE, SENDING, SENT, FAILED }
 /** Which meridian-flip action is awaiting confirmation. */
 enum class FlipConfirm { DEFER, NOW }
 
+/** Frames tab's top-level category picker (M4.5 Part C) — see [AppState.frameCategory]. */
+enum class FrameCategory { PREVIEW, PLAN }
+
 /** Every mutable field the simulator drives, mirroring the prototype's state. */
 data class AppState(
     val t: Int = 0,
@@ -53,6 +56,14 @@ data class AppState(
     val subPreviewExpanded: Boolean = false,
     /** Frames tab: id of the frame expanded to a full-screen overlay, if any. */
     val expandedFrameId: String? = null,
+    /**
+     * Frames tab navigation (M4.5 Part C) — pure local UI nav, no wire effect, same shape as
+     * [openBlockId]/[activeJobId]. Null [frameCategory] = top-level Preview/Plan picker;
+     * [frameTarget] only meaningful once [frameCategory] is [FrameCategory.PLAN] — null there
+     * means "show the target list," non-null means "show that target's own frame grid."
+     */
+    val frameCategory: FrameCategory? = null,
+    val frameTarget: String? = null,
     /** Cumulative seconds the meridian flip countdown has been pushed back via DEFER. */
     val flipDeferSec: Int = 0,
     /** Flip/defer action awaiting user confirmation on the Session tab. */
@@ -1172,6 +1183,8 @@ fun AppState.activeFrameSource(): FrameSource {
         target = busyJob.name,
         filter = wireCaptureSettings?.FilterPosCombo,
         temperatureC = indiNumber(primaryTrain.camera, "CCD_TEMPERATURE"),
+        targetRA = busyJob.targetRA,
+        targetDEC = busyJob.targetDEC,
     )
 }
 

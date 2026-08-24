@@ -15,7 +15,7 @@ class FrameEntityTest {
             exposure = "30", gain = "100", bin = "1x1", uuid = "",
         )
         val frame = MediaFrame(header, byteArrayOf(1, 2, 3))
-        val entity = FrameEntity.from(frame, timestampMs = 1_000L, filePath = "/fake/path.jpg")
+        val entity = FrameEntity.from(frame, timestampMs = 1_000L, filePath = "/fake/path.jpg", source = FrameSource.Test)
 
         assertEquals(0L, entity.id) // Room assigns this on insert — default until then.
         assertEquals(1_000L, entity.timestampMs)
@@ -29,16 +29,32 @@ class FrameEntityTest {
         assertEquals("1280x960", entity.resolution)
         assertEquals(true, entity.keep)
         assertEquals("/fake/path.jpg", entity.filePath)
+        assertEquals(null, entity.target)
+        assertEquals(null, entity.filter)
     }
 
     @Test
     fun `missing header fields map to null, not fabricated defaults`() {
         val header = MediaHeader(resolution = "640x480", uuid = "")
-        val entity = FrameEntity.from(MediaFrame(header, byteArrayOf()), timestampMs = 0L, filePath = "/fake/path.jpg")
+        val entity = FrameEntity.from(
+            MediaFrame(header, byteArrayOf()), timestampMs = 0L, filePath = "/fake/path.jpg", source = FrameSource.Test,
+        )
 
         assertEquals(null, entity.hfr)
         assertEquals(null, entity.mean)
         assertEquals(null, entity.exposure)
         assertEquals(null, entity.gain)
+    }
+
+    @Test
+    fun `a Plan source carries its real target-filter-coordinates onto the row`() {
+        val header = MediaHeader(resolution = "1280x960", exposure = "300", uuid = "xyz")
+        val source = FrameSource.Plan(target = "NGC 7000", filter = "Ha", temperatureC = -10.0, targetRA = 314.75, targetDEC = 44.32)
+        val entity = FrameEntity.from(MediaFrame(header, byteArrayOf()), timestampMs = 0L, filePath = "/fake/path.jpg", source = source)
+
+        assertEquals("NGC 7000", entity.target)
+        assertEquals("Ha", entity.filter)
+        assertEquals(314.75, entity.targetRA)
+        assertEquals(44.32, entity.targetDEC)
     }
 }

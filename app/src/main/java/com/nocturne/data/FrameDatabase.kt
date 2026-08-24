@@ -27,33 +27,41 @@ sealed interface FrameSource {
     /** Bench "Preview Main Cam"/"Preview Guide Cam" — real `JOBTYPE_PREVIEW` on the server side. */
     data object Test : FrameSource
 
-    /** A real scheduler job was `BUSY` when this frame landed. */
-    data class Plan(val target: String, val filter: String?, val temperatureC: Double?) : FrameSource
+    /**
+     * A real scheduler job was `BUSY` when this frame landed. [targetRA]/[targetDEC] are the
+     * job's own real coordinates (`WireSchedulerJob.targetRA`/`targetDEC`) — **known ambiguity,
+     * not fixed here**: the wire model defaults both to `0.0` when absent, so a real target
+     * sitting exactly at RA/Dec 0° is indistinguishable from "no data" under this scheme.
+     */
+    data class Plan(
+        val target: String,
+        val filter: String?,
+        val temperatureC: Double?,
+        val targetRA: Double? = null,
+        val targetDEC: Double? = null,
+    ) : FrameSource
 }
 
 /**
  * Writes a real capture frame's JPEG to the app's own external-files storage under the real
  * folder templates specified 2026-08-23 (docs/M4.5-plan.md):
- * - `Preview/<session-datetime>/Prev_00000.jpg` (test captures — one dated folder per app
- *   session, counter reset per folder)
+ * - `Preview/<date>/Prev_00000.jpg` (test captures — one dated folder per **day**, matching
+ *   `Plan`'s own date granularity; multiple app sessions on the same day share the folder and
+ *   keep counting up, they don't restart at 0 and clobber each other)
  * - `Plan/<date>/<target>/<target>_<date>_<filter>_<exposure>sec_<temp>C_<seq>.jpg` (scheduler
  *   captures — `<seq>` is 1-indexed, scoped per target+filter+exposure combination)
  *
- * Sequence counters are in-memory only, reset on app relaunch — an accepted gap, same class as
- * every other "session-scoped, not persisted" bookkeeping already in this app (matches
- * `EkosRemoteController`'s own pending-* fields); a relaunch mid-target just starts that
- * target+filter+exposure's counter over at 1, it does not overwrite the earlier files (the
- * timestamp-qualified path means a collision would only happen if two files also matched every
- * other tag, which `System.currentTimeMillis()`-derived date granularity makes exceedingly
- * unlikely within one calendar day at real sub-minute cadences — not treated as a real risk here).
+ * [previewFile]'s counter is in-memory but seeded from what's already on disk the first time it's
+ * needed — a relaunch on the same day continues numbering instead of overwriting what an earlier
+ * session that day already wrote. [planFile]'s per-combo counters stay session-only (not
+ * disk-seeded) — same accepted gap as before, unrelated to the change requested here.
  */
 class FrameFileWriter(private val baseDir: File) {
-    private var previewSessionDir: File? = null
+    private var previewDir: File? = null
     private var previewCounter = 0
     private val planSequenceCounters = mutableMapOf<String, Int>()
 
     private val dateFmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-    private val sessionFmt = SimpleDateFormat("yyyy-MM-dd'T'HH-mm-ss", Locale.US)
 
     /** Writes [frame]'s JPEG bytes to the real path for [source], creating parent folders as needed. */
     fun write(frame: MediaFrame, timestampMs: Long, source: FrameSource): File {
@@ -67,11 +75,19 @@ class FrameFileWriter(private val baseDir: File) {
     }
 
     private fun previewFile(timestampMs: Long): File {
-        val dir = previewSessionDir ?: File(baseDir, "Preview/${sessionFmt.format(Date(timestampMs))}").also {
-            previewSessionDir = it
+        val dir = previewDir ?: File(baseDir, "Preview/${dateFmt.format(Date(timestampMs))}").also {
+            previewDir = it
+            previewCounter = nextIndexIn(it, prefix = "Prev_", suffix = ".jpg")
         }
         return File(dir, "Prev_%05d.jpg".format(previewCounter++))
     }
+
+    /** Highest existing `<prefix><N><suffix>` index in [dir], plus one — 0 if the folder is new/empty. */
+    private fun nextIndexIn(dir: File, prefix: String, suffix: String): Int =
+        (dir.listFiles()?.mapNotNull { f ->
+            f.name.takeIf { it.startsWith(prefix) && it.endsWith(suffix) }
+                ?.removePrefix(prefix)?.removeSuffix(suffix)?.toIntOrNull()
+        }?.maxOrNull() ?: -1) + 1
 
     private fun planFile(frame: MediaFrame, timestampMs: Long, source: FrameSource.Plan): File {
         val date = dateFmt.format(Date(timestampMs))
@@ -112,10 +128,15 @@ data class FrameEntity(
     val resolution: String?,
     val keep: Boolean = true,
     val filePath: String,
+    /** Null for a [FrameSource.Test] capture — real target/filter/coordinates only exist for [FrameSource.Plan] (M4.5 Part C). */
+    val target: String? = null,
+    val filter: String? = null,
+    val targetRA: Double? = null,
+    val targetDEC: Double? = null,
 ) {
     companion object {
         /** Real capture frame → persisted row. [id] is left at its default; Room assigns it on insert. */
-        fun from(frame: MediaFrame, timestampMs: Long, filePath: String): FrameEntity = FrameEntity(
+        fun from(frame: MediaFrame, timestampMs: Long, filePath: String, source: FrameSource): FrameEntity = FrameEntity(
             timestampMs = timestampMs,
             hfr = frame.header.hfr,
             mean = frame.header.mean,
@@ -126,6 +147,10 @@ data class FrameEntity(
             bin = frame.header.bin,
             resolution = frame.header.resolution,
             filePath = filePath,
+            target = (source as? FrameSource.Plan)?.target,
+            filter = (source as? FrameSource.Plan)?.filter,
+            targetRA = (source as? FrameSource.Plan)?.targetRA,
+            targetDEC = (source as? FrameSource.Plan)?.targetDEC,
         )
     }
 }
@@ -146,10 +171,11 @@ interface FrameDao {
     fun observeRecent(limit: Int): Flow<List<FrameEntity>>
 }
 
-// Bumped 1->2 for M4.5's jpeg-blob -> filePath column change. Pre-release schema churn only —
+// Bumped 1->2 for M4.5 Part A's jpeg-blob -> filePath change, 2->3 for Part C's
+// target/filter/targetRA/targetDEC columns. Pre-release schema churn only —
 // fallbackToDestructiveMigration wipes old rows rather than needing a real migration written for
 // data nothing depends on surviving yet.
-@Database(entities = [FrameEntity::class], version = 2, exportSchema = false)
+@Database(entities = [FrameEntity::class], version = 3, exportSchema = false)
 abstract class FrameDatabase : RoomDatabase() {
     abstract fun frameDao(): FrameDao
 }
@@ -169,7 +195,7 @@ class FrameRepository(context: Context) {
 
     suspend fun insert(frame: MediaFrame, timestampMs: Long, source: FrameSource): Long {
         val file = fileWriter.write(frame, timestampMs, source)
-        return dao.insert(FrameEntity.from(frame, timestampMs, file.absolutePath))
+        return dao.insert(FrameEntity.from(frame, timestampMs, file.absolutePath, source))
     }
 
     fun observeAll(): Flow<List<FrameEntity>> = dao.observeAll()

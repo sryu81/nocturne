@@ -19,6 +19,10 @@ interface SessionController {
     fun closeSubPreview()
     fun expandFrame(id: String)
     fun closeFrameExpand()
+    /** Frames tab top-level nav (M4.5 Part C) — null returns to the Preview/Plan picker. */
+    fun selectFrameCategory(category: FrameCategory?)
+    /** Frames tab target drill-down within Plan (M4.5 Part C) — null returns to the target list. */
+    fun selectFrameTarget(target: String?)
     fun requestDeferFlip()
     fun requestFlipNow()
     fun confirmFlipAction()

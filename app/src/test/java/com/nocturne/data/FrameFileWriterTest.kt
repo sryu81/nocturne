@@ -10,7 +10,7 @@ import org.junit.rules.TemporaryFolder
 
 /**
  * [FrameFileWriter]'s real folder templates (user-specified 2026-08-23, docs/M4.5-plan.md):
- * `Preview/<session-datetime>/Prev_00000.jpg` for test captures,
+ * `Preview/<date>/Prev_00000.jpg` for test captures,
  * `Plan/<date>/<target>/<target>_<date>_<filter>_<exposure>sec_<temp>C_<seq>.jpg` for scheduler
  * ones. Uses a real [TemporaryFolder] as the base dir — [FrameFileWriter] takes a plain [java.io.File],
  * not a Context, specifically so this doesn't need Robolectric/instrumentation to test.
@@ -31,11 +31,26 @@ class FrameFileWriterTest {
 
         assertEquals("Prev_00000.jpg", f1.name)
         assertEquals("Prev_00001.jpg", f2.name)
-        // Same session dir for both, even though timestamps differ — one dated folder per writer
-        // instance (session), not per frame.
+        // Same dated dir for both, even though timestamps differ — one folder per day, not per frame.
         assertEquals(f1.parentFile, f2.parentFile)
         assertTrue(f1.parentFile!!.path.contains("Preview"))
         assertTrue(f1.exists() && f2.exists())
+    }
+
+    @Test
+    fun `a relaunch on the same day continues the preview counter instead of overwriting`() {
+        val writer1 = FrameFileWriter(tmp.root)
+        val f1 = writer1.write(frame(), timestampMs = 0L, source = FrameSource.Test)
+        val f2 = writer1.write(frame(), timestampMs = 1_000L, source = FrameSource.Test)
+
+        // A fresh writer instance (simulating an app relaunch) against the SAME base dir, same day.
+        val writer2 = FrameFileWriter(tmp.root)
+        val f3 = writer2.write(frame(), timestampMs = 2_000L, source = FrameSource.Test)
+
+        assertEquals("Prev_00002.jpg", f3.name)
+        assertEquals(f1.parentFile, f3.parentFile)
+        // The relaunch didn't clobber what the first writer already wrote.
+        assertTrue(f1.exists() && f2.exists() && f3.exists())
     }
 
     @Test

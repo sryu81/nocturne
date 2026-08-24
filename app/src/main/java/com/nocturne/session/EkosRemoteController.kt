@@ -2063,7 +2063,7 @@ private fun WireAstroObject.toTarget(riseset: WireRiseset?): Target = Target(
 private val COORDS_REGEX = Regex("""(\d+)h(\d+)m(\d+)s\s+([+-])(\d+)°(\d+)′(\d+)″""")
 
 /** J2000 RA hours → "20h59m17s". */
-private fun formatRaHours(hours: Double): String {
+fun formatRaHours(hours: Double): String {
     val h = hours.toInt()
     val remMin = (hours - h) * 60
     val m = remMin.toInt()
@@ -2072,7 +2072,7 @@ private fun formatRaHours(hours: Double): String {
 }
 
 /** J2000 Dec degrees → "+44°31′44″". */
-private fun formatDecDegrees(deg: Double): String {
+fun formatDecDegrees(deg: Double): String {
     val sign = if (deg < 0) "-" else "+"
     val a = kotlin.math.abs(deg)
     val d = a.toInt()
