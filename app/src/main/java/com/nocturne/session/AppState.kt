@@ -16,6 +16,7 @@ import com.nocturne.protocol.WireSchedulerSettings
 import com.nocturne.protocol.WireTrain
 import com.nocturne.protocol.WirePolarVector
 import java.time.Instant
+import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import kotlin.math.abs
@@ -1090,6 +1091,17 @@ data class SequenceJob(
      * [AppState.wireSchedulerJobs] at the moment a command needs them, via [wireJobFor].
      */
     val synced: Boolean = false,
+    /**
+     * Real wall-clock time this job was created (2026-08-25, user's own call) — feeds
+     * [targetNameFor]'s date/time suffix so pushing the same target months apart never produces
+     * the exact same real Scheduler job name/`.esq` filename twice. `0L` for any job persisted
+     * before this field existed (deserializes to the default, per kotlinx.serialization) —
+     * [targetNameFor] deliberately falls back to the old undated name in that case rather than
+     * collide every pre-existing job on `0`, since a currently-`synced` old-format job must keep
+     * matching the exact name Ekos already has for it (see [wireJobFor]) or the app silently loses
+     * track of it.
+     */
+    val createdAtMs: Long = 0L,
 )
 
 val DEFAULT_JOBS = listOf(
@@ -1113,12 +1125,29 @@ val DEFAULT_JOBS = listOf(
  * real symptom: "image write failed" once a job with a `#`-suffixed name actually reached
  * capture. Switched to `_`, which Ekos's own sanitizer already treats as the safe replacement
  * character for everything else it strips.
+ *
+ * **Date/time suffix added 2026-08-25 (user's own call)**: `job.id` (`"j1"`, `"j2"`, ...) is a
+ * local, in-app monotonic counter — it only ever *increases* for the app's own persisted
+ * lifetime, but that lifetime isn't forever (a reinstall, or the sequence-jobs DataStore being
+ * cleared, restarts it from `"j1"` again). Pushing the same target as job "j1" months apart would
+ * otherwise produce the exact same real Scheduler job name and `.esq` filename twice — the user's
+ * own concrete worry: real Ekos could plausibly treat the second, unrelated push as a continuation
+ * of the first (whatever it keys its own "remember job progress"/completion state on,
+ * `kcfg_RememberJobProgress`, confirmed `true` on this rig — not confirmed *what* key it uses, so
+ * removing the collision outright rather than reasoning about that mechanism). [SequenceJob.createdAtMs]
+ * makes every future job's name unique regardless of *why* `job.id` collided. Falls back to the
+ * pre-2026-08-25 undated name when `createdAtMs` is `0` (a job persisted before this field
+ * existed) — required so an already-`synced` old-format job keeps matching the exact name Ekos
+ * already has for it; see [SequenceJob.createdAtMs]'s own doc.
  */
 fun AppState.targetNameFor(job: SequenceJob): String {
     val target = findTarget(job.targetId)
     val base = target?.common ?: target?.id ?: job.targetId
-    return "${base}_${job.id}"
+    val dated = if (job.createdAtMs > 0L) "_${JOB_NAME_DATE_FORMATTER.format(Instant.ofEpochMilli(job.createdAtMs).atZone(ZoneId.systemDefault()))}" else ""
+    return "${base}_${job.id}$dated"
 }
+
+private val JOB_NAME_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")
 
 /**
  * Filesystem-safe token from a real name — spaces/punctuation a filesystem path shouldn't carry

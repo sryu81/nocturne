@@ -97,7 +97,13 @@ abstract class AbstractLocalSessionController : SessionController {
                 id = "b1", filter = (s.realFilterNames ?: FILTER_CYCLE).first(), exposureSec = 300, subCount = 10, doneCount = 0,
                 gain = 100, offset = 50, binning = 1, ditherEvery = 2,
             )
-            val job = SequenceJob(id = "j${s.jobSeq}", targetId = targetId, blocks = listOf(block), blockSeq = 2)
+            val job = SequenceJob(
+                id = "j${s.jobSeq}", targetId = targetId, blocks = listOf(block), blockSeq = 2,
+                // Real creation time (2026-08-25) — see AppState.targetNameFor's own doc: makes
+                // this job's eventual real Scheduler name/`.esq` filename unique even if job.id
+                // ever repeats (app reinstall, persisted-queue reset) months apart.
+                createdAtMs = System.currentTimeMillis(),
+            )
             s.copy(jobs = s.jobs + job, jobSeq = s.jobSeq + 1, activeJobId = job.id, openBlockId = null)
         }
     }
