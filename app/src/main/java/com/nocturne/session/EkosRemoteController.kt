@@ -1768,7 +1768,15 @@ class EkosRemoteController(
         // targetNameFor's raw output is the real Scheduler job *name* (sent as-is to `nameEdit`,
         // Ekos does its own KSUtils::sanitize() on that separately) and can carry spaces/
         // punctuation this app's own filename needs stripped before Ekos ever sees it.
-        val path = "${sanitizeFileToken(targetName)}.esq"
+        // Under `esq/` (2026-08-25, user's own file-organization call) — home-relative resolution
+        // of a bare filename is confirmed live (`EkosEvent.kt`'s own doc on this reply), but
+        // whether the real `scheduler_save_sequence_file` handler creates a missing intermediate
+        // directory itself (vs. only `file_directory_operation`'s documented `QDir().mkpath`,
+        // §18, which this app doesn't send) is **not** confirmed anywhere — `$HOME/esq/` must
+        // exist on the Pi before the first push after this change, or the save will likely fail
+        // silently the same way an unresolvable path did in bug #19 (see `docs/M4-plan.md`-era
+        // notes on this command).
+        val path = "esq/${sanitizeFileToken(targetName)}.esq"
         client.sendCommand(Commands.SCHEDULER_SAVE_SEQUENCE_FILE, buildJsonObject {
             put(
                 "filedata",
