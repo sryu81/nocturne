@@ -38,6 +38,7 @@ import com.nocturne.session.plannedHM
 import com.nocturne.session.realCountdownToDusk
 import com.nocturne.session.realNightWindow
 import com.nocturne.session.realNowFraction
+import com.nocturne.session.currentBlockIndex
 import com.nocturne.session.totalDone
 import com.nocturne.session.totalPlannedSec
 import com.nocturne.session.totalSubs
@@ -106,8 +107,11 @@ private fun IdleSessionCard(state: AppState, modifier: Modifier) {
  * `state.realNowFraction` — **null, not clamped**, whenever real "now" falls outside tonight's
  * dusk-dawn span (daytime, or a stale window), so an honest message is shown instead of a wrong
  * dot position. The "flip" tick has no real position to show (see `FlipBanner`'s own doc — no
- * real flip-time data exists anywhere) and is simply omitted under a real rig rather than left at
- * its old fixed pixel offset. `plannedFraction`/duration text use real block totals
+ * real flip-time data exists anywhere) — this comment used to claim it was "simply omitted under
+ * a real rig," which was never actually true (`NightArc` in `Charts.kt` had no parameter to gate
+ * it at all and drew it at a hardcoded fixed fraction unconditionally, confirmed a real live bug
+ * 2026-08-25 by user report). Now genuinely removed at the draw-call level instead of merely
+ * claimed removed here. `plannedFraction`/duration text use real block totals
  * ([SequenceJob.totalPlannedSec]/[SequenceJob.totalDoneSec]) once [SequenceJob.synced]; the
  * per-sub "X left" countdown the simulator shows has no real equivalent (blocked on the Media
  * channel, same M4 gap as `StatsRow`/`SubPreview`) so it's dropped, not fabricated, in that case.
@@ -211,7 +215,22 @@ private fun NightArcCard(state: AppState) {
                 if (realProgress) job!!.filterBreakdown else "Ha 12/40 · OIII 0/30",
                 style = t.MonoMicro, color = c.textMuted, modifier = Modifier.weight(1f),
             )
-            TextC("dither in 2", style = t.MonoMicro, color = c.textFaint)
+            // Was a bare "dither in 2" literal, no relation to anything real (found live, user
+            // report, 2026-08-25) — real per-block `ditherEvery`/`doneCount` already exist
+            // (block editor, EsqWriter) but nothing here ever read them. No real dither-fired
+            // wire event exists to reset this against an actual dither (confirmed: EkosEvent has
+            // no such case) — this is the same "every N subs" countdown Ekos itself computes
+            // locally from doneCount, not a server-pushed status, so it's exact as long as
+            // doneCount itself is (see doneCount's own M3 waterfall-fill-approximation caveat).
+            TextC(
+                if (realProgress) job!!.currentBlockIndex?.let { job.blocks[it] }?.let { b ->
+                    when {
+                        b.ditherEvery == null || b.ditherEvery <= 0 -> "dither off"
+                        else -> "dither in ${b.ditherEvery - (b.doneCount % b.ditherEvery)}"
+                    }
+                } ?: "dither —" else "dither in 2",
+                style = t.MonoMicro, color = c.textFaint,
+            )
         }
     }
 }

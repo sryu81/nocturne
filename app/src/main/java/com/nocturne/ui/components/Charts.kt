@@ -64,7 +64,6 @@ fun NightArc(
     val baseTrack = Color(0xFFE9E9ED).copy(alpha = 0.07f)
     val plannedColor = colors.accent800
     val shotColor = colors.accent
-    val tickColor = colors.warn
     val nowColor = Color(0xFFE9E9ED)
     val ringColor = Color(0xFFE9E9ED).copy(alpha = 0.3f)
 
@@ -109,10 +108,15 @@ fun NightArc(
                 pathEffect = PathEffect.dashPathEffect(floatArrayOf((shotFraction * arcLen).toFloat(), arcLen)),
             ),
         )
-        // Flip tick + now dot + ring.
-        val f1 = pt(0.62, 126f)
-        val f2 = pt(0.62, 155f)
-        drawLine(tickColor, f1, f2, strokeWidth = vw(2f))
+        // Now dot + ring. A "flip" tick used to draw here too, at a hardcoded fixed fraction
+        // (0.62) regardless of anything real — removed (2026-08-25, real bug found live, user
+        // report: "altitude peak / meridian flip time is wrong"). This function had no parameter
+        // to gate it at all, contradicting NightArcCard's own doc comment, which already
+        // (incorrectly) claimed it was "simply omitted under a real rig" — it never was. No real
+        // flip time is computable client-side today regardless (would need real RA + local
+        // sidereal time, neither modeled anywhere — same conclusion FlipBanner's own doc already
+        // reached for its countdown), so there's nothing real to draw here instead; omitted
+        // outright rather than left wrong.
         val now = pt(nowFraction, 140f)
         drawCircle(nowColor, radius = vw(6.5f), center = now)
         drawCircle(ringColor, radius = vw(12f), center = now, style = Stroke(width = vw(2f)))
