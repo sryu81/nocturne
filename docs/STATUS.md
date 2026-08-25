@@ -1,0 +1,219 @@
+# Nocturne — Project Status & Plan
+
+Single source of truth for what's shipped, skipped, superseded, or still planned.
+Replaces `M3-plan.md`, `M3.3-plan.md`, `M4-plan.md`, `M4.5-plan.md`, `M5-plan.md`,
+`simulator-removal-plan.md`, `app-side-feature-backlog.md` (all deleted, content folded in below).
+
+Not touched by this consolidation: `README.md`, `EkosRemote-Client-Guide.md`,
+`EkosRemote-Command-Reference.md`, `EkosWebSocket-Fork-Design.md`, `emulator-troubleshooting.md`
+— those are living protocol/reference docs, not progress tracking.
+
+**Known stale spot found while writing this**: README's own milestone table (§7) and status
+prose (§7a) stop at "Not started: M4" — M4 is actually fully shipped (below) and M4.5/M5 work
+happened after. README's §4-6 (data-mapping/command tables) stayed current; only §7/7a drifted.
+Not fixed here (out of this doc's scope) — flagging so it doesn't get trusted at face value next time.
+
+---
+
+## Checklist
+
+### M3 — Plan + Sequence tabs operate real Ekos end-to-end
+- [x] `protocol/Commands.kt`/`EkosEvent.kt` additions (PROFILE_*, DEVICE_*, ASTRO_*, SCHEDULER_*, TRAIN_*)
+- [x] Device catalog + property sheets live (`wireDevices`, `DeviceRole`, `device_property_subscribe`)
+- [x] Profile management + Optical Train split (`RigProfile` shrink, `ADAPTIVE_OPTICS` role)
+- [x] Plan tab live `astro_*` search
+- [x] Sequence tab real Scheduler/`.esq` wiring (`EsqWriter`, sync lock, `wireIndex`)
+- [x] Per-block progress approximation (waterfall-fill) — **permanent**, not a stopgap (real per-block progress needs undocumented `capture_get_sequences`)
+- [ ] ~~Mock `mock_ekos_server.py` e2e harness~~ — SUPERSEDED: project norm became live-rig testing instead
+- [x] JUnit test source set (came later than M3 itself, doc's own "no tests exist" claim now stale)
+
+### M3.3 — Module settings sheets
+- [x] Mount settings (10 curated fields)
+- [x] Camera settings (save dir, guide-deviation guard, dither)
+- [x] Focus settings (5 curated fields incl. `focusAlgorithm`)
+- [x] Align settings (5 curated fields)
+- [x] Guide settings (7 curated fields, corrected once from a bad initial field-name probe)
+- [x] Real Autofocus start/stop, real Polar Alignment (moved from Gear → Controls tab)
+- [x] Align "Solve" / Guide start-stop → Controls tab (relocated from original Bench-card plan)
+- [ ] ~~5 separate Gear-tab cards~~ — SUPERSEDED: consolidated into one **Controls** tab
+- [ ] Observatory/dome settings sheet — **SKIPPED, permanently**: protocol has no settings surface for this at all
+- [ ] Observatory control (`dome_park`/`unpark`/`goto`/`stop`) — NOT STARTED, no `DOME_*` wire command exists; `CloseRoofButton` still honestly disabled
+
+### M4 — Media channel, live previews, Frames, real Guide/Focus/PA
+- [x] M4.1 Media channel core (`SET_BLOBS`, `MediaFrame.kt`, `MediaChannel.kt`, Coil)
+- [x] M4.2 Live preview rendering (Session/Controls/Align/PA)
+- [x] M4.3 Frames tab + Room persistence (`FrameDatabase.kt`, `FrameEntity`)
+- [x] M4.4 Guide/Focus/PA real wiring — fixture `GuideTraceChart`/V-curve deleted outright (not deferred)
+- [x] M4.6 Summary sheet + export wired to real Room frame data (KEPT/DISCARDED/MED HFR)
+- [ ] PA richer vector/correction-arrow overlay — NOT STARTED (folded into M5's scope instead, arguably superseded)
+- [ ] **M4.5 half A — Alerts real wiring** — NOT STARTED: no `NewNotification` EkosEvent case exists; `AlertsSheet` still reads the static `ALERTS` fixture
+- [ ] **M4.5 half B — Prefs real wiring** — NOT STARTED: zero `OPTION_GET`/`OPTION_SET` wire constants; `PrefsSheet` is local-only
+- [ ] Summary sheet's session-event log — blocked on the same missing `NewNotification` wiring above
+
+### M4.5 — Frame storage, Frames tab restructure, offline plate solver
+- [x] Part A — real on-device frame storage (`FrameFileWriter`, `Preview/<date>/`, `Plan/<target>/`)
+- [x] Part C — Frames tab Preview/Plan navigation, schema v2→v3, full detail overlay
+- [ ] **Part B — offline coarse plate solver** — NOT STARTED. Zero star-catalog asset, zero centroid/geometric-hash matching code anywhere in the repo.
+
+### M5 — Plan tab real framing workflow (6-step flow)
+Doc is planning-only; **nothing below has been implemented** as of this writing.
+- [x] Step 3 — goto + center (already real, pre-existing)
+- [ ] Step 1 — star chart with target centered — blocked on M4.5 Part B's catalog work
+- [ ] Step 2 — rotator angle set — UI-only, **no rotator wire command exists on this protocol at all**
+- [ ] Step 4 — show current vs. desired angle — real commands identified but unused (`align_manual_rotator_toggle`/`_status`), 0% wired
+- [ ] Step 5 — manual snapshot / auto CAA — same as step 4, 0% wired
+- [x] Step 6 decision — "Add to sequence" stays local-editor-first, no auto-push — deliberate, not a gap
+
+### Simulator removal (complete, `28225a2`)
+- [x] `SimulatedController.kt` deleted, all 36 `isRealRig` branches removed (0 hits confirmed live)
+- [x] Dome disabled-with-reason; rotator correctly left local-only (no fix needed, by design)
+- [x] Frames/Summary honest-placeholder step — since superseded by real M4.3/M4.6 data
+- [x] `FRAME_IDS`/`FRAME_HFRS` fixture — turned out to get deleted for free as an M4.3 side effect, not a deliberate pass
+- [ ] Remaining dead fixture catalogs still live and still load-bearing (not safe to delete): `TARGETS`, `DEFAULT_JOBS`, `ALERTS` — real call sites still depend on them, don't touch without a real replacement first
+- [ ] Phase 4 — ~50 stale doc-comments still naming deleted `SimulatedController` — cosmetic, still not done, still low priority
+
+### App-side feature backlog
+- [x] Real filter wheel slot names + block-picker wiring, live-verified (2 real bugs found+fixed along the way)
+- [ ] Autofocus-at-block-start (`forceAfOnStart`) — **SKIPPED, stub UI actively removed** rather than left dead, user's own call to defer past M4
+- [ ] Smaller-scope alternative (`inSequenceFocus` per-job) — still on the table, not started
+
+### Network discovery / connection / authentication — NEW, this pass
+See full detail below. Checklist:
+- [x] Current trust model fully documented (fork source read, not guessed)
+- [ ] Client-side RFC1918/private-range validation on connect — NOT STARTED
+- [ ] Scoped `network_security_config.xml` (replace app-wide `usesCleartextTraffic`) — NOT STARTED
+- [ ] mDNS/service-discovery for the Pi — NOT FEASIBLE without a further fork change (server never advertises itself; app-side lookup alone has nothing to find)
+- [ ] Token-pairing scheme on the EkosRemote channel itself — NOT FEASIBLE app-side alone; requires forking `nodemanager.cpp` again (same class of change that built the reboot-daemon's own token auth, just on a different channel)
+- [ ] Second-client-displaces-first behavior — surfaced, not yet decided whether it needs a UI warning
+
+---
+
+## Detail
+
+### M3
+`EkosRemoteController` sends 12 real wire methods, all following the optimistic-local-then-reconcile
+pattern (no request/response correlation exists on this wire at all — broadcast pushes only).
+`astro_search_objects` has no free-text field server-side (only `type`/`direction`/`maxMagnitude`/
+`minAlt`/`minDuration`/`minFOV`) — typed query filtering happens client-side against the returned
+name list. `type` is also single-valued server-side, so the "Narrowband" chip only approximates
+"any of Ha/SHO/OIII" to one `SkyObject::TYPE`. Real "Start sequence" bug chain found live-testing:
+`raBox`/`decBox` never populated (typing a name doesn't trigger server-side name resolution),
+`opticalTrainCombo` left unset, and `scheduler_start_job` was never sent at all — all three fixed.
+
+### M3.3
+Field-name probing mattered: an initial Guide-settings field-name guess was wrong and had to be
+corrected live against the actual wire shape before shipping (5→7 real fields). Controls tab layout
+went through two regroupings (Addendum 1, then 2) before settling on Primary Camera (+Autofocus+
+Plate Solving) / Mount / Guide / Polar Alignment.
+
+### M4
+`NewPolarState`/`NewMountState`/`NewCameraState` all needed defensive decode fixes — real payloads
+arrive in multiple independently-partial shapes (confirmed against KStars source each time, not
+guessed), and a too-strict required-field model silently degrades to `Raw` on the common case.
+Same bug class hit 3 separate times across sessions — worth remembering as a standing pattern for
+any *new* decoded event type: default every field, merge-non-null on arrival.
+
+### M4.5
+Part A: `Preview/<date>/Prev_NNNNN.jpg` (per-day, counter seeded from disk so a same-day relaunch
+doesn't overwrite), `Plan/<date>/<target>/<target>_<date>_<filter>_<exp>sec_<temp>C_<seq>.jpg`.
+Part B (plate solver) design, never started: star-centroid extraction + small bundled bright-star
+catalog + geometric-hash match; scale is free from the real header's `focal_length`/`pixel_size`/
+`bin`, only RA/Dec/rotation need solving for.
+
+### M5
+Biggest finding: real Ekos already ships a purpose-built rotator angle-readback + auto-adjust
+feature (`align_manual_rotator_toggle`/`_status`, server push `{currentPA, targetPA, threshold}`,
+plus `align_set_astrometry_settings`'s `rotator_control` bool) — currently **0% wired** in this app.
+Rotator-hardware presence is already answerable from existing data (`TrainAssignment.rotator`,
+`"None"` vs a real device name) with no new detection needed. Decided implementation order (not yet
+executed): star chart first, then steps 4+5, then repurpose/drop the step-2 knob, then revisit step
+3's fixed-`delay()` heuristic.
+
+### Simulator removal
+Full inventory (`SessionController` 179 methods vs `EkosRemoteController`'s 124 overrides) done
+before touching anything — found a few of the un-overridden 55 (`setRotatorAngle`/`setDomeOpen`)
+have **zero real wire command anywhere**, not just "not yet wired." Frames tab and Session Summary
+sheet were showing fixture data with **zero disclosure** — worse than the HFR/RMS/SNR gaps ever
+were — fixed with honest placeholders at the time, since organically replaced by real M4.3/M4.6 data.
+
+### App-side feature backlog
+Real filter-wheel fix uncovered two independent real bugs: multi-element `TextProp` truncation, and
+a keystroke-vs-live-echo race (fixed with a decoupled local text buffer). `forceAfOnStart` stub was
+removed rather than left as dead code, on the user's explicit call — matches this project's general
+norm of not leaving inert-looking UI around once a feature's real scope is understood.
+
+---
+
+## Network discovery, connection & authentication
+
+Prompted by: app is used on a closed local network today, but the user anticipates outside security
+review at some point and wants the real trust model documented honestly, not assumed.
+
+### Current state (confirmed by reading the fork's actual source, not the app's docs about it)
+
+- **Listening**: `NodeManager` binds `QHostAddress::Any` (`0.0.0.0`) on a hardcoded port **9000**
+  (`ekosremoteserver.h:33`). Not configurable — no kcfg option, no UI field for it anywhere in
+  `ekosremotedialog.ui`. The header comment states outright: *"trusted local network, no auth, no
+  enable/disable toggle."*
+- **Discovery**: **none**. KStars does have a real mDNS responder (`qMDNS.cpp`, UDP 5353), but its
+  only call site anywhere is client-side lookup during profile setup (finding a StellarMate box) —
+  `nodemanager.cpp`/`ekosremoteserver.cpp` never touch it. The server never announces itself on the
+  LAN in any way (no mDNS, no Bonjour, no UPnP, no broadcast).
+- **Auth: deliberately removed, not merely absent.** Confirmed via the fork's own migration commit
+  (`9664c0142`): stock upstream KStars EkosLive did a real HTTP handshake first — `POST
+  /api/authenticate {username,password}` → token — *before* opening the socket. This fork's
+  `NodeManager::onNewConnection` gate is a **URL-path string match only** (`/message/ekos` or
+  `/media/ekos`); no credential, cert, or IP-allowlist check exists anywhere in the accept path.
+  The commit message states the intent plainly: *"no relay and no auth."*
+- **Client model**: one `Node` slot per channel (Message, Media), not a per-client table. A second
+  client connecting to the same path **silently displaces** the first (`Node::adoptSocket` tears
+  down the previous socket) — no rejection, no warning to either party. Pure broadcast to whichever
+  socket is currently attached, gated only by a `m_ClientState` bool, never a client ID.
+- **App side**: manual host/port entry only (`ConnectionSettings`, DataStore-persisted). Connect
+  screen shows a static, non-dismissible trust-boundary warning — the *only* mitigation today.
+  `usesCleartextTraffic="true"` is set app-wide (`<application>` level), not scoped to private
+  ranges via `network_security_config.xml`. No client-side check that an entered host is actually
+  RFC1918. `ws://`, no TLS — matches the protocol, which has no TLS story at all.
+- **Existing precedent that a token scheme is workable**: the separate reboot-daemon side-channel
+  (`pi-tools/reboot-daemon/`, `ConnectionSettings.rebootPort`/`rebootToken`) already does real token
+  auth — proof this pattern works *on a channel Nocturne controls*. The main EkosRemote channel is
+  upstream-fork protocol, not something Nocturne can unilaterally add auth to from the app side.
+
+### Bottom line / threat model
+
+Perimeter is the *only* control. Anyone who can reach TCP 9000 on the host — same LAN, a
+misconfigured port-forward, a VPN with route leakage, another device on the same Wi-Fi — and knows
+the two fixed path strings (both public knowledge, they're in this repo's own docs) gets full
+read/write access to Ekos: slew the mount, run the Scheduler, change camera/focus/guide settings,
+pull image frames. There is no logging of who connected, no way to tell two clients apart, and a
+second connector silently takes over from the first. This is fine for "one phone, one Pi, one
+trusted home LAN" — the stated real use case — but would not survive any external security review
+as stated, and the phrase "no auth, trusted LAN" needs to be said exactly that plainly if anyone
+outside asks, not softened.
+
+### Hardening backlog, prioritized
+
+App-side changes Nocturne can make unilaterally (no fork changes needed):
+1. **Client-side RFC1918/private-range validation on connect** — refuse or strongly warn on a
+   non-private host, closing the gap README §8 already flagged but never enforced.
+2. **Scoped `network_security_config.xml`** — replace the app-wide `usesCleartextTraffic` with a
+   config scoped to private address ranges, so the app can't be tricked into cleartext to a public
+   host at all, by design rather than by user vigilance.
+3. **UI disclosure for the second-client-displacement behavior** — at minimum, something that tells
+   the user "another device just took over this connection" instead of silent takeover.
+
+Changes that require touching the KStars fork itself (out of Nocturne's own repo, bigger lift,
+needed only if real auth is ever actually required):
+4. **Real handshake/token auth on the EkosRemote channel** — same shape as the reboot-daemon's
+   existing token scheme, or restoring a stripped-down version of stock EkosLive's HTTP-auth-before-
+   socket pattern. This is the only way to close the "no credential check at all" gap — no amount of
+   app-side work reaches it, since the server accepts any correctly-pathed socket.
+5. **mDNS advertisement** — would need the fork to call `qMDNS`'s registration side (currently
+   unused for this purpose) to announce the service; today there is nothing to discover, so app-side
+   "mDNS support" would have nothing to find regardless of how it's built.
+6. **Per-client session tracking / connection allowlist** — would need `NodeManager` to hold more
+   than one `Node` per channel and make an explicit accept/reject decision instead of unconditional
+   displacement.
+
+None of 4-6 are started, and none can be started from this repo alone — they'd need a change to
+`/home/soo/cc/repo/kstars/kstars/ekos/ekosremote/` and a rebuilt/redeployed KStars on the Pi.
