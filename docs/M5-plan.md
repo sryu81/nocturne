@@ -93,76 +93,81 @@ to real Ekos is today a separate, explicit Sequence-tab action (`pushJob`,
 split is original, documented design (`docs/simulator-removal-plan.md:87-89`) — "not fake data,
 it's the local editor for something not yet sent to Ekos" — not a bug.
 
-## Open items needing a decision before implementation starts
+## Decisions (resolved 2026-08-24)
 
-1. **Does this rig have a physical rotator device at all?** Check the real INDI driver list /
-   `EkosRemote-Command-Reference.md` directly. This gates steps 2, 4, and 5's auto-CAA half:
-   - If **no rotator hardware**: step 2's knob should get an explicit "framing preview only, no
-     rotator on this rig" disclosure (matching the app's existing honesty convention — e.g. the
-     dome roof button's "no real dome command exists yet" label) instead of implying it's live.
-     Steps 4/5-auto become moot; only the manual "capture, look, decide" half of step 5 applies.
-   - If **rotator hardware exists**: need its real INDI property name (likely something like
-     `ABS_ROTATOR_ANGLE`) to wire a real `device_property_set`/read pair, following the existing
-     `setIndiNumber`/`indiNumber` pattern (`session/SessionController.kt:115`,
-     `session/AppState.kt`).
-2. **Does real `align_solve` actually return usable orientation data**, or only the bare status
-   string this app currently parses? Needs checking against the real wire payload
-   (`new_align_state`), not assumed — same discipline as every other "confirm against the actual
-   payload" item elsewhere in this repo's docs. This gates step 4 entirely, and gates whether
-   step 5's auto-CAA loop can compute a real angle delta at all.
-3. **Star chart source (step 1)**: bundled star catalog + RA/Dec→screen projection (could reuse
-   the star-catalog/geometric-hash groundwork already scoped for the M4.5 Part B offline plate
-   solver, `docs/M4.5-plan.md:133-172`) vs. an online DSS/HiPS tile fetch (no networking path for
-   this exists in the app today, would be new). Recommend the offline/bundled-catalog route —
-   consistent with this app's existing no-internet-dependency norm, and shares work with M4.5 Part
-   B if that lands first.
-4. **Step 6**: should Plan's "Add to sequence" also auto-push (`pushJob`) once framing is
-   confirmed, or intentionally stay local-editor-first as today? Recommend leaving as-is unless
-   the user asks otherwise — auto-push would remove the deliberate local-review step the rest of
-   the app relies on before anything reaches the real Scheduler.
+1. **Rotator hardware presence — app already knows this, no new detection needed.**
+   `TrainAssignment.rotator` (`session/AppState.kt:580`) is a real field, already populated from
+   the real `train_get_all` response (`WireTrain.toTrainAssignment`,
+   `EkosRemoteController.kt:1927-1939`): `"None"` when no rotator role is assigned in the active
+   Optical Train, a real device name (e.g. "Optec Pyxis") otherwise. `primaryTrain.rotator !=
+   "None"` is the exact real check step 2/4/5 need — no INDI property probing required, this data
+   is already flowing.
+2. **Real `align_solve` orientation data — found, and it's better than what was scoped.** Real
+   Ekos already ships a **purpose-built feature for exactly steps 4 and 5**, currently 100%
+   unwired in this app (confirmed by grep — zero references):
+   - `align_manual_rotator_toggle` (`ALIGN_MANUAL_ROTATOR_TOGGLE`, `message.cpp:924`) — request
+     `{"toggled": bool}`, starts/stops Ekos's own real repeated capture→solve→report loop.
+   - `align_manual_rotator_status` (`ALIGN_MANUAL_ROTATOR_STATUS`, `message.cpp:2731`) — **server
+     push only**, real payload `{"currentPA": double, "targetPA": double, "threshold": double}`.
+     This is step 4, verbatim — no decoding of `new_align_state`/`solution` needed at all.
+   - `align_set_astrometry_settings`'s `rotator_control` bool field (`message.cpp:890`) is the
+     real switch for step 5's auto-CAA half: when true, real Ekos drives the actual rotator
+     hardware itself during this loop instead of just reporting the delta for a human to adjust
+     by hand. `kcfg_AstrometryRotatorThreshold`/`kcfg_AstrometryFlipRotationAllowed` (already in
+     `align_get/set_all_settings`'s live-verified field list) are this feature's own tuning knobs.
+   - This reframes step 5 from "build a custom solve→delta→rotate loop" to "wire three already-
+     real commands/pushes Ekos already runs the loop for" — the biggest scope-down in this plan.
+3. **Star chart source: offline/bundled catalog**, reusing the star-catalog/geometric-hash
+   groundwork scoped for M4.5 Part B (`docs/M4.5-plan.md:133-172`) rather than a new online
+   DSS/HiPS fetch path. Consistent with the app's existing no-internet-dependency norm.
+4. **Step 6, "Add to sequence" button — leave as-is.** No auto-push change. The original 6-step
+   description was the user's own account of their real-world workflow, not a request to change
+   this button's behavior.
 
 ## Proposed implementation order
 
-Ordered so each step's real prerequisite lands before the step that needs it, and so the
-highest-uncertainty open item (rotator hardware) is resolved before work that depends on it:
+Per your call, star chart goes first:
 
-1. **Resolve open items 1 and 2** (rotator hardware check, real `align_solve` payload check) —
-   pure investigation, no code, but blocks correctly scoping everything after this.
-2. **Step 5, manual half only**: wire a "snapshot"/"solve" action directly into `FramingCard`,
-   reusing `plateSolveHere`/`ALIGN_SOLVE` and `MediaFramePreview`/`latestAlignFrame` (all already
-   real elsewhere) — gets a captured/solved frame displaying under the framing rectangle. No new
-   protocol work; pure reuse/wiring.
-3. **Step 2, honesty fix**: if item 1 comes back "no rotator hardware," add the disclosure label
-   immediately — cheap, removes a live misleading-UI gap regardless of what else gets built. If
-   real hardware exists, implement the real wire command instead.
-4. **Step 4**: once item 2's answer is known, decode real orientation/PA from `align_solve` (or
-   from a real rotator-angle INDI read, depending on item 1's answer) and add the desired-vs-actual
-   diff readout to `FramingCard`.
-5. **Step 5, auto-CAA half**: only if items 1 and 2 both resolve favorably (real rotator + real
-   angle data available) — a solve→compute-delta→rotate→re-solve loop modeled on `PaRealSheet`'s
-   real polar-align loop pattern (`ui/session/Sheets.kt:1868`).
-6. **Step 1, star chart**: independent of the above — can be built any time once item 3's catalog
-   source is chosen. Lowest technical risk of the missing pieces (pure rendering + a static
-   catalog, no new real-time wire dependency), but the most net-new UI work.
-7. **Step 3's fragility**: revisit the fixed-delay heuristic in `gotoAndCenter` once step 4's real
-   solve-completion signal exists — replace the blind `delay()`s with an actual decoded
-   status transition if the payload supports it.
+1. **Step 1, star chart.** Bundled bright-star catalog + RA/Dec→screen projection, target
+   centered. Independent of everything else below — no wire dependency beyond data already on
+   the wire (`astro_get_object_info` for the target's own RA/Dec). Shares catalog work with M4.5
+   Part B if that lands around the same time.
+2. **Steps 4 + 5 together** — they're now the same real feature, wire it once:
+   - New `Commands.ALIGN_MANUAL_ROTATOR_TOGGLE`.
+   - New `EkosEvent.ManualRotatorStatus(currentPA, targetPA, threshold)` + codec case for the
+     `align_manual_rotator_status` push.
+   - `FramingCard` gets a real currentPA/targetPA/threshold readout + start/stop toggle, replacing
+     the fixture-only `rotatorAngle` knob's role as "desired frame" indicator.
+   - Gate the auto-drive option (`rotator_control` in astrometry settings) on
+     `primaryTrain.rotator != "None"` from decision 1 — show it only when real rotator hardware is
+     actually assigned; otherwise the loop still runs and reports currentPA/targetPA (useful even
+     with no motorized rotator — that's the literal "manual adjustment, watch the numbers"
+     half), just without the auto-drive toggle exposed.
+3. **Step 2's old knob**: once step 4/5's real currentPA/targetPA readout exists,
+   `RotatorRow`'s fixture-only `setRotatorAngle` either gets repurposed to set the real
+   `targetPA` (if that's settable pre-toggle — check `align_manual_rotator_toggle`'s request
+   shape again once implementing; the reference above shows only `toggled`, so target PA may need
+   to come from `pAHRotation`/a different settings field, confirm before assuming) or gets
+   dropped in favor of the new readout. Don't keep both a fake local angle and a real one on
+   screen at once.
+4. **Step 3's fragility** (`gotoAndCenter`'s fixed-delay heuristics): revisit once step 4/5's real
+   push-driven status exists — same underlying pattern (a real async server operation with no
+   decoded completion signal) may now have a template to copy from.
 
 ## Verification
 
 Real rig, live, for each step as it lands:
-- Step 5 manual: confirm a real captured/solved frame renders under `FramingCard` for an actual
-  target, matching what Controls-tab "Plate solve here" already shows.
-- Step 2/4: if real rotator hardware exists, confirm a physical rotation shows up in the app's
-  angle readback within one poll cycle; confirm the desired-vs-actual diff updates correctly after
-  a manual physical adjustment. If no hardware, confirm the new disclosure label renders and no UI
-  claims live control.
 - Step 1: confirm the rendered star field's orientation/scale roughly matches the real target's
   known field, for at least 2-3 different real targets at different declinations (a naive
   projection can look right at one declination and be visibly wrong at another).
-- Step 5 auto (if built): confirm the loop actually converges to within the coarse-accuracy
-  expectation already set for M4.5 Part B, and confirmed via `PaRealSheet`'s precedent — no
-  fabricated "aligned" success state without a real converged solve.
+- Step 4/5: toggle `align_manual_rotator_toggle` on a real target, confirm `currentPA`/`targetPA`/
+  `threshold` land and update on the real `align_manual_rotator_status` push. If real rotator
+  hardware is assigned in the active train (`primaryTrain.rotator != "None"`), confirm the
+  auto-drive (`rotator_control`) path actually rotates the physical device and the reported
+  `currentPA` converges toward `targetPA` on its own; without hardware, confirm the readout still
+  updates as the frame is manually/physically rotated by hand between solves.
+- Step 2: confirm no leftover fixture-only angle control coexists with the new real readout once
+  it lands (decision 3 above — one or the other, not both).
 
 ## README updates
 
