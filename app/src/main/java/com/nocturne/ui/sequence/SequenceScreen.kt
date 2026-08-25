@@ -45,12 +45,11 @@ import com.nocturne.session.AppState
 import com.nocturne.session.contractJob
 import com.nocturne.session.displayName
 import com.nocturne.session.findTarget
-import com.nocturne.session.formatSiteTime
 import com.nocturne.session.meta
 import com.nocturne.session.missing
 import com.nocturne.session.pct
+import com.nocturne.session.plannedHM
 import com.nocturne.session.realFilterNames
-import com.nocturne.session.realNightWindow
 import com.nocturne.session.spec
 import com.nocturne.session.ready
 import com.nocturne.session.targetNameFor
@@ -236,24 +235,7 @@ private fun JobDetailScreen(
             TabItem(full = true) { BlocksList(state, ctrl, job) },
             TabItem(full = true) {
                 if (job.synced) {
-                    val c = NocturneTheme.colors
-                    // Same always-visible warning-banner style as ConnectScreen's "No
-                    // authentication" notice (2026-08-23, user feedback: the old plain gray
-                    // caption text here was too easy to miss).
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(c.warn.copy(alpha = 0.1f), RoundedCornerShape(10.dp))
-                            .border(1.dp, c.warn.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
-                            .padding(12.dp),
-                    ) {
-                        Phosphor.Icon(Phosphor.Warning, size = 16.dp, tint = c.warn)
-                        Spacer(Modifier.width(10.dp))
-                        TextC(
-                            "Synced to Ekos Scheduler — remove it from Ekos to edit blocks again.",
-                            style = NocturneTheme.type.Caption, color = c.warn,
-                        )
-                    }
+                    SyncedToEkosBanner()
                 } else {
                     Box(
                         Modifier
@@ -317,21 +299,48 @@ private fun JobDetailHeader(state: AppState, job: SequenceJob, onBack: () -> Uni
 }
 
 /**
- * Real dusk/dawn (`state.realNightWindow`, same source as `NightArcCard`'s Session-tab fix,
- * M2026-08) replaces the "21:48 → 04:12" literal once it's arrived.
+ * Same always-visible warning-banner style as ConnectScreen's "No authentication" notice
+ * (2026-08-23, user feedback: the old plain gray caption text here was too easy to miss).
+ * Factored out (2026-08-25) so [NightPlanBar] can show the same reminder at the top of the
+ * Sequence tab, not just once a job's own detail screen is opened — a job stays locked the
+ * moment it's pushed, so the warning shouldn't need drilling in to see.
+ */
+@Composable
+private fun SyncedToEkosBanner() {
+    val c = NocturneTheme.colors
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(c.warn.copy(alpha = 0.1f), RoundedCornerShape(10.dp))
+            .border(1.dp, c.warn.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+            .padding(12.dp),
+    ) {
+        Phosphor.Icon(Phosphor.Warning, size = 16.dp, tint = c.warn)
+        Spacer(Modifier.width(10.dp))
+        TextC(
+            "Synced to Ekos Scheduler — remove it from Ekos to edit blocks again.",
+            style = NocturneTheme.type.Caption, color = c.warn,
+        )
+    }
+}
+
+/**
+ * Header shows the real contract-job target name + total real session length (`plannedHM`,
+ * 2026-08-25 — replaced the dusk→dawn night window, which said nothing about how long the actual
+ * plan runs) and, once any job is pushed, [SyncedToEkosBanner].
  *
  * **Segments/labels wired to real per-block data (2026-08-23, user report)** — the bar used to
  * show a fixed fixture split (`cal`/`Ha`/`flip`/`OIII`/`SII`) regardless of what was actually
  * queued (confirmed live: a real 1-block, 30s×1, `L`-filter job still showed the old `Ha`/`OIII`/
  * `SII` labels, no relation to it at all). Now [state.contractJob]'s own blocks drive both the
  * segment widths (proportional to each block's real `subCount × exposureSec`) and labels (each
- * block's real, possibly-real-wheel-sourced filter name — see `AppState.realFilterNames`).
- * `cal` stays a small fixed fixture bookend, and `flip` is dropped entirely rather than guessed
- * a placement — neither has real per-block data to derive from (no calibration-block concept,
- * and flip timing depends on real mount position, not block data); both explicitly deferred to a
- * later pass, per the user's own call, rather than solved or faked here. Falls back to the full
- * original fixture bar if there's no contract job or its blocks carry no real planned time yet
- * (e.g. exposureSec/subCount still zero).
+ * block's real, possibly-real-wheel-sourced filter name — see `AppState.realFilterNames` — plus
+ * its real shot count, added 2026-08-25). `cal` stays a small fixed fixture bookend, and `flip`
+ * is dropped entirely rather than guessed a placement — neither has real per-block data to derive
+ * from (no calibration-block concept, and flip timing depends on real mount position, not block
+ * data); both explicitly deferred to a later pass, per the user's own call, rather than solved or
+ * faked here. Falls back to the full original fixture bar if there's no contract job or its
+ * blocks carry no real planned time yet (e.g. exposureSec/subCount still zero).
  *
  * **Real bug found live (2026-08-22, user report)**: with zero jobs queued (the "No targets
  * queued" card right below this one), the fixture bar+filter-labels rendered anyway —
@@ -344,10 +353,13 @@ private fun JobDetailHeader(state: AppState, job: SequenceJob, onBack: () -> Uni
 private fun NightPlanBar(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
-    val window = state.realNightWindow
+    val contractJob = state.contractJob
+    val contractTarget = contractJob?.let { state.findTarget(it.targetId)?.displayName ?: it.targetId }
     val showFixturePlan = state.jobs.isNotEmpty()
-    val realBlocks = state.contractJob?.blocks
-        ?.map { it.filter to (it.subCount.toLong() * it.exposureSec.toLong()) }
+    // subCount carried alongside for the segment labels below (2026-08-25, user request: show
+    // shot count, not just filter name, per segment).
+    val realBlocks = contractJob?.blocks
+        ?.map { Triple(it.filter, it.subCount.toLong() * it.exposureSec.toLong(), it.subCount) }
         ?.filter { it.second > 0 }
         ?: emptyList()
     val totalPlannedSec = realBlocks.sumOf { it.second }
@@ -359,12 +371,26 @@ private fun NightPlanBar(state: AppState, ctrl: SessionController) {
             // Sequence tab's own title, not a mere section divider like a sheet's internal
             // "STARTUP CONDITION"-style labels, so it should read with more weight than those.
             TextC("NIGHT PLAN", style = t.Body135, color = c.text, modifier = Modifier.weight(1f))
+            // Changed 2026-08-25 (user request, live scheduler testing): total real session
+            // length (sum of exposureSec × subCount across the contract job's own blocks — same
+            // `plannedHM` the Session tab's "OF 3:20 INTEGRATED" already uses) instead of the
+            // dusk→dawn night window, which told you nothing about how long the actual plan runs.
             TextC(
-                if (window != null) "${state.formatSiteTime(window.first)} → ${state.formatSiteTime(window.second)}" else "21:48 → 04:12",
+                contractJob?.let { "${it.plannedHM} planned" } ?: "—",
                 style = t.Mono13, color = c.textMuted,
             )
         }
+        if (contractTarget != null) {
+            Spacer(Modifier.height(2.dp))
+            TextC(contractTarget, style = t.Mono13, color = c.textFaint)
+        }
         Spacer(Modifier.height(9.dp))
+        // Reminder surfaced here too (2026-08-25, user request), not just once a synced job's own
+        // detail screen is opened — the lock takes effect the moment any job is pushed.
+        if (state.jobs.any { it.synced }) {
+            SyncedToEkosBanner()
+            Spacer(Modifier.height(9.dp))
+        }
         // Own full-width button, not an inline icon+label next to the title (2026-08-23, user
         // feedback: still not visible enough even labeled) — same treatment as
         // SchedulerToggleButton right below it, so both real Scheduler entry points read with
@@ -410,8 +436,13 @@ private fun NightPlanBar(state: AppState, ctrl: SessionController) {
             Row(Modifier.fillMaxWidth()) {
                 if (totalPlannedSec > 0) {
                     TextC("cal", style = t.Mono13, color = c.textFaint, modifier = Modifier.weight(1f))
-                    realBlocks.forEach { (filter, _) ->
-                        TextC(filter, style = t.Mono13, color = c.text, modifier = Modifier.weight(1f))
+                    // Shot count added alongside the filter name (2026-08-25, user request) — target
+                    // name isn't repeated per segment since every block here belongs to the same
+                    // contract job (shown once, above the bar); this stays correct if the bar ever
+                    // grows to span multiple queued jobs, since each segment's own filter+count is
+                    // already per-block, not assumed uniform.
+                    realBlocks.forEach { (filter, _, subCount) ->
+                        TextC("$filter ×$subCount", style = t.Mono13, color = c.text, modifier = Modifier.weight(1f))
                     }
                 } else {
                     TextC("cal", style = t.Mono13, color = c.textFaint, modifier = Modifier.weight(1f))
