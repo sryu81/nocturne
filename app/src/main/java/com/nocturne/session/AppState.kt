@@ -1196,9 +1196,9 @@ fun AppState.activeFrameSource(): FrameSource {
     )
 }
 
-/** Median of the real per-frame HFR list (M4.3, Room-backed) — null if no frame has an HFR yet. */
+/** Median HFR across real *kept* frames only (M4.3, Room-backed) — null if no kept frame has an HFR yet. */
 val AppState.medHfr: Double? get() {
-    val sorted = frameRows.mapNotNull { it.hfr }.sorted()
+    val sorted = frameRows.filter { it.keep }.mapNotNull { it.hfr }.sorted()
     return if (sorted.isEmpty()) null else sorted[sorted.size / 2]
 }
 

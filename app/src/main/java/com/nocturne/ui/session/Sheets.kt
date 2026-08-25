@@ -73,6 +73,9 @@ import com.nocturne.session.realSlewRateProp
 import com.nocturne.session.focusNextAfMin
 import com.nocturne.session.train
 import com.nocturne.session.trainRolePool
+import com.nocturne.session.keepCount
+import com.nocturne.session.rejectCount
+import com.nocturne.session.medHfr
 import com.nocturne.ui.components.HDivider
 import com.nocturne.ui.components.HatchBg
 import com.nocturne.ui.components.IconBtn
@@ -2248,15 +2251,14 @@ private fun SummarySheet(state: AppState, ctrl: SessionController) {
     val job = state.endedJob
     val barColors = listOf(Color(0xFF9184D9), Color(0xFF796CBF), Color(0xFF5D5294), c.accentMuted, c.accent800)
     Column {
-        // KEPT/DISCARDED/MED HFR all derive from per-frame data (AppState.frames) that doesn't
-        // exist for real yet — blocked on the Media channel (M4), same gap as the Frames tab
-        // (see docs/simulator-removal-plan.md) — honest placeholder instead of fixture numbers.
+        // Real, Room-backed (M4.3 for the frame table, M4.6 for actually reading it here —
+        // state.keepCount/rejectCount/medHfr existed since M4.3 but nothing consumed them until now).
         Row(Modifier.fillMaxWidth()) {
-            SumStat("KEPT", "—", Modifier.weight(1f), sub = "M4")
+            SumStat("KEPT", state.keepCount.toString(), Modifier.weight(1f))
             Spacer(Modifier.width(8.4.dp))
-            SumStat("DISCARDED", "—", Modifier.weight(1f), sub = "M4")
+            SumStat("DISCARDED", state.rejectCount.toString(), Modifier.weight(1f))
             Spacer(Modifier.width(8.4.dp))
-            SumStat("MED HFR", "—", Modifier.weight(1f), sub = "M4")
+            SumStat("MED HFR", state.medHfr?.let { "%.2f".format(it) } ?: "—", Modifier.weight(1f))
         }
         Spacer(Modifier.height(11.2.dp))
         Column(
@@ -2277,10 +2279,13 @@ private fun SummarySheet(state: AppState, ctrl: SessionController) {
         }
         Spacer(Modifier.height(11.2.dp))
         // Was a hardcoded fictional narrative ("Lost 20m — cloud 01:04–01:18...") shown
-        // unconditionally regardless of what actually happened — no real session-log/weather
-        // event mechanism exists anywhere in this app to derive a real version of this from.
+        // unconditionally regardless of what actually happened. KEPT/DISCARDED/MED HFR above are
+        // real now (M4.6); this one specifically still isn't — it needs a real notification
+        // stream (`new_notification`, confirmed real shape in docs/M4-plan.md's own M4.5 section)
+        // that this app has never wired at all (no `NewNotification` EkosEvent case, no
+        // `OPTION_GET`/`OPTION_SET` in Commands.kt). Honest placeholder until that lands.
         TextC(
-            "No session-event log yet — not wired to anything real.",
+            "No session-event log yet — needs real notification wiring (M4.5).",
             style = t.MonoSmall, color = c.neutral500,
         )
         Spacer(Modifier.height(11.2.dp))

@@ -30,12 +30,16 @@ fun buildSessionReportHtml(state: AppState): String {
     } ?: "<tr><td colspan=\"3\">No job active at export time.</td></tr>"
 
     // Real once a frame has actually landed (M4.3, Room-backed) — HFR can be null if the real
-    // header didn't carry one for that frame.
-    val frameRows = state.frameRows.joinToString("\n") { f ->
+    // header didn't carry one for that frame. Filename is the real on-disk name (M4.5 Part A);
+    // target/filter are real too, null for a Preview/test capture (M4.5 Part C).
+    val frameRows = state.frameRows.sortedBy { it.timestampMs }.joinToString("\n") { f ->
         val status = if (f.keep) "kept" else "cut"
-        "<tr class=\"${if (!f.keep) "cut" else ""}\"><td>frame_${f.id}.jpg</td><td>${f.hfr?.let { "%.2f".format(it) } ?: "—"}</td><td>$status</td></tr>"
+        val filename = File(f.filePath).name
+        "<tr class=\"${if (!f.keep) "cut" else ""}\"><td>$filename</td><td>${f.target ?: "—"}</td>" +
+            "<td>${f.filter ?: "—"}</td><td>${f.hfr?.let { "%.2f".format(it) } ?: "—"}</td><td>$status</td></tr>"
     }
 
+    // Still fixture — blocked on real notification wiring (M4.5, see SummarySheet's own note).
     val alertRows = ALERTS.joinToString("\n") { a ->
         "<tr><td>${a.time}</td><td>${a.text}</td></tr>"
     }
@@ -68,7 +72,7 @@ fun buildSessionReportHtml(state: AppState): String {
             <table><tr><th>Filter</th><th>Exposure</th><th>Progress</th></tr>$blockRows</table>
 
             <h2>Frames — ${state.keepCount} kept, ${state.rejectCount} cut</h2>
-            <table><tr><th>File</th><th>HFR</th><th>Status</th></tr>$frameRows</table>
+            <table><tr><th>File</th><th>Target</th><th>Filter</th><th>HFR</th><th>Status</th></tr>$frameRows</table>
 
             <h2>Session log</h2>
             <table><tr><th>Time</th><th>Event</th></tr>$alertRows</table>
@@ -79,16 +83,47 @@ fun buildSessionReportHtml(state: AppState): String {
     """.trimIndent()
 }
 
-/** Writes the report to cache and opens it in the user's browser via FileProvider. */
+/**
+ * The milestone's own exit criteria names "export produces log + FITS list" — this app never
+ * receives raw FITS bytes over the wire (only JPEG previews via the Media channel), so this is a
+ * plain CSV manifest of the real per-frame metadata already sitting in Room (M4.3/M4.5), not
+ * actual FITS files. One row per real captured frame; empty (header-only) if none exist yet.
+ */
+fun buildFrameListCsv(state: AppState): String {
+    fun esc(s: String) = if (s.any { it == ',' || it == '"' || it == '\n' }) "\"${s.replace("\"", "\"\"")}\"" else s
+    val header = "filename,target,filter,exposure,gain,bin,resolution,hfr,mean,median,stddev,status"
+    val rows = state.frameRows.sortedBy { it.timestampMs }.map { f ->
+        listOf(
+            File(f.filePath).name,
+            f.target ?: "",
+            f.filter ?: "",
+            f.exposure ?: "",
+            f.gain ?: "",
+            f.bin ?: "",
+            f.resolution ?: "",
+            f.hfr?.let { "%.2f".format(it) } ?: "",
+            f.mean?.let { "%.1f".format(it) } ?: "",
+            f.median?.let { "%.1f".format(it) } ?: "",
+            f.stddev?.let { "%.2f".format(it) } ?: "",
+            if (f.keep) "kept" else "cut",
+        ).joinToString(",") { esc(it) }
+    }
+    return (listOf(header) + rows).joinToString("\n") + "\n"
+}
+
+/** Writes both the HTML report and the real FITS-list CSV to cache, offers them together via FileProvider. */
 fun exportSessionReport(context: Context, state: AppState) {
     val dir = File(context.cacheDir, "reports").apply { mkdirs() }
-    val file = File(dir, "session_report.html")
-    file.writeText(buildSessionReportHtml(state))
+    val htmlFile = File(dir, "session_report.html").apply { writeText(buildSessionReportHtml(state)) }
+    val csvFile = File(dir, "frame_list.csv").apply { writeText(buildFrameListCsv(state)) }
 
-    val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-    val intent = Intent(Intent.ACTION_VIEW).apply {
-        setDataAndType(uri, "text/html")
+    val authority = "${context.packageName}.fileprovider"
+    val htmlUri = FileProvider.getUriForFile(context, authority, htmlFile)
+    val csvUri = FileProvider.getUriForFile(context, authority, csvFile)
+    val intent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+        type = "*/*"
+        putParcelableArrayListExtra(Intent.EXTRA_STREAM, arrayListOf(htmlUri, csvUri))
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
-    context.startActivity(Intent.createChooser(intent, "Open session report"))
+    context.startActivity(Intent.createChooser(intent, "Export session report"))
 }
