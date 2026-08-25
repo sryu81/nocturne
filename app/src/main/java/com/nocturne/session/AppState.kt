@@ -1121,6 +1121,14 @@ fun AppState.targetNameFor(job: SequenceJob): String {
 }
 
 /**
+ * Filesystem-safe token from a real name — spaces/punctuation a filesystem path shouldn't carry
+ * replaced with `_`. Same convention as [com.nocturne.data.FrameFileWriter]'s own private
+ * `sanitize`, shared here since [pushRealJob]-style callers need an identical transform on
+ * [targetNameFor]'s output before it can be used as an actual `.esq` filename.
+ */
+fun sanitizeFileToken(s: String): String = s.replace(Regex("[^A-Za-z0-9_-]"), "_")
+
+/**
  * This job's real counterpart on the wire, if any — `null` for an unsynced job by construction
  * (never name-match a job that hasn't been confirmed pushed; this is exactly where the
  * duplicate-name bug bit before this field was added). This is the one place "is this job really

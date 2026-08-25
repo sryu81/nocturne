@@ -1762,7 +1762,13 @@ class EkosRemoteController(
         val job = s.jobs.firstOrNull { it.id == jobId } ?: return
         val target = s.findTarget(job.targetId)
         val targetName = s.targetNameFor(job)
-        val path = "nocturne_$jobId.esq"
+        // Real target name (e.g. "M33_j3.esq"), not a generic "nocturne_j3.esq" that told you
+        // nothing about which job this file was (found live, 2026-08-25). Sanitized the same way
+        // FrameFileWriter already sanitizes real target/filter names for its own on-disk paths —
+        // targetNameFor's raw output is the real Scheduler job *name* (sent as-is to `nameEdit`,
+        // Ekos does its own KSUtils::sanitize() on that separately) and can carry spaces/
+        // punctuation this app's own filename needs stripped before Ekos ever sees it.
+        val path = "${sanitizeFileToken(targetName)}.esq"
         client.sendCommand(Commands.SCHEDULER_SAVE_SEQUENCE_FILE, buildJsonObject {
             put(
                 "filedata",

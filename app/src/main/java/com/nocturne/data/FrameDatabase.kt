@@ -10,6 +10,7 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import com.nocturne.protocol.MediaFrame
+import com.nocturne.session.sanitizeFileToken
 import kotlinx.coroutines.flow.Flow
 import java.io.File
 import java.text.SimpleDateFormat
@@ -101,8 +102,8 @@ class FrameFileWriter(private val baseDir: File) {
         return File(baseDir, "Plan/$date/$target/${target}_${date}_${filter}_${exposure}_${temp}_$seq.jpg")
     }
 
-    /** Real target/filter names can carry spaces/punctuation a filesystem path shouldn't. */
-    private fun sanitize(s: String): String = s.replace(Regex("[^A-Za-z0-9_-]"), "_")
+    /** Real target/filter names can carry spaces/punctuation a filesystem path shouldn't — shared with [pushRealJob]'s `.esq` filename. */
+    private fun sanitize(s: String): String = sanitizeFileToken(s)
 }
 
 /**
