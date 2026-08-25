@@ -793,13 +793,28 @@ private fun PushOrRemoveRow(state: AppState, ctrl: SessionController, job: Seque
     val targetName = state.targetNameFor(job)
     if (!job.synced) {
         val refused = state.jobPushRefused == targetName
+        // Predicts [SessionController.pushJob]'s own client-side refusal check (same condition,
+        // duplicated here rather than threaded back as a return value) so a tap that's actually
+        // going to be refused stays on this screen and shows the warning below, instead of
+        // navigating back and hiding it.
+        val wouldRefuse = state.wireSchedulerJobs.orEmpty().any { it.name == targetName }
         Column {
             Box(
                 Modifier
                     .fillMaxWidth()
                     .height(48.dp)
                     .border(1.dp, c.accent, RoundedCornerShape(10.dp))
-                    .clickable { ctrl.pushJob(job.id) },
+                    // Back to the Sequence tab's list (2026-08-25, user request, live testing) —
+                    // `synced` only flips true once a later `scheduler_get_jobs` confirms the add
+                    // (see pushJob's own doc), so staying on this screen would otherwise just sit
+                    // showing the same "Push to Ekos" button with no feedback until that arrives.
+                    // Navigating back optimistically matches the list's own JobCard, which already
+                    // reflects "pushed — awaiting Ekos" / real status via `wireJobFor` regardless
+                    // of which screen you're on.
+                    .clickable {
+                        ctrl.pushJob(job.id)
+                        if (!wouldRefuse) ctrl.closeJob()
+                    },
                 contentAlignment = Alignment.Center,
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
