@@ -578,6 +578,22 @@ class EkosRemoteController(
      */
     private fun sendFollowUpCommands(event: EkosEvent) {
         when (event) {
+            // `rotator_control` (align_set_astrometry_settings) has no GET at all on this wire —
+            // confirmed live: it's backed by a QGroupBox (opsalign.ui), a widget type the
+            // align_get_all_settings/align_set_all_settings reflection doesn't cover (only
+            // QComboBox/QDoubleSpinBox/QSpinBox/QCheckBox/QRadioButton), unlike every other
+            // WireAlignSettings field. AppState.rotatorAutoControl is therefore a pure local guess
+            // that can never be grounded against the real value by reading it. Re-sending our own
+            // current value every time the connection comes online at least guarantees the real
+            // rig matches what this app displays *from that point forward* — same accepted
+            // fire-and-forget/no-reconcile risk as every other write-only setting in this app for
+            // anything that changes the real value from outside Nocturne mid-session, not a new,
+            // permanent, never-grounded-at-all gap like before this fix.
+            is EkosEvent.NewConnectionState -> if (event.online) {
+                client.sendCommand(Commands.ALIGN_SET_ASTROMETRY_SETTINGS, buildJsonObject {
+                    put("rotator_control", _state.value.rotatorAutoControl)
+                })
+            }
             is EkosEvent.Devices -> event.devices.forEach { device ->
                 if (device.connected) {
                     client.sendCommand(Commands.DEVICE_GET, buildJsonObject { put("device", device.name) })
@@ -1314,6 +1330,18 @@ class EkosRemoteController(
     override fun setAlignAccuracyThreshold(arcsec: Double) {
         sendAlignSetting("alignAccuracyThreshold", JsonPrimitive(arcsec))
         super.setAlignAccuracyThreshold(arcsec)
+    }
+    /**
+     * `kcfg_AstrometryRotatorThreshold`, arcminutes — real GET+SET via the normal
+     * `align_get_all_settings`/`align_set_all_settings` reflection (confirmed live-verified field
+     * list, EkosRemote-Command-Reference.md), same shape as [setAlignAccuracyThreshold] above.
+     * Added because the live rig was found sitting at `0` (SSH-checked `~/.config/kstarsrc`,
+     * 2026-08-29) — at `0`, [AppState.wireRotatorThreshold]'s "within threshold" check
+     * (`diff <= threshold`) can practically never be true, so the readback showed a Δ forever.
+     */
+    override fun setAlignRotatorThreshold(arcmin: Double) {
+        sendAlignSetting("kcfg_AstrometryRotatorThreshold", JsonPrimitive(arcmin))
+        super.setAlignRotatorThreshold(arcmin)
     }
 
     /**

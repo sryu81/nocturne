@@ -188,6 +188,10 @@ interface SessionController {
     fun setAlignFilter(filter: String)
     fun setAlignBinning(binning: String)
     fun setAlignAccuracyThreshold(arcsec: Double)
+    /** `kcfg_AstrometryRotatorThreshold` (M5, docs/STATUS.md), arcminutes — see
+     * [com.nocturne.protocol.WireAlignSettings.kcfg_AstrometryRotatorThreshold]'s own doc for why
+     * this is a normal reflection field (real read+write) unlike `rotator_control`. */
+    fun setAlignRotatorThreshold(arcmin: Double)
 
     // ── M5: rotator angle-readback + auto-drive (docs/STATUS.md M5 steps 4/5) ──
     /** `align_set_astrometry_settings`'s `rotator_control` bool — master gate for the whole

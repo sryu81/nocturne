@@ -976,4 +976,17 @@ data class WireAlignSettings(
     val nothingR: Boolean = true,
     val slewR: Boolean = false,
     val syncR: Boolean = false,
+    /**
+     * M5 (docs/STATUS.md) — real `kcfg_AstrometryRotatorThreshold`, arcminutes (confirmed against
+     * `kstars.kcfg`: `<default>30</default>`, "Threshold between measured and FITS position
+     * angles in arcminutes to consider the load and slew operation successful"). Unlike
+     * `rotator_control` (a `QGroupBox` in `opsalign.ui`, not covered by the reflection this
+     * command's GET/SET share), this one's a normal `QDoubleSpinBox` — same reflection path as
+     * every other field here, real read *and* write, no special-cased command needed. Distinct
+     * unit from [com.nocturne.session.AppState.wireRotatorThreshold] (that one's pushed already
+     * converted to **degrees** — confirmed `align_goto.cpp`: `Options::astrometryRotatorThreshold()
+     * / 60.0` — for direct diff-vs-currentPA/targetPA comparison; this field stays raw arcminutes,
+     * matching the settings-sheet control the user edits it through).
+     */
+    val kcfg_AstrometryRotatorThreshold: Double = 30.0,
 )

@@ -970,6 +970,14 @@ private fun AlignSettingsSheet(state: AppState, ctrl: SessionController) {
         FieldLabel("Solver accuracy threshold")
         Spacer(Modifier.height(5.dp))
         DegreeField(a.alignAccuracyThreshold, "\"", ctrl::setAlignAccuracyThreshold)
+        Spacer(Modifier.height(8.4.dp))
+        // M5 (docs/STATUS.md) — found sitting at 0 on the real rig (SSH-checked kstarsrc,
+        // 2026-08-29), which makes the Controls-tab rotator readback's "within threshold" check
+        // practically never true. Distinct arcmin unit from the solver accuracy field above
+        // (arcsec) — see WireAlignSettings.kcfg_AstrometryRotatorThreshold's own doc.
+        FieldLabel("Rotator threshold")
+        Spacer(Modifier.height(5.dp))
+        DegreeField(a.kcfg_AstrometryRotatorThreshold, "'", ctrl::setAlignRotatorThreshold)
     }
 }
 

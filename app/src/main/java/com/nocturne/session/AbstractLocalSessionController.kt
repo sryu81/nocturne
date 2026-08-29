@@ -378,6 +378,9 @@ abstract class AbstractLocalSessionController : SessionController {
     override open fun setAlignAccuracyThreshold(arcsec: Double) = update { s ->
         s.copy(wireAlignSettings = s.wireAlignSettings?.copy(alignAccuracyThreshold = arcsec))
     }
+    override open fun setAlignRotatorThreshold(arcmin: Double) = update { s ->
+        s.copy(wireAlignSettings = s.wireAlignSettings?.copy(kcfg_AstrometryRotatorThreshold = arcmin))
+    }
 
     // M5 rotator (docs/STATUS.md steps 4/5) — local-only intent, no PA readback exists to
     // populate without a real connection (EkosRemoteController overrides this to also send).

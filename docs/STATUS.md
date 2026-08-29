@@ -65,7 +65,7 @@ Doc is planning-only; **nothing below has been implemented** as of this writing.
   ("no rotator wire command exists on this protocol at all") was wrong; that command does exist,
   just wasn't in the doc anyone had read.
 - [x] Step 4 — show current vs. desired angle — `align_manual_rotator_status` read (`NewManualRotatorStatus`), readback now on Controls tab's `RotatorControlCard` (moved from Plan tab, 3rd pass — see below)
-- [x] Step 5 — auto-drive a real rotator — `align_set_astrometry_settings`'s `rotator_control` bool wired, master gate for the whole feature (confirmed against `align_goto.cpp`'s `checkIfRotationRequired()`), UI switch unconditional. "Manual snapshot" half still not built (no snapshot/capture trigger exists on this path — "take image" is just the existing `align_solve`/Controls-tab Solve button, confirmed identical to the real ManualRotator dialog's own Take Image button)
+- [x] Step 5 — auto-drive a real rotator — `align_set_astrometry_settings`'s `rotator_control` bool wired, master gate for the whole feature (confirmed against `align_goto.cpp`'s `checkIfRotationRequired()`), UI switch unconditional, re-sent on every connect since no GET exists for it (4th pass, see below). "Manual snapshot" half still not built (no snapshot/capture trigger exists on this path — "take image" is just the existing `align_solve`/Controls-tab Solve button, confirmed identical to the real ManualRotator dialog's own Take Image button)
 - [x] Step 6 decision — "Add to sequence" stays local-editor-first, no auto-push — deliberate, not a gap
 - [x] **3rd pass, same day**: relocated `rotator_control` switch + readback from Plan tab to Controls tab's Plate Solve section (`RotatorControlCard`, next to `AlignSolveCard`) — naturally adjacent to the Solve button that actually refreshes it. Dropped `align_manual_rotator_toggle`/`manualRotatorToggled` entirely (dead code, not just hidden UI) — confirmed it only shows/hides Ekos's own dialog on the Pi's own physical screen, no remote effect at all. Added a real FOV reticle (`FovOverlayBox`, transparent fill/`c.warn` stroke) over the real live preview in both Plan tab's `FramingCard` (was a decorative hatch-background box, no real image at all) and Controls tab's Primary Camera preview (`SnapPanel` gained an optional `overlay` slot). Explicit "optional — skip if you don't need precise framing" caption added to `FramingCard`. Pause/resume mid-sequence: real Ekos has a genuinely graceful `Scheduler::pause()`/`pauseB` (`SCHEDULER_PAUSED`, deferred "pause planned") that would be the correct mechanism, but confirmed it's **not reachable on the EkosRemote wire protocol at all** — zero references in `message.cpp`/`commands.h`, and not reachable via the generic `invoke_method` escape hatch either since `pause()` is a plain `protected` method, not `Q_INVOKABLE`. **User's decision: log as a follow-on fork task** (needs a change in `/home/soo/cc/repo/kstars/kstars/ekos/ekosremote/` + rebuild + redeploy to the Pi — new item added to the network-hardening backlog below), ship this pass with the existing, already-wired Stop/Start `SchedulerToggleButton` as the interim (real: Stop marks the active job `ABORTED`, not removed; Start re-evaluates and resumes if `kcfg_RememberJobProgress` is on, confirmed true on this rig previously) — `RotatorControlCard` shows a hint pointing at it when a sequence is running.
 
@@ -199,6 +199,42 @@ source-confirmed:
   resuming.", though `toggleScheduler()`'s own `start()` branch takes a different, job-state-resetting
   path that wasn't fully traced this session) in `/home/soo/cc/repo/kstars/kstars/ekos/ekosremote/`,
   rebuild + redeploy to the Pi.
+
+**4th pass, same day — user asked to review "what does Rotator control actually do", then fix 2 real
+gaps that review surfaced.** Live-checked this rig via SSH (`~/.config/kstarsrc`):
+`AstrometryUseRotator=false`, `AstrometryRotatorThreshold=0` — both explicitly saved, overriding
+stock kcfg defaults (`true`/`30`). Confirmed via `align_solver.cpp:980` that `checkIfRotationRequired()`
+is the *last* step of solve-completion (after goto/sync/report already ran) — leaving it `false`
+does not affect plate solving at all, matches the "not mandatory" principle exactly.
+- **Gap 1 fixed — `rotator_control` had zero ground-truth, ever.** Confirmed why: it's backed by a
+  `QGroupBox` in `opsalign.ui` (`kcfg_AstrometryUseRotator`), a widget type the
+  `align_get_all_settings`/`align_set_all_settings` reflection doesn't cover (only
+  `QComboBox`/`QDoubleSpinBox`/`QSpinBox`/`QCheckBox`/`QRadioButton`) — genuinely no GET exists for
+  it anywhere on this wire. Considered reading it via the generic `GET_PROPERTY`/`findObject`
+  escape hatch (confirmed a real `Q_PROPERTY astrometryUseRotator` exists on the generated `Options`
+  singleton, `GenerateProperties=true` in `Options.kcfgc`) but **could not live-verify
+  `findObject("Options")` actually resolves it** — Ekos wasn't running on the Pi this session
+  (`kstars` process up, but nothing listening on port 9000, confirmed via `/proc/net/tcp`) — so this
+  was deliberately not shipped as a guess. Fixed instead with a guaranteed-correct alternative: on
+  every real connect (`NewConnectionState.online`, `sendFollowUpCommands`), re-send Nocturne's own
+  current `rotatorAutoControl` value via the same already-proven `align_set_astrometry_settings`
+  command. Doesn't read the true value, but guarantees the real rig matches what the app displays
+  from that point forward — same accepted fire-and-forget/no-reconcile risk as every other
+  write-only setting in this app, not a permanent never-grounded gap like before.
+- **Gap 2 fixed — rotator threshold exposed in Align settings sheet.** Unlike `rotator_control`,
+  `kcfg_AstrometryRotatorThreshold` **is** a normal reflection-covered field (confirmed in the
+  reference doc's own live-verified field list) — real GET *and* SET via the standard
+  `align_get_all_settings`/`align_set_all_settings` path, same shape as every sibling
+  `WireAlignSettings` field. Added `kcfg_AstrometryRotatorThreshold: Double = 30.0` to
+  `WireAlignSettings`, `setAlignRotatorThreshold(arcmin)` end-to-end, new "Rotator threshold" field
+  in `AlignSettingsSheet` (arcmin, distinct unit from the existing "Solver accuracy threshold"
+  field's arcsec). **Note, distinct from the readback's own threshold**:
+  `AppState.wireRotatorThreshold` (from the `align_manual_rotator_status` push) arrives already
+  converted to **degrees** (`align_goto.cpp`: `Options::astrometryRotatorThreshold() / 60.0`) for
+  direct diff comparison — this new settings field is the raw arcminute value instead, no unit bug
+  introduced. **The live rig's actual `0` value itself was not changed** — the fix is the app control
+  to let the user set it themselves, not a one-off SSH edit.
+Compiles + unit tests pass; not yet live-verified (same as the rest of this session's M5 work).
 
 ### Simulator removal
 Full inventory (`SessionController` 179 methods vs `EkosRemoteController`'s 124 overrides) done
