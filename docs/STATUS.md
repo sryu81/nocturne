@@ -154,6 +154,21 @@ has happened," not a fixture default). Compiles + unit tests pass, not live-veri
 has no live Ekos connection to actually trigger a real `new_notification` push against (same
 constraint noted in the M5 rotator-control-reapply pass earlier).
 
+**Follow-up, same day — user clarified the actual ask.** "OK it works but it is not exactly I
+wanted. I want to display all EKOS schedulars, cameras, mount, guiding, align, focusing... status
+in a banner always." The latest-alert-text banner above wasn't it — reverted that banner back to
+connection-only (its original behavior), added a new, separate, always-rendered `ModuleStatusRow`
+(horizontally scrollable, real per-module status already decoded elsewhere in this app —
+`schedulerRunning`/`wireMountStatus`/`wireCaptureStatus`/`wireFocusStatus`/`wireGuideStatus`/
+`wireAlignStatus`, nothing newly fetched). Colored by a generic keyword heuristic (Fail/Abort/Error
+→ danger, Idle/Complete/Successful/Connected → neutral, anything else → busy/accent) rather than a
+hand-enumerated table per module — checked 4 real state vocabularies (`ekos.h`'s `guideStates`/
+`captureStates`/`focusStates`/`schedulerStates`) first and confirmed they share enough common
+English wording for one heuristic to cover all of them reasonably. Rendered unconditionally, not
+gated on connection health — real per-module status is still meaningful during a `SOCKET_OPEN`
+hiccup (values just stale from the last real push), and an honest "—" for everything pre-connection
+is itself real signal. Compiles + unit tests pass, not live-verified.
+
 ### M5
 Biggest finding: real Ekos already ships a purpose-built rotator angle-readback + auto-adjust
 feature — was 0% wired, **now wired** (steps 2/4/5, this pass, in 2 sub-passes same session).

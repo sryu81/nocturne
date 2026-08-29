@@ -6,6 +6,8 @@ import android.content.res.Configuration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -153,24 +155,6 @@ private fun NocturneShell(
     val state by vm.ctrl.state.collectAsState()
     val ctrl = vm.ctrl
 
-    // M4.5 half A (docs/STATUS.md) — user's explicit call: extend this same strip to always show
-    // something once connected, rather than disappearing entirely, using the real new_notification
-    // stream. Connection problems (banner != null, passed in from above) still take priority and
-    // look exactly as before; once truly online, this falls back to the latest real alert instead
-    // of leaving the strip hidden. Genuinely nothing to show (no connection issue, zero alerts
-    // this session) is the only case that still hides it — an honest "nothing has happened yet",
-    // not a fixture default.
-    val latestAlert = state.wireNotifications.firstOrNull()
-    val bannerColor = when {
-        banner != null -> colors.warn
-        latestAlert == null -> colors.warn
-        latestAlert.severity >= 3 -> colors.danger
-        latestAlert.severity == 2 -> colors.warn
-        else -> colors.accent
-    }
-    val bannerIcon = if (latestAlert != null && banner == null && latestAlert.severity <= 1) Phosphor.CheckCircle else Phosphor.Warning
-    val bannerText = banner ?: latestAlert?.let { "${it.time} · ${it.message}" }
-
     val configuration = LocalConfiguration.current
     val landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val context = LocalContext.current
@@ -207,32 +191,31 @@ private fun NocturneShell(
             // squeezed as compact as they'll go — landscape keeps a *vertical* tab rail (user's
             // explicit call, a horizontal bar was tried and rejected), which needs every bit of
             // vertical room it can get for all 6 tabs to fit without clipping.
-            if (bannerText != null) {
+            if (banner != null) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(bannerColor.copy(alpha = 0.14f))
+                        .background(colors.warn.copy(alpha = 0.14f))
                         .padding(horizontal = NocturneTheme.spacing.s4, vertical = if (landscape) 3.dp else 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Phosphor.Icon(bannerIcon, size = 13.dp, tint = bannerColor)
+                    Phosphor.Icon(Phosphor.Warning, size = 13.dp, tint = colors.warn)
                     Spacer(Modifier.width(7.dp))
                     Text(
-                        bannerText,
+                        banner,
                         style = NocturneTheme.type.Caption,
-                        color = bannerColor,
-                        modifier = Modifier.weight(1f),
+                        color = colors.warn,
                     )
-                    if (banner == null) {
-                        Text(
-                            "Alerts",
-                            style = NocturneTheme.type.Caption,
-                            color = bannerColor,
-                            modifier = Modifier.clickable { ctrl.openSheet(SheetType.ALERTS) },
-                        )
-                    }
                 }
             }
+            // M4.5 half A follow-up (docs/STATUS.md) — user clarified the actual ask after seeing
+            // the first cut (latest-alert-only banner text): a real, always-visible per-module
+            // status dashboard (Scheduler/Mount/Camera/Focus/Guide/Align), not just alerts.
+            // Rendered unconditionally (not gated on `banner == null`) — real per-module status is
+            // still meaningful context even during a connection hiccup (SOCKET_OPEN specifically:
+            // socket fine, values just stale from the last real push), and showing "—" for
+            // everything pre-connection is itself honest signal, not clutter to hide.
+            ModuleStatusRow(state, landscape)
             // NocturneHeader used to sit here, above this whole Row — meaning the vertical
             // NavRail's own top started below it, leaving a visible gap between the connection
             // status banner and the rail (confirmed live, user-reported: "the session message
@@ -324,6 +307,69 @@ private fun NocturneShell(
             )
         }
     }
+}
+
+// ── Module status row (M4.5, docs/STATUS.md) ────────────────────────────────
+
+/**
+ * Always-visible per-module status dashboard — user's own explicit ask, after the first cut
+ * (latest-alert-only banner text) wasn't it: "I want to display all EKOS schedulars, cameras,
+ * mount, guiding, align, focusing... status in a banner always." One compact badge per module,
+ * real wire data already decoded elsewhere in this app (nothing new fetched for this):
+ * [AppState.schedulerRunning] (real `new_scheduler_state` ground truth), [AppState.wireMountStatus]
+ * ([EkosEvent.NewMountState]), [AppState.wireCaptureStatus], [AppState.wireFocusStatus],
+ * [AppState.wireGuideStatus], [AppState.wireAlignStatus]. Colored by a generic keyword heuristic
+ * (Fail/Abort/Error → danger, Idle/Complete/Successful/Connected → neutral, anything else → busy/
+ * accent) rather than a hand-enumerated table per module — the 4 real state vocabularies checked
+ * while wiring this (`ekos.h`'s `guideStates`/`captureStates`/`focusStates`/`schedulerStates`, plus
+ * `NewAlignState`'s own already-documented one) share enough common English wording that one
+ * heuristic covers all of them reasonably, without pretending to enumerate every module's exact
+ * enum here. Horizontally scrollable — 6 badges don't reliably fit one phone-width line, especially
+ * once a status word itself is long ("Filter Focus", "Guider Settling").
+ */
+@Composable
+private fun ModuleStatusRow(state: AppState, landscape: Boolean) {
+    val c = NocturneTheme.colors
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .background(c.surface)
+            .padding(horizontal = NocturneTheme.spacing.s4, vertical = if (landscape) 2.dp else 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ModuleStatusBadge("Sched", if (state.schedulerRunning) "Running" else "Idle")
+        ModuleStatusBadge("Mount", state.wireMountStatus)
+        ModuleStatusBadge("Cam", state.wireCaptureStatus)
+        ModuleStatusBadge("Focus", state.wireFocusStatus)
+        ModuleStatusBadge("Guide", state.wireGuideStatus)
+        ModuleStatusBadge("Align", state.wireAlignStatus)
+    }
+}
+
+/** One module's compact "Label: Status" badge — [statusColorFor]'s own doc explains the coloring. */
+@Composable
+private fun ModuleStatusBadge(label: String, status: String?, modifier: Modifier = Modifier) {
+    val c = NocturneTheme.colors
+    Row(modifier.padding(end = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            Modifier
+                .size(6.dp)
+                .background(statusColorFor(status, c), androidx.compose.foundation.shape.CircleShape),
+        )
+        Spacer(Modifier.width(5.dp))
+        Text("$label ${status ?: "—"}", style = NocturneTheme.type.MonoMicro, color = statusColorFor(status, c))
+    }
+}
+
+/** Generic real-status coloring — see [ModuleStatusRow]'s own doc for why this is a keyword
+ * heuristic rather than a per-module enum table. */
+private fun statusColorFor(status: String?, c: com.nocturne.ui.theme.NocturneColorScheme): Color = when {
+    status == null -> c.textFaint
+    status.contains("fail", true) || status.contains("abort", true) || status.contains("error", true) -> c.danger
+    status.equals("idle", true) || status.contains("complete", true) || status.contains("successful", true) ||
+        status.contains("connected", true) -> c.textMuted
+    else -> c.accent
 }
 
 // ── Header ────────────────────────────────────────────────────────────────
