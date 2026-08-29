@@ -1271,6 +1271,17 @@ catalog objects: `"a"`, `"b"` (major/minor axis), `"pa"` (position angle).
 }
 ```
 
+**Real quirk, found live (2026-08-29) — the reply's `"name"` is not always the string you sent.**
+Confirmed against `message.cpp:2295`: `todayInfo["name"] = exact ? name : oneObject->name();`.
+With `exact` at its default `false`, a name that resolves via `findByName`'s fuzzy fallback (e.g. a
+lookup miss on the first exact-name pass, `catalogscomponent.cpp:334-338`) gets echoed back as
+KStars' own internal preferred name for that object, not the string you requested — a client
+matching replies by request-name (the obvious, natural thing to do) can silently miss the entry.
+Confirmed to actually happen for M64 specifically. Always pass `"exact": true` if you need the
+reply keyed by the exact name you sent — the resolution itself still succeeds the same way for any
+name that's already catalog-sourced (search results, a fixture catalog's own id), `exact` only
+changes whether a *failed* exact lookup falls back to fuzzy matching at all.
+
 ---
 
 ## 22. Media Channel (`/media/ekos`)

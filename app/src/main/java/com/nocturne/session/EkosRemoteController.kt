@@ -626,7 +626,17 @@ class EkosRemoteController(
                 if (matchingNames.isNotEmpty()) {
                     val namesPayload = buildJsonObject { putJsonArray("names") { matchingNames.forEach { add(it) } } }
                     client.sendCommand(Commands.ASTRO_GET_OBJECTS_INFO, namesPayload)
-                    client.sendCommand(Commands.ASTRO_GET_OBJECTS_RISESET, namesPayload)
+                    // "exact": true — same real name-echo mismatch risk as ensureTargetRiseset's
+                    // own doc explains (message.cpp:2295), just for the full-list merge instead
+                    // of the single-framed-target case. Without it, any name here that KStars'
+                    // fuzzy findByName resolves to a *different* preferred name silently fails
+                    // buildSearchResults()'s own name-keyed merge — that row just never gets its
+                    // real "X° max" (falls back to "—"), a quieter failure than the framed-target
+                    // case but the same root cause.
+                    client.sendCommand(Commands.ASTRO_GET_OBJECTS_RISESET, buildJsonObject {
+                        putJsonArray("names") { matchingNames.forEach { add(it) } }
+                        put("exact", true)
+                    })
                 }
             }
             // Continues pushRealJob's chain — see PendingJobStart's doc for why this waits for
@@ -949,7 +959,22 @@ class EkosRemoteController(
         val name = target.realLookupName
         if (pendingTargetRisesetName == name || _state.value.wireTargetRiseset?.name == name) return
         pendingTargetRisesetName = name
-        client.sendCommand(Commands.ASTRO_GET_OBJECTS_RISESET, buildJsonObject { putJsonArray("names") { add(name) } })
+        // "exact": true (real bug, found live — user report: M 64's peak time/max altitude were
+        // wrong). Confirmed against message.cpp:2295: `todayInfo["name"] = exact ? name :
+        // oneObject->name()` — without it, the reply echoes KStars' own internal preferred name
+        // for the resolved object, not necessarily the exact string we sent (M64's own catalog
+        // entry is one case where they diverge). The match below (`event.entries.firstOrNull {
+        // it.name == name }`) then silently fails, leaving wireTargetRiseset on whatever target
+        // was framed *previously* — the chart looked plausible (a real curve, just the wrong
+        // one) rather than obviously broken, which is why this went unnoticed until reported.
+        // Safe to force exact: the name here is already a real catalog-sourced identifier
+        // (fixture id or a live search result's own name), not free-typed text guessing at a
+        // name — `findByName`'s own `exact` only widens the *lookup* to a fuzzier fallback when
+        // the exact form doesn't resolve at all, confirmed in `catalogscomponent.cpp:334-338`.
+        client.sendCommand(Commands.ASTRO_GET_OBJECTS_RISESET, buildJsonObject {
+            putJsonArray("names") { add(name) }
+            put("exact", true)
+        })
     }
 
     /**

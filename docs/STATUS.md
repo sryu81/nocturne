@@ -333,6 +333,25 @@ Real vocabulary (`ekos.h`): `Idle`/`Complete`/`Failed`/`Aborted`/`In Progress`/`
 wait, directly relevant to this feature and previously invisible. Compiles + unit tests pass, not
 live-verified.
 
+**10th pass, same day — real bug found live: M64's altitude chart showed wrong peak time/max
+angle.** User: "when I choose M 64... its peak time and its max angle is wrong." Root cause
+confirmed in real source, not guessed: `astro_get_objects_riseset`'s reply `"name"` field is
+`exact ? name : oneObject->name()` (`message.cpp:2295`) — with `exact` defaulted `false` (never
+sent by either of this app's 2 call sites), a name that resolves via `findByName`'s fuzzy fallback
+gets echoed back as KStars' own internal preferred name for that object, not the exact string
+requested. `EkosRemoteController`'s own reply-matching (`event.entries.firstOrNull { it.name ==
+name }`, both for `wireTargetRiseset`'s single-target case and `buildSearchResults()`'s full-list
+merge) keys strictly on the *sent* name — a mismatch means the match silently fails. For the
+framed-target case specifically, `wireTargetRiseset` then just keeps whatever the *previously*
+framed target's real curve was — a real, plausible-looking curve, just the wrong one, which is why
+this read as "wrong data" rather than an obvious blank/placeholder and went unnoticed until
+reported. Confirmed this actually happens for M64. Fixed: `"exact": true` added to both
+`ASTRO_GET_OBJECTS_RISESET` call sites (`ensureTargetRiseset`, and the full search-results fetch in
+`sendFollowUpCommands`) — safe, since `exact` only changes whether a *failed* exact lookup falls
+back to fuzzy resolution at all (`catalogscomponent.cpp:334-338`), not whether an already
+catalog-sourced name resolves. Reference doc updated with this quirk. Compiles + unit tests pass,
+not live-verified.
+
 ### Simulator removal
 Full inventory (`SessionController` 179 methods vs `EkosRemoteController`'s 124 overrides) done
 before touching anything — found a few of the un-overridden 55 (`setRotatorAngle`/`setDomeOpen`)
