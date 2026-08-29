@@ -1456,31 +1456,14 @@ private fun aboveThresholdSeconds(t0: Long, t1: Long, a0: Double, a1: Double, lo
     }
 }
 
-/**
- * Real peak altitude + its instant, restricted to tonight's real dusk-to-dawn window — as opposed
- * to `riseset.altitudes.maxOrNull()` (the target's absolute *daily* peak, which can fall during
- * broad daylight for a target whose transit doesn't land at night). User-found confusion
- * (2026-08-22): pairing that daytime peak's "max 86° @ 15:39" with an honestly-computed
- * "0h 00m usable" (see [realUsableSeconds] — that target genuinely never climbs back above 40°
- * before dawn) read as contradictory, even though both numbers were individually correct —
- * confirmed live against raw wire data down to the minute. This is the fix: a "max"/"peak" that's
- * restricted to the same real dark window [realUsableSeconds] already is, so the two numbers on
- * the card can never again look like they disagree. Sample-resolution only (30 min, no
- * interpolation) — same simplicity level the original whole-day max/peak already had (a bare
- * `maxOrNull()`/`riseset.transit`, no interpolation there either). Null if no real night window is
- * known, or [riseset] has no altitude samples.
- */
-fun AppState.realNightMaxAltitude(riseset: WireRiseset): Pair<Double, Instant>? {
-    val dayStart = realDayWindow?.first ?: return null
-    val night = realNightWindow ?: return null
-    if (riseset.altitudes.isEmpty()) return null
-    val stepSec = 1800L
-    return riseset.altitudes.withIndex()
-        .map { (i, alt) -> alt to dayStart.plusSeconds(i * stepSec) }
-        .filter { (_, t) -> !t.isBefore(night.first) && !t.isAfter(night.second) }
-        .maxByOrNull { (alt, _) -> alt }
-        ?.let { (alt, t) -> alt to t }
-}
+// realNightMaxAltitude (restricted-to-dark-window peak) removed (M5, docs/STATUS.md) — its own
+// real bug (dusk is site-wide, not per-target, so any target whose true transit precedes dusk
+// degenerated to "first sample after dusk" — identical across every such target regardless of
+// their real RA) outweighed the 2026-08-22 confusion it was written to fix. User's call: revert to
+// always showing the real absolute daily peak/transit (TargetCard now uses
+// riseset.altitudes.maxOrNull()/riseset.transit directly again), accepting that a daytime-transit
+// target can again look inconsistent next to realUsableSeconds' own "0h 00m usable" — a real fact
+// about the target, not a bug, even if the two readouts don't obviously agree at a glance.
 
 /** Real fraction of [realDayWindow] elapsed right now — always defined once the window is (by construction, "now" sits within ±12h of its own nearest midnight). */
 val AppState.realDayFraction: Double? get() {

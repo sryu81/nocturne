@@ -352,6 +352,28 @@ back to fuzzy resolution at all (`catalogscomponent.cpp:334-338`), not whether a
 catalog-sourced name resolves. Reference doc updated with this quirk. Compiles + unit tests pass,
 not live-verified.
 
+**11th pass, same day — real bug, different class than M64's: multiple different targets showing
+the identical wrong peak time.** User: "M 101, M51, M 95 show the peaktime as 21:30 which is not."
+Not a name-echo mismatch this time — a real logic gap in `realNightMaxAltitude` (the 2026-08-22 fix
+that clamped "peak" to the highest altitude sample *within* tonight's dusk-to-dawn window, to avoid
+pairing a daytime peak with a correctly-computed "0h 00m usable"). Root cause: dusk/dawn
+(`realNightWindow`) are site-wide — the same instants for every target, every night — so for any
+target whose real transit already precedes dusk (a spring-sky object like M101/M51/M95, by late
+August already transiting during daytime — altitude simply descending all night from dusk onward),
+"highest sample within the window" degenerates to the first sample after dusk, rounded to the same
+30-minute grid point regardless of the target's own actual RA/transit. Three astronomically
+unrelated targets (RA ~10h44m–14h03m, ~3+ hours apart) all landing on the identical displayed time
+was the tell — not plausible if each were genuinely reporting its own real peak. **Also found**:
+`AltitudeChart`'s own dashed peak-line was never night-clamped in the first place (always used the
+unclamped `realAltitudes` array) — meaning the line and the "peak HH:MM" text had already silently
+drifted apart for exactly these targets, a second symptom of the same root cause. **User's explicit
+call, given the choice**: revert to always showing the real absolute daily peak/transit
+(`riseset.altitudes.maxOrNull()`/`riseset.transit`), accepting the original daytime-peak-vs-
+"0h 00m usable" look-inconsistent case can recur — real data either way, this one just doesn't
+collapse multiple different targets onto one wrong shared value. `realNightMaxAltitude` deleted
+outright (dead code, matches this project's own norm) rather than left unused. Compiles + unit
+tests pass, not live-verified.
+
 ### Simulator removal
 Full inventory (`SessionController` 179 methods vs `EkosRemoteController`'s 124 overrides) done
 before touching anything — found a few of the un-overridden 55 (`setRotatorAngle`/`setDomeOpen`)

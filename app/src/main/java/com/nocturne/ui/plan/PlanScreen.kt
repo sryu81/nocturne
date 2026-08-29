@@ -46,7 +46,6 @@ import com.nocturne.session.formatSiteTime
 import com.nocturne.session.realDayFraction
 import com.nocturne.session.realDayWindow
 import com.nocturne.session.realLookupName
-import com.nocturne.session.realNightMaxAltitude
 import com.nocturne.session.realNightWindow
 import com.nocturne.session.realUsableSeconds
 import java.time.Instant
@@ -324,22 +323,23 @@ private fun TargetCard(state: AppState, ctrl: SessionController, tgt: Target) {
     val realAltitudes = riseset?.altitudes?.takeIf { it.size >= 2 }
     val nowFraction = state.realDayFraction
     val window = state.realDayWindow
-    // Real max/peak restricted to tonight's real dark window (see realNightMaxAltitude's own
-    // doc) — fixes a user-found confusion where the absolute *daily* peak could fall during
-    // broad daylight, pairing e.g. "max 86° @ 15:39" with a correctly-computed "0h 00m usable"
-    // that read as contradictory. Only actually *overrides* the whole-day max/peak when the two
-    // disagree (the daily peak sample itself falls outside tonight's window) — when the real
-    // transit already happens at night (the common case), this stays out of the way and keeps
-    // real Ekos's own precise transit time/max instead of degrading to this fallback's coarser
-    // 30-min-sample resolution (confirmed live: NGC 7000's real "00:03" transit briefly became a
-    // less-precise "00:00" here before this check, for a target that never needed the override).
+    // Real absolute daily max/transit — reverted from a night-window-restricted version (M5,
+    // docs/STATUS.md) that tried to avoid pairing a daytime peak with "0h 00m usable" (real user
+    // confusion, 2026-08-22) by clamping "peak" to the highest sample *within* tonight's dark
+    // window. That clamp had its own real bug, found live: [state.realNightWindow]'s dusk/dawn are
+    // site-wide, not per-target — for any target whose true transit already precedes dusk (a
+    // spring-sky object like M101/M51/M95 by late August, altitude just descending all night), the
+    // "highest sample in the window" degenerates to the very first sample after dusk, rounded to
+    // the same 30-min grid point for every such target — multiple genuinely different targets all
+    // showed the identical dusk-ish time, which is what actually got reported (user's own account
+    // named 3 different targets all showing "21:30"). User's call: accept the earlier
+    // daytime-peak-vs-0h-usable inconsistency again rather than this — real data, always the
+    // target's own actual peak, matches the dashed line [AltitudeChart] itself already draws from
+    // the unclamped `realAltitudes` array (that line was never night-clamped even while this text
+    // was — the two had already drifted out of sync for exactly the targets reported here).
     val dayMaxAlt = riseset?.altitudes?.maxOrNull()
-    val nightMax = riseset?.let { state.realNightMaxAltitude(it) }
-    val peakAlreadyAtNight = dayMaxAlt != null && nightMax != null && kotlin.math.abs(dayMaxAlt - nightMax.first) < 0.05
-    val maxAlt = if (peakAlreadyAtNight) dayMaxAlt?.let { kotlin.math.round(it).toInt() }
-        else nightMax?.first?.let { kotlin.math.round(it).toInt() } ?: dayMaxAlt?.let { kotlin.math.round(it).toInt() } ?: tgt.max
-    val peak = if (peakAlreadyAtNight) (riseset?.transit ?: tgt.peak)
-        else nightMax?.second?.let { state.formatSiteTime(it) } ?: riseset?.transit ?: tgt.peak
+    val maxAlt = dayMaxAlt?.let { kotlin.math.round(it).toInt() } ?: tgt.max
+    val peak = riseset?.transit ?: tgt.peak
     val usable = riseset?.let { state.realUsableSeconds(it) }?.let { formatHm(it) } ?: tgt.usable
     // Real dusk/dawn (same source as the Session tab's night arc) expressed as fractions of this
     // chart's own day window, so they land on the same x-axis realNowFraction/the curve itself
