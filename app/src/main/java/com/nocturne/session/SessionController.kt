@@ -108,6 +108,8 @@ interface SessionController {
     fun toggleEkos()
     fun deleteProfile(name: String)
     fun editProfile(name: String)
+    /** Plan tab's `RotatorRow` slider — real `align_set_target_pa` in [EkosRemoteController]
+     * (M5, docs/STATUS.md); local-only mirror in [AbstractLocalSessionController]. */
     fun setRotatorAngle(deg: Double)
     fun setDomeOpen(open: Boolean)
 

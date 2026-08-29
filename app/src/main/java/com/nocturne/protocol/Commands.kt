@@ -70,6 +70,7 @@ object Commands {
     // M5 — rotator angle-readback + auto-drive (docs/STATUS.md M5 steps 4/5).
     const val ALIGN_MANUAL_ROTATOR_TOGGLE = "align_manual_rotator_toggle"
     const val ALIGN_SET_ASTROMETRY_SETTINGS = "align_set_astrometry_settings"
+    const val ALIGN_SET_TARGET_PA = "align_set_target_pa"
     const val CAPTURE_SET_ALL_SETTINGS = "capture_set_all_settings"
 
     // M3.3 — per-module settings (curated subset, see docs/M3.3-plan.md).

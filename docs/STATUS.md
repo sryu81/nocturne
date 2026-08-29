@@ -59,9 +59,13 @@ Not fixed here (out of this doc's scope) — flagging so it doesn't get trusted 
 Doc is planning-only; **nothing below has been implemented** as of this writing.
 - [x] Step 3 — goto + center (already real, pre-existing)
 - [ ] Step 1 — star chart with target centered — blocked on M4.5 Part B's catalog work
-- [ ] Step 2 — rotator angle set — UI-only, **no rotator wire command exists on this protocol at all**
-- [x] Step 4 — show current vs. desired angle — `align_manual_rotator_toggle`/`_status` wired (`NewManualRotatorStatus`, `ManualRotatorSection` on Plan tab's Framing card)
-- [x] Step 5 — auto-drive a real rotator — `align_set_astrometry_settings`'s `rotator_control` bool wired, gated on `TrainAssignment.rotator != "None"`. "Manual snapshot" half not built (no snapshot/capture trigger exists on this path) — auto-drive-only for now
+- [x] Step 2 — rotator angle set — **corrected same pass**: `RotatorRow` slider now sends real
+  `align_set_target_pa` (`{"angle": double}`) — a command this repo's own reference doc never
+  documented at all until found by reading the fork source directly this session. Earlier claim
+  ("no rotator wire command exists on this protocol at all") was wrong; that command does exist,
+  just wasn't in the doc anyone had read.
+- [x] Step 4 — show current vs. desired angle — `align_manual_rotator_status` read (`NewManualRotatorStatus`, `ManualRotatorSection` on Plan tab's Framing card)
+- [x] Step 5 — auto-drive a real rotator — `align_set_astrometry_settings`'s `rotator_control` bool wired. **Corrected same pass**: this is the master gate for the *whole* feature (confirmed against `align_goto.cpp`'s `checkIfRotationRequired()`), not just real-hardware auto-drive — off, and step 4's readback never fires either, rotator or not. UI switch is unconditional now, was wrongly hidden behind `TrainAssignment.rotator != "None"` on first pass. "Manual snapshot" half still not built (no snapshot/capture trigger exists on this path — "take image" is just the existing `align_solve`/Controls-tab Solve button, confirmed identical to the real ManualRotator dialog's own Take Image button)
 - [x] Step 6 decision — "Add to sequence" stays local-editor-first, no auto-push — deliberate, not a gap
 
 ### Simulator removal (complete, `28225a2`)
@@ -122,19 +126,44 @@ catalog + geometric-hash match; scale is free from the real header's `focal_leng
 
 ### M5
 Biggest finding: real Ekos already ships a purpose-built rotator angle-readback + auto-adjust
-feature (`align_manual_rotator_toggle`/`_status`, server push `{currentPA, targetPA, threshold}`,
-plus `align_set_astrometry_settings`'s `rotator_control` bool) — was 0% wired, **now wired** (steps
-4/5, this pass): new `EkosEvent.NewManualRotatorStatus` (defaults+merge-non-null per the repo's
-standing decode norm, though only one real payload shape is documented for this push), `toggleManualRotator`/
-`setRotatorAutoControl` on `SessionController` (local-only stub in `AbstractLocalSessionController`,
-real send in `EkosRemoteController`), `ManualRotatorSection` on the Plan tab's Framing card —
-readback only shown once toggled on, auto-drive switch only shown when `TrainAssignment.rotator !=
-"None"`. Compiles + unit tests pass; **not yet live-verified against the real rig** (no rotator
-hardware confirmed present on this rig as of writing — auto-drive switch may never show live; the
-manual-toggle/readback half doesn't need one). Rotator-hardware presence was already answerable
-from existing data (`TrainAssignment.rotator`) with no new detection needed. Skipped for now: step
-2's local-only knob (`RotatorRow`) left as-is, not yet repurposed/dropped; step 3's fixed-`delay()`
-heuristic not revisited; step 1 (star chart) still blocked on Part B's catalog work.
+feature — was 0% wired, **now wired** (steps 2/4/5, this pass, in 2 sub-passes same session).
+
+**First pass** wired `align_manual_rotator_toggle`/`_status` (`NewManualRotatorStatus`, defaults+
+merge-non-null per the repo's standing decode norm) and `align_set_astrometry_settings`'s
+`rotator_control` bool, with a new `ManualRotatorSection` on the Plan tab's Framing card. Left
+step 2's slider (`RotatorRow`) as local-only, on the (wrong) belief no wire command existed for it.
+
+**User asked directly why the slider wasn't the target-PA control** — re-checked against the real
+fork source (`/home/soo/cc/repo/kstars`, not just `EkosRemote-Command-Reference.md`, which turned
+out to have 2 real gaps) and found:
+1. `align_set_target_pa` (`{"angle": double}`) — sets `Align::m_TargetPositionAngle` directly, a
+   real command **completely undocumented** in the reference doc (now fixed, same pass). Without
+   it, nothing before this pass could ever have made the readback do anything at all — `RotatorRow`
+   now sends this instead of staying local-only, closing step 2 for real.
+2. `rotator_control` doesn't just gate real-hardware auto-drive — confirmed against
+   `align_goto.cpp`'s `checkIfRotationRequired()` it's the master gate for the *entire* feature,
+   manual-diff-readback path included. First pass's UI hid this switch behind
+   `TrainAssignment.rotator != "None"` — exactly backwards, hiding it precisely when the no-hardware
+   manual path needed it most. Fixed: switch is unconditional now, label/sub-text branch on
+   hardware presence instead of visibility.
+3. `toggleManualRotator` (`align_manual_rotator_toggle`) turned out to only show/hide Ekos's own
+   dialog **on the Pi's own screen** (`align_components.cpp:146`) — real, but irrelevant to this
+   remote readback; doc comments and the UI's own switch label corrected to say so plainly instead
+   of implying it drives anything.
+4. Confirmed **no separate "take image" command exists for this** — the real ManualRotator dialog's
+   own "Take Image" button calls the identical `captureAndSolve()` as `align_solve` (Controls tab's
+   pre-existing "Solve" button). Documented on `ManualRotatorSection`'s own doc comment.
+
+Compiles + unit tests pass; **not yet live-verified against the real rig** (no rotator hardware
+confirmed present on this rig as of writing, though the no-hardware manual-diff path is now
+reachable and should be testable regardless). Rotator-hardware presence was already answerable from
+existing data (`TrainAssignment.rotator`) with no new detection needed. Still open: step 1 (star
+chart) blocked on Part B's catalog work; step 3's fixed-`delay()` heuristic not revisited.
+**Lesson, worth remembering**: this session's own protocol reference doc had 2 real gaps
+(`align_set_target_pa` missing outright, `rotator_control`'s actual scope undersold) — the fork
+source itself (`/home/soo/cc/repo/kstars`) is available locally and is worth checking directly
+before treating this repo's own `EkosRemote-Command-Reference.md` as complete, especially for a
+just-forked or lightly-used command family.
 
 ### Simulator removal
 Full inventory (`SessionController` 179 methods vs `EkosRemoteController`'s 124 overrides) done

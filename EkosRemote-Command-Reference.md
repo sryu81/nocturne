@@ -658,6 +658,20 @@ No request handler — only `sendManualRotatorStatus` (message.cpp:2731):
 `{"scale": bool (false)}`, `{"position": bool (false)}` — writes directly to global
 `Options` (separate from the widget-reflection settings path below). **Response:** none.
 
+`rotator_control` (`Options::setAstrometryUseRotator`) is the master gate for the *entire*
+rotator feature, confirmed against `align_goto.cpp`'s `checkIfRotationRequired()` — with it off,
+no diff-check ever runs at all, so **neither** a real rotator gets auto-driven **nor** does the
+no-hardware manual-diff readback (`align_manual_rotator_status`) ever fire. Required regardless of
+whether a real rotator device is connected.
+
+### `align_set_target_pa` (`ALIGN_SET_TARGET_PA`) — message.cpp:928, **missing from this doc until
+found by reading the fork source directly (2026-08-29)**
+
+**Request:** `{"angle": double}`. Sets `Align::m_TargetPositionAngle` directly — the same field a
+real Load & Slew sets from a reference file's own solved PA, just driven by a raw angle instead, no
+reference image needed. Required (non-NaN) before `checkIfRotationRequired()` does anything on the
+next solve — see `rotator_control`'s note above. **Response:** none.
+
 ### `align_get_all_settings` / `align_set_all_settings` — message.cpp:888, 882
 
 Same reflection pattern (`QComboBox`/`QDoubleSpinBox`/`QSpinBox`/`QCheckBox`/`QRadioButton`

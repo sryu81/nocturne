@@ -670,10 +670,21 @@ private fun FramingCard(state: AppState, ctrl: SessionController) {
 }
 
 /**
- * M5 steps 4/5 (docs/STATUS.md) — Ekos's own current-vs-target PA readback for framing at a
- * specific angle, real `align_manual_rotator_toggle`/`align_manual_rotator_status` wiring. The
- * [RotatorRow] slider above this is step 2's local-only knob (no wire command exists for it,
- * unrelated to this section — see that composable's own history) and is left as-is.
+ * M5 steps 2/4/5 (docs/STATUS.md) — [RotatorRow] above this is now the real target-PA control
+ * (`align_set_target_pa`, [SessionController.setRotatorAngle]'s doc), and the switch/readback
+ * here follow it. **Read order matters, confirmed against the real fork source
+ * (`align_goto.cpp`'s `checkIfRotationRequired()`), not guessed from the wire doc alone** — the
+ * command reference never documented `align_set_target_pa` at all, and undersold what
+ * `rotator_control` actually gates:
+ * - [SessionController.setRotatorAutoControl] (`rotator_control`) is the **master gate** for the
+ *   whole feature, real rotator or not — off, and neither a real rotator gets driven nor does the
+ *   no-hardware readback below ever populate. Always shown, not just when a real rotator exists.
+ * - [SessionController.toggleManualRotator] only shows/hides Ekos's own dialog on the **Pi's own
+ *   screen** — real, but irrelevant to this remote readback, and only means anything at all in the
+ *   no-real-rotator branch server-side (a real rotator never opens that dialog).
+ * - The readback itself only ever updates from a solve (`align_solve`/Controls-tab "Solve",
+ *   already wired) — there's no separate "take image" command, confirmed the real ManualRotator
+ *   dialog's own "Take Image" button calls the identical `captureAndSolve()`.
  */
 @Composable
 private fun ManualRotatorSection(state: AppState, ctrl: SessionController) {
@@ -682,12 +693,16 @@ private fun ManualRotatorSection(state: AppState, ctrl: SessionController) {
     val hasRealRotator = state.primaryTrain.rotator != "None"
     Column {
         SwitchRow(
-            label = "Manual rotator",
-            sub = "Ekos reports current vs. target camera angle while you turn it by hand",
-            checked = state.manualRotatorToggled,
-            onToggle = { ctrl.toggleManualRotator(!state.manualRotatorToggled) },
+            label = "Rotator control",
+            sub = if (hasRealRotator) {
+                "Real ${state.primaryTrain.rotator} — drives to the slider's target PA automatically"
+            } else {
+                "No rotator device — Ekos reports the diff below so you can turn the camera by hand"
+            },
+            checked = state.rotatorAutoControl,
+            onToggle = { ctrl.setRotatorAutoControl(!state.rotatorAutoControl) },
         )
-        if (state.manualRotatorToggled) {
+        if (state.rotatorAutoControl) {
             val current = state.wireRotatorCurrentPA
             val target = state.wireRotatorTargetPA
             val threshold = state.wireRotatorThreshold
@@ -704,15 +719,15 @@ private fun ManualRotatorSection(state: AppState, ctrl: SessionController) {
                     )
                 }
             } else {
-                TextC("waiting for Ekos…", style = t.Caption, color = c.textFaint, modifier = Modifier.padding(top = 4.dp, bottom = 4.dp))
+                TextC("waiting for a solve…", style = t.Caption, color = c.textFaint, modifier = Modifier.padding(top = 4.dp, bottom = 4.dp))
             }
         }
-        if (hasRealRotator) {
+        if (!hasRealRotator) {
             SwitchRow(
-                label = "Auto-drive rotator",
-                sub = "Real ${state.primaryTrain.rotator} — drive to target PA automatically instead of by hand",
-                checked = state.rotatorAutoControl,
-                onToggle = { ctrl.setRotatorAutoControl(!state.rotatorAutoControl) },
+                label = "Show Ekos's rotator dialog",
+                sub = "Opens/closes the popup on the Pi's own screen — cosmetic, doesn't affect the readback above",
+                checked = state.manualRotatorToggled,
+                onToggle = { ctrl.toggleManualRotator(!state.manualRotatorToggled) },
             )
         }
     }
