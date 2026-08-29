@@ -1357,6 +1357,10 @@ class EkosRemoteController(
         sendAlignSetting("alignFilter", JsonPrimitive(filter))
         super.setAlignFilter(filter)
     }
+    override fun setAlignUseCurrentFilter(enabled: Boolean) {
+        sendAlignSetting("alignUseCurrentFilter", JsonPrimitive(enabled))
+        super.setAlignUseCurrentFilter(enabled)
+    }
     override fun setAlignBinning(binning: String) {
         sendAlignSetting("alignBinning", JsonPrimitive(binning))
         super.setAlignBinning(binning)

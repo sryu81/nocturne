@@ -952,17 +952,42 @@ private fun AlignSettingsSheet(state: AppState, ctrl: SessionController) {
         HDivider()
         Spacer(Modifier.height(16.dp))
 
-        // Same tap-to-cycle idiom as the Sequence tab's own filter chip (cycleBlockFilter) —
-        // reuses the same real filter-wheel position list, just via a direct setAlignFilter
-        // call here instead of a dedicated cycle method (Align has only the one filter field,
-        // no block/job indirection to route through).
-        FieldLabel("Filter")
-        Spacer(Modifier.height(5.dp))
-        CycleChip(a.alignFilter) { ctrl.setAlignFilter(FILTER_CYCLE[(FILTER_CYCLE.indexOf(a.alignFilter) + 1).mod(FILTER_CYCLE.size)]) }
+        // Real alignUseCurrentFilter checkbox (align.ui:739) — confirmed against
+        // align_devices.cpp's Align::checkFilter: checked means a solve never changes the
+        // filter (uses whatever's actually loaded), unchecked means alignFilter below is a fixed
+        // choice a solve force-switches to every time, even mid-sequence. Was entirely missing
+        // before — the Filter chip always behaved like the unchecked/fixed case regardless.
+        SwitchRow(
+            label = "Use current filter",
+            sub = "Off: solving force-switches to the filter below, even mid-sequence",
+            checked = a.alignUseCurrentFilter,
+            onToggle = { ctrl.setAlignUseCurrentFilter(!a.alignUseCurrentFilter) },
+        )
         Spacer(Modifier.height(8.4.dp))
-        FieldLabel("Binning")
-        Spacer(Modifier.height(5.dp))
-        CycleChip(a.alignBinning) { ctrl.setAlignBinning(ALIGN_BINNING_OPTIONS[(ALIGN_BINNING_OPTIONS.indexOf(a.alignBinning) + 1).mod(ALIGN_BINNING_OPTIONS.size)]) }
+        // Filter/Binning share a row (user request) — same tap-to-cycle idiom as the Sequence
+        // tab's own filter chip (cycleBlockFilter), reusing the same real filter-wheel position
+        // list. Filter's chip is replaced by a read-only display of the real current filter
+        // (Capture module's own FilterPosCombo — same physical wheel) while "Use current filter"
+        // is on, matching the real widget's own disabled state (Align::checkFilter sets
+        // alignFilter->setEnabled(false) in that branch) rather than letting a tap silently do
+        // nothing.
+        Row(Modifier.fillMaxWidth()) {
+            Column(Modifier.weight(1f)) {
+                FieldLabel("Filter")
+                Spacer(Modifier.height(5.dp))
+                if (a.alignUseCurrentFilter) {
+                    CycleChip(state.wireCaptureSettings?.FilterPosCombo?.ifBlank { "—" } ?: "—", enabled = false) {}
+                } else {
+                    CycleChip(a.alignFilter) { ctrl.setAlignFilter(FILTER_CYCLE[(FILTER_CYCLE.indexOf(a.alignFilter) + 1).mod(FILTER_CYCLE.size)]) }
+                }
+            }
+            Spacer(Modifier.width(8.dp))
+            Column(Modifier.weight(1f)) {
+                FieldLabel("Binning")
+                Spacer(Modifier.height(5.dp))
+                CycleChip(a.alignBinning) { ctrl.setAlignBinning(ALIGN_BINNING_OPTIONS[(ALIGN_BINNING_OPTIONS.indexOf(a.alignBinning) + 1).mod(ALIGN_BINNING_OPTIONS.size)]) }
+            }
+        }
         Spacer(Modifier.height(16.dp))
         HDivider()
         Spacer(Modifier.height(16.dp))
@@ -981,9 +1006,14 @@ private fun AlignSettingsSheet(state: AppState, ctrl: SessionController) {
     }
 }
 
-/** Tap-to-cycle chip shared by [AlignSettingsSheet]'s filter/binning fields. */
+/**
+ * Tap-to-cycle chip shared by [AlignSettingsSheet]'s filter/binning fields. [enabled] false (the
+ * "use current filter" branch — real `Align::checkFilter` disables `alignFilter` the same way)
+ * drops the clickable modifier and dims the text, rather than leaving a tap that silently does
+ * nothing on an otherwise-normal-looking chip.
+ */
 @Composable
-private fun CycleChip(value: String, onTap: () -> Unit) {
+private fun CycleChip(value: String, enabled: Boolean = true, onTap: () -> Unit) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     Box(
@@ -991,11 +1021,11 @@ private fun CycleChip(value: String, onTap: () -> Unit) {
             .height(48.dp)
             .background(c.bg, RoundedCornerShape(4.dp))
             .border(1.dp, c.divider, RoundedCornerShape(4.dp))
-            .clickable(onClick = onTap)
+            .then(if (enabled) Modifier.clickable(onClick = onTap) else Modifier)
             .padding(horizontal = 12.dp),
         contentAlignment = Alignment.CenterStart,
     ) {
-        TextC(value, style = t.Body13, color = c.text)
+        TextC(value, style = t.Body13, color = if (enabled) c.text else c.textFaint)
     }
 }
 

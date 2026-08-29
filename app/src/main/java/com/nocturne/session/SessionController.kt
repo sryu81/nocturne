@@ -189,6 +189,10 @@ interface SessionController {
     fun setAlignExposure(sec: Double)
     fun setAlignGain(gain: Double)
     fun setAlignFilter(filter: String)
+    /** Real `alignUseCurrentFilter` checkbox — see [com.nocturne.protocol.WireAlignSettings]'s own
+     * doc. When on, a solve never changes the filter (uses whatever's actually loaded); when off,
+     * [setAlignFilter]'s fixed choice force-switches the filter on every solve. */
+    fun setAlignUseCurrentFilter(enabled: Boolean)
     fun setAlignBinning(binning: String)
     fun setAlignAccuracyThreshold(arcsec: Double)
     /** `kcfg_AstrometryRotatorThreshold` (M5, docs/STATUS.md), arcminutes — see

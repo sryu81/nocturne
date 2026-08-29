@@ -375,6 +375,9 @@ abstract class AbstractLocalSessionController : SessionController {
     override open fun setAlignFilter(filter: String) = update { s ->
         s.copy(wireAlignSettings = s.wireAlignSettings?.copy(alignFilter = filter))
     }
+    override open fun setAlignUseCurrentFilter(enabled: Boolean) = update { s ->
+        s.copy(wireAlignSettings = s.wireAlignSettings?.copy(alignUseCurrentFilter = enabled))
+    }
     override open fun setAlignBinning(binning: String) = update { s ->
         s.copy(wireAlignSettings = s.wireAlignSettings?.copy(alignBinning = binning))
     }

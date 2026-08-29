@@ -280,6 +280,24 @@ there (general camera monitoring, not framing).
 Compiles + unit tests pass; not live-verified (needs a real network round-trip + a real target
 selection to see the cutout render, neither exercised by the unit test suite).
 
+**7th pass, same day — real bug found: Align's Filter chip was always force-switching, never
+respecting "use current filter".** User: "filter should not change but only set the value with
+current filter settings." Confirmed against real source (`align_devices.cpp:583/590`,
+`Align::checkFilter`): real Ekos has a whole separate `alignUseCurrentFilter` checkbox (`align.ui:739`,
+already in the reference doc's own live-verified field list, just never modeled here) — checked
+means a solve **never** changes the filter (forced to whatever's actually loaded); unchecked means
+`alignFilter` is a fixed choice a solve force-switches to *every time, even mid-sequence*.
+Nocturne's Filter chip only ever implemented the unchecked/fixed behavior — every solve was silently
+forcing a filter switch regardless of what was actually loaded, with no way to turn that off.
+Added `WireAlignSettings.alignUseCurrentFilter` + `setAlignUseCurrentFilter` end-to-end (same
+`sendAlignSetting`/reflection path as every sibling field), new "Use current filter" switch in
+`AlignSettingsSheet`; when on, the Filter chip becomes a disabled, dimmed, non-clickable display of
+the real current filter (`wireCaptureSettings.FilterPosCombo`) instead of a live editable
+control — matches the real widget's own `setEnabled(false)` behavior rather than leaving a tap that
+silently does nothing. `CycleChip` gained an `enabled` param for this (drops `clickable`, dims text).
+**Also, user request**: Filter and Binning fields now share one row (two weighted columns) instead
+of stacking full-width.
+
 ### Simulator removal
 Full inventory (`SessionController` 179 methods vs `EkosRemoteController`'s 124 overrides) done
 before touching anything — found a few of the un-overridden 55 (`setRotatorAngle`/`setDomeOpen`)

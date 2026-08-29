@@ -965,6 +965,16 @@ data class WireAlignSettings(
     val alignBinning: String = "1x1",
     val alignAccuracyThreshold: Double = 30.0,
     /**
+     * Real `QCheckBox` (`align.ui:739`) — confirmed against `align_devices.cpp:583/590`
+     * (`Align::checkFilter`): when checked, `alignFilter`'s combo is **disabled** and forced to
+     * whatever the filter wheel is actually on (`m_FilterManager->getFilterPosition()`) — a solve
+     * never changes the filter. When unchecked, `alignFilter` is a fixed user choice that a solve
+     * *does* force-switch to every time, even mid-sequence. Was missing from this model entirely
+     * — Nocturne's own Filter chip always behaved like the unchecked/fixed case, silently forcing
+     * a filter switch on every solve regardless of what was actually loaded.
+     */
+    val alignUseCurrentFilter: Boolean = false,
+    /**
      * The Align module's solver-action radio group — what real Ekos does automatically after a
      * successful `align_solve`, confirmed live: `nothingR` (report only, the real default),
      * `slewR` (re-slew onto the solved position for real — this is what a real "goto & center"
