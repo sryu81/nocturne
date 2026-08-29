@@ -143,14 +143,15 @@ fun ControlsScreen(
                                 }
                             }
                         },
-                        // M5 (docs/STATUS.md) — real camera FOV reticle. Same displayRotation
-                        // formula as Plan tab's FramingCard (PlanScreen.kt) — both read the same
-                        // AppState.rotatorAngle, kept visually in sync between the two tabs.
+                        // M5 (docs/STATUS.md) — real camera FOV reticle, rotated to the real
+                        // CURRENT camera angle from the last solve (wireRotatorCurrentPA), NOT the
+                        // target-angle slider — same fix/reasoning as Plan tab's FramingCard
+                        // (PlanScreen.kt), user correction: the box shows where the camera
+                        // actually is, not where it's meant to go.
                         overlay = {
                             val fovDeg = state.framingFovDeg
-                            val displayRotation = (-11.0 - (state.rotatorAngle - 118.4)).toFloat()
                             FovOverlayBox(
-                                rotationDeg = displayRotation,
+                                rotationDeg = state.wireRotatorCurrentPA?.toFloat() ?: 0f,
                                 aspectW = (fovDeg?.first ?: 246.0).toFloat(),
                                 aspectH = (fovDeg?.second ?: 166.0).toFloat(),
                                 modifier = Modifier.align(Alignment.Center).fillMaxWidth(0.7f),

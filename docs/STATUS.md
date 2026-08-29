@@ -236,6 +236,21 @@ does not affect plate solving at all, matches the "not mandatory" principle exac
   to let the user set it themselves, not a one-off SSH edit.
 Compiles + unit tests pass; not yet live-verified (same as the rest of this session's M5 work).
 
+**5th pass, same day — user correction: the FOV box was rotated to the wrong angle.** It had been
+wired to the target-PA slider (`state.rotatorAngle`) in both Plan tab's `FramingCard` and Controls
+tab's Primary Camera overlay — user's own intent was always the real **current** camera angle from
+the last solve (`wireRotatorCurrentPA`), not the target. Fixed in both places: `rotationDeg` now
+reads `state.wireRotatorCurrentPA?.toFloat() ?: 0f` (honest 0°/unrotated until a solve has actually
+run this connection, not a guess). Dropped the old prototype-calibrated `-11°`/`118.4°` offset along
+with it — that calibration was specific to the target-angle slider's own default and doesn't carry
+over; no established real correspondence between this angle and Compose's `.rotate()` direction is
+confirmed yet anyway (same open question as `NewPolarState`'s vector `pa` field). Also: added a
+"Plate solve here" button to `FramingCard` (same `ctrl::plateSolveHere`/`align_solve` as Controls
+tab's `AlignSolveCard`) directly under the slider — lets the box refresh without leaving for
+Controls tab. Renamed the slider's row label "Rotator" → "Target angle" (composable renamed
+`RotatorRow` → `TargetAngleRow`) — it stopped being a generic rotator knob once it became the real
+`align_set_target_pa` control.
+
 ### Simulator removal
 Full inventory (`SessionController` 179 methods vs `EkosRemoteController`'s 124 overrides) done
 before touching anything — found a few of the un-overridden 55 (`setRotatorAngle`/`setDomeOpen`)

@@ -60,8 +60,10 @@ import com.nocturne.session.framingPixelScaleArcsecPerPx
 import com.nocturne.ui.components.AltitudeChart
 import com.nocturne.ui.components.altitudeToChartY
 import com.nocturne.ui.components.IconBtn
+import com.nocturne.ui.components.BtnStyle
 import com.nocturne.ui.components.FovOverlayBox
 import com.nocturne.ui.components.MediaFramePreview
+import com.nocturne.ui.components.NocturneButton
 import com.nocturne.ui.components.PlanChip
 import com.nocturne.ui.components.TabItem
 import com.nocturne.ui.components.TabPane
@@ -611,8 +613,14 @@ private fun EditableField(label: String, value: String, onChange: (String) -> Un
 private fun FramingCard(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
-    // Preserves the prototype's exact -11° pose at the default 118.4° angle; tracks live from there.
-    val displayRotation = (-11.0 - (state.rotatorAngle - 118.4)).toFloat()
+    // Box rotation is the real CURRENT camera angle from the last solve (wireRotatorCurrentPA,
+    // align_manual_rotator_status push) — NOT the target-angle slider. User correction: the box
+    // represents where the camera actually is right now, per the solve, not where it's meant to
+    // go. 0° (unrotated) until a solve has actually run this connection — honest "unknown yet"
+    // default, not a guess. No calibrated offset applied (unlike the old target-only version) —
+    // there's no established real correspondence between this angle and Compose's .rotate()
+    // direction to calibrate against yet, same open question as NewPolarState's vector `pa` field.
+    val currentAngleRotation = state.wireRotatorCurrentPA?.toFloat() ?: 0f
     // Was a literal "FRAMING · 2600MM + 550MM" (the fixture's own default camera/scope,
     // TrainAssignment("ASI2600MM Pro", "Field APO" @ 550mm) baked in as a static string —
     // never wired to either real or fixture optical-train data since M1's port). Now reflects
@@ -649,11 +657,11 @@ private fun FramingCard(state: AppState, ctrl: SessionController) {
         ) {
             // Real live preview (M4.2's MediaFramePreview, same source SnapPanel uses in
             // Controls tab) — was a purely decorative HatchBg forever, no image behind the
-            // rotated box at all. FovOverlayBox on top shows the *desired* framing orientation
-            // relative to whatever's actually in the real image underneath.
+            // rotated box at all. FovOverlayBox on top shows the *current* real camera angle
+            // (see currentAngleRotation's own doc above) relative to whatever's in the image.
             MediaFramePreview(state.latestCaptureFrame, Modifier.fillMaxSize(), hatchColor = c.divider)
             FovOverlayBox(
-                rotationDeg = displayRotation,
+                rotationDeg = currentAngleRotation,
                 aspectW = (fovDeg?.first ?: 246.0).toFloat(),
                 aspectH = (fovDeg?.second ?: 166.0).toFloat(),
                 modifier = Modifier.align(Alignment.Center).fillMaxWidth(0.7f),
@@ -665,17 +673,28 @@ private fun FramingCard(state: AppState, ctrl: SessionController) {
             )
         }
         Spacer(Modifier.height(11.2.dp))
-        RotatorRow(angle = state.rotatorAngle, onAngleChange = ctrl::setRotatorAngle)
+        TargetAngleRow(angle = state.rotatorAngle, onAngleChange = ctrl::setRotatorAngle)
+        Spacer(Modifier.height(8.dp))
+        // Lets the user re-solve right from this card to refresh the box above without leaving
+        // for Controls tab — same real align_solve/captureAndSolve as AlignSolveCard there.
+        NocturneButton(
+            text = "Plate solve here",
+            onClick = ctrl::plateSolveHere,
+            style = BtnStyle.SUBTLE,
+            modifier = Modifier.fillMaxWidth().height(38.dp),
+        )
     }
 }
 
+/** M5 (docs/STATUS.md) — was labeled "Rotator" before this slider was repurposed as the real
+ * target-PA control (align_set_target_pa); renamed for what it actually sets now. */
 @Composable
-private fun RotatorRow(angle: Double, onAngleChange: (Double) -> Unit) {
+private fun TargetAngleRow(angle: Double, onAngleChange: (Double) -> Unit) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val frac = (angle / 360.0).toFloat().coerceIn(0f, 1f)
     Row(verticalAlignment = Alignment.CenterVertically) {
-        TextC("Rotator", style = t.Caption, color = c.textMuted, modifier = Modifier.width(56.dp))
+        TextC("Target angle", style = t.Caption, color = c.textMuted, modifier = Modifier.width(84.dp))
         Canvas(
             Modifier
                 .weight(1f)
