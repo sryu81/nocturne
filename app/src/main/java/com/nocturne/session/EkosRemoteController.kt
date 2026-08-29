@@ -20,6 +20,7 @@ import com.nocturne.protocol.SchedulerJobStatus
 import com.nocturne.protocol.WireSchedulerJob
 import com.nocturne.protocol.bitmaskToRoles
 import com.nocturne.transport.EkosRemoteClient
+import com.nocturne.transport.ReferenceImageClient
 import com.nocturne.transport.RigRebootClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -70,6 +71,10 @@ class EkosRemoteController(
 
     /** Name a `profile_delete` was just sent for — checked against the next [EkosEvent.Profiles]. */
     private var pendingProfileDelete: String? = null
+
+    /** M5 (docs/STATUS.md) — plain internet fetch, not wire-protocol-dependent at all; see
+     * [ensureReferenceImage]/[ReferenceImageClient]'s own docs. */
+    private val referenceImageClient = ReferenceImageClient()
 
     // Plan tab search bookkeeping (M3 §4) — astro_get_objects_info/riseset can reply in
     // either order, so the latest of each is kept here and merged into wireSearchResults
@@ -922,6 +927,7 @@ class EkosRemoteController(
     override fun selectTarget(id: String) {
         super.selectTarget(id)
         ensureTargetRiseset(id)
+        ensureReferenceImage(id)
     }
 
     /**
@@ -939,6 +945,34 @@ class EkosRemoteController(
         if (pendingTargetRisesetName == name || _state.value.wireTargetRiseset?.name == name) return
         pendingTargetRisesetName = name
         client.sendCommand(Commands.ASTRO_GET_OBJECTS_RISESET, buildJsonObject { putJsonArray("names") { add(name) } })
+    }
+
+    /**
+     * Real DSS reference-image cutout (M5, docs/STATUS.md) — direct internet fetch, not a wire
+     * command at all (see [ReferenceImageClient]'s own doc: the first non-Pi network call in this
+     * app). Padding factor (1.4×) over the camera's own real FOV ([AppState.framingFovDeg]) so the
+     * drawn FOV box doesn't sit flush against the cutout's edge; falls back to a plausible
+     * placeholder FOV pre-connection (matches [FramingCard]'s own literal readout default) rather
+     * than skipping the fetch outright, so the reference image is still useful before Ekos/CCD_INFO
+     * ever arrives. Skips entirely if this exact target is already cached — same dedup shape as
+     * [ensureTargetRiseset], cheap to call on every [selectTarget].
+     */
+    override fun ensureReferenceImage(targetId: String) {
+        val s = _state.value
+        if (s.referenceImageForTargetId == targetId) return
+        val target = s.findTarget(targetId) ?: return
+        val (raDeg, decDeg) = target.raDecDegrees ?: return
+        val fovDeg = (s.framingFovDeg?.let { maxOf(it.first, it.second) } ?: 2.4) * 1.4
+        _state.update { it.copy(referenceImageForTargetId = targetId, referenceImageJpeg = null) }
+        scope.launch {
+            val jpeg = referenceImageClient.fetchCutout(raDeg, decDeg, fovDeg)
+            // Only apply if the framed target hasn't changed again while this was in flight —
+            // a fast double-tap through search results shouldn't let a slow first fetch land on
+            // top of a since-selected second target.
+            if (_state.value.referenceImageForTargetId == targetId) {
+                _state.update { it.copy(referenceImageJpeg = jpeg) }
+            }
+        }
     }
 
     /**

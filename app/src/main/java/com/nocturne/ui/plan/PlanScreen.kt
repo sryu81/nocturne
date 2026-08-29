@@ -126,7 +126,7 @@ fun PlanScreen(
             TabItem(full = true) { ResultsList(state, ctrl, matches, live = state.wireSearchResults != null) },
             TabItem(full = true) { UserCatalogSection(state, ctrl, userMatches) },
             TabItem(full = true) { TargetCard(state, ctrl, tgt) },
-            TabItem(full = true) { FramingCard(state, ctrl) },
+            TabItem(full = true) { FramingCard(state, ctrl, tgt) },
             TabItem(full = true) {
                 Column(Modifier.fillMaxWidth()) {
                     Row(Modifier.fillMaxWidth()) {
@@ -610,17 +610,23 @@ private fun EditableField(label: String, value: String, onChange: (String) -> Un
 }
 
 @Composable
-private fun FramingCard(state: AppState, ctrl: SessionController) {
+private fun FramingCard(state: AppState, ctrl: SessionController, tgt: Target) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
-    // Box rotation is the real CURRENT camera angle from the last solve (wireRotatorCurrentPA,
-    // align_manual_rotator_status push) — NOT the target-angle slider. User correction: the box
-    // represents where the camera actually is right now, per the solve, not where it's meant to
-    // go. 0° (unrotated) until a solve has actually run this connection — honest "unknown yet"
-    // default, not a guess. No calibrated offset applied (unlike the old target-only version) —
-    // there's no established real correspondence between this angle and Compose's .rotate()
-    // direction to calibrate against yet, same open question as NewPolarState's vector `pa` field.
+    LaunchedEffect(tgt.id) { ctrl.ensureReferenceImage(tgt.id) }
+    // Box rotation, current: the real CURRENT camera angle from the last solve
+    // (wireRotatorCurrentPA, align_manual_rotator_status push) — solid, c.warn. User correction:
+    // this box represents where the camera actually is right now, per the solve, not where it's
+    // meant to go. 0° (unrotated) until a solve has actually run this connection — honest
+    // "unknown yet" default, not a guess.
     val currentAngleRotation = state.wireRotatorCurrentPA?.toFloat() ?: 0f
+    // Box rotation, target: the slider's own real align_set_target_pa value — dashed, c.accent,
+    // shown separately from the current box above (both were being conflated into one box
+    // before this pass — the target-angle box had gone missing entirely). No calibrated offset
+    // applied to either — there's no established real correspondence between these angles and
+    // Compose's .rotate() direction confirmed yet, same open question as NewPolarState's vector
+    // `pa` field.
+    val targetAngleRotation = state.rotatorAngle.toFloat()
     // Was a literal "FRAMING · 2600MM + 550MM" (the fixture's own default camera/scope,
     // TrainAssignment("ASI2600MM Pro", "Field APO" @ 550mm) baked in as a static string —
     // never wired to either real or fixture optical-train data since M1's port). Now reflects
@@ -655,15 +661,32 @@ private fun FramingCard(state: AppState, ctrl: SessionController) {
                 .height(240.dp)
                 .background(c.surfaceDeep, RoundedCornerShape(10.dp)),
         ) {
-            // Real live preview (M4.2's MediaFramePreview, same source SnapPanel uses in
-            // Controls tab) — was a purely decorative HatchBg forever, no image behind the
-            // rotated box at all. FovOverlayBox on top shows the *current* real camera angle
-            // (see currentAngleRotation's own doc above) relative to whatever's in the image.
-            MediaFramePreview(state.latestCaptureFrame, Modifier.fillMaxSize(), hatchColor = c.divider)
+            // Real DSS reference-image cutout (M5, docs/STATUS.md), NOT the main camera's own
+            // captured frame — user's explicit call: framing is about the sky the target sits
+            // in, not whatever this session's camera has captured so far. MediaFramePreview's
+            // existing ByteArray? overload handles the null-until-fetched/offline case the same
+            // honest way it always has (hatch placeholder), no new fallback logic needed here.
+            MediaFramePreview(state.referenceImageJpeg, Modifier.fillMaxSize(), hatchColor = c.divider)
+            if (state.referenceImageJpeg == null) {
+                TextC(
+                    if (state.referenceImageForTargetId == tgt.id) "fetching reference image…" else "no reference image yet",
+                    style = t.Caption, color = c.textFaint,
+                    modifier = Modifier.align(Alignment.Center),
+                )
+            }
+            FovOverlayBox(
+                rotationDeg = targetAngleRotation,
+                aspectW = (fovDeg?.first ?: 246.0).toFloat(),
+                aspectH = (fovDeg?.second ?: 166.0).toFloat(),
+                color = c.accent,
+                dashed = true,
+                modifier = Modifier.align(Alignment.Center).fillMaxWidth(0.7f),
+            )
             FovOverlayBox(
                 rotationDeg = currentAngleRotation,
                 aspectW = (fovDeg?.first ?: 246.0).toFloat(),
                 aspectH = (fovDeg?.second ?: 166.0).toFloat(),
+                color = c.warn,
                 modifier = Modifier.align(Alignment.Center).fillMaxWidth(0.7f),
             )
             TextC(

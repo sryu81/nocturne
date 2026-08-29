@@ -406,6 +406,20 @@ data class AppState(
      * target changes; check `.name` matches the framed target before trusting it — real-rig only.
      */
     val wireTargetRiseset: WireRiseset? = null,
+    /**
+     * Real astronomy reference-image cutout (M5, docs/STATUS.md) for the Plan tab's Framing card
+     * — a real DSS sky survey image centered on the framed target's own RA/Dec, fetched from CDS
+     * Strasbourg's `hips2fits` service (`transport/ReferenceImageClient.kt`) — **the first direct
+     * internet call this app makes that isn't to the Pi itself**, worth remembering next time the
+     * network/trust-model doc gets revisited. User's explicit call: use this over the Plan tab's
+     * own just-captured live camera frame (which used to sit behind the FOV box there) — framing
+     * is about the sky the target actually sits in, not whatever this session's own camera has
+     * captured so far. [referenceImageForTargetId] guards against a stale image surviving a target
+     * switch before the new fetch lands; null jpeg (fetch failed/offline/no internet) falls back to
+     * an honest placeholder, not a silently wrong image.
+     */
+    val referenceImageJpeg: ByteArray? = null,
+    val referenceImageForTargetId: String? = null,
     /** Companion reboot daemon's port on the rig's Pi — separate from the EkosRemote wire port (see `pi-tools/reboot-daemon/`). */
     val rigRebootPort: Int = 9001,
     /** Whether a reboot token has been configured — the token itself never enters [AppState] (kept only inside the controller), so nothing display-worthy leaks it into logs/recompositions. */
@@ -1231,6 +1245,26 @@ val Target.displayName: String get() = if (custom) common else "$id — $common"
  * better (if still not guaranteed to resolve) choice.
  */
 val Target.realLookupName: String get() = if (custom) common.ifBlank { id } else id.ifBlank { common }
+
+/**
+ * Real J2000 RA/Dec as decimal degrees (M5, docs/STATUS.md — reference-image fetch). Prefers
+ * [Target.ra0]/[Target.de0] when set (real, only populated for live search results — `ra0` is in
+ * **hours**, confirmed against [formatRaHours]'s own param name, so `* 15.0` converts to degrees;
+ * `de0` is already degrees). Falls back to parsing [Target.coords]'s own "HHhMMmSSs ±DD°MM′SS″"
+ * string (every target has one, fixture/custom included) with the same shape
+ * [EkosRemoteController]'s `COORDS_REGEX` matches for the scheduler wire — just computed into
+ * actual degrees here instead of re-formatted sexagesimal strings. Null only for a free-text
+ * custom target whose `coords` doesn't match this shape at all.
+ */
+val Target.raDecDegrees: Pair<Double, Double>?
+    get() {
+        if (ra0 != null && de0 != null) return (ra0 * 15.0) to de0
+        val m = Regex("""(\d+)h(\d+)m(\d+)s\s+([+-])(\d+)°(\d+)′(\d+)″""").find(coords) ?: return null
+        val (rh, rm, rs, sign, dd, dm, ds) = m.destructured
+        val raDeg = (rh.toDouble() + rm.toDouble() / 60.0 + rs.toDouble() / 3600.0) * 15.0
+        val decMag = dd.toDouble() + dm.toDouble() / 60.0 + ds.toDouble() / 3600.0
+        return raDeg to (if (sign == "-") -decMag else decMag)
+    }
 
 /**
  * Real "is a scheduler job actually imaging right now" check (M4.5) — decides Preview/ vs Plan/

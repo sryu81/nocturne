@@ -24,6 +24,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -421,22 +422,46 @@ fun MediaFramePreviewFile(filePath: String?, modifier: Modifier = Modifier, hatc
 }
 
 /**
- * Camera FOV reticle (M5, docs/STATUS.md) — a transparent-fill, `c.warn`-bordered rectangle
- * overlaid on a live preview, rotated to the current target position angle. `c.warn` reused
- * deliberately rather than a new color: already a warm orange-tan tone (see
- * [com.nocturne.ui.theme.NocturneColor]), already used for the meridian-flip label elsewhere, and
- * transparent fill keeps whatever's actually in the preview underneath visible. [aspectW]/[aspectH]
- * come from real [com.nocturne.session.AppState.framingFovDeg] when available; callers fall back to
- * a fixed ratio otherwise so this always renders something reasonable pre-connection.
+ * Camera FOV reticle (M5, docs/STATUS.md) — a transparent-fill rectangle overlaid on a live/
+ * reference preview, rotated to a real camera position angle. Two real angles share this
+ * composable, distinguished by [color]/[dashed] at the call site (not baked in here): the
+ * **current** angle from the last solve (`wireRotatorCurrentPA`) — solid, `c.warn` (an existing
+ * warm orange-tan tone, already used for the meridian-flip label elsewhere) — and the **target**
+ * angle the slider is set to (`AppState.rotatorAngle`) — dashed, `c.accent`, since it's a goal, not
+ * a measurement. Transparent fill either way keeps whatever's underneath visible. [aspectW]/
+ * [aspectH] come from real [com.nocturne.session.AppState.framingFovDeg] when available; callers
+ * fall back to a fixed ratio otherwise so this always renders something reasonable pre-connection.
  */
 @Composable
-fun FovOverlayBox(rotationDeg: Float, aspectW: Float, aspectH: Float, modifier: Modifier = Modifier) {
-    val c = NocturneTheme.colors
+fun FovOverlayBox(
+    rotationDeg: Float,
+    aspectW: Float,
+    aspectH: Float,
+    modifier: Modifier = Modifier,
+    color: Color = NocturneTheme.colors.warn,
+    dashed: Boolean = false,
+) {
+    val strokePx = with(androidx.compose.ui.platform.LocalDensity.current) { 1.5.dp.toPx() }
     Box(
         modifier
             .aspectRatio(aspectW / aspectH)
             .rotate(rotationDeg)
-            .border(1.5.dp, c.warn),
+            .then(
+                if (dashed) {
+                    Modifier.drawWithContent {
+                        drawContent()
+                        drawRect(
+                            color = color,
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                width = strokePx,
+                                pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(strokePx * 4, strokePx * 3)),
+                            ),
+                        )
+                    }
+                } else {
+                    Modifier.border(1.5.dp, color)
+                },
+            ),
     )
 }
 

@@ -234,6 +234,9 @@ abstract class AbstractLocalSessionController : SessionController {
     override fun selectTarget(id: String) = update { it.copy(targetId = id) }
     // Fixture has no real astro engine to query — AltitudeChart keeps its decorative curve.
     override fun ensureTargetRiseset(targetId: String) {}
+    // No CoroutineScope at this layer to launch the real fetch from (EkosRemoteController has
+    // one) — matches ensureTargetRiseset's own no-op-here shape.
+    override fun ensureReferenceImage(targetId: String) {}
 
     override fun togglePref(key: String) = update { s ->
         s.copy(prefs = s.prefs + (key to !(s.prefs[key] ?: false)))

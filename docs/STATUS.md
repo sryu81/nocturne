@@ -251,6 +251,35 @@ Controls tab. Renamed the slider's row label "Rotator" → "Target angle" (compo
 `RotatorRow` → `TargetAngleRow`) — it stopped being a generic rotator knob once it became the real
 `align_set_target_pa` control.
 
+**6th pass, same day — user follow-up on filter/binning, the missing target box, and the
+background image.** Checked `AlignSettingsSheet` directly: "Filter"/"Binning" fields were already
+there (M3.3), nothing to add — told the user plainly rather than duplicating. Confirmed a real
+regression from the 5th pass: switching the single box to current-angle-only had silently dropped
+the target-angle representation entirely, with no replacement. Fixed by giving `FovOverlayBox` a
+`color`/`dashed` param (dash via a custom `drawWithContent`+`Stroke(pathEffect=dashPathEffect)`,
+`.border()` has no dash support) and drawing **two** boxes in `FramingCard`: target (dashed,
+`c.accent`, `state.rotatorAngle`) and current (solid, `c.warn`, `state.wireRotatorCurrentPA`) —
+same two composable calls, distinguished visually rather than conflated into one.
+
+**Bigger change, explicit user instruction**: `FramingCard`'s background swapped from the main
+camera's own just-captured frame (`state.latestCaptureFrame`) to a real DSS sky-survey cutout
+centered on the framed target — "framing is about the sky the target sits in, not whatever this
+session's camera has captured." New `transport/ReferenceImageClient.kt` (plain OkHttp GET, same
+callback shape as the existing `RigRebootClient`) hits CDS Strasbourg's public `hips2fits` service
+— **the first direct internet call this app makes that isn't to the Pi** (see the Network section's
+own update above). Real RA/Dec resolution added as `Target.raDecDegrees` (prefers real `ra0`/`de0`
+when a live search result set them — `ra0` confirmed in **hours**, `×15` for degrees; falls back to
+parsing the same `coords` sexagesimal string every target already carries, fixture/custom included).
+Fetch triggered from `selectTarget` (`ensureReferenceImage`, same dedup-by-target-id shape as the
+existing `ensureTargetRiseset`) plus a `LaunchedEffect(tgt.id)` in `FramingCard` for the
+never-explicitly-selected default target case. Cached in `AppState.referenceImageJpeg`/
+`referenceImageForTargetId`; null jpeg (offline/failed/still fetching) shows an honest text
+placeholder over the hatch background rather than silently looking broken. Controls tab's own
+Primary Camera preview is intentionally untouched — still the real live capture, which is correct
+there (general camera monitoring, not framing).
+Compiles + unit tests pass; not live-verified (needs a real network round-trip + a real target
+selection to see the cutout render, neither exercised by the unit test suite).
+
 ### Simulator removal
 Full inventory (`SessionController` 179 methods vs `EkosRemoteController`'s 124 overrides) done
 before touching anything — found a few of the un-overridden 55 (`setRotatorAngle`/`setDomeOpen`)
@@ -270,6 +299,15 @@ norm of not leaving inert-looking UI around once a feature's real scope is under
 
 Prompted by: app is used on a closed local network today, but the user anticipates outside security
 review at some point and wants the real trust model documented honestly, not assumed.
+
+**Update, M5 reference-image fetch (2026-08-29)**: `transport/ReferenceImageClient.kt` is the
+**first direct internet call this app makes that isn't to the Pi itself** — a plain HTTPS GET to CDS
+Strasbourg's `hips2fits` service for a real DSS sky cutout, keyed on the framed target's RA/Dec. No
+credentials, no data sent beyond RA/Dec/FOV (all already visible in the app's own UI). Depends on the
+*phone's own* internet access, separate from the rig LAN — fails independently of Pi connectivity.
+Doesn't change the threat model documented below (that's specifically about the EkosRemote channel
+to the Pi), but is a real, new outbound dependency worth listing here for completeness next time this
+section gets audited.
 
 ### Current state (confirmed by reading the fork's actual source, not the app's docs about it)
 

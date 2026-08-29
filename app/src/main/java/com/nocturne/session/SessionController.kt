@@ -72,6 +72,9 @@ interface SessionController {
     fun selectTarget(id: String)
     /** Fetch real per-target altitude data for the Plan tab's altitude chart, if not already cached. */
     fun ensureTargetRiseset(targetId: String)
+    /** Fetch a real DSS reference-image cutout for the Plan tab's Framing card, if not already
+     * cached for this target (M5, docs/STATUS.md — see AppState.referenceImageJpeg's own doc). */
+    fun ensureReferenceImage(targetId: String)
     fun togglePref(key: String)
     fun toggleQuietHours()
     fun toggleCut(id: String)
