@@ -292,7 +292,12 @@ class EkosRemoteController(
         )
         is EkosEvent.NewFocusState -> s.copy(wireFocusStatus = event.status)
         is EkosEvent.NewGuideState -> s.copy(wireGuideStatus = event.status)
-        is EkosEvent.NewAlignState -> s.copy(wireAlignStatus = event.status)
+        // Merges non-null fields rather than overwriting — see NewAlignState's own doc: status
+        // and solution are two entirely independent real senders sharing this one push name.
+        is EkosEvent.NewAlignState -> s.copy(
+            wireAlignStatus = event.status ?: s.wireAlignStatus,
+            wireAlignSolution = event.solution ?: s.wireAlignSolution,
+        )
         // Merges non-null fields rather than overwriting — see NewManualRotatorStatus's own doc
         // for why, even though no partial shape has actually been observed live for this one yet.
         is EkosEvent.NewManualRotatorStatus -> s.copy(

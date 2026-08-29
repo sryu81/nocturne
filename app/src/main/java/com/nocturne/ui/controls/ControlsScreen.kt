@@ -144,14 +144,16 @@ fun ControlsScreen(
                             }
                         },
                         // M5 (docs/STATUS.md) — real camera FOV reticle, rotated to the real
-                        // CURRENT camera angle from the last solve (wireRotatorCurrentPA), NOT the
-                        // target-angle slider — same fix/reasoning as Plan tab's FramingCard
-                        // (PlanScreen.kt), user correction: the box shows where the camera
-                        // actually is, not where it's meant to go.
+                        // CURRENT camera angle, NOT the target-angle slider — same fix/reasoning
+                        // as Plan tab's FramingCard (PlanScreen.kt), user correction: the box
+                        // shows where the camera actually is, not where it's meant to go. Prefers
+                        // wireAlignSolution.PA (every successful solve, unconditional) over
+                        // wireRotatorCurrentPA (only arrives when rotator_control is on) — see
+                        // FramingCard's own doc for the same fallback reasoning.
                         overlay = {
                             val fovDeg = state.framingFovDeg
                             FovOverlayBox(
-                                rotationDeg = state.wireRotatorCurrentPA?.toFloat() ?: 0f,
+                                rotationDeg = (state.wireAlignSolution?.PA ?: state.wireRotatorCurrentPA)?.toFloat() ?: 0f,
                                 aspectW = (fovDeg?.first ?: 246.0).toFloat(),
                                 aspectH = (fovDeg?.second ?: 166.0).toFloat(),
                                 modifier = Modifier.align(Alignment.Center).fillMaxWidth(0.7f),
@@ -170,7 +172,7 @@ fun ControlsScreen(
             // card headers like "COOLER"/"FOCUSER · MANUAL") signals the seam without a second
             // full SectionHeader weight.
             add(TabItem(full = true) { SectionHeader("PLATE SOLVE", sub = true) })
-            add(TabItem(full = true) { AlignSolveCard(ctrl) })
+            add(TabItem(full = true) { AlignSolveCard(state, ctrl) })
             add(TabItem(full = true) { RotatorControlCard(state, ctrl) })
             add(TabItem { AlignSettingsCard(state, ctrl) })
 
@@ -791,15 +793,29 @@ private fun GuideControlCard(state: AppState, ctrl: SessionController) {
     }
 }
 
-/** Extracted from the old Bench `MountCard` — `align_solve` is the Align module's own action, not Mount's. No controller change, same [ctrl.plateSolveHere] call as before. */
+/**
+ * Extracted from the old Bench `MountCard` — `align_solve` is the Align module's own action, not
+ * Mount's. No controller change, same [ctrl.plateSolveHere] call as before. Real solving status
+ * (`wireAlignStatus`, M5 docs/STATUS.md) added below the button — was decoded since M2 but never
+ * displayed anywhere in the app until this pass; real vocabulary (`ekos.h`): Idle/Complete/Failed/
+ * Aborted/In Progress/Successful/Syncing/Slewing/Rotating/Suspended.
+ */
 @Composable
-private fun AlignSolveCard(ctrl: SessionController) {
-    NocturneButton(
-        text = "Plate solve here",
-        onClick = ctrl::plateSolveHere,
-        style = BtnStyle.SUBTLE,
-        modifier = Modifier.fillMaxWidth().height(38.dp),
-    )
+private fun AlignSolveCard(state: AppState, ctrl: SessionController) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    Column {
+        NocturneButton(
+            text = "Plate solve here",
+            onClick = ctrl::plateSolveHere,
+            style = BtnStyle.SUBTLE,
+            modifier = Modifier.fillMaxWidth().height(38.dp),
+        )
+        state.wireAlignStatus?.let {
+            Spacer(Modifier.height(6.dp))
+            TextC(it, style = t.Caption, color = c.textMuted)
+        }
+    }
 }
 
 /**

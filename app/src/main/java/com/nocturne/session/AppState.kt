@@ -5,6 +5,7 @@ import com.nocturne.data.FrameSource
 import com.nocturne.protocol.ACTIVE_SCHEDULER_STATES
 import com.nocturne.protocol.DeviceRole
 import com.nocturne.protocol.WireAlignSettings
+import com.nocturne.protocol.WireAlignSolution
 import com.nocturne.protocol.WireCaptureSettings
 import com.nocturne.protocol.WireFocusSettings
 import com.nocturne.protocol.WireGuideSettings
@@ -200,7 +201,14 @@ data class AppState(
     val wireMountPierSide: Int? = null,
     val wireFocusStatus: String? = null,
     val wireGuideStatus: String? = null,
+    /** Real vocabulary (`ekos.h`): `Idle`/`Complete`/`Failed`/`Aborted`/`In Progress`/
+     * `Successful`/`Syncing`/`Slewing`/`Rotating`/`Suspended` — not shown anywhere in the UI as of
+     * M5 (docs/STATUS.md), found while auditing solve-result wiring. */
     val wireAlignStatus: String? = null,
+    /** Real solve result, every successful solve — see [com.nocturne.protocol.WireAlignSolution]'s
+     * own doc for why this is the *correct* primary source for a "current camera angle" display,
+     * unlike the rotator-diff-gated [wireRotatorCurrentPA] below. */
+    val wireAlignSolution: WireAlignSolution? = null,
     val wirePolarStage: String? = null,
     /** `new_polar_state`'s `enabled`/`message` fields — decoded since [EkosEvent.NewPolarState]
      * models them, but unused until Polar Alignment gets real wiring; kept alongside

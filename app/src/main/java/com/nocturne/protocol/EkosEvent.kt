@@ -53,8 +53,22 @@ sealed interface EkosEvent {
     @Serializable
     data class NewGuideState(val status: String) : EkosEvent
 
+    /**
+     * `new_align_state` push — **a 4th occurrence of this repo's own standing decode lesson**
+     * (see [NewMountState]/[NewPolarState]/[NewManualRotatorStatus]'s own docs). Confirmed against
+     * the real fork source (`message.cpp:942-969`): `Message::setAlignStatus` (`{"status"}`) and
+     * `Message::setAlignSolution` (`{"solution"}`) are **two entirely independent senders sharing
+     * this one event name** — never combined. The old model here required `status`, so every real
+     * `{"solution"}`-only push (fires on **every successful solve**, unconditionally — not gated
+     * on `rotator_control` the way [com.nocturne.session.AppState.wireRotatorCurrentPA] is) failed
+     * to decode and silently degraded to [Raw]. The real solved PA/RA/Dec/pointing-error data was
+     * being discarded outright, not merely unused.
+     */
     @Serializable
-    data class NewAlignState(val status: String) : EkosEvent
+    data class NewAlignState(
+        val status: String? = null,
+        val solution: WireAlignSolution? = null,
+    ) : EkosEvent
 
     /**
      * `align_manual_rotator_status` push (M5, docs/STATUS.md) — **server push only**, no request
@@ -324,6 +338,35 @@ data class WirePolarVector(
     val error: Double? = null,
     val azError: Double? = null,
     val altError: Double? = null,
+)
+
+/**
+ * `new_align_state`'s `solution` field (M5, docs/STATUS.md — `Message::setAlignSolution`,
+ * `align_solver.cpp:875-891`) — the real result of every successful solve, unconditional (unlike
+ * [com.nocturne.session.AppState.wireRotatorCurrentPA], which only arrives when `rotator_control`
+ * is on). [pa] is the real solved position angle — the correct primary source for the Framing
+ * card's/Controls tab's "current camera angle" FOV box, confirmed against
+ * [EkosEvent.NewAlignState]'s own doc. [targetDiff] is the real total pointing error (arcsec) the
+ * solve's own goto/sync accuracy is judged against (`alignAccuracyThreshold`). All fields
+ * nullable/defaulted per this repo's standing decode norm, even though the real sender constructs
+ * every field together in one `QJsonObject` literal (no independently-partial shape confirmed for
+ * this one specifically) — cheap insurance, matches every sibling model.
+ */
+@Serializable
+data class WireAlignSolution(
+    val camera: String? = null,
+    val ra: String? = null,
+    @SerialName("ra.Hours") val raHours: Double? = null,
+    @SerialName("de.Degrees") val deDegrees: Double? = null,
+    val de: String? = null,
+    val dRA: Double? = null,
+    val dDE: Double? = null,
+    val dAZ: Double? = null,
+    val dAL: Double? = null,
+    val targetDiff: Double? = null,
+    val pix: Double? = null,
+    val PA: Double? = null,
+    val fov: String? = null,
 )
 
 /**

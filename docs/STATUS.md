@@ -310,6 +310,29 @@ ignored server-side; a later debounced `align_get_all_settings` reply then corre
 local display back to "B", producing exactly the "shows Ha, then switches back" symptom reported
 live. Fixed: same `realFilterNames ?: FILTER_CYCLE` pattern as its siblings.
 
+**9th pass, same day — user review question surfaced a real 4th occurrence of this repo's own
+decode-bug pattern.** Asked whether solve results are wired to Framing/Main-camera views and
+whether solving status shows anywhere. Checked: **no on both**, and found the actual solve *result*
+(not just status) was never modeled at all. Confirmed against `message.cpp:942-969`:
+`Message::setAlignStatus` (`{"status"}`) and `Message::setAlignSolution` (`{"solution"}`) are two
+entirely independent senders sharing the `new_align_state` push name — `NewAlignState` required
+`status`, so every real solution-only push (fires on **every successful solve**, unconditionally)
+silently failed to decode. Same class of bug as `NewMountState`/`NewPolarState`/
+`NewManualRotatorStatus` — 4th occurrence now. Fixed: both fields defaulted/merged, new
+`WireAlignSolution` (`camera`/`ra`/`ra.Hours`/`de.Degrees`/`de`/`dRA`/`dDE`/`dAZ`/`dAL`/
+`targetDiff`/`pix`/`PA`/`fov`, confirmed against `align_solver.cpp:875-891`'s real `QJsonObject`
+literal). `solution.PA` is the real solved position angle, sent on every solve — the *correct*
+primary source for the FOV boxes' current-angle rotation, since it's unconditional, unlike
+`wireRotatorCurrentPA` (only arrives when `rotator_control` is on, `false` by default on this rig).
+Both `FramingCard` and Controls tab's overlay now prefer `wireAlignSolution.PA`, falling back to
+`wireRotatorCurrentPA` only if a solve's own result hasn't landed yet. Also added: real solving
+status (`wireAlignStatus` — decoded since M2, never displayed anywhere in the app until now) shown
+in both `FramingCard` (top-right of the preview box) and `AlignSolveCard` (under the Solve button).
+Real vocabulary (`ekos.h`): `Idle`/`Complete`/`Failed`/`Aborted`/`In Progress`/`Successful`/
+`Syncing`/`Slewing`/`Rotating`/`Suspended` — "Rotating" specifically fires during the rotator-diff
+wait, directly relevant to this feature and previously invisible. Compiles + unit tests pass, not
+live-verified.
+
 ### Simulator removal
 Full inventory (`SessionController` 179 methods vs `EkosRemoteController`'s 124 overrides) done
 before touching anything — found a few of the un-overridden 55 (`setRotatorAngle`/`setDomeOpen`)

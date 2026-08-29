@@ -614,12 +614,15 @@ private fun FramingCard(state: AppState, ctrl: SessionController, tgt: Target) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     LaunchedEffect(tgt.id) { ctrl.ensureReferenceImage(tgt.id) }
-    // Box rotation, current: the real CURRENT camera angle from the last solve
-    // (wireRotatorCurrentPA, align_manual_rotator_status push) — solid, c.warn. User correction:
-    // this box represents where the camera actually is right now, per the solve, not where it's
-    // meant to go. 0° (unrotated) until a solve has actually run this connection — honest
-    // "unknown yet" default, not a guess.
-    val currentAngleRotation = state.wireRotatorCurrentPA?.toFloat() ?: 0f
+    // Box rotation, current: the real CURRENT camera angle from the last solve — solid, c.warn.
+    // User correction: this box represents where the camera actually is right now, per the
+    // solve, not where it's meant to go. Prefers wireAlignSolution.PA (M5, docs/STATUS.md) — the
+    // real solved PA from `new_align_state`'s solution field, sent on *every* successful solve
+    // unconditionally — over wireRotatorCurrentPA, which only ever arrives when rotator_control
+    // is on (confirmed false by default on this rig). Falls back to the rotator push if a solve's
+    // solution hasn't landed yet but a rotator-diff push somehow has. 0° (unrotated) until either
+    // has arrived this connection — honest "unknown yet" default, not a guess.
+    val currentAngleRotation = (state.wireAlignSolution?.PA ?: state.wireRotatorCurrentPA)?.toFloat() ?: 0f
     // Box rotation, target: the slider's own real align_set_target_pa value — dashed, c.accent,
     // shown separately from the current box above (both were being conflated into one box
     // before this pass — the target-angle box had gone missing entirely). No calibrated offset
@@ -694,6 +697,15 @@ private fun FramingCard(state: AppState, ctrl: SessionController, tgt: Target) {
                 style = t.Mono115, color = c.accent400,
                 modifier = Modifier.align(Alignment.TopStart).padding(top = 6.dp, start = 8.dp),
             )
+            // Real solving status (M5, docs/STATUS.md) — wireAlignStatus was decoded but shown
+            // nowhere in the app until now; real vocabulary (ekos.h): Idle/Complete/Failed/
+            // Aborted/In Progress/Successful/Syncing/Slewing/Rotating/Suspended.
+            state.wireAlignStatus?.let {
+                TextC(
+                    it, style = t.Mono115, color = c.accent400,
+                    modifier = Modifier.align(Alignment.TopEnd).padding(top = 6.dp, end = 8.dp),
+                )
+            }
         }
         Spacer(Modifier.height(11.2.dp))
         TargetAngleRow(angle = state.rotatorAngle, onAngleChange = ctrl::setRotatorAngle)
