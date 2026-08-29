@@ -57,6 +57,22 @@ sealed interface EkosEvent {
     data class NewAlignState(val status: String) : EkosEvent
 
     /**
+     * `align_manual_rotator_status` push (M5, docs/STATUS.md) — **server push only**, no request
+     * handler (`Message::sendManualRotatorStatus`, message.cpp:2731): `{currentPA, targetPA,
+     * threshold}`, all 3 always sent together per the one real call site. Still defaulted/merged
+     * non-null rather than required, matching this repo's standing defensive-decode norm for any
+     * new event type (the same required-field mistake has silently degraded pushes to [Raw] 3
+     * times already — see [NewMountState]/[NewPolarState]'s own docs) even though no partial
+     * shape has actually been observed live yet for this one.
+     */
+    @Serializable
+    data class NewManualRotatorStatus(
+        val currentPA: Double? = null,
+        val targetPA: Double? = null,
+        val threshold: Double? = null,
+    ) : EkosEvent
+
+    /**
      * `new_polar_state` push. Real pushes arrive as independent **partial** shapes, confirmed
      * against the 5 real sender functions in `message.cpp` (`Message::setPAHStage`/
      * `setPAHMessage`/`setPolarResults`/`setUpdatedErrors`/`setPAHEnabled`) — `{"stage"}` alone,

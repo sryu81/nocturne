@@ -60,8 +60,8 @@ Doc is planning-only; **nothing below has been implemented** as of this writing.
 - [x] Step 3 — goto + center (already real, pre-existing)
 - [ ] Step 1 — star chart with target centered — blocked on M4.5 Part B's catalog work
 - [ ] Step 2 — rotator angle set — UI-only, **no rotator wire command exists on this protocol at all**
-- [ ] Step 4 — show current vs. desired angle — real commands identified but unused (`align_manual_rotator_toggle`/`_status`), 0% wired
-- [ ] Step 5 — manual snapshot / auto CAA — same as step 4, 0% wired
+- [x] Step 4 — show current vs. desired angle — `align_manual_rotator_toggle`/`_status` wired (`NewManualRotatorStatus`, `ManualRotatorSection` on Plan tab's Framing card)
+- [x] Step 5 — auto-drive a real rotator — `align_set_astrometry_settings`'s `rotator_control` bool wired, gated on `TrainAssignment.rotator != "None"`. "Manual snapshot" half not built (no snapshot/capture trigger exists on this path) — auto-drive-only for now
 - [x] Step 6 decision — "Add to sequence" stays local-editor-first, no auto-push — deliberate, not a gap
 
 ### Simulator removal (complete, `28225a2`)
@@ -123,11 +123,18 @@ catalog + geometric-hash match; scale is free from the real header's `focal_leng
 ### M5
 Biggest finding: real Ekos already ships a purpose-built rotator angle-readback + auto-adjust
 feature (`align_manual_rotator_toggle`/`_status`, server push `{currentPA, targetPA, threshold}`,
-plus `align_set_astrometry_settings`'s `rotator_control` bool) — currently **0% wired** in this app.
-Rotator-hardware presence is already answerable from existing data (`TrainAssignment.rotator`,
-`"None"` vs a real device name) with no new detection needed. Decided implementation order (not yet
-executed): star chart first, then steps 4+5, then repurpose/drop the step-2 knob, then revisit step
-3's fixed-`delay()` heuristic.
+plus `align_set_astrometry_settings`'s `rotator_control` bool) — was 0% wired, **now wired** (steps
+4/5, this pass): new `EkosEvent.NewManualRotatorStatus` (defaults+merge-non-null per the repo's
+standing decode norm, though only one real payload shape is documented for this push), `toggleManualRotator`/
+`setRotatorAutoControl` on `SessionController` (local-only stub in `AbstractLocalSessionController`,
+real send in `EkosRemoteController`), `ManualRotatorSection` on the Plan tab's Framing card —
+readback only shown once toggled on, auto-drive switch only shown when `TrainAssignment.rotator !=
+"None"`. Compiles + unit tests pass; **not yet live-verified against the real rig** (no rotator
+hardware confirmed present on this rig as of writing — auto-drive switch may never show live; the
+manual-toggle/readback half doesn't need one). Rotator-hardware presence was already answerable
+from existing data (`TrainAssignment.rotator`) with no new detection needed. Skipped for now: step
+2's local-only knob (`RotatorRow`) left as-is, not yet repurposed/dropped; step 3's fixed-`delay()`
+heuristic not revisited; step 1 (star chart) still blocked on Part B's catalog work.
 
 ### Simulator removal
 Full inventory (`SessionController` 179 methods vs `EkosRemoteController`'s 124 overrides) done

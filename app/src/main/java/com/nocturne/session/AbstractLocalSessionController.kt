@@ -379,6 +379,11 @@ abstract class AbstractLocalSessionController : SessionController {
         s.copy(wireAlignSettings = s.wireAlignSettings?.copy(alignAccuracyThreshold = arcsec))
     }
 
+    // M5 rotator (docs/STATUS.md steps 4/5) — local-only intent, no PA readback exists to
+    // populate without a real connection (EkosRemoteController overrides both to also send).
+    override open fun toggleManualRotator(enabled: Boolean) = update { it.copy(manualRotatorToggled = enabled) }
+    override open fun setRotatorAutoControl(enabled: Boolean) = update { it.copy(rotatorAutoControl = enabled) }
+
     // Guide settings (M3.3 phase 4): same shape as Align above —
     // nothing populates wireGuideSettings here, so these are dead in practice
     // (the settings card/sheet are real-rig-gated) but kept consistent with the pattern.

@@ -187,6 +187,14 @@ interface SessionController {
     fun setAlignBinning(binning: String)
     fun setAlignAccuracyThreshold(arcsec: Double)
 
+    // ── M5: rotator angle-readback + auto-drive (docs/STATUS.md M5 steps 4/5) ──
+    /** `align_manual_rotator_toggle` — starts/stops Ekos's own manual-rotator feedback loop
+     * (current-vs-target PA readback, watch [com.nocturne.session.AppState.wireRotatorCurrentPA]). */
+    fun toggleManualRotator(enabled: Boolean)
+    /** `align_set_astrometry_settings`'s `rotator_control` bool — auto-drives a *real* rotator
+     * device toward target PA instead of requiring a manual by-hand turn. */
+    fun setRotatorAutoControl(enabled: Boolean)
+
     // ── M3.3 phase 4: Guide settings (curated subset, see docs/M3.3-plan.md) ──
     // Named setGuide* (not setGuidePreview*, see below) to avoid colliding with the
     // pre-existing Bench "Snap guide" preview setters.

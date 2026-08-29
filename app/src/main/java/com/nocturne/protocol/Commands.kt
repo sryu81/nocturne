@@ -67,6 +67,9 @@ object Commands {
     const val MOUNT_SET_TRACKING = "mount_set_tracking"
     const val MOUNT_GOTO_TARGET = "mount_goto_target"
     const val ALIGN_SOLVE = "align_solve"
+    // M5 — rotator angle-readback + auto-drive (docs/STATUS.md M5 steps 4/5).
+    const val ALIGN_MANUAL_ROTATOR_TOGGLE = "align_manual_rotator_toggle"
+    const val ALIGN_SET_ASTROMETRY_SETTINGS = "align_set_astrometry_settings"
     const val CAPTURE_SET_ALL_SETTINGS = "capture_set_all_settings"
 
     // M3.3 — per-module settings (curated subset, see docs/M3.3-plan.md).

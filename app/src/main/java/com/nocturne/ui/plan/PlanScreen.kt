@@ -64,6 +64,7 @@ import com.nocturne.ui.components.altitudeToChartY
 import com.nocturne.ui.components.HatchBg
 import com.nocturne.ui.components.IconBtn
 import com.nocturne.ui.components.PlanChip
+import com.nocturne.ui.components.SwitchRow
 import com.nocturne.ui.components.TabItem
 import com.nocturne.ui.components.TabPane
 import com.nocturne.ui.components.TextC
@@ -663,6 +664,57 @@ private fun FramingCard(state: AppState, ctrl: SessionController) {
         }
         Spacer(Modifier.height(11.2.dp))
         RotatorRow(angle = state.rotatorAngle, onAngleChange = ctrl::setRotatorAngle)
+        Spacer(Modifier.height(4.dp))
+        ManualRotatorSection(state = state, ctrl = ctrl)
+    }
+}
+
+/**
+ * M5 steps 4/5 (docs/STATUS.md) — Ekos's own current-vs-target PA readback for framing at a
+ * specific angle, real `align_manual_rotator_toggle`/`align_manual_rotator_status` wiring. The
+ * [RotatorRow] slider above this is step 2's local-only knob (no wire command exists for it,
+ * unrelated to this section — see that composable's own history) and is left as-is.
+ */
+@Composable
+private fun ManualRotatorSection(state: AppState, ctrl: SessionController) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    val hasRealRotator = state.primaryTrain.rotator != "None"
+    Column {
+        SwitchRow(
+            label = "Manual rotator",
+            sub = "Ekos reports current vs. target camera angle while you turn it by hand",
+            checked = state.manualRotatorToggled,
+            onToggle = { ctrl.toggleManualRotator(!state.manualRotatorToggled) },
+        )
+        if (state.manualRotatorToggled) {
+            val current = state.wireRotatorCurrentPA
+            val target = state.wireRotatorTargetPA
+            val threshold = state.wireRotatorThreshold
+            if (current != null && target != null) {
+                val diff = kotlin.math.abs(target - current)
+                val within = threshold != null && diff <= threshold
+                Row(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 4.dp)) {
+                    TextC("Now ${"%.1f".format(current)}° → Target ${"%.1f".format(target)}°", style = t.Mono13, color = c.text)
+                    Spacer(Modifier.weight(1f))
+                    TextC(
+                        if (within) "within threshold" else "Δ${"%.1f".format(diff)}°",
+                        style = t.Caption,
+                        color = if (within) c.accent else c.textMuted,
+                    )
+                }
+            } else {
+                TextC("waiting for Ekos…", style = t.Caption, color = c.textFaint, modifier = Modifier.padding(top = 4.dp, bottom = 4.dp))
+            }
+        }
+        if (hasRealRotator) {
+            SwitchRow(
+                label = "Auto-drive rotator",
+                sub = "Real ${state.primaryTrain.rotator} — drive to target PA automatically instead of by hand",
+                checked = state.rotatorAutoControl,
+                onToggle = { ctrl.setRotatorAutoControl(!state.rotatorAutoControl) },
+            )
+        }
     }
 }
 

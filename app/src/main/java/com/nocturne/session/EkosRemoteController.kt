@@ -288,6 +288,13 @@ class EkosRemoteController(
         is EkosEvent.NewFocusState -> s.copy(wireFocusStatus = event.status)
         is EkosEvent.NewGuideState -> s.copy(wireGuideStatus = event.status)
         is EkosEvent.NewAlignState -> s.copy(wireAlignStatus = event.status)
+        // Merges non-null fields rather than overwriting — see NewManualRotatorStatus's own doc
+        // for why, even though no partial shape has actually been observed live for this one yet.
+        is EkosEvent.NewManualRotatorStatus -> s.copy(
+            wireRotatorCurrentPA = event.currentPA ?: s.wireRotatorCurrentPA,
+            wireRotatorTargetPA = event.targetPA ?: s.wireRotatorTargetPA,
+            wireRotatorThreshold = event.threshold ?: s.wireRotatorThreshold,
+        )
         // Merges non-null fields rather than overwriting — real pushes are partial (see
         // NewPolarState's own doc), so a message-only or vector-only frame must not null out a
         // previously-known stage (or vice versa).
@@ -1307,6 +1314,31 @@ class EkosRemoteController(
     override fun setAlignAccuracyThreshold(arcsec: Double) {
         sendAlignSetting("alignAccuracyThreshold", JsonPrimitive(arcsec))
         super.setAlignAccuracyThreshold(arcsec)
+    }
+
+    /**
+     * `align_manual_rotator_toggle` (M5, docs/STATUS.md) — real request `{"toggled": bool}`, no
+     * direct reply; readback arrives via the separate push-only `align_manual_rotator_status`
+     * (wired below). Real Ekos's own Align-tab feature for a by-hand camera-rotation workflow —
+     * turns the camera manually while Ekos reports current-vs-target PA, independent of whether a
+     * real rotator device exists at all.
+     */
+    override fun toggleManualRotator(enabled: Boolean) {
+        client.sendCommand(Commands.ALIGN_MANUAL_ROTATOR_TOGGLE, buildJsonObject { put("toggled", enabled) })
+        super.toggleManualRotator(enabled)
+    }
+
+    /**
+     * `align_set_astrometry_settings`'s `rotator_control` bool (M5) — writes straight to `Options`
+     * (message.cpp:890), a separate reflection path from [sendAlignSetting]'s
+     * `align_set_all_settings`, not a field on [com.nocturne.protocol.WireAlignSettings]. Only
+     * meaningful when the primary train has a real rotator device
+     * ([com.nocturne.session.AppState.primaryTrain]`.rotator != "None"`) — auto-drives it toward
+     * the target PA instead of requiring [toggleManualRotator]'s by-hand turn.
+     */
+    override fun setRotatorAutoControl(enabled: Boolean) {
+        client.sendCommand(Commands.ALIGN_SET_ASTROMETRY_SETTINGS, buildJsonObject { put("rotator_control", enabled) })
+        super.setRotatorAutoControl(enabled)
     }
 
     /**

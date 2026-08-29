@@ -33,6 +33,7 @@ object EkosEventCodec {
                 "new_focus_state" -> protocolJson.decodeFromJsonElement<EkosEvent.NewFocusState>(envelope.payload)
                 "new_guide_state" -> protocolJson.decodeFromJsonElement<EkosEvent.NewGuideState>(envelope.payload)
                 "new_align_state" -> protocolJson.decodeFromJsonElement<EkosEvent.NewAlignState>(envelope.payload)
+                "align_manual_rotator_status" -> protocolJson.decodeFromJsonElement<EkosEvent.NewManualRotatorStatus>(envelope.payload)
                 "new_polar_state" -> protocolJson.decodeFromJsonElement<EkosEvent.NewPolarState>(envelope.payload)
                 "new_scheduler_state" -> protocolJson.decodeFromJsonElement<EkosEvent.NewSchedulerState>(envelope.payload)
                 "new_camera_state" -> protocolJson.decodeFromJsonElement<EkosEvent.NewCameraState>(envelope.payload)
