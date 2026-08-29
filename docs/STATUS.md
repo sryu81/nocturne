@@ -298,6 +298,18 @@ silently does nothing. `CycleChip` gained an `enabled` param for this (drops `cl
 **Also, user request**: Filter and Binning fields now share one row (two weighted columns) instead
 of stacking full-width.
 
+**8th pass, same day — real bug found live: cycling the Filter chip showed a filter that doesn't
+exist on the real wheel, then snapped back.** Root cause: the fixed-filter cycle (`else` branch
+above) cycled the fixture `FILTER_CYCLE` (`["Ha","OIII","SII","L","R","G","B"]`) unconditionally,
+never the real filter wheel's own slot names (`AppState.realFilterNames`) — every other filter-cycle
+chip in the app (Controls tab, Sequence tab's block editor) already prefers
+`realFilterNames ?: FILTER_CYCLE`; this one, pre-existing since M3.3 and untouched by the 7th pass's
+edit, never did. Cycling past this rig's real last slot ("B") wrapped into "Ha" — a fixture name,
+not a real one — which the real Align combo has no matching entry for, so the set was silently
+ignored server-side; a later debounced `align_get_all_settings` reply then corrected the optimistic
+local display back to "B", producing exactly the "shows Ha, then switches back" symptom reported
+live. Fixed: same `realFilterNames ?: FILTER_CYCLE` pattern as its siblings.
+
 ### Simulator removal
 Full inventory (`SessionController` 179 methods vs `EkosRemoteController`'s 124 overrides) done
 before touching anything — found a few of the un-overridden 55 (`setRotatorAngle`/`setDomeOpen`)

@@ -44,6 +44,7 @@ import com.nocturne.session.RigRebootState
 import com.nocturne.session.formatIndiNumber
 import com.nocturne.session.formatSiteTime
 import com.nocturne.session.realDeviceOptions
+import com.nocturne.session.realFilterNames
 import com.nocturne.session.realNightWindow
 import com.nocturne.session.PREF_DEFS
 import com.nocturne.session.SessionController
@@ -978,7 +979,14 @@ private fun AlignSettingsSheet(state: AppState, ctrl: SessionController) {
                 if (a.alignUseCurrentFilter) {
                     CycleChip(state.wireCaptureSettings?.FilterPosCombo?.ifBlank { "—" } ?: "—", enabled = false) {}
                 } else {
-                    CycleChip(a.alignFilter) { ctrl.setAlignFilter(FILTER_CYCLE[(FILTER_CYCLE.indexOf(a.alignFilter) + 1).mod(FILTER_CYCLE.size)]) }
+                    // Real bug, found live: this used to cycle the fixture FILTER_CYCLE
+                    // unconditionally, same as every other filter-cycle chip in the app used to
+                    // before switching to realFilterNames — cycling past this rig's real last
+                    // slot wrapped into a fixture name ("Ha") that doesn't exist on the real
+                    // wheel, silently rejected server-side, then snapped back once a later
+                    // debounced align_get_all_settings reply corrected the optimistic local guess.
+                    val filterNames = state.realFilterNames ?: FILTER_CYCLE
+                    CycleChip(a.alignFilter) { ctrl.setAlignFilter(filterNames[(filterNames.indexOf(a.alignFilter) + 1).mod(filterNames.size)]) }
                 }
             }
             Spacer(Modifier.width(8.dp))
