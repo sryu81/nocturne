@@ -202,13 +202,19 @@ data class AppState(
     val wireFocusStatus: String? = null,
     val wireGuideStatus: String? = null,
     /** Real vocabulary (`ekos.h`): `Idle`/`Complete`/`Failed`/`Aborted`/`In Progress`/
-     * `Successful`/`Syncing`/`Slewing`/`Rotating`/`Suspended` — not shown anywhere in the UI as of
-     * M5 (docs/STATUS.md), found while auditing solve-result wiring. */
+     * `Successful`/`Syncing`/`Slewing`/`Rotating`/`Suspended` — shown in `FramingCard`/
+     * `AlignSolveCard` as of M5 (docs/STATUS.md). */
     val wireAlignStatus: String? = null,
     /** Real solve result, every successful solve — see [com.nocturne.protocol.WireAlignSolution]'s
      * own doc for why this is the *correct* primary source for a "current camera angle" display,
      * unlike the rotator-diff-gated [wireRotatorCurrentPA] below. */
     val wireAlignSolution: WireAlignSolution? = null,
+    /** Real `new_notification` stream (M4.5 half A, docs/STATUS.md) — newest first, capped at
+     * [MAX_NOTIFICATIONS] (this is a genuinely unbounded real event stream over a whole session,
+     * not a single mutable current-value push like every other `wire*` field here). Deduplicated
+     * by the real `uuid` field — a reconnect could plausibly replay recent events, confirmed no
+     * such replay guarantee exists on this wire either way, so guarding costs nothing. */
+    val wireNotifications: List<Alert> = emptyList(),
     val wirePolarStage: String? = null,
     /** `new_polar_state`'s `enabled`/`message` fields — decoded since [EkosEvent.NewPolarState]
      * models them, but unused until Polar Alignment gets real wiring; kept alongside
@@ -1519,24 +1525,30 @@ internal fun AppState.mapJob(jobId: String, f: (SequenceJob) -> SequenceJob): Ap
 internal fun AppState.mapJobBlock(jobId: String, blockId: String, f: (Block) -> Block): AppState =
     mapJob(jobId) { job -> job.copy(blocks = job.blocks.map { if (it.id == blockId) f(it) else it }) }
 
+/**
+ * Real `new_notification` push (M4.5 half A, docs/STATUS.md) — replaces the old fixture `Alert`
+ * (invented `warn`/`cut`/`cloud`/`ok`/`AlertIcon` categories with zero real basis) with the actual
+ * wire fields. [source]/[severity] are the raw real `KSNotification::EventSource`/`EventType`
+ * enum ints — see [EkosEvent.NewNotification]'s own doc for the full value tables and
+ * [sourceLabel]/[severityLabel] below for human-readable text.
+ */
 data class Alert(
-    val text: String,
+    val uuid: String,
+    val message: String,
     val time: String,
-    val warn: Boolean,
-    val cut: Boolean,
-    val cloud: Boolean,
-    val ok: Boolean,
-    val iconKind: AlertIcon,
+    val source: Int,
+    val severity: Int,
 )
 
-enum class AlertIcon { FLIP, SCISSORS, CLOUD, CHECKS }
+private val ALERT_SOURCE_LABELS = listOf("General", "INDI", "Capture", "Focus", "Align", "Mount", "Guide", "Observatory", "Scheduler")
+private val ALERT_SEVERITY_LABELS = listOf("Debug", "Info", "Warn", "Alert")
+val Alert.sourceLabel: String get() = ALERT_SOURCE_LABELS.getOrNull(source) ?: "Unknown"
+val Alert.severityLabel: String get() = ALERT_SEVERITY_LABELS.getOrNull(severity) ?: "Unknown"
 
-val ALERTS = listOf(
-    Alert("Meridian flip in 42 min — mount will pause, re-guide, resume", "02:18", warn = true, cut = false, cloud = false, ok = false, AlertIcon.FLIP),
-    Alert("Sub 017 cut — HFR 2.94 above 2.80 threshold", "01:06", warn = false, cut = true, cloud = false, ok = false, AlertIcon.SCISSORS),
-    Alert("Cloud passed, guiding recovered after 14 min", "01:18", warn = false, cut = false, cloud = true, ok = false, AlertIcon.CLOUD),
-    Alert("Autofocus complete — 18 422, HFR 2.27", "00:41", warn = false, cut = false, cloud = false, ok = true, AlertIcon.CHECKS),
-)
+/** Cap on [AppState.wireNotifications] — a whole session's worth of real events could otherwise
+ * grow unbounded; this is more than enough for the Alerts sheet's own scrollback and the Summary
+ * sheet's session-event log. */
+const val MAX_NOTIFICATIONS = 100
 
 // ── Derived values (mirror the prototype renderVals math) ─────────────────
 

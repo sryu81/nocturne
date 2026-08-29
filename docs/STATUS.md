@@ -46,9 +46,9 @@ Not fixed here (out of this doc's scope) — flagging so it doesn't get trusted 
 - [x] M4.4 Guide/Focus/PA real wiring — fixture `GuideTraceChart`/V-curve deleted outright (not deferred)
 - [x] M4.6 Summary sheet + export wired to real Room frame data (KEPT/DISCARDED/MED HFR)
 - [ ] PA richer vector/correction-arrow overlay — NOT STARTED (folded into M5's scope instead, arguably superseded)
-- [ ] **M4.5 half A — Alerts real wiring** — NOT STARTED: no `NewNotification` EkosEvent case exists; `AlertsSheet` still reads the static `ALERTS` fixture
+- [x] **M4.5 half A — Alerts real wiring** — `NewNotification` EkosEvent added (`new_notification` push, confirmed a genuinely comprehensive real stream — see detail below); `AlertsSheet`/Summary sheet's session-event log/export report/persistent banner all read real `AppState.wireNotifications` now, `ALERTS` fixture deleted
 - [ ] **M4.5 half B — Prefs real wiring** — NOT STARTED: zero `OPTION_GET`/`OPTION_SET` wire constants; `PrefsSheet` is local-only
-- [ ] Summary sheet's session-event log — blocked on the same missing `NewNotification` wiring above
+- [x] Summary sheet's session-event log — real now, same pass as half A above
 
 ### M4.5 — Frame storage, Frames tab restructure, offline plate solver
 - [x] Part A — real on-device frame storage (`FrameFileWriter`, `Preview/<date>/`, `Plan/<target>/`)
@@ -124,6 +124,35 @@ doesn't overwrite), `Plan/<date>/<target>/<target>_<date>_<filter>_<exp>sec_<tem
 Part B (plate solver) design, never started: star-centroid extraction + small bundled bright-star
 catalog + geometric-hash match; scale is free from the real header's `focal_length`/`pixel_size`/
 `bin`, only RA/Dec/rotation need solving for.
+
+**Half A (Alerts), shipped this session** — user's own framing: "M4.5 alarm should be implemented
+along with status... it should have a dedicated bar same position as connection status bar. or use
+the connection status bar to show all app and ekos status and display always on." Investigated the
+real wire first: `new_notification` (`Message::sendEvent`, `message.cpp:2721-2735`) turned out to be
+a genuinely comprehensive stream — `KSNotification::event()` (`ksnotification.cpp:98-113`) is the
+single generic entry point essentially every notable real event anywhere in KStars already routes
+through (mount faults, capture/focus/guide/align failures, scheduler transitions, INDI server
+messages...), gated only by the real `Options::ekosRemoteNotifications()` (default `true`). Shape:
+`{source, severity, message, uuid}`, real `KSNotification::EventSource`/`EventType` enum ints
+(`ksnotification.h`).
+
+Shipped: `EkosEvent.NewNotification`, `AppState.wireNotifications` (real, capped at
+`MAX_NOTIFICATIONS`=100, deduped by `uuid`, newest-first) replacing the old fixture `Alert`/
+`AlertIcon`/`ALERTS` (invented meridian-flip/HFR-cut/cloud/autofocus categories with zero real
+basis) everywhere it was used: `AlertsSheet`, Summary sheet's session-event log, the exported HTML
+report's alert rows. Severity styled with the only 2 severity-relevant Phosphor icons this app has
+(`Warning`/`CheckCircle`) — no new icon assets added.
+
+**Persistent banner, user's explicit design choice** (asked: dedicated new bar vs. extend the
+existing connection banner; latest alert vs. a per-module status dashboard — picked "extend
+existing" + "latest alert"): `NocturneApp.kt`'s top banner — previously hidden entirely once
+`ConnectionState.ONLINE` — now falls back to the newest real alert (severity-colored: danger/warn/
+accent) instead of disappearing, with a tap target to open the full Alerts sheet. A genuine
+connection problem still takes priority and displays exactly as before; the banner is only fully
+hidden when there's neither a connection issue nor any alert yet this session (an honest "nothing
+has happened," not a fixture default). Compiles + unit tests pass, not live-verified — this session
+has no live Ekos connection to actually trigger a real `new_notification` push against (same
+constraint noted in the M5 rotator-control-reapply pass earlier).
 
 ### M5
 Biggest finding: real Ekos already ships a purpose-built rotator angle-readback + auto-adjust

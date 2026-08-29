@@ -319,6 +319,29 @@ sealed interface EkosEvent {
     @Serializable
     data class NewCameraState(val name: String, val temperature: Double) : EkosEvent
 
+    /**
+     * `new_notification` push (M4.5 half A, docs/STATUS.md) — **server push only**, no request
+     * handler (`Message::sendEvent`, `message.cpp:2721-2735`). Confirmed against the real fork
+     * source this is a genuinely comprehensive stream: `KSNotification::event()`
+     * (`ksnotification.cpp:98-113`) is the single generic entry point essentially every notable
+     * real event anywhere in KStars already goes through (mount faults, capture/focus/guide/align
+     * failures, scheduler transitions, INDI server messages...) — routed via
+     * `Manager::announceEvent` → this push, gated only by the real `Options::ekosRemoteNotifications()`
+     * (kcfg default `true`). `source`/`severity` are the raw real `KSNotification::EventSource`/
+     * `EventType` enum ints (`ksnotification.h`): source `0`=General `1`=INDI `2`=Capture
+     * `3`=Focus `4`=Align `5`=Mount `6`=Guide `7`=Observatory `8`=Scheduler; severity `0`=Debug
+     * `1`=Info `2`=Warn `3`=Alert. All 4 fields still defaulted per this repo's standing decode
+     * norm even though the real sender constructs one literal `QJsonObject` with all 4 together
+     * (no independently-partial shape confirmed for this one specifically).
+     */
+    @Serializable
+    data class NewNotification(
+        val source: Int? = null,
+        val severity: Int? = null,
+        val message: String? = null,
+        val uuid: String? = null,
+    ) : EkosEvent
+
     /** Anything not decoded above — unrecognized `type`, or a shape that failed to parse. */
     data class Raw(val type: String, val payload: JsonElement) : EkosEvent
 }

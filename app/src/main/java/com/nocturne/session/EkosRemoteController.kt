@@ -323,6 +323,26 @@ class EkosRemoteController(
         // that isn't already shown. Decoded so it doesn't silently fall through to Raw; no-op here.
         is EkosEvent.NewCameraState -> s
 
+        // Real new_notification stream (M4.5 half A, docs/STATUS.md) — see EkosEvent.NewNotification's
+        // own doc for why this is a genuinely comprehensive event stream, not a narrow one.
+        // Prepended newest-first, deduplicated by the real uuid, capped at MAX_NOTIFICATIONS.
+        is EkosEvent.NewNotification -> {
+            val message = event.message
+            if (message == null) s else {
+                val uuid = event.uuid ?: "$message-${System.nanoTime()}"
+                if (s.wireNotifications.any { it.uuid == uuid }) s else {
+                    val entry = Alert(
+                        uuid = uuid,
+                        message = message,
+                        time = s.formatSiteTime(java.time.Instant.now()),
+                        source = event.source ?: 0,
+                        severity = event.severity ?: 1,
+                    )
+                    s.copy(wireNotifications = (listOf(entry) + s.wireNotifications).take(MAX_NOTIFICATIONS))
+                }
+            }
+        }
+
         // Real ground truth for AppState.schedulerRunning (see that field's own doc) — the
         // `log`-shaped pushes carry no status and are ignored here; only a `status`-shaped push
         // updates it. Real `Ekos::SchedulerState`: IDLE=0/STARTUP=1/RUNNING=2/PAUSED=3/

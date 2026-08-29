@@ -48,7 +48,6 @@ import androidx.navigation.compose.rememberNavController
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.nocturne.protocol.SchedulerJobStatus
 import com.nocturne.protocol.jobStatusLabel
-import com.nocturne.session.ALERTS
 import com.nocturne.session.FlipConfirm
 import com.nocturne.session.SheetType
 import com.nocturne.session.AppState
@@ -154,6 +153,24 @@ private fun NocturneShell(
     val state by vm.ctrl.state.collectAsState()
     val ctrl = vm.ctrl
 
+    // M4.5 half A (docs/STATUS.md) — user's explicit call: extend this same strip to always show
+    // something once connected, rather than disappearing entirely, using the real new_notification
+    // stream. Connection problems (banner != null, passed in from above) still take priority and
+    // look exactly as before; once truly online, this falls back to the latest real alert instead
+    // of leaving the strip hidden. Genuinely nothing to show (no connection issue, zero alerts
+    // this session) is the only case that still hides it — an honest "nothing has happened yet",
+    // not a fixture default.
+    val latestAlert = state.wireNotifications.firstOrNull()
+    val bannerColor = when {
+        banner != null -> colors.warn
+        latestAlert == null -> colors.warn
+        latestAlert.severity >= 3 -> colors.danger
+        latestAlert.severity == 2 -> colors.warn
+        else -> colors.accent
+    }
+    val bannerIcon = if (latestAlert != null && banner == null && latestAlert.severity <= 1) Phosphor.CheckCircle else Phosphor.Warning
+    val bannerText = banner ?: latestAlert?.let { "${it.time} · ${it.message}" }
+
     val configuration = LocalConfiguration.current
     val landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val context = LocalContext.current
@@ -190,21 +207,30 @@ private fun NocturneShell(
             // squeezed as compact as they'll go — landscape keeps a *vertical* tab rail (user's
             // explicit call, a horizontal bar was tried and rejected), which needs every bit of
             // vertical room it can get for all 6 tabs to fit without clipping.
-            if (banner != null) {
+            if (bannerText != null) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(colors.warn.copy(alpha = 0.14f))
+                        .background(bannerColor.copy(alpha = 0.14f))
                         .padding(horizontal = NocturneTheme.spacing.s4, vertical = if (landscape) 3.dp else 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Phosphor.Icon(Phosphor.Warning, size = 13.dp, tint = colors.warn)
+                    Phosphor.Icon(bannerIcon, size = 13.dp, tint = bannerColor)
                     Spacer(Modifier.width(7.dp))
                     Text(
-                        banner,
+                        bannerText,
                         style = NocturneTheme.type.Caption,
-                        color = colors.warn,
+                        color = bannerColor,
+                        modifier = Modifier.weight(1f),
                     )
+                    if (banner == null) {
+                        Text(
+                            "Alerts",
+                            style = NocturneTheme.type.Caption,
+                            color = bannerColor,
+                            modifier = Modifier.clickable { ctrl.openSheet(SheetType.ALERTS) },
+                        )
+                    }
                 }
             }
             // NocturneHeader used to sit here, above this whole Row — meaning the vertical
@@ -239,7 +265,7 @@ private fun NocturneShell(
                                 if (landscape) ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                                 else ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
                         },
-                        alertCount = ALERTS.size,
+                        alertCount = state.wireNotifications.size,
                         onOpenAlerts = { ctrl.openSheet(SheetType.ALERTS) },
                     )
 

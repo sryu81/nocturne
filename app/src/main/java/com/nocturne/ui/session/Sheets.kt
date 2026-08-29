@@ -31,8 +31,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
-import com.nocturne.session.ALERTS
-import com.nocturne.session.AlertIcon
 import com.nocturne.session.DEVICES
 import com.nocturne.session.DRIVER_INDI_PROPS
 import com.nocturne.session.FILTER_CYCLE
@@ -43,6 +41,7 @@ import com.nocturne.session.PA_SECS
 import com.nocturne.session.RigRebootState
 import com.nocturne.session.formatIndiNumber
 import com.nocturne.session.formatSiteTime
+import com.nocturne.session.sourceLabel
 import com.nocturne.session.realDeviceOptions
 import com.nocturne.session.realFilterNames
 import com.nocturne.session.realNightWindow
@@ -94,11 +93,18 @@ import kotlin.math.roundToInt
 /** Tintable big circle icon used in alert rows. */
 private data class AlertStyle(val color: Color, val icon: ImageVector)
 
-private fun alertStyle(a: com.nocturne.session.Alert): AlertStyle = when (a.iconKind) {
-    AlertIcon.FLIP -> AlertStyle(NocturnePalette.Warn, Phosphor.ArrowsClockwise)
-    AlertIcon.SCISSORS -> AlertStyle(NocturnePalette.Danger, Phosphor.Scissors)
-    AlertIcon.CLOUD -> AlertStyle(NocturnePalette.Accent, Phosphor.Cloud)
-    AlertIcon.CHECKS -> AlertStyle(NocturnePalette.Ok, Phosphor.CheckCircle)
+/**
+ * Styled by real severity (M4.5, docs/STATUS.md) — the old version keyed on invented
+ * `AlertIcon` categories (FLIP/SCISSORS/CLOUD/CHECKS) with zero basis in the real wire, which only
+ * ever carries `source`/`severity`. Only 2 severity-relevant Phosphor icons exist in this app
+ * (`Warning`/`CheckCircle`) — real `KSNotification::EventType` (`ksnotification.h`): `Debug`/
+ * `Info`/`Warn`/`Alert`.
+ */
+private fun alertStyle(a: com.nocturne.session.Alert): AlertStyle = when (a.severity) {
+    3 -> AlertStyle(NocturnePalette.Danger, Phosphor.Warning) // Alert
+    2 -> AlertStyle(NocturnePalette.Warn, Phosphor.Warning) // Warn
+    1 -> AlertStyle(NocturnePalette.Ok, Phosphor.CheckCircle) // Info
+    else -> AlertStyle(NocturnePalette.Accent, Phosphor.CheckCircle) // Debug
 }
 
 /** Hosts whichever sheet is open. */
@@ -162,7 +168,7 @@ fun SheetHost(state: AppState, ctrl: SessionController, landscape: Boolean) {
             when (sheet) {
                 SheetType.GUIDE -> GuideSheet(state)
                 SheetType.FOCUS -> FocusSheet(state, ctrl)
-                SheetType.ALERTS -> AlertsSheet(ctrl)
+                SheetType.ALERTS -> AlertsSheet(state, ctrl)
                 SheetType.SUMMARY -> SummarySheet(state, ctrl)
                 SheetType.PA -> PaRealSheet(state, ctrl)
                 SheetType.PREFS -> PrefsSheet(state, ctrl)
@@ -287,11 +293,18 @@ private fun FocusSheet(state: AppState, ctrl: SessionController) {
 // ── Alerts ───────────────────────────────────────────────────────────────
 
 @Composable
-private fun AlertsSheet(ctrl: SessionController) {
+private fun AlertsSheet(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     Column {
-        ALERTS.forEach { a ->
+        // Real new_notification stream (M4.5, docs/STATUS.md) — was the static ALERTS fixture
+        // (invented meridian-flip/HFR-cut/cloud/autofocus scenarios) forever. Honest empty state
+        // instead of a fixture when nothing real has arrived yet this connection.
+        if (state.wireNotifications.isEmpty()) {
+            TextC("No alerts yet this session.", style = t.Body13, color = c.textMuted)
+            Spacer(Modifier.height(11.2.dp))
+        }
+        state.wireNotifications.forEach { a ->
             val st = alertStyle(a)
             Row(
                 Modifier
@@ -304,8 +317,8 @@ private fun AlertsSheet(ctrl: SessionController) {
                 Phosphor.Icon(st.icon, size = 17.dp, tint = st.color, modifier = Modifier.padding(top = 1.dp))
                 Spacer(Modifier.width(11.2.dp))
                 Column(Modifier.weight(1f)) {
-                    TextC(a.text, style = t.Body13, color = c.text)
-                    TextC(a.time, style = t.MonoMicro, color = c.textMuted)
+                    TextC(a.message, style = t.Body13, color = c.text)
+                    TextC("${a.time} · ${a.sourceLabel}", style = t.MonoMicro, color = c.textMuted)
                 }
             }
             Spacer(Modifier.height(8.4.dp))
@@ -2325,15 +2338,17 @@ private fun SummarySheet(state: AppState, ctrl: SessionController) {
         }
         Spacer(Modifier.height(11.2.dp))
         // Was a hardcoded fictional narrative ("Lost 20m — cloud 01:04–01:18...") shown
-        // unconditionally regardless of what actually happened. KEPT/DISCARDED/MED HFR above are
-        // real now (M4.6); this one specifically still isn't — it needs a real notification
-        // stream (`new_notification`, confirmed real shape in docs/M4-plan.md's own M4.5 section)
-        // that this app has never wired at all (no `NewNotification` EkosEvent case, no
-        // `OPTION_GET`/`OPTION_SET` in Commands.kt). Honest placeholder until that lands.
-        TextC(
-            "No session-event log yet — needs real notification wiring (M4.5).",
-            style = t.MonoSmall, color = c.neutral500,
-        )
+        // unconditionally regardless of what actually happened, then an honest placeholder
+        // pending real notification wiring — now real (M4.5 half A, docs/STATUS.md).
+        TextC("SESSION EVENTS", style = t.MicroLabel, color = c.textMuted)
+        Spacer(Modifier.height(6.dp))
+        if (state.wireNotifications.isEmpty()) {
+            TextC("No alerts this session.", style = t.MonoSmall, color = c.neutral500)
+        } else {
+            state.wireNotifications.take(10).forEach {
+                TextC("${it.time} · ${it.message}", style = t.MonoSmall, color = c.neutral500)
+            }
+        }
         Spacer(Modifier.height(11.2.dp))
         val context = androidx.compose.ui.platform.LocalContext.current
         NocturneButton(

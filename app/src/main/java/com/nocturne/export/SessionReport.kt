@@ -3,7 +3,6 @@ package com.nocturne.export
 import android.content.Context
 import android.content.Intent
 import androidx.core.content.FileProvider
-import com.nocturne.session.ALERTS
 import com.nocturne.session.AppState
 import com.nocturne.session.displayName
 import com.nocturne.session.endedJob
@@ -39,9 +38,13 @@ fun buildSessionReportHtml(state: AppState): String {
             "<td>${f.filter ?: "—"}</td><td>${f.hfr?.let { "%.2f".format(it) } ?: "—"}</td><td>$status</td></tr>"
     }
 
-    // Still fixture — blocked on real notification wiring (M4.5, see SummarySheet's own note).
-    val alertRows = ALERTS.joinToString("\n") { a ->
-        "<tr><td>${a.time}</td><td>${a.text}</td></tr>"
+    // Real new_notification stream (M4.5 half A, docs/STATUS.md) — was the static ALERTS fixture.
+    val alertRows = if (state.wireNotifications.isEmpty()) {
+        "<tr><td colspan=\"2\">No alerts this session.</td></tr>"
+    } else {
+        state.wireNotifications.reversed().joinToString("\n") { a ->
+            "<tr><td>${a.time}</td><td>${a.message}</td></tr>"
+        }
     }
 
     // Real dusk/dawn (same `state.realNightWindow` source as `NightArcCard`'s Session-tab fix,

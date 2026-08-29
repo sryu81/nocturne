@@ -37,6 +37,7 @@ object EkosEventCodec {
                 "new_polar_state" -> protocolJson.decodeFromJsonElement<EkosEvent.NewPolarState>(envelope.payload)
                 "new_scheduler_state" -> protocolJson.decodeFromJsonElement<EkosEvent.NewSchedulerState>(envelope.payload)
                 "new_camera_state" -> protocolJson.decodeFromJsonElement<EkosEvent.NewCameraState>(envelope.payload)
+                "new_notification" -> protocolJson.decodeFromJsonElement<EkosEvent.NewNotification>(envelope.payload)
                 "get_profiles" -> protocolJson.decodeFromJsonElement<EkosEvent.Profiles>(envelope.payload)
                 "get_devices" -> EkosEvent.Devices(protocolJson.decodeFromJsonElement(envelope.payload))
                 "device_get" -> {
