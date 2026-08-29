@@ -190,11 +190,10 @@ interface SessionController {
     fun setAlignAccuracyThreshold(arcsec: Double)
 
     // ── M5: rotator angle-readback + auto-drive (docs/STATUS.md M5 steps 4/5) ──
-    /** `align_manual_rotator_toggle` — starts/stops Ekos's own manual-rotator feedback loop
-     * (current-vs-target PA readback, watch [com.nocturne.session.AppState.wireRotatorCurrentPA]). */
-    fun toggleManualRotator(enabled: Boolean)
-    /** `align_set_astrometry_settings`'s `rotator_control` bool — auto-drives a *real* rotator
-     * device toward target PA instead of requiring a manual by-hand turn. */
+    /** `align_set_astrometry_settings`'s `rotator_control` bool — master gate for the whole
+     * rotator feature (real-hardware auto-drive, or the no-hardware manual-diff readback via
+     * [com.nocturne.session.AppState.wireRotatorCurrentPA]) — see [EkosRemoteController]'s own
+     * doc for why it's not just the auto-drive half. */
     fun setRotatorAutoControl(enabled: Boolean)
 
     // ── M3.3 phase 4: Guide settings (curated subset, see docs/M3.3-plan.md) ──

@@ -67,8 +67,9 @@ object Commands {
     const val MOUNT_SET_TRACKING = "mount_set_tracking"
     const val MOUNT_GOTO_TARGET = "mount_goto_target"
     const val ALIGN_SOLVE = "align_solve"
-    // M5 — rotator angle-readback + auto-drive (docs/STATUS.md M5 steps 4/5).
-    const val ALIGN_MANUAL_ROTATOR_TOGGLE = "align_manual_rotator_toggle"
+    // M5 — rotator angle-readback + auto-drive (docs/STATUS.md M5 steps 4/5). Real
+    // align_manual_rotator_toggle also exists but is deliberately unused here — confirmed it
+    // only shows/hides Ekos's own dialog on the Pi's own physical screen, no effect remotely.
     const val ALIGN_SET_ASTROMETRY_SETTINGS = "align_set_astrometry_settings"
     const val ALIGN_SET_TARGET_PA = "align_set_target_pa"
     const val CAPTURE_SET_ALL_SETTINGS = "capture_set_all_settings"

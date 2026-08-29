@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -39,6 +40,7 @@ import com.nocturne.session.captureProgress
 import com.nocturne.session.coolAtSetPoint
 import com.nocturne.session.coolBarPct
 import com.nocturne.session.coolPowerPct
+import com.nocturne.session.framingFovDeg
 import com.nocturne.session.guideCameraDevice
 import com.nocturne.session.indiNumber
 import com.nocturne.session.mountParkedReal
@@ -47,8 +49,10 @@ import com.nocturne.session.paTotal
 import com.nocturne.session.realFilterNames
 import com.nocturne.session.realSlewRateProp
 import com.nocturne.ui.components.BtnStyle
+import com.nocturne.ui.components.FovOverlayBox
 import com.nocturne.ui.components.MediaFramePreview
 import com.nocturne.ui.components.NocturneButton
+import com.nocturne.ui.components.SwitchRow
 import com.nocturne.ui.components.TabItem
 import com.nocturne.ui.components.TabPane
 import com.nocturne.ui.components.TextC
@@ -139,6 +143,19 @@ fun ControlsScreen(
                                 }
                             }
                         },
+                        // M5 (docs/STATUS.md) — real camera FOV reticle. Same displayRotation
+                        // formula as Plan tab's FramingCard (PlanScreen.kt) — both read the same
+                        // AppState.rotatorAngle, kept visually in sync between the two tabs.
+                        overlay = {
+                            val fovDeg = state.framingFovDeg
+                            val displayRotation = (-11.0 - (state.rotatorAngle - 118.4)).toFloat()
+                            FovOverlayBox(
+                                rotationDeg = displayRotation,
+                                aspectW = (fovDeg?.first ?: 246.0).toFloat(),
+                                aspectH = (fovDeg?.second ?: 166.0).toFloat(),
+                                modifier = Modifier.align(Alignment.Center).fillMaxWidth(0.7f),
+                            )
+                        },
                     )
                 },
             )
@@ -153,6 +170,7 @@ fun ControlsScreen(
             // full SectionHeader weight.
             add(TabItem(full = true) { SectionHeader("PLATE SOLVE", sub = true) })
             add(TabItem(full = true) { AlignSolveCard(ctrl) })
+            add(TabItem(full = true) { RotatorControlCard(state, ctrl) })
             add(TabItem { AlignSettingsCard(state, ctrl) })
 
             add(TabItem(full = true) { SectionHeader("MOUNT") })
@@ -261,6 +279,9 @@ private fun SnapPanel(
     onStop: (() -> Unit)? = null,
     /** Real `/media/ekos` frame for this camera (M4.2) — null renders the hatch placeholder, same as before. */
     frame: com.nocturne.protocol.MediaFrame? = null,
+    /** M5 (docs/STATUS.md) — optional extra content drawn over the preview image, e.g.
+     * [FovOverlayBox]. Only the Primary Camera call site passes one; Guide's stays null. */
+    overlay: (@Composable BoxScope.() -> Unit)? = null,
 ) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
@@ -280,6 +301,7 @@ private fun SnapPanel(
                 .background(c.surfaceDeep, RoundedCornerShape(4.dp)),
         ) {
             MediaFramePreview(frame, Modifier.fillMaxSize(), hatchColor = c.surfaceRaised)
+            overlay?.invoke(this)
             // Bumped from MonoMicro/MonoMini (9-9.5sp, dim neutral500) — per user feedback these
             // were too small/dim to read at a glance, same complaint as SectionHeader above.
             TextC(
@@ -777,6 +799,79 @@ private fun AlignSolveCard(ctrl: SessionController) {
         style = BtnStyle.SUBTLE,
         modifier = Modifier.fillMaxWidth().height(38.dp),
     )
+}
+
+/**
+ * M5 (docs/STATUS.md) — rotator target-PA readback + master control gate, moved here from the
+ * Plan tab (was `ManualRotatorSection`) since it's naturally adjacent to [AlignSolveCard]: a solve
+ * is what actually refreshes the readback below (`align_solve`, no separate "take image" command
+ * exists — confirmed the real ManualRotator dialog's own button calls the identical
+ * `captureAndSolve()`). Not mandatory — same principle as the Plan tab's framing card, nothing
+ * downstream gates on this switch being on.
+ *
+ * [SessionController.setRotatorAutoControl] (`rotator_control`) is the **master gate** for the
+ * whole feature, real rotator or not — confirmed against the real fork source
+ * (`align_goto.cpp`'s `checkIfRotationRequired()`): off, and neither a real rotator gets driven nor
+ * does the no-hardware readback below ever populate.
+ */
+@Composable
+private fun RotatorControlCard(state: AppState, ctrl: SessionController) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    val hasRealRotator = state.primaryTrain.rotator != "None"
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(c.surface, RoundedCornerShape(14.dp))
+            .border(1.dp, c.divider, RoundedCornerShape(14.dp))
+            .padding(12.dp),
+    ) {
+        SwitchRow(
+            label = "Rotator control",
+            sub = if (hasRealRotator) {
+                "Real ${state.primaryTrain.rotator} — drives to the Plan tab's target PA automatically"
+            } else {
+                "No rotator device — Ekos reports the diff below so you can turn the camera by hand"
+            },
+            checked = state.rotatorAutoControl,
+            onToggle = { ctrl.setRotatorAutoControl(!state.rotatorAutoControl) },
+        )
+        if (state.rotatorAutoControl) {
+            val current = state.wireRotatorCurrentPA
+            val target = state.wireRotatorTargetPA
+            val threshold = state.wireRotatorThreshold
+            if (current != null && target != null) {
+                val diff = kotlin.math.abs(target - current)
+                val within = threshold != null && diff <= threshold
+                Row(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 4.dp)) {
+                    TextC("Now ${"%.1f".format(current)}° → Target ${"%.1f".format(target)}°", style = t.Mono13, color = c.text)
+                    Spacer(Modifier.weight(1f))
+                    TextC(
+                        if (within) "within threshold" else "Δ${"%.1f".format(diff)}°",
+                        style = t.Caption,
+                        color = if (within) c.accent else c.textMuted,
+                    )
+                }
+            } else {
+                TextC("waiting for a solve…", style = t.Caption, color = c.textFaint, modifier = Modifier.padding(top = 4.dp, bottom = 4.dp))
+            }
+        }
+        // Real pause/resume stand-in (docs/STATUS.md) — a genuinely graceful Scheduler pause
+        // exists in real Ekos (Scheduler::pause()) but isn't reachable on this wire protocol at
+        // all yet (confirmed: zero references in message.cpp/commands.h, and not reachable via
+        // the generic invoke_method escape hatch either since pause() isn't Q_INVOKABLE) — logged
+        // as a follow-on fork task, not built this pass. Stop/Start Scheduler is real and already
+        // wired: Stop marks the active job ABORTED (not removed), Start re-evaluates and resumes
+        // progress if kcfg_RememberJobProgress is on (confirmed true on this rig previously).
+        if (state.schedulerRunning) {
+            Spacer(Modifier.height(4.dp))
+            TextC(
+                "A sequence is running — adjusting now will interrupt the current exposure. " +
+                    "Stop Scheduler (Sequence tab) pauses it cleanly, Start resumes.",
+                style = t.Caption, color = c.textFaint,
+            )
+        }
+    }
 }
 
 /**

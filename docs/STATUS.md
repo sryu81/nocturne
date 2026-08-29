@@ -64,9 +64,10 @@ Doc is planning-only; **nothing below has been implemented** as of this writing.
   documented at all until found by reading the fork source directly this session. Earlier claim
   ("no rotator wire command exists on this protocol at all") was wrong; that command does exist,
   just wasn't in the doc anyone had read.
-- [x] Step 4 — show current vs. desired angle — `align_manual_rotator_status` read (`NewManualRotatorStatus`, `ManualRotatorSection` on Plan tab's Framing card)
-- [x] Step 5 — auto-drive a real rotator — `align_set_astrometry_settings`'s `rotator_control` bool wired. **Corrected same pass**: this is the master gate for the *whole* feature (confirmed against `align_goto.cpp`'s `checkIfRotationRequired()`), not just real-hardware auto-drive — off, and step 4's readback never fires either, rotator or not. UI switch is unconditional now, was wrongly hidden behind `TrainAssignment.rotator != "None"` on first pass. "Manual snapshot" half still not built (no snapshot/capture trigger exists on this path — "take image" is just the existing `align_solve`/Controls-tab Solve button, confirmed identical to the real ManualRotator dialog's own Take Image button)
+- [x] Step 4 — show current vs. desired angle — `align_manual_rotator_status` read (`NewManualRotatorStatus`), readback now on Controls tab's `RotatorControlCard` (moved from Plan tab, 3rd pass — see below)
+- [x] Step 5 — auto-drive a real rotator — `align_set_astrometry_settings`'s `rotator_control` bool wired, master gate for the whole feature (confirmed against `align_goto.cpp`'s `checkIfRotationRequired()`), UI switch unconditional. "Manual snapshot" half still not built (no snapshot/capture trigger exists on this path — "take image" is just the existing `align_solve`/Controls-tab Solve button, confirmed identical to the real ManualRotator dialog's own Take Image button)
 - [x] Step 6 decision — "Add to sequence" stays local-editor-first, no auto-push — deliberate, not a gap
+- [x] **3rd pass, same day**: relocated `rotator_control` switch + readback from Plan tab to Controls tab's Plate Solve section (`RotatorControlCard`, next to `AlignSolveCard`) — naturally adjacent to the Solve button that actually refreshes it. Dropped `align_manual_rotator_toggle`/`manualRotatorToggled` entirely (dead code, not just hidden UI) — confirmed it only shows/hides Ekos's own dialog on the Pi's own physical screen, no remote effect at all. Added a real FOV reticle (`FovOverlayBox`, transparent fill/`c.warn` stroke) over the real live preview in both Plan tab's `FramingCard` (was a decorative hatch-background box, no real image at all) and Controls tab's Primary Camera preview (`SnapPanel` gained an optional `overlay` slot). Explicit "optional — skip if you don't need precise framing" caption added to `FramingCard`. Pause/resume mid-sequence: real Ekos has a genuinely graceful `Scheduler::pause()`/`pauseB` (`SCHEDULER_PAUSED`, deferred "pause planned") that would be the correct mechanism, but confirmed it's **not reachable on the EkosRemote wire protocol at all** — zero references in `message.cpp`/`commands.h`, and not reachable via the generic `invoke_method` escape hatch either since `pause()` is a plain `protected` method, not `Q_INVOKABLE`. **User's decision: log as a follow-on fork task** (needs a change in `/home/soo/cc/repo/kstars/kstars/ekos/ekosremote/` + rebuild + redeploy to the Pi — new item added to the network-hardening backlog below), ship this pass with the existing, already-wired Stop/Start `SchedulerToggleButton` as the interim (real: Stop marks the active job `ABORTED`, not removed; Start re-evaluates and resumes if `kcfg_RememberJobProgress` is on, confirmed true on this rig previously) — `RotatorControlCard` shows a hint pointing at it when a sequence is running.
 
 ### Simulator removal (complete, `28225a2`)
 - [x] `SimulatedController.kt` deleted, all 36 `isRealRig` branches removed (0 hits confirmed live)
@@ -164,6 +165,40 @@ chart) blocked on Part B's catalog work; step 3's fixed-`delay()` heuristic not 
 source itself (`/home/soo/cc/repo/kstars`) is available locally and is worth checking directly
 before treating this repo's own `EkosRemote-Command-Reference.md` as complete, especially for a
 just-forked or lightly-used command family.
+
+**3rd pass, same session — layout + pause/resume review.** User asked for a plan (not immediate
+code) covering: not-mandatory + resumable-mid-sequence as standing principles, moving
+`rotator_control`/readback into Controls tab next to Solve, a real FOV box on the camera preview,
+and why Nocturne doesn't just use KStars' own ManualRotator "Take Image" button. Findings, all
+source-confirmed:
+- Relocated `rotator_control` switch + readback to Controls tab's `RotatorControlCard` (Plate Solve
+  section, next to `AlignSolveCard`) — the switch/readback and the Solve button that refreshes it
+  are now physically adjacent, closing the "why isn't Solve right here" gap directly.
+- Dropped `toggleManualRotator`/`align_manual_rotator_toggle`/`manualRotatorToggled` entirely (dead
+  code removal, not just UI hiding) — matches this project's own norm (`forceAfOnStart`).
+- New `FovOverlayBox` (`ui/components/Widgets.kt`) — transparent fill, `c.warn` stroke (reused
+  existing warm-tone token, not a new color) — over the real live preview in **both** Plan tab's
+  `FramingCard` (was decorative `HatchBg`, no real image ever shown there at all) and Controls tab's
+  Primary Camera preview (`SnapPanel` gained an optional `overlay` slot, Guide's own call site
+  unaffected).
+- **Real Pause Scheduler exists** (`Scheduler::pause()`/`pauseB`, `SCHEDULER_PAUSED`, genuinely
+  graceful — "Scheduler pause planned...", doesn't abort the active job like Stop does) — user was
+  right to ask about it, this is the correct mechanism for "pause and adjust, then resume." **Not
+  reachable on the EkosRemote wire protocol at all**, confirmed by direct grep of the fork source:
+  zero references in `message.cpp`/`commands.h`. Also checked whether the existing generic
+  `invoke_method` escape hatch could reach it anyway — no: `Scheduler::pause()` is a plain
+  `protected` method, not a slot or `Q_INVOKABLE`, so Qt's `QMetaObject::invokeMethod` (what that
+  wire command uses) can't resolve it regardless of the class being otherwise reachable via
+  `findObject("Scheduler")`. **User's call: log as a follow-on fork task, ship this pass with the
+  already-wired Stop/Start `SchedulerToggleButton` as the interim** — real (`SchedulerProcess::stop()`
+  marks the active job `ABORTED`, not removed; restart resumes via `kcfg_RememberJobProgress`,
+  confirmed true on this rig previously) but abrupt (interrupts the current exposure, unlike a real
+  pause). `RotatorControlCard` shows a hint pointing at the existing button when `schedulerRunning`.
+  **Follow-on fork task, not started**: add a real `SCHEDULER_PAUSE` (and confirm/wire a resume path
+  — `SchedulerProcess::execute()`'s `SCHEDULER_PAUSED` case looks like the right target, "Scheduler
+  resuming.", though `toggleScheduler()`'s own `start()` branch takes a different, job-state-resetting
+  path that wasn't fully traced this session) in `/home/soo/cc/repo/kstars/kstars/ekos/ekosremote/`,
+  rebuild + redeploy to the Pi.
 
 ### Simulator removal
 Full inventory (`SessionController` 179 methods vs `EkosRemoteController`'s 124 overrides) done

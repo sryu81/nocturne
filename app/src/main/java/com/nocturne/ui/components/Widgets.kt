@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -23,6 +24,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -416,6 +418,26 @@ fun MediaFramePreview(frame: MediaFrame?, modifier: Modifier = Modifier, hatchCo
 @Composable
 fun MediaFramePreviewFile(filePath: String?, modifier: Modifier = Modifier, hatchColor: Color? = null) {
     MediaFramePreviewImpl(filePath, modifier, hatchColor) { BitmapFactory.decodeFile(filePath)?.asImageBitmap() }
+}
+
+/**
+ * Camera FOV reticle (M5, docs/STATUS.md) — a transparent-fill, `c.warn`-bordered rectangle
+ * overlaid on a live preview, rotated to the current target position angle. `c.warn` reused
+ * deliberately rather than a new color: already a warm orange-tan tone (see
+ * [com.nocturne.ui.theme.NocturneColor]), already used for the meridian-flip label elsewhere, and
+ * transparent fill keeps whatever's actually in the preview underneath visible. [aspectW]/[aspectH]
+ * come from real [com.nocturne.session.AppState.framingFovDeg] when available; callers fall back to
+ * a fixed ratio otherwise so this always renders something reasonable pre-connection.
+ */
+@Composable
+fun FovOverlayBox(rotationDeg: Float, aspectW: Float, aspectH: Float, modifier: Modifier = Modifier) {
+    val c = NocturneTheme.colors
+    Box(
+        modifier
+            .aspectRatio(aspectW / aspectH)
+            .rotate(rotationDeg)
+            .border(1.5.dp, c.warn),
+    )
 }
 
 /** Diagonal hatch background — image slots & placeholders. */

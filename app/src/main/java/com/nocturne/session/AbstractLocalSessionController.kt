@@ -380,8 +380,7 @@ abstract class AbstractLocalSessionController : SessionController {
     }
 
     // M5 rotator (docs/STATUS.md steps 4/5) — local-only intent, no PA readback exists to
-    // populate without a real connection (EkosRemoteController overrides both to also send).
-    override open fun toggleManualRotator(enabled: Boolean) = update { it.copy(manualRotatorToggled = enabled) }
+    // populate without a real connection (EkosRemoteController overrides this to also send).
     override open fun setRotatorAutoControl(enabled: Boolean) = update { it.copy(rotatorAutoControl = enabled) }
 
     // Guide settings (M3.3 phase 4): same shape as Align above —

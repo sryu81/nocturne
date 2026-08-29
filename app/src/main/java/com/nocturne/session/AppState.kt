@@ -220,22 +220,21 @@ data class AppState(
     val wirePolarUpdatedAzError: Double? = null,
     val wirePolarUpdatedAltError: Double? = null,
     /**
-     * `align_manual_rotator_status` push (M5 steps 4/5, docs/STATUS.md) — Ekos's own
-     * current-vs-target camera-position-angle readback, used both for a by-hand manual rotator
-     * turn (no real rotator device) and to drive a real one via [rotatorAutoControl]. Null until
-     * [manualRotatorToggled] has been turned on at least once this connection — Ekos doesn't push
-     * this proactively (`sendManualRotatorStatus` is only invoked from the manual-rotator dialog's
-     * own code path, confirmed against `message.cpp`).
+     * `align_manual_rotator_status` push (M5, docs/STATUS.md) — Ekos's own current-vs-target
+     * camera-position-angle readback, used both for a by-hand manual rotator turn (no real
+     * rotator device) and to drive a real one via [rotatorAutoControl]. Only ever populates once
+     * [rotatorAutoControl] is on *and* a solve (`align_solve`) has run — confirmed against the
+     * real fork source (`align_goto.cpp`'s `checkIfRotationRequired()`), not driven by anything
+     * else. Null until then; Ekos doesn't push this proactively.
      */
     val wireRotatorCurrentPA: Double? = null,
     val wireRotatorTargetPA: Double? = null,
     val wireRotatorThreshold: Double? = null,
-    /** Local optimistic mirror of `align_manual_rotator_toggle`'s last-sent `toggled` value — no
-     * independent real push confirms this side (only the PA numbers above come back). */
-    val manualRotatorToggled: Boolean = false,
-    /** Local optimistic mirror of `align_set_astrometry_settings`'s `rotator_control` bool — only
-     * meaningful when the primary train has a real rotator device ([TrainAssignment.rotator] !=
-     * "None"); auto-drives it toward [wireRotatorTargetPA] instead of requiring a manual turn. */
+    /** Local optimistic mirror of `align_set_astrometry_settings`'s `rotator_control` bool — the
+     * **master gate** for the whole rotator feature (see [wireRotatorCurrentPA]'s own doc),
+     * required on regardless of whether the primary train has a real rotator device
+     * ([TrainAssignment.rotator] != "None") or not; which server-side branch runs (real auto-drive
+     * vs. no-hardware manual-diff readback) depends on that, but this switch itself doesn't. */
     val rotatorAutoControl: Boolean = false,
     /**
      * `get_devices` translated to app-friendly shape — null until the first

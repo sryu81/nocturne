@@ -1322,29 +1322,15 @@ class EkosRemoteController(
      * directly, `message.cpp:928-935`/`commands.h:161,418` — doc updated same pass). Sets
      * `Align::m_TargetPositionAngle` directly, same field a real Load & Slew would set from a
      * reference file's own solved PA — this is the raw-angle equivalent, no reference image
-     * needed. **Required** before [toggleManualRotator]'s readback or [setRotatorAutoControl]'s
-     * auto-drive do anything at all: `Align::checkIfRotationRequired()` only emits
-     * `manualRotatorChanged`/drives a real rotator once this is non-NaN. Repurposes the step-2
-     * slider ([RotatorRow]) that used to be local-only (no wire command was known to exist for it
-     * at the time) — now the real target-PA control, per the user's own read of the M5 plan.
+     * needed. **Required** before [setRotatorAutoControl]'s readback/auto-drive do anything at
+     * all: `Align::checkIfRotationRequired()` only emits `manualRotatorChanged`/drives a real
+     * rotator once this is non-NaN. Repurposes the step-2 slider ([RotatorRow]) that used to be
+     * local-only (no wire command was known to exist for it at the time) — now the real target-PA
+     * control, per the user's own read of the M5 plan.
      */
     override fun setRotatorAngle(deg: Double) {
         client.sendCommand(Commands.ALIGN_SET_TARGET_PA, buildJsonObject { put("angle", deg) })
         super.setRotatorAngle(deg)
-    }
-
-    /**
-     * `align_manual_rotator_toggle` (M5, docs/STATUS.md) — real request `{"toggled": bool}`, no
-     * direct reply. **Confirmed against the fork source this only shows/hides Ekos's own
-     * ManualRotator dialog on the Pi's own screen** (`align_components.cpp:146`
-     * `Align::toggleManualRotator`) — it does not gate or trigger the `align_manual_rotator_status`
-     * push at all (that's driven by [setRotatorAngle]/[setRotatorAutoControl] + a solve, see their
-     * own docs). Kept as a real, harmless wire call, but don't expect toggling it to make the
-     * readback start/stop working.
-     */
-    override fun toggleManualRotator(enabled: Boolean) {
-        client.sendCommand(Commands.ALIGN_MANUAL_ROTATOR_TOGGLE, buildJsonObject { put("toggled", enabled) })
-        super.toggleManualRotator(enabled)
     }
 
     /**
@@ -1355,10 +1341,13 @@ class EkosRemoteController(
      * feature, not just real-hardware auto-drive** — confirmed against the fork source
      * (`align_goto.cpp:535` `checkIfRotationRequired()`): with this off, no diff-check ever runs
      * at all, so neither a real rotator gets auto-driven *nor* does the no-hardware manual-diff
-     * readback ([toggleManualRotator]'s dialog, `align_manual_rotator_status` push) ever fire.
-     * Must be on regardless of whether [com.nocturne.session.AppState.primaryTrain]`.rotator` is a
-     * real device or "None" — which branch runs server-side depends on that, but this switch
-     * itself doesn't.
+     * readback (`align_manual_rotator_status` push) ever fire. Must be on regardless of whether
+     * [com.nocturne.session.AppState.primaryTrain]`.rotator` is a real device or "None" — which
+     * branch runs server-side depends on that, but this switch itself doesn't.
+     *
+     * (`align_manual_rotator_toggle`, an earlier pass's separate wire call, was dropped entirely —
+     * confirmed it only shows/hides Ekos's own dialog on the Pi's own physical screen,
+     * `align_components.cpp:146`, no effect on this readback at all.)
      */
     override fun setRotatorAutoControl(enabled: Boolean) {
         client.sendCommand(Commands.ALIGN_SET_ASTROMETRY_SETTINGS, buildJsonObject { put("rotator_control", enabled) })

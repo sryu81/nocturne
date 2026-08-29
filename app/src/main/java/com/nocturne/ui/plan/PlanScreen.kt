@@ -29,8 +29,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.Color
@@ -61,10 +59,10 @@ import com.nocturne.session.framingFovDeg
 import com.nocturne.session.framingPixelScaleArcsecPerPx
 import com.nocturne.ui.components.AltitudeChart
 import com.nocturne.ui.components.altitudeToChartY
-import com.nocturne.ui.components.HatchBg
 import com.nocturne.ui.components.IconBtn
+import com.nocturne.ui.components.FovOverlayBox
+import com.nocturne.ui.components.MediaFramePreview
 import com.nocturne.ui.components.PlanChip
-import com.nocturne.ui.components.SwitchRow
 import com.nocturne.ui.components.TabItem
 import com.nocturne.ui.components.TabPane
 import com.nocturne.ui.components.TextC
@@ -638,6 +636,10 @@ private fun FramingCard(state: AppState, ctrl: SessionController) {
     }
     com.nocturne.ui.components.Card {
         TextC(framingTitle, style = t.Body135, color = c.textMuted)
+        Spacer(Modifier.height(2.dp))
+        // Not mandatory (docs/STATUS.md M5) — the whole card is skippable, "Add to sequence"
+        // never gates on anything here.
+        TextC("optional — skip if you don't need precise framing", style = t.Caption, color = c.textFaint)
         Spacer(Modifier.height(11.2.dp))
         Box(
             Modifier
@@ -645,91 +647,25 @@ private fun FramingCard(state: AppState, ctrl: SessionController) {
                 .height(240.dp)
                 .background(c.surfaceDeep, RoundedCornerShape(10.dp)),
         ) {
-            HatchBg(Modifier.fillMaxSize())
-            Box(
-                Modifier
-                    .align(Alignment.Center)
-                    .width(246.dp)
-                    .height(166.dp)
-                    .rotate(displayRotation)
-                    .shadow(22.dp, RoundedCornerShape(0.dp), ambientColor = c.accent.copy(alpha = 0.35f), spotColor = c.accent.copy(alpha = 0.35f))
-                    .border(1.dp, c.accent, RoundedCornerShape(0.dp)),
-            ) {
-                TextC(
-                    readout,
-                    style = t.Mono115, color = c.accent400,
-                    modifier = Modifier.padding(top = 6.dp, start = 8.dp),
-                )
-            }
+            // Real live preview (M4.2's MediaFramePreview, same source SnapPanel uses in
+            // Controls tab) — was a purely decorative HatchBg forever, no image behind the
+            // rotated box at all. FovOverlayBox on top shows the *desired* framing orientation
+            // relative to whatever's actually in the real image underneath.
+            MediaFramePreview(state.latestCaptureFrame, Modifier.fillMaxSize(), hatchColor = c.divider)
+            FovOverlayBox(
+                rotationDeg = displayRotation,
+                aspectW = (fovDeg?.first ?: 246.0).toFloat(),
+                aspectH = (fovDeg?.second ?: 166.0).toFloat(),
+                modifier = Modifier.align(Alignment.Center).fillMaxWidth(0.7f),
+            )
+            TextC(
+                readout,
+                style = t.Mono115, color = c.accent400,
+                modifier = Modifier.align(Alignment.TopStart).padding(top = 6.dp, start = 8.dp),
+            )
         }
         Spacer(Modifier.height(11.2.dp))
         RotatorRow(angle = state.rotatorAngle, onAngleChange = ctrl::setRotatorAngle)
-        Spacer(Modifier.height(4.dp))
-        ManualRotatorSection(state = state, ctrl = ctrl)
-    }
-}
-
-/**
- * M5 steps 2/4/5 (docs/STATUS.md) — [RotatorRow] above this is now the real target-PA control
- * (`align_set_target_pa`, [SessionController.setRotatorAngle]'s doc), and the switch/readback
- * here follow it. **Read order matters, confirmed against the real fork source
- * (`align_goto.cpp`'s `checkIfRotationRequired()`), not guessed from the wire doc alone** — the
- * command reference never documented `align_set_target_pa` at all, and undersold what
- * `rotator_control` actually gates:
- * - [SessionController.setRotatorAutoControl] (`rotator_control`) is the **master gate** for the
- *   whole feature, real rotator or not — off, and neither a real rotator gets driven nor does the
- *   no-hardware readback below ever populate. Always shown, not just when a real rotator exists.
- * - [SessionController.toggleManualRotator] only shows/hides Ekos's own dialog on the **Pi's own
- *   screen** — real, but irrelevant to this remote readback, and only means anything at all in the
- *   no-real-rotator branch server-side (a real rotator never opens that dialog).
- * - The readback itself only ever updates from a solve (`align_solve`/Controls-tab "Solve",
- *   already wired) — there's no separate "take image" command, confirmed the real ManualRotator
- *   dialog's own "Take Image" button calls the identical `captureAndSolve()`.
- */
-@Composable
-private fun ManualRotatorSection(state: AppState, ctrl: SessionController) {
-    val c = NocturneTheme.colors
-    val t = NocturneTheme.type
-    val hasRealRotator = state.primaryTrain.rotator != "None"
-    Column {
-        SwitchRow(
-            label = "Rotator control",
-            sub = if (hasRealRotator) {
-                "Real ${state.primaryTrain.rotator} — drives to the slider's target PA automatically"
-            } else {
-                "No rotator device — Ekos reports the diff below so you can turn the camera by hand"
-            },
-            checked = state.rotatorAutoControl,
-            onToggle = { ctrl.setRotatorAutoControl(!state.rotatorAutoControl) },
-        )
-        if (state.rotatorAutoControl) {
-            val current = state.wireRotatorCurrentPA
-            val target = state.wireRotatorTargetPA
-            val threshold = state.wireRotatorThreshold
-            if (current != null && target != null) {
-                val diff = kotlin.math.abs(target - current)
-                val within = threshold != null && diff <= threshold
-                Row(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 4.dp)) {
-                    TextC("Now ${"%.1f".format(current)}° → Target ${"%.1f".format(target)}°", style = t.Mono13, color = c.text)
-                    Spacer(Modifier.weight(1f))
-                    TextC(
-                        if (within) "within threshold" else "Δ${"%.1f".format(diff)}°",
-                        style = t.Caption,
-                        color = if (within) c.accent else c.textMuted,
-                    )
-                }
-            } else {
-                TextC("waiting for a solve…", style = t.Caption, color = c.textFaint, modifier = Modifier.padding(top = 4.dp, bottom = 4.dp))
-            }
-        }
-        if (!hasRealRotator) {
-            SwitchRow(
-                label = "Show Ekos's rotator dialog",
-                sub = "Opens/closes the popup on the Pi's own screen — cosmetic, doesn't affect the readback above",
-                checked = state.manualRotatorToggled,
-                onToggle = { ctrl.toggleManualRotator(!state.manualRotatorToggled) },
-            )
-        }
     }
 }
 
