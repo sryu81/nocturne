@@ -153,14 +153,18 @@ data class AppState(
     val domeOpen: Boolean = true,
     /** User edits only — keyed by catalog device name; unedited defaults come from [DRIVER_INDI_PROPS]. */
     val indiProps: Map<String, List<IndiProperty>> = emptyMap(),
-    val prefs: Map<String, Boolean> = mapOf(
-        "guide" to true,
-        "cloud" to true,
-        "disconnect" to true,
-        "flip" to true,
-        "frameCut" to false,
-        "seqEnd" to true,
-    ),
+    /**
+     * Real `option_get`/`option_set` values (M4.5 half B, docs/STATUS.md) — replaced the old
+     * `PREF_DEFS`/`prefs` fixture (6 invented per-category notification toggles — "guide
+     * degraded"/"cloud"/"disconnect"/"flip"/"frameCut"/"seqEnd" — confirmed live in this repo's own
+     * source search: not a single one has a matching real Ekos kcfg setting, and `prefs`/
+     * `togglePref` had zero consumers anywhere, purely a local switch flipping itself with no
+     * effect on anything). These 2 are what's actually real: the master gate for the whole
+     * `new_notification` stream this app now reads, and whether Ekos plays a sound on the Pi's own
+     * speaker for one. Null until `ensurePrefsLoaded`'s eager fetch replies.
+     */
+    val wireEkosRemoteNotifications: Boolean? = null,
+    val wireEkosRemoteSound: Boolean? = null,
     /**
      * Real persisted capture frames (M4.3), newest-first — Room-backed via [FrameRepository],
      * fed by [com.nocturne.session.EkosRemoteController]'s own `frameRepo.observeAll()` collector.
@@ -250,6 +254,15 @@ data class AppState(
      * ([TrainAssignment.rotator] != "None") or not; which server-side branch runs (real auto-drive
      * vs. no-hardware manual-diff readback) depends on that, but this switch itself doesn't. */
     val rotatorAutoControl: Boolean = false,
+    /**
+     * Real ground truth for [rotatorAutoControl] (M4.5 half B, docs/STATUS.md) — `option_get`'s
+     * `astrometryUseRotator` reply. Fetched on connect (`ensurePrefsLoaded`); once it arrives,
+     * this is authoritative and [rotatorAutoControl] is seeded from it — closes the read gap the
+     * 4th M5 pass could only work around (re-sending our own guess on every connect) because no
+     * GET existed on the Align-specific commands; this generic `Options::self()` reflection reaches
+     * it directly, no ambiguous `findObject()` resolution involved.
+     */
+    val wireAstrometryUseRotator: Boolean? = null,
     /**
      * `get_devices` translated to app-friendly shape — null until the first
      * push arrives (still showing the fixture [DEVICES] catalog), populated
@@ -497,17 +510,6 @@ val TARGETS = listOf(
     Target("IC 5070", "Pelican", "20h50m48s +44°21′00″", "60′×50′", "Ha", 78, "01:04", "4h 18m", 1),
     Target("NGC 281", "Pacman", "00h52m59s +56°37′19″", "35′×30′", "SHO", 83, "03:20", "3h 05m", 1),
     Target("M 45", "Pleiades", "03h47m24s +24°07′00″", "110′×110′", "LRGB", 61, "04:10", "1h 20m", 0),
-)
-
-data class PrefDef(val key: String, val label: String, val desc: String)
-
-val PREF_DEFS = listOf(
-    PrefDef("guide", "Guiding degraded", "RMS > 1.0″ for 3 subs"),
-    PrefDef("cloud", "Cloud or unsafe weather", "cloud > 30% · wind > 35 km/h · rain"),
-    PrefDef("disconnect", "Device disconnect", "any linked device drops"),
-    PrefDef("flip", "Meridian flip", "10 min before, and on completion"),
-    PrefDef("frameCut", "Frame rejected", "HFR or star count outside limits"),
-    PrefDef("seqEnd", "Sequence finished", "or paused for any reason"),
 )
 
 /** Sensor spec used to derive pixel scale + FOV from a focal length. */

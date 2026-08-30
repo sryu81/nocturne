@@ -75,8 +75,12 @@ interface SessionController {
     /** Fetch a real DSS reference-image cutout for the Plan tab's Framing card, if not already
      * cached for this target (M5, docs/STATUS.md — see AppState.referenceImageJpeg's own doc). */
     fun ensureReferenceImage(targetId: String)
-    fun togglePref(key: String)
     fun toggleQuietHours()
+    /** Real `option_set` — `Options::self()`'s `ekosRemoteNotifications`/`ekosRemoteSound`
+     * (M4.5 half B, docs/STATUS.md). Replaced the old per-category `togglePref` fixture, which had
+     * no matching real settings and zero consumers anywhere in this app. */
+    fun setEkosRemoteNotifications(enabled: Boolean)
+    fun setEkosRemoteSound(enabled: Boolean)
     fun toggleCut(id: String)
     fun toggleDevice(key: String)
     fun selectDeviceName(key: String, name: String)

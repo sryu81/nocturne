@@ -18,8 +18,10 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 import okhttp3.OkHttpClient
 import java.time.Duration
 import kotlin.math.min
@@ -179,6 +181,20 @@ class EkosRemoteClient(
                 // schedulerTwilight, the real root cause behind the twilight-shutdown incident,
                 // actually lives).
                 sendCommand(Commands.SCHEDULER_GET_ALL_SETTINGS)
+                // Real Options::self() properties (M4.5 half B, docs/STATUS.md) — same
+                // eager-on-online shape as everything above. Batched into one request (option_get
+                // accepts an array): the notification-stream master gate/sound toggle (PrefsSheet,
+                // replaced its old all-local fixture), plus astrometryUseRotator — the real
+                // ground truth for AppState.rotatorAutoControl this generic mechanism finally
+                // reaches directly, closing the M5 rotator-control read gap an earlier pass could
+                // only work around.
+                sendCommand(Commands.OPTION_GET, buildJsonObject {
+                    putJsonArray("options") {
+                        addJsonObject { put("name", "ekosRemoteNotifications") }
+                        addJsonObject { put("name", "ekosRemoteSound") }
+                        addJsonObject { put("name", "astrometryUseRotator") }
+                    }
+                })
             }
         }
         _events.tryEmit(event)

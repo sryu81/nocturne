@@ -47,7 +47,7 @@ Not fixed here (out of this doc's scope) — flagging so it doesn't get trusted 
 - [x] M4.6 Summary sheet + export wired to real Room frame data (KEPT/DISCARDED/MED HFR)
 - [ ] PA richer vector/correction-arrow overlay — NOT STARTED (folded into M5's scope instead, arguably superseded)
 - [x] **M4.5 half A — Alerts real wiring** — `NewNotification` EkosEvent added (`new_notification` push, confirmed a genuinely comprehensive real stream — see detail below); `AlertsSheet`/Summary sheet's session-event log/export report/persistent banner all read real `AppState.wireNotifications` now, `ALERTS` fixture deleted
-- [ ] **M4.5 half B — Prefs real wiring** — NOT STARTED: zero `OPTION_GET`/`OPTION_SET` wire constants; `PrefsSheet` is local-only
+- [x] **M4.5 half B — Prefs real wiring** — `option_get`/`option_set` added (generic `Options::self()` reflection, confirmed real). The old 6-category `PREF_DEFS` fixture had no matching real settings at all (checked live against `kstars.kcfg`) and zero consumers anywhere — replaced with the 2 settings that actually exist: `ekosRemoteNotifications`/`ekosRemoteSound`. Same mechanism also closed the M5 `rotator_control` read-gap for real — see detail below
 - [x] Summary sheet's session-event log — real now, same pass as half A above
 
 ### M4.5 — Frame storage, Frames tab restructure, offline plate solver
@@ -168,6 +168,33 @@ English wording for one heuristic to cover all of them reasonably. Rendered unco
 gated on connection health — real per-module status is still meaningful during a `SOCKET_OPEN`
 hiccup (values just stale from the last real push), and an honest "—" for everything pre-connection
 is itself real signal. Compiles + unit tests pass, not live-verified.
+
+**M4.5 half B, same day — user picked "Prefs real wiring" off a "what's next" menu.** Investigated
+`option_get`/`option_set` (`message.cpp:1445-1471`) — confirmed a genuinely generic mechanism:
+`Options::self()->property(name)`/`setProperty(name, value)` via Qt's own reflection, reaching ANY
+real kcfg-backed setting by its Qt property name (camelCase), no `findObject()` lookup involved at
+all — a materially stronger guarantee than the separate `GET_PROPERTY`/`invoke_method` escape hatch
+considered (and deliberately not shipped) earlier in the M5 rotator work.
+
+Checked whether the existing `PrefsSheet` fixture (6 categories: guide-degraded/cloud/disconnect/
+flip/frameCut/seqEnd) had any real settings to map onto — it didn't. None of the 6 match a real
+`kstars.kcfg` entry, and `prefs`/`togglePref` had zero consumers anywhere in the app (a switch that
+flipped its own map entry with no downstream effect). Replaced with the 2 settings that actually
+exist and are directly useful given M4.5 half A's new real alert stream: `ekosRemoteNotifications`
+(the stream's own master gate) and `ekosRemoteSound`. "Quiet hours" kept as an explicitly-labeled
+local-only nicety (no matching real setting either — it's app-side scheduling, not a kcfg toggle).
+
+**Also fixed, same pass**: `AppState.wireAstrometryUseRotator` — a real, unconditional GET for
+`rotator_control`'s ground truth, finally closing the gap the 4th M5 pass could only work around
+(re-sending Nocturne's own local guess on every connect via `align_set_astrometry_settings`, since
+that command family has no GET at all). **The old reapply-on-connect workaround was removed
+outright**, not just superseded silently — it would otherwise race the new real `option_get` fetch
+and could clobber the just-learned real value with a stale local guess if it landed second.
+`option_get` for all 3 real values (`ekosRemoteNotifications`/`ekosRemoteSound`/
+`astrometryUseRotator`) is batched into one request, eager on every connect, same shape as every
+other `*_GET_ALL_SETTINGS` fetch already there.
+
+Compiles + unit tests pass, not live-verified.
 
 ### M5
 Biggest finding: real Ekos already ships a purpose-built rotator angle-readback + auto-adjust

@@ -105,4 +105,13 @@ object Commands {
     // M4.1 — Media channel. Payload is a bare boolean, not an object-wrapped one like every
     // other command here — see MediaChannel/EkosRemoteClient call sites.
     const val SET_BLOBS = "set_blobs"
+
+    // M4.5 half B (docs/STATUS.md) — generic Options::self() property GET/SET
+    // (message.cpp:1445-1471). Reaches ANY real kcfg-backed setting by its Qt property name
+    // (camelCase, e.g. "ekosRemoteNotifications", "astrometryUseRotator") with no ambiguous
+    // findObject() lookup involved, unlike the separate GET_PROPERTY/invoke_method escape hatch
+    // considered (and deliberately not used) earlier this session for the same rotator_control
+    // ground-truth gap.
+    const val OPTION_GET = "option_get"
+    const val OPTION_SET = "option_set"
 }

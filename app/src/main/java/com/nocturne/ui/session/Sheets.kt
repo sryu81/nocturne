@@ -45,7 +45,6 @@ import com.nocturne.session.sourceLabel
 import com.nocturne.session.realDeviceOptions
 import com.nocturne.session.realFilterNames
 import com.nocturne.session.realNightWindow
-import com.nocturne.session.PREF_DEFS
 import com.nocturne.session.SessionController
 import com.nocturne.session.SheetType
 import com.nocturne.session.AppState
@@ -335,38 +334,56 @@ private fun AlertsSheet(state: AppState, ctrl: SessionController) {
 
 // ── Prefs ────────────────────────────────────────────────────────────────
 
+/**
+ * Real `option_get`/`option_set` toggles (M4.5 half B, docs/STATUS.md) — replaced the old
+ * `PREF_DEFS` fixture (6 invented per-category notification toggles: "guide degraded"/"cloud"/
+ * "disconnect"/"flip"/"frameCut"/"seqEnd"). Checked directly against `kstars.kcfg`: not one of
+ * those has a matching real Ekos setting, and the old `prefs`/`togglePref` had zero consumers
+ * anywhere in this app — a switch that flipped itself with no effect on anything. These 2 are what
+ * actually exists: the master gate for the whole `new_notification` stream this app now reads
+ * (`AlertsSheet`/`ModuleStatusRow`'s alert-driven pieces), and whether Ekos plays a sound on the
+ * Pi's own speaker for one. Null (`—`) until the eager connect-time fetch replies.
+ */
 @Composable
 private fun PrefsSheet(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     Column {
-        PREF_DEFS.forEach { p ->
-            SwitchRow(
-                label = p.label,
-                sub = p.desc,
-                checked = state.prefs[p.key] == true,
-                onToggle = { ctrl.togglePref(p.key) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(c.bg, RoundedCornerShape(4.dp))
-                    .padding(horizontal = 11.2.dp),
-            )
-            Spacer(Modifier.height(8.4.dp))
-        }
         SwitchRow(
-            label = "Quiet hours",
-            sub = "mute non-critical push while imaging",
-            checked = state.quietHoursEnabled,
-            onToggle = ctrl::toggleQuietHours,
+            label = "Notifications",
+            sub = "master switch for the whole real alert stream (new_notification)",
+            checked = state.wireEkosRemoteNotifications == true,
+            onToggle = { ctrl.setEkosRemoteNotifications(!(state.wireEkosRemoteNotifications ?: false)) },
             modifier = Modifier
                 .fillMaxWidth()
                 .background(c.bg, RoundedCornerShape(4.dp))
                 .padding(horizontal = 11.2.dp),
         )
         Spacer(Modifier.height(8.4.dp))
-        TextC(
-            "Critical alerts (unsafe weather, disconnect, mount fault) always sound, even in quiet hours.",
-            style = t.MonoMicro, color = c.textMuted, modifier = Modifier.padding(end = 4.dp),
+        SwitchRow(
+            label = "Sound",
+            sub = "Ekos plays a sound on the Pi's own speaker for each alert",
+            checked = state.wireEkosRemoteSound == true,
+            onToggle = { ctrl.setEkosRemoteSound(!(state.wireEkosRemoteSound ?: false)) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(c.bg, RoundedCornerShape(4.dp))
+                .padding(horizontal = 11.2.dp),
+        )
+        Spacer(Modifier.height(16.dp))
+        HDivider()
+        Spacer(Modifier.height(16.dp))
+        // Quiet hours: local-only, no matching real Ekos setting either (this is app-side session
+        // scheduling, not a kcfg toggle) — kept as an honest local nicety, not claimed as real.
+        SwitchRow(
+            label = "Quiet hours",
+            sub = "mute non-critical push while imaging (local only, doesn't affect the Pi)",
+            checked = state.quietHoursEnabled,
+            onToggle = ctrl::toggleQuietHours,
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(c.bg, RoundedCornerShape(4.dp))
+                .padding(horizontal = 11.2.dp),
         )
     }
 }

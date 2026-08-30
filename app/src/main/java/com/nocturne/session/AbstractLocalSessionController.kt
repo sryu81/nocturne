@@ -238,9 +238,8 @@ abstract class AbstractLocalSessionController : SessionController {
     // one) — matches ensureTargetRiseset's own no-op-here shape.
     override fun ensureReferenceImage(targetId: String) {}
 
-    override fun togglePref(key: String) = update { s ->
-        s.copy(prefs = s.prefs + (key to !(s.prefs[key] ?: false)))
-    }
+    override fun setEkosRemoteNotifications(enabled: Boolean) = update { it.copy(wireEkosRemoteNotifications = enabled) }
+    override fun setEkosRemoteSound(enabled: Boolean) = update { it.copy(wireEkosRemoteSound = enabled) }
 
     override fun toggleQuietHours() = update { it.copy(quietHoursEnabled = !it.quietHoursEnabled) }
 
@@ -390,7 +389,8 @@ abstract class AbstractLocalSessionController : SessionController {
 
     // M5 rotator (docs/STATUS.md steps 4/5) — local-only intent, no PA readback exists to
     // populate without a real connection (EkosRemoteController overrides this to also send).
-    override open fun setRotatorAutoControl(enabled: Boolean) = update { it.copy(rotatorAutoControl = enabled) }
+    override open fun setRotatorAutoControl(enabled: Boolean) =
+        update { it.copy(rotatorAutoControl = enabled, wireAstrometryUseRotator = enabled) }
 
     // Guide settings (M3.3 phase 4): same shape as Align above —
     // nothing populates wireGuideSettings here, so these are dead in practice

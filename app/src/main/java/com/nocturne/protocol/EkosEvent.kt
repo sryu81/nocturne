@@ -235,6 +235,15 @@ sealed interface EkosEvent {
     @Serializable
     data class Scopes(val scopes: List<WireScope>) : EkosEvent
 
+    /**
+     * `option_get` reply (M4.5 half B, docs/STATUS.md) — bare array, one entry per requested
+     * option, in request order (`message.cpp:1456-1470`). Same reply `type` as the request
+     * (`OPTION_GET`, not a distinct push name) — matches this repo's own established
+     * request/reply-reuse-the-same-type-string norm (see this file's own top doc).
+     */
+    @Serializable
+    data class OptionValues(val options: List<WireOption>) : EkosEvent
+
     // ── M3.3: per-module settings (curated subset, see docs/M3.3-plan.md) ─
 
     /**
@@ -717,6 +726,16 @@ data class WireScope(
     val focal_length: Double = 0.0,
     val aperture: Double = 0.0,
 )
+
+/**
+ * `option_get`'s per-entry reply shape (M4.5 half B, docs/STATUS.md — `message.cpp:1464-1467`):
+ * `{"name": string, "value": <any QVariant>}`. [value] stays a raw [JsonElement] since real
+ * `Options::self()` properties span every Qt type (bool/int/double/string/...) — callers decode
+ * whichever shape they actually requested (this app only ever requests real `Bool`-typed kcfg
+ * entries so far, see [EkosRemoteController.ensurePrefsLoaded]).
+ */
+@Serializable
+data class WireOption(val name: String, val value: JsonElement)
 
 /**
  * Curated subset of `mount_get_all_settings`'s real 17 fields (see

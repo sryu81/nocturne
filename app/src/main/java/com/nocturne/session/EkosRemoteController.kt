@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -399,6 +400,23 @@ class EkosRemoteController(
             s.copy(moduleTrainAssignments = resolveModuleTrainAssignments(s.moduleTrainAssignments, s.wireTrains))
         }
         is EkosEvent.Scopes -> s.copy(wireScopes = event.scopes.map { it.toScopeDef() })
+        // Real Options::self() reply (M4.5 half B, docs/STATUS.md) — see AppState's own doc on
+        // each field. Unconditionally overwrites (this reply only ever arrives once, the eager
+        // fetch at connect, same no-optimistic-race reasoning as coolTarget/focPos's own seeds).
+        // rotatorAutoControl is re-seeded from the real value here too, superseding whatever this
+        // session's own local guess/reapply had it at — the whole point of finally having a real
+        // read for it.
+        is EkosEvent.OptionValues -> {
+            fun boolOf(name: String) = event.options.firstOrNull { it.name == name }
+                ?.value?.let { (it as? JsonPrimitive)?.booleanOrNull }
+            val realRotatorControl = boolOf("astrometryUseRotator")
+            s.copy(
+                wireEkosRemoteNotifications = boolOf("ekosRemoteNotifications") ?: s.wireEkosRemoteNotifications,
+                wireEkosRemoteSound = boolOf("ekosRemoteSound") ?: s.wireEkosRemoteSound,
+                wireAstrometryUseRotator = realRotatorControl ?: s.wireAstrometryUseRotator,
+                rotatorAutoControl = realRotatorControl ?: s.rotatorAutoControl,
+            )
+        }
 
         is EkosEvent.MountSettings -> s.copy(wireMountSettings = event.settings)
         // coolTarget seeded from the real Capture module's own setpoint the moment this reply
@@ -608,22 +626,6 @@ class EkosRemoteController(
      */
     private fun sendFollowUpCommands(event: EkosEvent) {
         when (event) {
-            // `rotator_control` (align_set_astrometry_settings) has no GET at all on this wire —
-            // confirmed live: it's backed by a QGroupBox (opsalign.ui), a widget type the
-            // align_get_all_settings/align_set_all_settings reflection doesn't cover (only
-            // QComboBox/QDoubleSpinBox/QSpinBox/QCheckBox/QRadioButton), unlike every other
-            // WireAlignSettings field. AppState.rotatorAutoControl is therefore a pure local guess
-            // that can never be grounded against the real value by reading it. Re-sending our own
-            // current value every time the connection comes online at least guarantees the real
-            // rig matches what this app displays *from that point forward* — same accepted
-            // fire-and-forget/no-reconcile risk as every other write-only setting in this app for
-            // anything that changes the real value from outside Nocturne mid-session, not a new,
-            // permanent, never-grounded-at-all gap like before this fix.
-            is EkosEvent.NewConnectionState -> if (event.online) {
-                client.sendCommand(Commands.ALIGN_SET_ASTROMETRY_SETTINGS, buildJsonObject {
-                    put("rotator_control", _state.value.rotatorAutoControl)
-                })
-            }
             is EkosEvent.Devices -> event.devices.forEach { device ->
                 if (device.connected) {
                     client.sendCommand(Commands.DEVICE_GET, buildJsonObject { put("device", device.name) })
@@ -1468,6 +1470,21 @@ class EkosRemoteController(
     override fun setRotatorAutoControl(enabled: Boolean) {
         client.sendCommand(Commands.ALIGN_SET_ASTROMETRY_SETTINGS, buildJsonObject { put("rotator_control", enabled) })
         super.setRotatorAutoControl(enabled)
+    }
+
+    /** `option_set` — real `Options::self()` reflection (M4.5 half B, docs/STATUS.md). */
+    private fun sendOption(name: String, value: Boolean) {
+        client.sendCommand(Commands.OPTION_SET, buildJsonObject {
+            putJsonArray("options") { addJsonObject { put("name", name); put("value", value) } }
+        })
+    }
+    override fun setEkosRemoteNotifications(enabled: Boolean) {
+        sendOption("ekosRemoteNotifications", enabled)
+        super.setEkosRemoteNotifications(enabled)
+    }
+    override fun setEkosRemoteSound(enabled: Boolean) {
+        sendOption("ekosRemoteSound", enabled)
+        super.setEkosRemoteSound(enabled)
     }
 
     /**
