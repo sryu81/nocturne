@@ -11,8 +11,17 @@ No middle relay/cloud server. Single primary phone; broadcast semantics (no per-
 targeting) are acceptable for now.
 
 This requires forking KStars — stock KStars' existing remote-control feature (EkosLive)
-cannot do this as-is (see below). Not started yet; this doc is the design reference for
-when that work begins.
+cannot do this as-is (see below).
+
+**Status: built, deployed, and extended well past the plan below** (this doc is now a
+historical design record, not a forward-looking plan — the "Design plan"/"Decisions"
+sections describe what was actually done, confirmed against the real fork source many
+times over since). The fork lives at `/home/soo/cc/repo/kstars/kstars/ekos/ekosremote/`
+on this machine and runs on the real Pi; `EkosRemote-Command-Reference.md` and
+`EkosRemote-Client-Guide.md` document its current wire protocol in full, and
+`docs/FORK-BACKLOG.md` tracks real, confirmed-in-source features/fixes still needed on
+the fork side (guide RMS/drift, a graceful Scheduler pause, network auto-discovery,
+auth) — check there before assuming something here is still open.
 
 ---
 

@@ -4,14 +4,18 @@ Single source of truth for what's shipped, skipped, superseded, or still planned
 Replaces `M3-plan.md`, `M3.3-plan.md`, `M4-plan.md`, `M4.5-plan.md`, `M5-plan.md`,
 `simulator-removal-plan.md`, `app-side-feature-backlog.md` (all deleted, content folded in below).
 
-Not touched by this consolidation: `README.md`, `EkosRemote-Client-Guide.md`,
+Not touched by this consolidation: `EkosRemote-Client-Guide.md`,
 `EkosRemote-Command-Reference.md`, `EkosWebSocket-Fork-Design.md`, `emulator-troubleshooting.md`
-— those are living protocol/reference docs, not progress tracking.
+— those are living protocol/reference docs, not progress tracking. `docs/FORK-BACKLOG.md` is a
+separate, related doc: real KStars-fork-side work (not buildable from this repo alone) — see that
+file, not here, for anything requiring a change to `/home/soo/cc/repo/kstars`.
 
-**Known stale spot found while writing this**: README's own milestone table (§7) and status
-prose (§7a) stop at "Not started: M4" — M4 is actually fully shipped (below) and M4.5/M5 work
-happened after. README's §4-6 (data-mapping/command tables) stayed current; only §7/7a drifted.
-Not fixed here (out of this doc's scope) — flagging so it doesn't get trusted at face value next time.
+**README.md rewritten** (2026-08-29, same day as the M5/M4.5 work below) — its old milestone table
+(§7) and status prose (§7a) had stopped at "Not started: M4" (M4 was actually fully shipped, plus
+all of M4.5/M4.6/M5 after) and it still described a since-deleted `SimulatedController`. Replaced
+with a current-state overview pointing here for detailed status rather than duplicating a second,
+inevitably-drifting tracker — check `README.md` itself for what's current, this note is just the
+"why," not itself a status source.
 
 ---
 
