@@ -441,7 +441,10 @@ class EkosRemoteController(
         // jogFocus edit could race against it.
         is EkosEvent.FocusSettings -> s.copy(wireFocusSettings = event.settings, focPos = event.settings.absTicksSpin)
         is EkosEvent.SchedulerSettings -> s.copy(wireSchedulerSettings = event.settings)
-        is EkosEvent.AstroAlmanac -> s.copy(wireDusk = event.dusk, wireDawn = event.dawn)
+        is EkosEvent.AstroAlmanac -> s.copy(
+            wireDusk = event.dusk, wireDawn = event.dawn,
+            wireMoonIllum = event.moonIllum ?: s.wireMoonIllum,
+        )
         is EkosEvent.AstroLocation -> s.copy(wireSiteTz = event.tz)
 
         is EkosEvent.SchedulerJobs -> applySchedulerJobs(s, event)
@@ -483,9 +486,15 @@ class EkosRemoteController(
             val pending = pendingTargetRisesetName
             val matched = pending?.let { name -> event.entries.firstOrNull { it.name == name } }
             if (matched != null) pendingTargetRisesetName = null
+            // Real Moon altitude curve (user request) — a 3rd independent consumer of this same
+            // reply shape, alongside the search-results merge and the framed-target match above.
+            // "Moon" rides along on ensureTargetRiseset's own request (see that function's doc);
+            // kept once captured, never cleared, since it doesn't depend on which target is framed.
+            val moonEntry = event.entries.firstOrNull { it.name == "Moon" }
             s.copy(
                 wireSearchResults = buildSearchResults(),
                 wireTargetRiseset = matched ?: s.wireTargetRiseset,
+                wireMoonRiseset = moonEntry ?: s.wireMoonRiseset,
             )
         }
 
@@ -985,7 +994,15 @@ class EkosRemoteController(
     override fun ensureTargetRiseset(targetId: String) {
         val target = _state.value.findTarget(targetId) ?: return
         val name = target.realLookupName
-        if (pendingTargetRisesetName == name || _state.value.wireTargetRiseset?.name == name) return
+        // Real Moon altitude curve (user request) rides along on this same request — bundled as a
+        // second name rather than a separate fetch/dedup path, since astro_get_objects_riseset
+        // already returns one entry per requested name in a single round trip. Still forces a
+        // fetch even when this exact target was already cached, as long as Moon hasn't been
+        // captured yet this connection (wireMoonRiseset == null) — covers the case where a target
+        // never actually changes after the very first fetch.
+        if ((pendingTargetRisesetName == name || _state.value.wireTargetRiseset?.name == name) &&
+            _state.value.wireMoonRiseset != null
+        ) return
         pendingTargetRisesetName = name
         // "exact": true (real bug, found live — user report: M 64's peak time/max altitude were
         // wrong). Confirmed against message.cpp:2295: `todayInfo["name"] = exact ? name :
@@ -1000,7 +1017,7 @@ class EkosRemoteController(
         // name — `findByName`'s own `exact` only widens the *lookup* to a fuzzier fallback when
         // the exact form doesn't resolve at all, confirmed in `catalogscomponent.cpp:334-338`.
         client.sendCommand(Commands.ASTRO_GET_OBJECTS_RISESET, buildJsonObject {
-            putJsonArray("names") { add(name) }
+            putJsonArray("names") { add(name); add("Moon") }
             put("exact", true)
         })
     }

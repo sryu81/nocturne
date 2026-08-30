@@ -180,7 +180,17 @@ sealed interface EkosEvent {
      * names are capitalized (`"Dusk"`/`"Dawn"`), hence the `@SerialName`s.
      */
     @Serializable
-    data class AstroAlmanac(@SerialName("Dusk") val dusk: Double = 0.0, @SerialName("Dawn") val dawn: Double = 0.0) : EkosEvent
+    data class AstroAlmanac(
+        @SerialName("Dusk") val dusk: Double = 0.0,
+        @SerialName("Dawn") val dawn: Double = 0.0,
+        /** Real Moon illuminated fraction, `[0.0, 1.0]` (`KSAlmanac::getMoonIllum()`, confirmed
+         * against source — same reply this app already fetches for Dusk/Dawn, this field was just
+         * never decoded before; `MoonPhase` (`[0, 180]` degrees, the Sun-Moon elongation angle —
+         * *not* a full 0-360 waxing/waning-distinguishing angle) exists in the same reply too but
+         * isn't modeled here, since illuminated fraction alone is the unambiguous, directly
+         * displayable real number — user's own "lunar phase" ask. */
+        @SerialName("MoonIllum") val moonIllum: Double? = null,
+    ) : EkosEvent
 
     /**
      * `astro_get_location` reply — curated to [tz] alone (real signed hour offset from UTC,

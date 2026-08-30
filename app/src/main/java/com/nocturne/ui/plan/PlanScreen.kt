@@ -363,6 +363,12 @@ private fun TargetCard(state: AppState, ctrl: SessionController, tgt: Target) {
             }
             TextC("${usable ?: "—"} usable", style = t.Mono115, color = c.accent400)
         }
+        // Real Moon illuminated fraction (user request) — same astro_get_almanac reply this app
+        // already fetches for dusk/dawn, MoonIllum was just never decoded before.
+        state.wireMoonIllum?.let {
+            Spacer(Modifier.height(4.dp))
+            TextC("Moon ${kotlin.math.round(it * 100).toInt()}% illuminated", style = t.MonoSmall, color = c.textMuted)
+        }
         Spacer(Modifier.height(8.dp))
         BoxWithConstraints(
             Modifier
@@ -372,6 +378,7 @@ private fun TargetCard(state: AppState, ctrl: SessionController, tgt: Target) {
             AltitudeChart(
                 Modifier.fillMaxSize(), realAltitudes = realAltitudes, realNowFraction = nowFraction,
                 realDuskFraction = duskFraction, realDawnFraction = dawnFraction,
+                moonAltitudes = state.wireMoonRiseset?.altitudes?.takeIf { it.size >= 2 },
             )
             // Real y-axis altitude ticks (user-requested, 2026-08-22) — same altitudeToChartY
             // mapping the real curve/horizon/peak/now lines are all drawn with, so a tick's text

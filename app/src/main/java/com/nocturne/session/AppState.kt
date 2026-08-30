@@ -432,6 +432,10 @@ data class AppState(
      */
     val wireDusk: Double? = null,
     val wireDawn: Double? = null,
+    /** Real Moon illuminated fraction (`astro_get_almanac`'s own `MoonIllum`, same reply as
+     * [wireDusk]/[wireDawn] — see [com.nocturne.protocol.EkosEvent.AstroAlmanac]'s own doc). User's
+     * "lunar phase" ask. */
+    val wireMoonIllum: Double? = null,
     /** `astro_get_location`'s `tz` — real signed UTC hour offset, needed to resolve [wireDusk]/[wireDawn] into an absolute instant. Null until the first reply. */
     val wireSiteTz: Double? = null,
     /**
@@ -442,6 +446,15 @@ data class AppState(
      * target changes; check `.name` matches the framed target before trusting it — real-rig only.
      */
     val wireTargetRiseset: WireRiseset? = null,
+    /**
+     * Real Moon altitude curve (user's "lunar altitude" ask) — same real `astro_get_objects_riseset`
+     * command as [wireTargetRiseset], "Moon" bundled into the same per-target request rather than a
+     * separate fetch (the Moon's own position doesn't depend on which target is framed, so this
+     * only ever needs fetching once per connection in practice, but riding along on the existing
+     * request is simpler than a dedicated dedup path). Kept once fetched, not cleared on target
+     * switch — real-rig only.
+     */
+    val wireMoonRiseset: WireRiseset? = null,
     /**
      * Real astronomy reference-image cutout (M5, docs/STATUS.md) for the Plan tab's Framing card
      * — a real DSS sky survey image centered on the framed target's own RA/Dec, fetched from CDS

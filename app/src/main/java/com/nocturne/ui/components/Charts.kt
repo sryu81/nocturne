@@ -157,6 +157,11 @@ fun AltitudeChart(
     realNowFraction: Double? = null,
     realDuskFraction: Double? = null,
     realDawnFraction: Double? = null,
+    /** Real Moon altitude curve (user request) — same 49-point/30-min grid as [realAltitudes],
+     * from `astro_get_objects_riseset`'s own "Moon" entry (a real, generically-resolvable
+     * SkyObject, same command already used for every target — no new wire command needed). Drawn
+     * as a soft dashed line distinct from the target's own solid accent curve. */
+    moonAltitudes: List<Double>? = null,
 ) {
     val colors = com.nocturne.ui.theme.NocturneTheme.colors
     val fixtureCurve = listOf(
@@ -213,6 +218,23 @@ fun AltitudeChart(
                 }
             }
             drawPath(path, colors.accent, style = Stroke(width = 2f))
+            // Real Moon altitude (user request) — same x-mapping as the target curve above,
+            // assumes the same sample grid (guaranteed by construction: both come from the same
+            // real astro_get_objects_riseset command, just different names in the same request).
+            if (moonAltitudes != null && moonAltitudes.size >= 2) {
+                val moonN = moonAltitudes.size
+                val moonPath = Path().apply {
+                    moonAltitudes.forEachIndexed { i, alt ->
+                        val x = sx(i.toFloat() / (moonN - 1) * 348f)
+                        val y = sy(altY(alt))
+                        if (i == 0) moveTo(x, y) else lineTo(x, y)
+                    }
+                }
+                drawPath(
+                    moonPath, Color(0xFFC9C4B8).copy(alpha = 0.6f),
+                    style = Stroke(width = 1.4f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(3f, 3f))),
+                )
+            }
             // Real peak (curve's own highest-altitude sample) — previously only named in the
             // corner "max X° @ time" text with no visual tie to a position on the curve. Bright
             // near-white (same family as the "now" mark below, not the muted dusk/dawn indigo) —

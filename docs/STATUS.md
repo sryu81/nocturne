@@ -83,6 +83,8 @@ Doc is planning-only; **nothing below has been implemented** as of this writing.
 - [x] Real filter wheel slot names + block-picker wiring, live-verified (2 real bugs found+fixed along the way)
 - [ ] Autofocus-at-block-start (`forceAfOnStart`) — **SKIPPED, stub UI actively removed** rather than left dead, user's own call to defer past M4
 - [ ] Smaller-scope alternative (`inSequenceFocus` per-job) — still on the table, not started
+- [x] Lunar altitude curve + phase on Plan tab's altitude chart — user request, real data, no new
+  wire command needed (see detail below)
 
 ### Network discovery / connection / authentication — NEW, this pass
 See full detail below. Checklist:
@@ -506,6 +508,28 @@ Real filter-wheel fix uncovered two independent real bugs: multi-element `TextPr
 a keystroke-vs-live-echo race (fixed with a decoupled local text buffer). `forceAfOnStart` stub was
 removed rather than left as dead code, on the user's explicit call — matches this project's general
 norm of not leaving inert-looking UI around once a feature's real scope is understood.
+
+**Lunar altitude + phase, same day, user request.** Both real, no new wire command needed:
+- **Altitude curve**: the Moon is a real, generically-resolvable `SkyObject` (`ksmoon.cpp`:
+  `KSMoon::KSMoon() : KSPlanetBase(i18n("Moon"), ...)` — confirmed the real internal name is
+  literally `"Moon"` in an English-locale build) — the *same* `astro_get_objects_riseset` command
+  already used for every target resolves it too. Bundled "Moon" as a second name into
+  `ensureTargetRiseset`'s existing per-target request (one round trip, not a separate fetch) —
+  the Moon's own altitude doesn't depend on which target is framed, so `wireMoonRiseset` is kept
+  once captured, not re-cleared on target switch (dedup guard extended to still fetch once if it's
+  never been captured yet, even when the current target itself is already cached). New dashed line
+  in `AltitudeChart`, distinct from the target's own solid accent curve.
+- **Phase**: `astro_get_almanac`'s reply — the *same* reply this app already fetches for Dusk/Dawn
+  at connect — turned out to already carry `MoonIllum` (illuminated fraction, `[0.0, 1.0]`) the
+  whole time, just never decoded (`AstroAlmanac`'s model only had `Dusk`/`Dawn`). Also confirmed a
+  `MoonPhase` field exists in the same reply (`[0, 180]` degrees — the Sun-Moon elongation angle,
+  *not* a full 0-360 waxing/waning-distinguishing value) but deliberately not modeled — illuminated
+  percentage alone is the unambiguous, directly-displayable real number this ask needed.
+
+Not live-verified — specifically, whether `"Moon"` resolves with `exact: true` (the same flag this
+session's own M64 fix requires for the *target* name in the same request) hasn't been confirmed
+against a real connection; if it doesn't resolve, check locale (`i18n("Moon")` assumes English) or
+try `exact: false` for this one name specifically.
 
 ---
 
