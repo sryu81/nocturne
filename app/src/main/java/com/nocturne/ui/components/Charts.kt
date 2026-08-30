@@ -262,6 +262,37 @@ fun AltitudeChart(
  * "Guide/Focus real telemetry does not exist"). Not a "not yet wired" case — removed outright.
  */
 
+/**
+ * Real per-solve pointing-accuracy trend (follow-up to M5, docs/STATUS.md) — [AppState.alignAccuracyHistory]'s
+ * real `targetDiff` values (arcsec), oldest-to-newest left-to-right. Unlike [HfrRunChart], this
+ * normalizes against the data's own dynamic range rather than a fixed 60 — target accuracy has no
+ * single universal scale the way this app's HFR values happen to. [thresholdArcsec] (real
+ * `alignAccuracyThreshold`, when known) draws the same dashed reference line convention.
+ */
+@Composable
+fun AccuracyTrendChart(values: List<Double>, thresholdArcsec: Double?, modifier: Modifier) {
+    val colors = com.nocturne.ui.theme.NocturneTheme.colors
+    val maxVal = (values.maxOrNull() ?: 0.0).coerceAtLeast(thresholdArcsec ?: 0.0).coerceAtLeast(0.01)
+    Canvas(modifier = modifier) {
+        if (thresholdArcsec != null) {
+            val y = (1f - (thresholdArcsec / maxVal).toFloat().coerceIn(0f, 1f)) * size.height
+            drawLine(
+                colors.warn.copy(alpha = 0.5f),
+                Offset(0f, y), Offset(size.width, y),
+                strokeWidth = 1f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 4f)),
+            )
+        }
+        if (values.isEmpty()) return@Canvas
+        val pts = values.mapIndexed { i, v ->
+            val x = if (values.size < 2) 0f else i / (values.size - 1f) * size.width
+            val y = (1f - (v / maxVal).toFloat().coerceIn(0f, 1f)) * size.height
+            Offset(x, y)
+        }
+        val path = Path().apply { polyline(pts) }
+        drawPath(path, colors.accent, style = Stroke(width = 1.6f))
+    }
+}
+
 /** Frames tab HFR-across-run (viewBox 348×60, stretched). */
 @Composable
 fun HfrRunChart(values: List<Float>, modifier: Modifier) {

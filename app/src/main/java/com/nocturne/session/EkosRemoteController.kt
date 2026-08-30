@@ -298,6 +298,12 @@ class EkosRemoteController(
         is EkosEvent.NewAlignState -> s.copy(
             wireAlignStatus = event.status ?: s.wireAlignStatus,
             wireAlignSolution = event.solution ?: s.wireAlignSolution,
+            // Real per-solve pointing-accuracy trend (follow-up to M5, docs/STATUS.md) — appends
+            // targetDiff (real total pointing error, arcsec) on every solve that reports one,
+            // bounded so a long session doesn't grow this unbounded.
+            alignAccuracyHistory = event.solution?.targetDiff?.let {
+                (s.alignAccuracyHistory + it).takeLast(MAX_ACCURACY_HISTORY)
+            } ?: s.alignAccuracyHistory,
         )
         // Merges non-null fields rather than overwriting — see NewManualRotatorStatus's own doc
         // for why, even though no partial shape has actually been observed live for this one yet.

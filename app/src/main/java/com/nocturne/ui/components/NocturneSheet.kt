@@ -64,7 +64,18 @@ fun NocturneSheet(
                     indication = null,
                 ) {},
         ) {
-            val panelWidth = if (maxWidth > 420.dp) 420.dp else maxWidth
+            // Was a flat 420dp cap regardless of orientation — every sheet, `fullscreen` ones
+            // included, stayed squeezed into that same narrow column even in landscape (screen
+            // width often 700-800dp+ on a phone). User's own report, chasing Guide specifically
+            // ("guiding need separate landscape display to show everything in one screen") — but
+            // the real constraint was systemic, not Guide-specific, so fixed here for every sheet:
+            // widen to most of the real width once the device is actually wider than it is tall,
+            // leaving a small margin (8%) so the backdrop's own tap-to-dismiss area still exists.
+            val panelWidth = when {
+                maxWidth > maxHeight -> maxWidth * 0.92f
+                maxWidth > 420.dp -> 420.dp
+                else -> maxWidth
+            }
             Column(
                 modifier = Modifier
                     .width(panelWidth)

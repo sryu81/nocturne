@@ -165,7 +165,7 @@ fun SheetHost(state: AppState, ctrl: SessionController, landscape: Boolean) {
         fullscreen = full,
         content = {
             when (sheet) {
-                SheetType.GUIDE -> GuideSheet(state)
+                SheetType.GUIDE -> GuideSheet(state, landscape)
                 SheetType.FOCUS -> FocusSheet(state, ctrl)
                 SheetType.ALERTS -> AlertsSheet(state, ctrl)
                 SheetType.SUMMARY -> SummarySheet(state, ctrl)
@@ -202,11 +202,11 @@ fun SheetHost(state: AppState, ctrl: SessionController, landscape: Boolean) {
  * real instead: the status string itself, and the guide camera's own frame image (M4.2).
  */
 @Composable
-private fun GuideSheet(state: AppState) {
+private fun GuideSheet(state: AppState, landscape: Boolean) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val guide = state.wireGuideSettings
-    Column {
+    val preview = @Composable {
         Panel {
             Box(
                 Modifier
@@ -222,7 +222,8 @@ private fun GuideSheet(state: AppState) {
                 style = t.Mono17, color = c.text,
             )
         }
-        Spacer(Modifier.height(11.2.dp))
+    }
+    val info = @Composable {
         TextC(
             "No RA/DEC drift, RMS, or SNR data exists on this wire protocol (confirmed against source) — real Ekos itself only reports guide status text over EkosRemote, not the plotted numbers its own desktop chart shows.",
             style = t.MonoMicro, color = c.textMuted,
@@ -233,6 +234,24 @@ private fun GuideSheet(state: AppState) {
                 "${"%.0f".format(guide.guideExposure)}s exposure · g${"%.0f".format(guide.guideGain)} · bin ${guide.guideBinning}",
                 style = t.MonoSmall, color = c.neutral500,
             )
+        }
+    }
+    // Landscape (user's own report — "guiding need separate landscape display to show everything
+    // in one screen"): the real constraint turned out to be systemic (NocturneSheet's own panel
+    // width, fixed regardless of what's shown), fixed there; this side-by-side split is the other
+    // half — preview left, status/settings right, both visible with no scroll needed, instead of
+    // stacking both under the now-wider panel and just moving the same scroll further down.
+    if (landscape) {
+        Row(Modifier.fillMaxWidth()) {
+            Column(Modifier.weight(1f)) { preview() }
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) { info() }
+        }
+    } else {
+        Column {
+            preview()
+            Spacer(Modifier.height(11.2.dp))
+            info()
         }
     }
 }

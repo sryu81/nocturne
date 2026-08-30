@@ -44,6 +44,8 @@ Not fixed here (out of this doc's scope) — flagging so it doesn't get trusted 
 - [x] M4.2 Live preview rendering (Session/Controls/Align/PA)
 - [x] M4.3 Frames tab + Room persistence (`FrameDatabase.kt`, `FrameEntity`)
 - [x] M4.4 Guide/Focus/PA real wiring — fixture `GuideTraceChart`/V-curve deleted outright (not deferred)
+- [x] Real target-accuracy trend (`AlignAccuracyCard`, Controls tab) — real per-solve `targetDiff`, re-confirmed (again) no Guide RMS/drift data exists on this wire at all
+- [x] Sheet-wide landscape width fix (`NocturneSheet`) + Guide 2-column landscape layout — see detail below
 - [x] M4.6 Summary sheet + export wired to real Room frame data (KEPT/DISCARDED/MED HFR)
 - [ ] PA richer vector/correction-arrow overlay — NOT STARTED (folded into M5's scope instead, arguably superseded)
 - [x] **M4.5 half A — Alerts real wiring** — `NewNotification` EkosEvent added (`new_notification` push, confirmed a genuinely comprehensive real stream — see detail below); `AlertsSheet`/Summary sheet's session-event log/export report/persistent banner all read real `AppState.wireNotifications` now, `ALERTS` fixture deleted
@@ -117,6 +119,41 @@ arrive in multiple independently-partial shapes (confirmed against KStars source
 guessed), and a too-strict required-field model silently degrades to `Raw` on the common case.
 Same bug class hit 3 separate times across sessions — worth remembering as a standing pattern for
 any *new* decoded event type: default every field, merge-non-null on arrival.
+
+**Follow-up, meridian flip / Guide / landscape review.** User asked to check 2 things: meridian
+flip, and "guide status chart display and target accuracy status plot," plus a suspicion that
+Guide needs its own landscape layout.
+
+- **Meridian flip**: existing state re-confirmed accurate (pier side + auto-flip setting real,
+  FLIP NOW/DEFER genuinely disabled, no real trigger command exists on this wire for either). Two
+  new findings: real Ekos fires actual `KSNotification::event()` calls for flip start/completion
+  (`camera_device.cpp:764`, `camerastate.cpp:497`) — these now surface for free in the `new_notification`
+  stream wired earlier this session, once a flip actually happens. Also found real `Q_SCRIPTABLE`
+  `Mount::hourAngle()`/`Mount::meridianFlipValue()` that could compute a genuine countdown-to-flip
+  via the generic `invoke_method` hatch — **not shipped**, since reaching them needs
+  `findObject("Mount")` to resolve, the same category of live-connection-dependent uncertainty
+  already declined once this session for `Options` (no live Ekos connection available to verify).
+- **Guide chart**: re-confirmed, not a miss — checked all 3 real `new_guide_state` senders fresh
+  (`message.cpp:2598-2601`/`:2670-2677`/`:2910-2918`), every one is `{"status"}` only, no secondary
+  export exists (unlike Align's `solution`, found earlier this session). Matches `GuideSheet`'s own
+  existing honest disclosure — not buildable without a fork change.
+- **"Target accuracy status plot"**: real, just from the wrong module — Align's own
+  `solution.targetDiff`/`dRA`/`dDE` (found earlier this session for the FOV box, not yet displayed
+  anywhere). New `AppState.alignAccuracyHistory` (bounded, real per-solve pointing error appended
+  on every solve) + `AccuracyTrendChart` (generic sparkline, normalizes to its own data's dynamic
+  range rather than a fixed scale) + `AlignAccuracyCard` (Controls tab, next to `AlignSolveCard`) —
+  hidden entirely until at least one real solve has landed.
+- **Landscape, bigger than expected**: `NocturneSheet`'s panel width was hardcoded `420.dp`
+  regardless of orientation, for **every sheet** — even ones already flagged `fullscreen=true`
+  (PA, Setup) never actually used landscape's real width. Not a Guide-specific gap. Fixed
+  systemically: panel widens to ~92% of screen width once `maxWidth > maxHeight`, portrait
+  behavior (420dp cap) unchanged. `GuideSheet` also gained a real 2-column landscape layout
+  (preview left, status/settings right) — the width fix alone would have still left a stacked
+  layout scrolling inside a wider box; both halves were needed.
+
+Compiles + unit tests pass, not live-verified — the flip-countdown `invoke_method` path
+specifically needs a real Ekos connection to test at all, flagged as a real next step, not shipped
+speculatively.
 
 ### M4.5
 Part A: `Preview/<date>/Prev_NNNNN.jpg` (per-day, counter seeded from disk so a same-day relaunch

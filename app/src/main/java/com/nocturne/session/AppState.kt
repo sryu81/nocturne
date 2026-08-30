@@ -213,6 +213,15 @@ data class AppState(
      * own doc for why this is the *correct* primary source for a "current camera angle" display,
      * unlike the rotator-diff-gated [wireRotatorCurrentPA] below. */
     val wireAlignSolution: WireAlignSolution? = null,
+    /**
+     * Real per-solve pointing-accuracy trend (follow-up to M5, docs/STATUS.md) — real
+     * `targetDiff` (total pointing error, arcsec) appended on every solve that reports one,
+     * oldest-first, bounded at [MAX_ACCURACY_HISTORY]. User's own "target accuracy status plot"
+     * ask — genuinely real data, just from Align's solve result, not Guide (confirmed live,
+     * fresh, that no RMS/drift data of any kind exists for Guide on this wire — see
+     * [WireAlignSolution]'s own doc and `GuideSheet`'s existing honest disclosure).
+     */
+    val alignAccuracyHistory: List<Double> = emptyList(),
     /** Real `new_notification` stream (M4.5 half A, docs/STATUS.md) — newest first, capped at
      * [MAX_NOTIFICATIONS] (this is a genuinely unbounded real event stream over a whole session,
      * not a single mutable current-value push like every other `wire*` field here). Deduplicated
@@ -1551,6 +1560,10 @@ val Alert.severityLabel: String get() = ALERT_SEVERITY_LABELS.getOrNull(severity
  * grow unbounded; this is more than enough for the Alerts sheet's own scrollback and the Summary
  * sheet's session-event log. */
 const val MAX_NOTIFICATIONS = 100
+
+/** Cap on [AppState.alignAccuracyHistory] — enough points for a meaningful trend without growing
+ * unbounded over a long imaging session. */
+const val MAX_ACCURACY_HISTORY = 30
 
 // ── Derived values (mirror the prototype renderVals math) ─────────────────
 

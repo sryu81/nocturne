@@ -49,6 +49,8 @@ import com.nocturne.session.paTotal
 import com.nocturne.session.realFilterNames
 import com.nocturne.session.realSlewRateProp
 import com.nocturne.ui.components.BtnStyle
+import com.nocturne.protocol.WireAlignSolution
+import com.nocturne.ui.components.AccuracyTrendChart
 import com.nocturne.ui.components.FovOverlayBox
 import com.nocturne.ui.components.MediaFramePreview
 import com.nocturne.ui.components.NocturneButton
@@ -173,6 +175,7 @@ fun ControlsScreen(
             // full SectionHeader weight.
             add(TabItem(full = true) { SectionHeader("PLATE SOLVE", sub = true) })
             add(TabItem(full = true) { AlignSolveCard(state, ctrl) })
+            add(TabItem(full = true) { AlignAccuracyCard(state) })
             add(TabItem(full = true) { RotatorControlCard(state, ctrl) })
             add(TabItem { AlignSettingsCard(state, ctrl) })
 
@@ -814,6 +817,45 @@ private fun AlignSolveCard(state: AppState, ctrl: SessionController) {
         state.wireAlignStatus?.let {
             Spacer(Modifier.height(6.dp))
             TextC(it, style = t.Caption, color = c.textMuted)
+        }
+    }
+}
+
+/**
+ * Real per-solve pointing-accuracy trend — user's own "target accuracy status plot" ask, follow-up
+ * to M5 (docs/STATUS.md). Real data, from Align's own `solution.targetDiff` (confirmed real, every
+ * successful solve, unconditional — see [WireAlignSolution]'s own doc), **not** from Guide — fresh
+ * re-check confirmed (again) no RMS/drift data of any kind exists for Guide on this wire, matches
+ * `GuideSheet`'s own existing honest disclosure. Hidden entirely until at least one real solve has
+ * landed this connection — an empty trend chart would just be noise.
+ */
+@Composable
+private fun AlignAccuracyCard(state: AppState) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    val history = state.alignAccuracyHistory
+    if (history.isEmpty()) return
+    val threshold = state.wireAlignSettings?.alignAccuracyThreshold
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(c.surface, RoundedCornerShape(14.dp))
+            .border(1.dp, c.divider, RoundedCornerShape(14.dp))
+            .padding(12.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            TextC("Target accuracy", style = t.Body135, color = c.text, modifier = Modifier.weight(1f))
+            TextC("${"%.1f".format(history.last())}\"", style = t.Mono115, color = c.accent400)
+        }
+        Spacer(Modifier.height(8.dp))
+        AccuracyTrendChart(
+            values = history,
+            thresholdArcsec = threshold,
+            modifier = Modifier.fillMaxWidth().height(48.dp),
+        )
+        if (threshold != null) {
+            Spacer(Modifier.height(4.dp))
+            TextC("dashed line = solver accuracy threshold (${"%.0f".format(threshold)}\")", style = t.MonoMicro, color = c.textFaint)
         }
     }
 }
