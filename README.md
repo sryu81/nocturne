@@ -14,17 +14,17 @@ Six tabs: **Session · Plan · Sequence · Frames · Gear · Controls**.
 
 | Session | Plan | Sequence |
 |---|---|---|
-| _screenshot pending_ | _screenshot pending_ | _screenshot pending_ |
+| <img src="docs/screenshots/session.png" width="220"> | <img src="docs/screenshots/plan.png" width="220"> | <img src="docs/screenshots/sequence.png" width="220"> |
 | Live night arc, sub preview, HFR/RMS/SNR, meridian flip, per-module status | Target search, real altitude chart (+ Moon), framing, goto/center | Job queue, per-target sequences, real Scheduler sync |
 
 | Frames | Gear | Controls |
 |---|---|---|
-| _screenshot pending_ | _screenshot pending_ | _screenshot pending_ |
+| <img src="docs/screenshots/frames.png" width="220"> | <img src="docs/screenshots/gear.png" width="220"> | <img src="docs/screenshots/controls.png" width="220"> |
 | Capture review, keep/cut, HFR-across-run | Rig profile, optical trains, devices | Camera/Mount/Guide/Align/Focus/PA live control + settings |
 
-_Screenshots aren't in the repo yet — the app has no demo/simulator mode, so a
-meaningful screenshot needs a real connected session. Best captured next time there's a
-live rig connection; happy to slot them in here once you have some._
+Real screenshots from a live connected session (2026-08-29 field test) — a real target
+(NGC 7000) framed with its real altitude curve, the Moon's own altitude curve and phase
+alongside it, a real device catalog, and real per-module status all reading live.
 
 ## Setup
 
