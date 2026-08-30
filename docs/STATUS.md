@@ -136,7 +136,19 @@ Guide needs its own landscape layout.
 - **Guide chart**: re-confirmed, not a miss — checked all 3 real `new_guide_state` senders fresh
   (`message.cpp:2598-2601`/`:2670-2677`/`:2910-2918`), every one is `{"status"}` only, no secondary
   export exists (unlike Align's `solution`, found earlier this session). Matches `GuideSheet`'s own
-  existing honest disclosure — not buildable without a fork change.
+  existing honest disclosure — not buildable without a fork change. **User asked directly whether
+  this is a real server-side gap, not a protocol ceiling — confirmed yes**: `Ekos::Guide` emits real
+  live per-sample signals (`guide.h`: `newAxisDelta(ra, de)`, `newAxisSigma(ra, de)` — real RMS,
+  arcsec, `guideStats(raError, decError, raPulse, decPulse, ...)`), the exact numbers the desktop
+  chart plots. Checked every connection in `manager.cpp` — none reach `ekosRemote` at all:
+  `newAxisSigma`→`Manager::updateSigmas` (local UI label), `newAxisDelta`→a local lambda +
+  `Capture::setGuideDeviation` (feeds Capture's own guide-deviation guard), `guideStats`→
+  `Analyze::guideStats` (feeds the local `.analyze` log). 3 real local consumers, 0 reaching the
+  remote bridge — the data was simply never wired to a 4th connection forwarding it over the wire.
+  **Follow-on fork task, not started**: add a new push (e.g. `new_guide_stats`) in `message.cpp`
+  connecting `newAxisDelta`/`newAxisSigma` (and/or `guideStats`) the same way `setAlignSolution`
+  already does for Align — same category as the Pause Scheduler item above, needs the fork rebuilt
+  + redeployed, not app-side alone.
 - **"Target accuracy status plot"**: real, just from the wrong module — Align's own
   `solution.targetDiff`/`dRA`/`dDE` (found earlier this session for the FOV box, not yet displayed
   anywhere). New `AppState.alignAccuracyHistory` (bounded, real per-solve pointing error appended
