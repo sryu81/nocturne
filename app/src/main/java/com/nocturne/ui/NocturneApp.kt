@@ -88,6 +88,7 @@ fun NocturneApp() {
                 savedHost = vm.savedHost,
                 savedPort = vm.savedPort,
                 onConnect = vm::connect,
+                onCancel = vm::disconnect,
             )
             // SOCKET_OPEN means the WebSocket handshake succeeded and get_profiles/get_devices
             // are already flowing — there's a real, useful app to show. Only the pre-socket
@@ -108,6 +109,7 @@ fun NocturneApp() {
                     savedHost = vm.savedHost,
                     savedPort = vm.savedPort,
                     onConnect = vm::connect,
+                    onCancel = vm::disconnect,
                 )
             }
             is ConnectionMode.Connected -> NocturneShell(

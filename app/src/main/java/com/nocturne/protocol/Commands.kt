@@ -114,4 +114,12 @@ object Commands {
     // ground-truth gap.
     const val OPTION_GET = "option_get"
     const val OPTION_SET = "option_set"
+
+    // 2026-09 — phone-initiated GPS/time sync. New fork commands (not in the pre-existing
+    // ~230-command set): direct in-process calls to KStars::setGPSLocation/setLocalTime, since
+    // neither OPTION_SET (persisted-default only, not live) nor INVOKE_METHOD (findObject() can't
+    // resolve the top-level KStars singleton) can reach them. No reply either way — same
+    // fire-and-forget shape as focus_in/out etc.
+    const val KSTARS_SET_LOCATION = "kstars_set_location"
+    const val KSTARS_SET_TIME = "kstars_set_time"
 }

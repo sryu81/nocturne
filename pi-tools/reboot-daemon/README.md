@@ -1,12 +1,15 @@
-# Rig-reboot companion daemon
+# Rig-maintenance companion daemon
 
 Nocturne's "Reboot Pi" button (Gear → Rig maintenance) needs a way to power-
 cycle the Pi itself — something the EkosRemote protocol (port 9000) has no
 command for, and couldn't rely on anyway, since a hung/crashed Ekos process
-is exactly the case a reboot needs to recover from.
+is exactly the case a reboot needs to recover from. Same reasoning applies
+to setting the Pi's real OS clock (2026-09 addition, `POST /set-time`) — a
+wrong system clock on a Pi with no RTC battery is an OS-level fact, nothing
+Ekos/INDI exposes any control over.
 
-This is a ~70-line stdlib-only Python daemon that listens on its own port
-(9001 by default) for a single authenticated `POST /reboot`.
+This is a small stdlib-only Python daemon that listens on its own port
+(9001 by default) for authenticated `POST /reboot` and `POST /set-time`.
 
 ## Install
 

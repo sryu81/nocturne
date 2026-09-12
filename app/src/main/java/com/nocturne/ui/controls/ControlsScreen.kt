@@ -38,6 +38,7 @@ import com.nocturne.session.AppState
 import com.nocturne.session.benchFocPos
 import com.nocturne.session.captureProgress
 import com.nocturne.session.coolAtSetPoint
+import com.nocturne.session.focRange
 import com.nocturne.session.coolBarPct
 import com.nocturne.session.coolPowerPct
 import com.nocturne.session.framingFovDeg
@@ -63,7 +64,6 @@ import com.nocturne.ui.theme.NocturneTheme
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-private val JOGS = listOf(-1000, -100, -10, 10, 100, 1000)
 private val RATES = listOf("0.5×", "1×", "8×", "64×", "max")
 private val BIN_OPTIONS = listOf(1, 2, 3, 4)
 private val GUIDE_BIN_OPTIONS = listOf("1x1", "2x2", "3x3", "4x4")
@@ -167,7 +167,10 @@ fun ControlsScreen(
             add(TabItem(full = true) { CoolerCard(state, ctrl) })
             add(TabItem(full = true) { FocuserCard(state, ctrl) })
             add(TabItem { FocusSettingsCard(state, ctrl) })
-            add(TabItem { CameraSettingsCard(state, ctrl) })
+            // Camera settings card removed entirely (2026-09, user request) — its 2 real fields
+            // (save path, placeholder format) moved to Frames tab ("these are about file
+            // locations"), and dither moved to Sequence tab's Scheduler settings ("suitable for
+            // image session") — nothing was left that belonged in Controls.
             // Plate solving (align_solve) folds into this section rather than getting its own —
             // user asked for "primary camera + focuser (manual, auto) + plate solving" as one
             // grouping. Inline sub-label (same MicroLabel/textMuted style already used inside
@@ -451,13 +454,14 @@ private fun FilterCycleChip(value: String, names: List<String>, modifier: Modifi
 /**
  * Real connection: the imaging camera's actual `CCD_TEMPERATURE`/`CCD_COOLER_POWER`
  * properties (confirmed live against a real ToupTek ATR2600M — see
- * [com.nocturne.session.EkosRemoteController]'s doc comment on `coolUp`/`coolDown`), read via
+ * [com.nocturne.session.EkosRemoteController]'s doc comment on `setCoolTarget`), read via
  * the same [indiNumber] helper the generic device sheets already use. `coolTarget` is seeded
  * from the real Capture module's own setpoint (`cameraTemperatureN`) the moment the eager
  * `capture_get_all_settings` reply lands (`EkosRemoteController.applyEvent`'s `CaptureSettings`
  * arm) — previously it was a pure client-side value stuck at a fixture default until the user's
- * own `coolUp`/`coolDown` taps changed it, never matching real Ekos's actual setpoint at the
- * start of a session. Falls back to [SimulatedController]'s fixture `coolNow`/`coolPowerPct`
+ * own taps changed it, never matching real Ekos's actual setpoint at the start of a session.
+ * Set point is now a direct typed field (2026-09, was +/-1° buttons before, user request). Falls
+ * back to [SimulatedController]'s fixture `coolNow`/`coolPowerPct`
  * when no real camera is connected (including under `SimulatedController`, which never
  * populates `wireDevices`/`wireCaptureSettings`).
  */
@@ -492,12 +496,8 @@ private fun CoolerCard(state: AppState, ctrl: SessionController) {
                 TextC(String.format("%.1f", sensorNow) + " °C", style = t.Mono26, color = c.text)
                 TextC(if (liveTemp != null) "sensor now (live)" else "sensor now", style = t.MonoMicro, color = c.textMuted)
             }
-            CoolBtn("−") { ctrl.coolDown() }
-            Column(Modifier.width(64.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                TextC("${String.format("%.0f", state.coolTarget)}°", style = t.Mono15, color = c.accent400)
-                TextC("SET POINT", style = t.Caption10, color = c.textMuted)
-            }
-            CoolBtn("+") { ctrl.coolUp() }
+            Spacer(Modifier.width(8.dp))
+            MiniField("SET POINT", state.coolTarget, "°C", Modifier.width(96.dp), ctrl::setCoolTarget)
         }
         Spacer(Modifier.height(9.dp))
         Box(
@@ -516,24 +516,12 @@ private fun CoolerCard(state: AppState, ctrl: SessionController) {
     }
 }
 
-@Composable
-private fun CoolBtn(label: String, onClick: () -> Unit) {
-    val c = NocturneTheme.colors
-    val t = NocturneTheme.type
-    Box(
-        Modifier
-            .size(38.dp)
-            .border(1.dp, c.divider, RoundedCornerShape(4.dp))
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        TextC(label, style = t.Mono17, color = c.neutral400)
-    }
-}
 
 /**
- * Manual jog (unchanged) + real Autofocus start/stop. `focus_start`/`focus_stop` have no
- * meaningful params or reply — [AppState.focusRunning] is a client-side optimistic flag driving
+ * Focus In/Out (plain, no amount — see [SessionController.focusStepIn]'s doc for why the old
+ * fixed-amount jog row and typed-absolute-goto were both removed 2026-09) + real Autofocus
+ * start/stop. `focus_start`/`focus_stop` have no meaningful params or reply —
+ * [AppState.focusRunning] is a client-side optimistic flag driving
  * the button's own label, not derived from the real wire status text, which is shown verbatim
  * alongside it instead (`state.wireFocusStatus`) — see
  * [com.nocturne.session.EkosRemoteController.startAutofocus]'s doc for why. Known limitation:
@@ -545,6 +533,13 @@ private fun CoolBtn(label: String, onClick: () -> Unit) {
 private fun FocuserCard(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
+    val pos = state.benchFocPos
+    // Real hard end-stop range (ABS_FOCUS_POSITION's own min/max) — null until the property has
+    // arrived, never fabricated. Confirmed live (2026-09): the fork always moves by the Mechanics
+    // "Initial Step Size" regardless of what's requested — real Ekos's own `focusIn`/`focusOut`
+    // already refuse to move past `currentPosition == absMotionMin/Max` server-side, but Focus
+    // In/Out below are ALSO disabled at this same range client-side, a second independent guard.
+    val range = state.focRange
     Column(
         Modifier
             .fillMaxWidth()
@@ -554,23 +549,71 @@ private fun FocuserCard(state: AppState, ctrl: SessionController) {
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextC("FOCUSER · MANUAL", style = t.MicroLabel, color = c.textMuted, modifier = Modifier.weight(1f))
-            TextC("${state.benchFocPos}", style = t.Mono15, color = c.text)
+            TextC(
+                if (range != null) "$pos  (${range.first}–${range.last})" else "$pos",
+                style = t.Mono15, color = c.text,
+            )
         }
-        Spacer(Modifier.height(9.dp))
-        Row(Modifier.fillMaxWidth()) {
-            JOGS.forEach { j ->
-                Box(
-                    Modifier
-                        .weight(1f)
-                        .height(38.dp)
-                        .border(1.dp, c.divider, RoundedCornerShape(4.dp))
-                        .clickable { ctrl.jogFocus(j) },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    TextC(if (j > 0) "+$j" else "$j", style = t.MonoSmall, color = c.neutral400)
+        if (range != null) {
+            Spacer(Modifier.height(6.dp))
+            FocuserRangeBar(pos, range)
+        }
+        // Real focus-camera exposure/gain/binning/filter (2026-09, user request: "parameters
+        // needed for autofocusing... should be exposed in the focus card") — same 4-field row
+        // idiom as Primary Camera/Guide's own preview rows above (`MiniField`/`BinCycleChip`/
+        // `FilterCycleChip`, all already generic), bound to the Focus module's own real settings
+        // (`WireFocusSettings`) instead of a second copy of Capture's. These are exactly what a
+        // real autofocus run actually uses (`focus_start` takes no params of its own — Ekos fires
+        // it with whatever the Focus module's own currently-loaded exposure/gain/filter/bin are,
+        // same "no direct parameter" shape as `capture_preview`/`guide_capture`).
+        state.wireFocusSettings?.let { fs ->
+            Spacer(Modifier.height(9.dp))
+            Row(Modifier.fillMaxWidth()) {
+                MiniField("EXP", fs.focusExposure, "s", Modifier.weight(1f), ctrl::setFocusExposure)
+                Spacer(Modifier.width(8.dp))
+                MiniField("GAIN", fs.focusGain, "", Modifier.weight(1f), ctrl::setFocusGain)
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f)) {
+                    TextC("BIN", style = t.MonoMicro, color = c.textMuted)
+                    Spacer(Modifier.height(3.dp))
+                    BinCycleChip(fs.focusBinning, GUIDE_BIN_OPTIONS, labelOf = { it }, modifier = Modifier.fillMaxWidth()) { ctrl.setFocusBinning(it) }
                 }
-                if (j != JOGS.last()) Spacer(Modifier.width(5.dp))
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f)) {
+                    TextC("FILTER", style = t.MonoMicro, color = c.textMuted)
+                    Spacer(Modifier.height(3.dp))
+                    val filterNames = state.realFilterNames ?: FILTER_CYCLE
+                    FilterCycleChip(fs.focusFilter, filterNames, modifier = Modifier.fillMaxWidth()) { ctrl.setFocusFilter(it) }
+                }
             }
+        }
+        // Plain Focus In/Out — no chosen amount, deliberately. Confirmed live (2026-09): the fork
+        // always moves by the Mechanics "Initial Step Size" (`focusTicks`) regardless of any
+        // requested amount — same as real Ekos's own manual buttons — so a row of different-sized
+        // jog buttons (the old `-1000..+1000`) was offering a choice that was never actually
+        // honored. Step size shown on the buttons themselves, sourced from the real setting
+        // (Mechanics sheet), not invented; disabled at the real hard end-stop, same guard as
+        // before (`focus.cpp`'s own "at minimum/maximum" check backing this up server-side too).
+        Spacer(Modifier.height(9.dp))
+        val step = state.wireFocusSettings?.focusTicks
+        Row(Modifier.fillMaxWidth()) {
+            val atMin = range != null && pos <= range.first
+            val atMax = range != null && pos >= range.last
+            NocturneButton(
+                text = "Focus In" + (step?.let { " (−$it)" } ?: ""),
+                onClick = ctrl::focusStepIn,
+                enabled = !atMin,
+                style = BtnStyle.SUBTLE,
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(8.dp))
+            NocturneButton(
+                text = "Focus Out" + (step?.let { " (+$it)" } ?: ""),
+                onClick = ctrl::focusStepOut,
+                enabled = !atMax,
+                style = BtnStyle.SUBTLE,
+                modifier = Modifier.weight(1f),
+            )
         }
         Spacer(Modifier.height(9.dp))
         TextC("rough focus by eye, then run autofocus · backlash 90 out", style = t.MonoMicro, color = c.textMuted)
@@ -588,6 +631,28 @@ private fun FocuserCard(state: AppState, ctrl: SessionController) {
                 modifier = Modifier.height(34.dp),
             )
         }
+    }
+}
+
+/** Current position's real proximity to each hard end-stop — the actual safety signal this
+ *  whole card exists to surface (see [FocuserCard]'s own doc for the bug that made it matter). */
+@Composable
+private fun FocuserRangeBar(pos: Int, range: IntRange) {
+    val c = NocturneTheme.colors
+    val span = (range.last - range.first).coerceAtLeast(1)
+    val frac = ((pos - range.first).toFloat() / span).coerceIn(0f, 1f)
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(4.dp)
+            .background(c.divider, RoundedCornerShape(2.dp)),
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth(frac)
+                .height(4.dp)
+                .background(c.accent, RoundedCornerShape(2.dp)),
+        )
     }
 }
 
@@ -935,7 +1000,7 @@ private fun RotatorControlCard(state: AppState, ctrl: SessionController) {
 
 /**
  * Curated Align settings (M3.3 phase 3, see docs/M3.3-plan.md) — real-rig only, same gating as
- * [MountSettingsCard]/[CameraSettingsCard]. Distinct from [AlignSolveCard]'s live solve action:
+ * [MountSettingsCard]. Distinct from [AlignSolveCard]'s live solve action:
  * this is configuration (exposure, gain, filter, binning, solver accuracy), not live control.
  */
 @Composable
@@ -1054,39 +1119,6 @@ private fun MountSettingsCard(state: AppState, ctrl: SessionController) {
     }
 }
 
-/**
- * Curated Camera settings (M3.3 phase 5, see docs/M3.3-plan.md) — real-rig only, same gating as
- * [MountSettingsCard]. Distinct from the Sequence block editor's exposure/bin/gain/offset
- * (already live) and this section's own [CoolerCard] (already live): this covers save path + the
- * two guide-deviation abort guards + per-job dither, none of which have a home anywhere else in
- * the app. Moved here from Gear tab — this is exactly what the Controls tab is for.
- */
-@Composable
-private fun CameraSettingsCard(state: AppState, ctrl: SessionController) {
-    val c = NocturneTheme.colors
-    val t = NocturneTheme.type
-    val cam = state.wireCaptureSettings
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .background(c.surface, RoundedCornerShape(14.dp))
-            .border(1.dp, c.divider, RoundedCornerShape(14.dp))
-            .clickable { ctrl.openSheet(SheetType.CAMERA_SETTINGS) }
-            .padding(12.dp),
-    ) {
-        Phosphor.Icon(Phosphor.Camera, size = 20.dp, tint = c.accent400)
-        Spacer(Modifier.height(5.dp))
-        TextC("Camera settings", style = t.Body135, color = c.text)
-        TextC(
-            if (cam == null) "loading…" else {
-                val guard = if (cam.enforceGuideDeviation || cam.enforceStartGuiderDrift) "guide guard on" else "no guide guard"
-                val dither = if (cam.enableDitherPerJob) "dither on" else "dither off"
-                "$guard · $dither"
-            },
-            style = t.MonoMicro, color = c.textFaint,
-        )
-    }
-}
 
 /**
  * Real: `state.wirePolarStage`/`polarRunning` — [PaSheet][com.nocturne.ui.session] has a

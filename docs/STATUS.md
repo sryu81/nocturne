@@ -33,8 +33,11 @@ inevitably-drifting tracker — check `README.md` itself for what's current, thi
 
 ### M3.3 — Module settings sheets
 - [x] Mount settings (10 curated fields)
-- [x] Camera settings (save dir, guide-deviation guard, dither)
-- [x] Focus settings (5 curated fields incl. `focusAlgorithm`)
+- [x] Camera settings — split 2026-09 (user request): save dir/placeholder format now on Frames
+      tab ("File settings"), guide-deviation/drift/refocus guards + dither now in Sequence tab's
+      Scheduler settings (both were never really about live device control, Controls tab's own
+      original home) — Controls tab's Camera settings card removed, nothing left to show there
+- [x] Focus settings (22 curated fields: camera/filter/binning + Mechanics + Process groups, expanded 2026-09 from the original 5 — see `WireFocusSettings`' own per-field docs)
 - [x] Align settings (5 curated fields)
 - [x] Guide settings (7 curated fields, corrected once from a bad initial field-name probe)
 - [x] Real Autofocus start/stop, real Polar Alignment (moved from Gear → Controls tab)

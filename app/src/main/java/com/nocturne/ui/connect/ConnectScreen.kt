@@ -49,6 +49,7 @@ fun ConnectScreen(
     savedHost: String?,
     savedPort: Int,
     onConnect: (host: String, port: Int) -> Unit,
+    onCancel: () -> Unit,
 ) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
@@ -140,19 +141,33 @@ fun ConnectScreen(
         }
         VSpacer(24)
 
-        NocturneButton(
-            text = when (status.state) {
-                ConnectionState.CONNECTING -> "Connecting…"
-                ConnectionState.SOCKET_OPEN -> "Waiting for Ekos…"
-                else -> "Connect"
-            },
-            onClick = {
-                val port = portText.toIntOrNull() ?: 9000
-                if (host.isNotBlank()) onConnect(host.trim(), port)
-            },
-            enabled = !connecting && host.isNotBlank(),
-            modifier = Modifier.fillMaxWidth(),
-        )
+        Row(modifier = Modifier.fillMaxWidth()) {
+            NocturneButton(
+                text = when (status.state) {
+                    ConnectionState.CONNECTING -> "Connecting…"
+                    ConnectionState.SOCKET_OPEN -> "Waiting for Ekos…"
+                    else -> "Connect"
+                },
+                onClick = {
+                    val port = portText.toIntOrNull() ?: 9000
+                    if (host.isNotBlank()) onConnect(host.trim(), port)
+                },
+                enabled = !connecting && host.isNotBlank(),
+                modifier = Modifier.weight(1f),
+            )
+            // Only meaningful mid-dial — a stuck CONNECTING/SOCKET_OPEN with no way back
+            // short of force-killing the app otherwise (real gap: nothing else here ever
+            // calls SessionViewModel.disconnect() before a first ONLINE).
+            if (connecting) {
+                Spacer(Modifier.width(8.dp))
+                NocturneButton(
+                    text = "Cancel",
+                    onClick = onCancel,
+                    style = BtnStyle.SUBTLE,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
 
         if (status.lastError != null && !connecting) {
             VSpacer(10)

@@ -477,6 +477,12 @@ data class AppState(
     val rigRebootAvailable: Boolean = false,
     val rigRebootState: RigRebootState = RigRebootState.IDLE,
     val rigRebootError: String? = null,
+    /** [SessionController.syncTimeToRig]'s own progress — deliberately a separate field from
+     *  [rigRebootState] even though both use the reboot daemon's token: they're independent
+     *  actions (reboot vs. set-time), and sharing one state field would have one action's
+     *  success/failure text wrongly show up under the other button. */
+    val piTimeSyncState: RigRebootState = RigRebootState.IDLE,
+    val piTimeSyncError: String? = null,
 )
 
 /** One `get_devices` entry, decoded to the roles its `interface` bitmask ORs together. */
@@ -1598,18 +1604,52 @@ val AppState.eafTemp: Double get() = indiNumber("EAF", "FOCUS_TEMPERATURE") ?: -
 
 /**
  * Real position for Bench check's Focuser card (M3.2) — [focPos] itself stays a plain fixture
- * field (`jogFocus`'s local optimistic update needs it mutable), but on a real rig it was never
- * reconciled against the focuser's actual `ABS_FOCUS_POSITION` INDI property, which is already
- * fetched/subscribed like any other connected device's properties. `jogFocus`'s real override
- * does send real `focus_in`/`focus_out` — only the number shown ever went stale, silently
+ * field (`focusStepIn`/`focusStepOut`'s local optimistic update needs it mutable), but on a real
+ * rig it was never reconciled against the focuser's actual `ABS_FOCUS_POSITION` INDI property,
+ * which is already fetched/subscribed like any other connected device's properties. The real
+ * override does send real `focus_in`/`focus_out` — only the number shown ever went stale, silently
  * drifting from truth with every jog since the local math started from the fixture default
  * (confirmed live: real rig showed 29445 on the device sheet while Bench stayed stuck at
  * 18422, the exact `focPos` default). `primaryTrain.focuser` is the real focuser's own device
  * name once `wireTrains` is populated (see `WireTrain.toTrainAssignment`) — falls back to
  * [focPos] whenever that lookup misses (simulator, or before the real value has arrived).
+ *
+ * **Real bug found live, fixed**: the getter itself had this exact backwards — it preferred the
+ * real INDI number only *before* `wireFocusSettings` arrived, then fell back to the stale fixture
+ * once actually connected (the normal case), guaranteeing Controls tab never showed a real live
+ * position on a healthy connection. `wireFocusSettings` was never a meaningful gate for this value
+ * in the first place (a different module's settings reply, unrelated to whether the focuser's own
+ * INDI property has arrived) — dropped entirely, always prefer the real number now.
  */
 val AppState.benchFocPos: Int get() =
-    if (wireFocusSettings != null) focPos else (indiNumber(primaryTrain.focuser, "ABS_FOCUS_POSITION")?.roundToInt() ?: focPos)
+    indiNumber(primaryTrain.focuser, "ABS_FOCUS_POSITION")?.roundToInt() ?: focPos
+
+/**
+ * Real focuser hard limits — `ABS_FOCUS_POSITION`'s own `min`/`max` (same generic device-property
+ * mechanism [benchFocPos] already reads the live value from; real Ekos reads these identically,
+ * `focus.cpp`'s `absMove[0].getMin()`/`getMax()`, to bound `absTicksSpin`/clamp `focusIn`/
+ * `focusOut`). Distinct from [WireFocusSettings.focusMaxTravel] — that one's a policy cap on a
+ * single *autofocus search*, not a hardware bound, see its own doc; this is the real physical
+ * end-stop range. Null until the property has actually arrived (min/max both exactly 0.0 is the
+ * generic mechanism's own unpopulated shape, not a real 0..0 focuser) — never fabricated, so
+ * jog/goto safety clamping below only activates once a real range is known.
+ *
+ * **Added alongside a real, dangerous fork bug found live** (2026-08 session): `Focus::focusOut`
+ * appeared to unconditionally overwrite the caller's `steps` with the settings panel's own
+ * `focusTicks` value — recorded then as "fixed at the fork source." **Re-confirmed live 2026-09,
+ * still true**: it substitutes `focusTicks` for *any* requested amount, always, matching real
+ * Ekos's own manual-button behavior (not a bug on that side, see `WireFocusSettings.focusTicks`'s
+ * own doc for the full finding) — the earlier "fixed" note was wrong or described a narrower case;
+ * treat this as a standing, confirmed real behavior, not a resolved one. This range is enforced
+ * client-side too, as a second guard on top of the server's own real `currentPosition==absMotionMin/
+ * Max` check — see [SessionController.focusStepIn]/`focusStepOut` call sites.
+ */
+val AppState.focRange: IntRange? get() {
+    val props = indiProps[primaryTrain.focuser] ?: DRIVER_INDI_PROPS[primaryTrain.focuser] ?: emptyList()
+    val prop = props.firstOrNull { it.name == "ABS_FOCUS_POSITION" } as? IndiProperty.NumberProp ?: return null
+    if (prop.min == 0.0 && prop.max == 0.0) return null
+    return prop.min.roundToInt()..prop.max.roundToInt()
+}
 
 /**
  * Real guide camera's own device name — whichever train is *actually* assigned to the Guide

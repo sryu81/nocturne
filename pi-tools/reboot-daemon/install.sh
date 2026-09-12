@@ -16,11 +16,11 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
-echo "== Checking passwordless sudo for 'reboot' as $RUN_USER =="
+echo "== Checking passwordless sudo for 'reboot'/'date'/'hwclock' as $RUN_USER =="
 if ! sudo -n -u "$RUN_USER" sudo -n true 2>/dev/null; then
     echo "warning: $RUN_USER doesn't have passwordless sudo yet." >&2
     echo "Add a sudoers rule, e.g.:" >&2
-    echo "  echo '$RUN_USER ALL=(ALL) NOPASSWD: /sbin/reboot, /usr/sbin/reboot' | sudo tee /etc/sudoers.d/nocturne-reboot" >&2
+    echo "  echo '$RUN_USER ALL=(ALL) NOPASSWD: /sbin/reboot, /usr/sbin/reboot, /bin/date, /usr/bin/date, /sbin/hwclock, /usr/sbin/hwclock' | sudo tee /etc/sudoers.d/nocturne-reboot" >&2
     echo "then re-run this script." >&2
     exit 1
 fi
@@ -30,12 +30,18 @@ mkdir -p "$TOKEN_DIR" "$INSTALL_DIR"
 if [[ ! -f "$TOKEN_PATH" || "${1:-}" == "--rotate-token" ]]; then
     TOKEN="$(openssl rand -hex 16)"
     echo -n "$TOKEN" > "$TOKEN_PATH"
-    chmod 600 "$TOKEN_PATH"
     echo "== Generated new token — paste this into Nocturne's Rig maintenance sheet: =="
     echo "$TOKEN"
 else
     echo "== Token already exists at $TOKEN_PATH (use --rotate-token to replace it) =="
 fi
+# Real bug, caught live on first actual install: this script runs as root (chmod 600 alone left
+# the file root-owned), but the daemon itself runs as $RUN_USER (systemd unit's own User=) — every
+# start crashed with PermissionError until this chown, every time, not just first-run. Fixed here
+# unconditionally (not just in the generate branch above) so a re-run also repairs an existing
+# install that hit this.
+chown "$RUN_USER:$RUN_USER" "$TOKEN_PATH"
+chmod 600 "$TOKEN_PATH"
 
 cp "$(dirname "$0")/reboot_daemon.py" "$INSTALL_DIR/reboot_daemon.py"
 chmod 755 "$INSTALL_DIR/reboot_daemon.py"

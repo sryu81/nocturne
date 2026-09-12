@@ -89,7 +89,11 @@ fun NocturneButton(
             bg = c.danger; fg = c.surfaceDeep; bd = null
         }
         BtnStyle.SUBTLE -> {
-            bg = Color.Transparent; fg = c.textMuted; bd = c.divider
+            // Was c.textMuted — read as gray/low-contrast at a glance (user feedback), same class
+            // of complaint already fixed once for SectionHeader's own label color. Full-brightness
+            // c.text keeps SUBTLE's transparent-bg/thin-border look distinct from OUTLINE, just
+            // legible now — applies app-wide (18 call sites), not a one-off override.
+            bg = Color.Transparent; fg = c.text; bd = c.divider
         }
     }
     val shape = RoundedCornerShape(10.dp)

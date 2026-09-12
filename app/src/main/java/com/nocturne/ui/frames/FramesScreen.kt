@@ -30,6 +30,7 @@ import com.nocturne.session.formatDecDegrees
 import com.nocturne.session.formatRaHours
 import com.nocturne.session.keepCount
 import com.nocturne.session.rejectCount
+import com.nocturne.session.SheetType
 import com.nocturne.ui.components.Card
 import com.nocturne.ui.components.HfrRunChart
 import com.nocturne.ui.components.IconBtn
@@ -114,6 +115,18 @@ private fun CategoryPicker(
                     title = "Plan",
                     sub = "$planCount real target capture${if (planCount == 1) "" else "s"}",
                     onClick = { ctrl.selectFrameCategory(FrameCategory.PLAN) },
+                )
+            },
+            // Save path/placeholder format (2026-09, user request — moved here from Controls
+            // tab's own Camera settings card: "these are about file locations", which this tab
+            // already is. Dither moved to Sequence tab instead — "suitable for image session",
+            // per the same user request — see SequenceScreen's own doc for that half.
+            TabItem(full = true) {
+                CategoryCard(
+                    icon = Phosphor.SlidersHorizontal,
+                    title = "File settings",
+                    sub = "save path, filename template",
+                    onClick = { ctrl.openSheet(SheetType.CAMERA_SETTINGS) },
                 )
             },
         ),

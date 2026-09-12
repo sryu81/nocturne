@@ -300,9 +300,10 @@ sealed interface EkosEvent {
 
     /**
      * `focus_get_all_settings` reply — real Ekos's Focus module reports 84 fields;
-     * [WireFocusSettings] models 6 curated (`absTicksSpin` for the Focuser-position seed, plus
-     * exposure/gain/filter/backlash/algorithm for the Focus settings sheet, M3.3 phase 6) — see
-     * that class's own doc. `ignoreUnknownKeys` drops the other 78.
+     * [WireFocusSettings] models 8 curated (`absTicksSpin` for the Focuser-position seed, plus
+     * exposure/gain/filter/backlash/algorithm for the Focus settings sheet, M3.3 phase 6, plus
+     * `focusTicks`/`focusMaxTravel` added later) — see that class's own doc. `ignoreUnknownKeys`
+     * drops the other 76.
      */
     @Serializable
     data class FocusSettings(val settings: WireFocusSettings) : EkosEvent
@@ -1016,9 +1017,9 @@ data class WireCaptureSettings(
  * since Ekos's Focus tab shows *this* field, not the raw hardware property. Fixed by seeding
  * `AppState.focPos` from this value the moment it arrives (see
  * `EkosRemoteController.applyEvent`'s `FocusSettings` arm) rather than switching the display
- * over to this field permanently — `focPos` already live-tracks jogs via local optimistic
- * increment (`jogFocus`), so seeding it once here gets both properties right: matches Ekos's own
- * number at connect, keeps live-updating afterward exactly like it already did.
+ * over to this field permanently — `focPos` already live-tracks moves via local optimistic
+ * increment (`focusStepIn`/`focusStepOut`), so seeding it once here gets both properties right:
+ * matches Ekos's own number at connect, keeps live-updating afterward exactly like it already did.
  *
  * Extended for M3.3 phase 6 (Focus settings sheet) with exposure/gain/filter/backlash/algorithm
  * — field names match the wire verbatim, confirmed live against the real rig (real values seen:
@@ -1038,6 +1039,82 @@ data class WireFocusSettings(
     val focusFilter: String = "L",
     val focusBacklash: Int = 0,
     val focusAlgorithm: String = "Linear 1 Pass",
+    /**
+     * Relative move step size (ticks), Ekos's own "Initial Step Size" — real `QSpinBox`
+     * (`focus.ui`'s `m_OpsFocusMechanics->focusTicks`), confirmed in the reference doc's own
+     * live-verified field list. **Confirmed live (2026-09): this is the ONLY amount any manual
+     * `focus_in`/`focus_out` ever actually moves by, unconditionally** — the fork substitutes
+     * this value for whatever `steps` a caller sends, every time, matching real Ekos's own manual
+     * focus-in/out buttons (`focus.cpp`'s `handleFocusButtonEvent` hardcodes `ms=-1`, always
+     * hitting the same fallback). `SessionController.focusStepIn`/`focusStepOut` send `steps=0`
+     * deliberately for this reason, not as a lazy default — see that doc for the full finding.
+     */
+    val focusTicks: Int = 200,
+    /**
+     * Max travel (ticks) — real `QSpinBox` (`focus.ui`'s `m_OpsFocusMechanics->focusMaxTravel`),
+     * same live-verified list. Clamps how far a single autofocus run's linear search is allowed
+     * to travel from its start position (`focus.cpp`'s `searchMin`/`searchMax`) — not a hard
+     * device limit (that's the focuser's own `ABS_FOCUS_POSITION` min/max), a policy limit on one
+     * autofocus pass.
+     */
+    val focusMaxTravel: Int = 20000,
+    /**
+     * Real `QDoubleSpinBox` (`opsfocusmechanics.ui`'s `focusOutSteps`, "Out Step Multiple") —
+     * multiplies [focusTicks] for the Linear/Linear-1-Pass "Classic" walk's opening outward move
+     * (`focus.cpp`'s `setupLinearFocuser` passes both into `FocusParams` together). Not used by
+     * the Fixed-Steps/CFZ-Shuffle walks — see [focusNumSteps] instead.
+     */
+    val focusOutSteps: Double = 5.0,
+    /** Real `QSpinBox` (`opsfocusmechanics.ui`'s `focusNumSteps`, "Number Steps") — total sample
+     *  count for the Fixed-Steps/CFZ-Shuffle walks (see [focusWalk]); a different shape from
+     *  [focusOutSteps], not a multiple of [focusTicks]. */
+    val focusNumSteps: Int = 11,
+    /** Real `QComboBox` (`opsfocusmechanics.ui`'s `focusWalk`) — one of `"Classic"` (Linear only),
+     *  `"Fixed Steps"`, `"CFZ Shuffle"` (confirmed live: `"Fixed Steps"` on this rig). */
+    val focusWalk: String = "Fixed Steps",
+    /**
+     * Real `QSpinBox` (`opsfocusmechanics.ui`'s `focusAFOverscan`, "AF Overscan") — backlash-
+     * elimination ticks added to **every** outward move the Focus module issues, autofocus or
+     * manual jog alike, then auto-corrected back afterward (`focus.cpp`'s `adjustLinearPosition`/
+     * `autoFocusProcessPositionChange`) — confirmed live, this is what turned a requested
+     * `focus_out` jog into a real out-then-partial-back-in double move. Default 100 (stock kcfg).
+     */
+    val focusAFOverscan: Int = 100,
+    /** Real `QDoubleSpinBox` (`opsfocusmechanics.ui`'s `focusOverscanDelay`) — seconds between
+     *  [focusAFOverscan]'s outward extension and its own auto-correction move back in. */
+    val focusOverscanDelay: Double = 0.0,
+    /** Real `QSpinBox` (`opsfocusmechanics.ui`'s `focusMotionTimeout`) — seconds to wait for the
+     *  focuser to report motion-complete before declaring it stuck. */
+    val focusMotionTimeout: Int = 30,
+    /** Real `QSpinBox` (`opsfocusmechanics.ui`'s `focusCaptureTimeout`) — seconds to wait for a
+     *  focus-frame capture before declaring a timeout. */
+    val focusCaptureTimeout: Int = 30,
+    /** Real `QDoubleSpinBox` (`opsfocusmechanics.ui`'s `focusSettleTime`) — seconds to wait after
+     *  a focuser move before capturing the next frame during autofocus. */
+    val focusSettleTime: Double = 1.0,
+    /** Real `QComboBox` (`opsfocusprocess.ui`'s `focusDetection`) — one of `"Gradient"`,
+     *  `"Centroid"`, `"Threshold"`, `"SEP"`, `"Bahtinov"` (confirmed live: `"SEP"`). */
+    val focusDetection: String = "SEP",
+    /** Real `QComboBox` (`opsfocusprocess.ui`'s `focusCurveFit`) — one of `"Quadratic"`,
+     *  `"Hyperbola"`, `"Parabola"`, `"Gaussian"` (confirmed live: `"Hyperbola"`). */
+    val focusCurveFit: String = "Hyperbola",
+    /** Real `QComboBox` (`opsfocusprocess.ui`'s `focusStarMeasure`) — one of `"HFR"`,
+     *  `"HFR Adj"`, `"FWHM"`, `"# Stars"`, `"Fourier"`, `"StdDev"`, `"Sobel"`, `"Laplassian"`,
+     *  `"Canny"` (confirmed live: `"HFR"`). */
+    val focusStarMeasure: String = "HFR",
+    /** Real `QDoubleSpinBox` (`opsfocusprocess.ui`'s `focusTolerance`) — percent change in the
+     *  star measure considered "in tolerance" once a fit is found. */
+    val focusTolerance: Double = 1.0,
+    /** Real `QDoubleSpinBox` (`opsfocusprocess.ui`'s `focusR2Limit`) — minimum curve-fit R² to
+     *  accept a Linear-1-Pass result instead of aborting/retrying. */
+    val focusR2Limit: Double = 0.8,
+    /** Real `QSpinBox` (`opsfocusprocess.ui`'s `focusFramesCount`) — frames captured and averaged
+     *  per focus measurement point. */
+    val focusFramesCount: Int = 1,
+    /** Real focus-camera binning, same string shape as `guideBinning`/`alignBinning` (confirmed
+     *  live: `"1x1"`) — not previously exposed anywhere in the app; Controls tab's Focuser card
+     *  gets it alongside exposure/gain/filter, same as Primary Camera/Guide's own preview rows. */
+    val focusBinning: String = "1x1",
 )
 
 @Serializable

@@ -281,18 +281,20 @@ class EkosEventCodecTest {
 
     @Test
     fun `decodes focus_get_all_settings — curated subset incl phase-6 fields, focusAlgorithm is a string`() {
-        // live capture (M3.3 phase 6) — real Focus::getAllSettings() reports 84 fields; 6 are
+        // live capture (M3.3 phase 6) — real Focus::getAllSettings() reports 84 fields; 8 are
         // modeled (absTicksSpin, already used to seed AppState.focPos, plus exposure/gain/filter/
-        // backlash/algorithm for the Focus settings sheet). ignoreUnknownKeys must drop the other
-        // 78 without throwing. Unlike Guide's field-name history, this list carried low risk —
+        // backlash/algorithm for the Focus settings sheet, plus focusTicks/focusMaxTravel added
+        // later for the same sheet). ignoreUnknownKeys must drop the other 76 without throwing.
+        // Unlike Guide's field-name history, this list carried low risk —
         // EkosRemote-Command-Reference.md flags Focus's field list "Live-captured" (same trusted
-        // bucket as Capture/Align), and all 5 names matched verbatim before this probe — this
+        // bucket as Capture/Align), and all names matched verbatim before this probe — this
         // capture confirms types only. focusAlgorithm is a string ("Linear 1 Pass"), not an enum
-        // index — same shape as alignBinning/guideBinning.
+        // index — same shape as alignBinning/guideBinning. focusMaxTravel was already sitting in
+        // this same live-captured payload, just dropped as unknown until modeled.
         val json = """{"payload":{"absTicksSpin":29535,"defaultFocusTemperatureSource":"ZWO EAF",
             "focusAlgorithm":"Linear 1 Pass","focusBacklash":0,"focusBinning":"1x1",
             "focusCurveFit":"Hyperbola","focusExposure":2,"focusFilter":"L","focusGain":99,
-            "focusMaxTravel":100000,"opticalTrainCombo":"Primary"},
+            "focusMaxTravel":100000,"focusTicks":250,"opticalTrainCombo":"Primary"},
             "type":"focus_get_all_settings"}"""
 
         val event = EkosEventCodec.decode(json)
@@ -304,6 +306,8 @@ class EkosEventCodecTest {
         assertEquals("L", settings.focusFilter)
         assertEquals(0, settings.focusBacklash)
         assertEquals("Linear 1 Pass", settings.focusAlgorithm)
+        assertEquals(250, settings.focusTicks)
+        assertEquals(100000, settings.focusMaxTravel)
     }
 
     @Test

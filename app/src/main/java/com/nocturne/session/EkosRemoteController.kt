@@ -438,7 +438,7 @@ class EkosRemoteController(
         // arrives — fixes Bench Focuser showing a real but different number than Ekos's own
         // Focus tab (see WireFocusSettings's doc). Safe unconditionally, same reasoning as the
         // coolTarget seed above: this reply only ever arrives once, before any optimistic
-        // jogFocus edit could race against it.
+        // focusStepIn/Out edit could race against it.
         is EkosEvent.FocusSettings -> s.copy(wireFocusSettings = event.settings, focPos = event.settings.absTicksSpin)
         is EkosEvent.SchedulerSettings -> s.copy(wireSchedulerSettings = event.settings)
         is EkosEvent.AstroAlmanac -> s.copy(
@@ -841,11 +841,12 @@ class EkosRemoteController(
 
     /**
      * The real `CCD_TEMPERATURE` vector has no separate "target" element (confirmed live —
-     * only `CCD_TEMPERATURE_VALUE`, the current reading, is exposed) — `super.coolUp/coolDown()`
+     * only `CCD_TEMPERATURE_VALUE`, the current reading, is exposed) — `super.setCoolTarget()`
      * still owns [AppState.coolTarget] as Nocturne's own client-side "last commanded" bookkeeping
      * (same field/semantics as [SimulatedController]'s fixture), it just now also pushes that
      * number to the real camera afterward. `CoolerCard` reads the live sensor value separately,
-     * via [com.nocturne.session.indiNumber].
+     * via [com.nocturne.session.indiNumber]. Typed directly (2026-09) — was +/-1° buttons before,
+     * user asked to type the value instead; the 2 real writes below are unchanged either way.
      *
      * Two *separate* real things need writing, confirmed live (user report: "setpoint in Ekos
      * wasn't synced" — it wasn't, this was the gap): the raw INDI `CCD_TEMPERATURE` device
@@ -859,13 +860,8 @@ class EkosRemoteController(
      * the "enforce/use this" checkbox — set true unconditionally here since actively dialing a
      * target via Nocturne's cooler card only makes sense with it enabled.
      */
-    override fun coolUp() {
-        super.coolUp()
-        pushCoolerSetpoint()
-    }
-
-    override fun coolDown() {
-        super.coolDown()
+    override fun setCoolTarget(value: Double) {
+        super.setCoolTarget(value)
         pushCoolerSetpoint()
     }
 
@@ -881,9 +877,13 @@ class EkosRemoteController(
         }
     }
 
-    override fun jogFocus(delta: Int) {
-        client.sendCommand(if (delta > 0) Commands.FOCUS_OUT else Commands.FOCUS_IN, buildJsonObject { put("steps", kotlin.math.abs(delta)) })
-        super.jogFocus(delta)
+    override fun focusStepIn() {
+        client.sendCommand(Commands.FOCUS_IN, buildJsonObject { put("steps", 0) })
+        super.focusStepIn()
+    }
+    override fun focusStepOut() {
+        client.sendCommand(Commands.FOCUS_OUT, buildJsonObject { put("steps", 0) })
+        super.focusStepOut()
     }
 
     /**
@@ -1283,6 +1283,62 @@ class EkosRemoteController(
     }
 
     /**
+     * Real Pi OS clock, via the same reboot daemon as [rebootRig] — `POST /set-time`, needs the
+     * same token. See [RigRebootClient.setTime]'s own doc for the exact local-time-string shape
+     * and why `date -s`/`hwclock -w` need root. Sends the phone's own current wall-clock date/time
+     * (`java.time.LocalDateTime.now()`, no timezone conversion — same "co-located, same
+     * timezone" assumption [syncLocationToRig] documents).
+     */
+    override fun syncTimeToRig() {
+        // KStars' own live internal clock, over the real EkosRemote wire — always sent,
+        // independent of the daemon/token below (works even without the reboot daemon installed
+        // at all). See KSTARS_SET_TIME's own doc (Commands.kt) for why this needed a new command.
+        val now = java.time.LocalDateTime.now()
+        client.sendCommand(
+            Commands.KSTARS_SET_TIME,
+            buildJsonObject {
+                put("yr", now.year); put("mth", now.monthValue); put("day", now.dayOfMonth)
+                put("hr", now.hour); put("min", now.minute); put("sec", now.second)
+            },
+        )
+
+        // Real Pi OS clock — best-effort, needs the reboot daemon's token configured.
+        val token = rigRebootToken
+        if (token == null) {
+            _state.update { it.copy(piTimeSyncState = RigRebootState.FAILED, piTimeSyncError = "Set the reboot daemon token first") }
+            return
+        }
+        _state.update { it.copy(piTimeSyncState = RigRebootState.SENDING, piTimeSyncError = null) }
+        val iso = now.withNano(0).toString()
+        scope.launch {
+            val result = RigRebootClient(client.host, rigRebootPort, token).setTime(iso)
+            _state.update { s ->
+                result.fold(
+                    onSuccess = { s.copy(piTimeSyncState = RigRebootState.SENT, piTimeSyncError = null) },
+                    onFailure = { e -> s.copy(piTimeSyncState = RigRebootState.FAILED, piTimeSyncError = e.message ?: "request failed") },
+                )
+            }
+        }
+    }
+
+    /**
+     * Real KStars geographic location, via the new `kstars_set_location` wire command — see
+     * [SessionController.syncLocationToRig]'s own doc for the full finding (why the existing
+     * `option_set`/`invoke_method` hatches can't reach `KStars::setGPSLocation`). [tz] is only a
+     * fallback KStars uses if it can't match the coordinates to a known city in its own database
+     * (`nearestLocation()`) — computed from the phone's own standard-time UTC offset
+     * (`TimeZone.getDefault().rawOffset`), same co-located assumption as [syncTimeToRig].
+     */
+    override fun syncLocationToRig(lat: Double, lon: Double, elevM: Double) {
+        val tzHours = java.util.TimeZone.getDefault().rawOffset / 3_600_000.0
+        client.sendCommand(
+            Commands.KSTARS_SET_LOCATION,
+            buildJsonObject { put("lat", lat); put("lon", lon); put("elev", elevM); put("tz", tzHours) },
+        )
+        super.syncLocationToRig(lat, lon, elevM)
+    }
+
+    /**
      * Mount settings (M3.3, curated subset — see docs/M3.3-plan.md). Each setter sends
      * `mount_set_all_settings` with just the one changed field (server applies only keys
      * present in the map — confirmed against `Mount::setAllSettings` in the real source, so
@@ -1608,6 +1664,74 @@ class EkosRemoteController(
     override fun setFocusAlgorithm(algorithm: String) {
         sendFocusSetting("focusAlgorithm", JsonPrimitive(algorithm))
         super.setFocusAlgorithm(algorithm)
+    }
+    override fun setFocusTicks(ticks: Int) {
+        sendFocusSetting("focusTicks", JsonPrimitive(ticks))
+        super.setFocusTicks(ticks)
+    }
+    override fun setFocusMaxTravel(ticks: Int) {
+        sendFocusSetting("focusMaxTravel", JsonPrimitive(ticks))
+        super.setFocusMaxTravel(ticks)
+    }
+    override fun setFocusOutSteps(multiple: Double) {
+        sendFocusSetting("focusOutSteps", JsonPrimitive(multiple))
+        super.setFocusOutSteps(multiple)
+    }
+    override fun setFocusNumSteps(steps: Int) {
+        sendFocusSetting("focusNumSteps", JsonPrimitive(steps))
+        super.setFocusNumSteps(steps)
+    }
+    override fun setFocusWalk(walk: String) {
+        sendFocusSetting("focusWalk", JsonPrimitive(walk))
+        super.setFocusWalk(walk)
+    }
+    override fun setFocusAFOverscan(ticks: Int) {
+        sendFocusSetting("focusAFOverscan", JsonPrimitive(ticks))
+        super.setFocusAFOverscan(ticks)
+    }
+    override fun setFocusOverscanDelay(sec: Double) {
+        sendFocusSetting("focusOverscanDelay", JsonPrimitive(sec))
+        super.setFocusOverscanDelay(sec)
+    }
+    override fun setFocusMotionTimeout(sec: Int) {
+        sendFocusSetting("focusMotionTimeout", JsonPrimitive(sec))
+        super.setFocusMotionTimeout(sec)
+    }
+    override fun setFocusCaptureTimeout(sec: Int) {
+        sendFocusSetting("focusCaptureTimeout", JsonPrimitive(sec))
+        super.setFocusCaptureTimeout(sec)
+    }
+    override fun setFocusSettleTime(sec: Double) {
+        sendFocusSetting("focusSettleTime", JsonPrimitive(sec))
+        super.setFocusSettleTime(sec)
+    }
+    override fun setFocusDetection(method: String) {
+        sendFocusSetting("focusDetection", JsonPrimitive(method))
+        super.setFocusDetection(method)
+    }
+    override fun setFocusCurveFit(fit: String) {
+        sendFocusSetting("focusCurveFit", JsonPrimitive(fit))
+        super.setFocusCurveFit(fit)
+    }
+    override fun setFocusStarMeasure(measure: String) {
+        sendFocusSetting("focusStarMeasure", JsonPrimitive(measure))
+        super.setFocusStarMeasure(measure)
+    }
+    override fun setFocusTolerance(percent: Double) {
+        sendFocusSetting("focusTolerance", JsonPrimitive(percent))
+        super.setFocusTolerance(percent)
+    }
+    override fun setFocusR2Limit(limit: Double) {
+        sendFocusSetting("focusR2Limit", JsonPrimitive(limit))
+        super.setFocusR2Limit(limit)
+    }
+    override fun setFocusFramesCount(count: Int) {
+        sendFocusSetting("focusFramesCount", JsonPrimitive(count))
+        super.setFocusFramesCount(count)
+    }
+    override fun setFocusBinning(binning: String) {
+        sendFocusSetting("focusBinning", JsonPrimitive(binning))
+        super.setFocusBinning(binning)
     }
 
     /**

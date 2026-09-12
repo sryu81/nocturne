@@ -63,6 +63,12 @@ class EkosRemoteClient(
 
     private var reconnectJob: Job? = null
     private var backoffAttempt = 0
+    // Set only by an explicit disconnect() — onClosed/onFailure fire identically whether the
+    // client requested the close or the connection just dropped, so without this the very
+    // close() call disconnect() makes to tear the socket down was itself re-triggering
+    // scheduleReconnect() a moment later (real bug: disconnect appeared to work, then silently
+    // reconnected). Cleared by connect(), the only other place that should ever reconnect.
+    private var userDisconnected = false
 
     init {
         // Persistent collectors for the lifetime of this client — reconnects
@@ -95,12 +101,14 @@ class EkosRemoteClient(
     fun connect() {
         reconnectJob?.cancel()
         backoffAttempt = 0
+        userDisconnected = false
         _connectionStatus.update { it.copy(state = ConnectionState.CONNECTING, lastError = null) }
         messageChannel.open()
         mediaChannel.open()
     }
 
     fun disconnect() {
+        userDisconnected = true
         reconnectJob?.cancel()
         sendCommand(Commands.SET_CLIENT_STATE, buildJsonObject { put("state", false) })
         messageChannel.close()
@@ -113,6 +121,18 @@ class EkosRemoteClient(
     }
 
     private fun onSocketOpen() {
+        // Guards a real race: disconnect() cancels reconnectJob and closes both channels, but
+        // an attempt already past its suspension point (an in-flight connect()/reconnect open()
+        // whose Job.cancel() lost the race, or a handshake that was already committed before
+        // close() ran) can still call this after userDisconnected flipped true. Without this,
+        // that late onOpen silently re-armed the session — looked exactly like an automatic
+        // reconnect right after a deliberate disconnect. Shut the socket right back down instead
+        // of treating it as live.
+        if (userDisconnected) {
+            messageChannel.close()
+            mediaChannel.close()
+            return
+        }
         backoffAttempt = 0
         _connectionStatus.update { it.copy(state = ConnectionState.SOCKET_OPEN, lastError = null) }
         sendCommand(Commands.SET_CLIENT_STATE, buildJsonObject { put("state", true) })
@@ -201,6 +221,7 @@ class EkosRemoteClient(
     }
 
     private fun onSocketClosedOrFailed(reason: String?) {
+        if (userDisconnected) return
         _connectionStatus.update { it.copy(state = ConnectionState.CONNECTING, lastError = reason) }
         scheduleReconnect()
     }
@@ -213,6 +234,10 @@ class EkosRemoteClient(
         backoffAttempt++
         reconnectJob = scope.launch {
             delay(delayMs)
+            // cancel() on a Job that already resumed past delay() doesn't stop it — recheck the
+            // flag explicitly rather than trust cancellation alone (same race onSocketOpen now
+            // guards against too).
+            if (userDisconnected) return@launch
             messageChannel.open()
             mediaChannel.open()
         }

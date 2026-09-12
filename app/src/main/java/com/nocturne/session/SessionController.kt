@@ -91,12 +91,28 @@ interface SessionController {
 
     fun snapMain()
     fun snapGuide()
-    fun jogFocus(delta: Int)
+    /**
+     * Real `focus_in`/`focus_out`, sent with `steps=0` deliberately — **not** a lazy default.
+     * Confirmed live (2026-09): the fork's manual-move handling always substitutes the Focus
+     * Mechanics "Initial Step Size" (`WireFocusSettings.focusTicks`) for whatever `steps` value
+     * arrives, regardless of its value — matches real Ekos's own manual focus-in/out buttons
+     * exactly (`focus.cpp`'s `handleFocusButtonEvent` hardcodes `ms=-1`, always triggering the
+     * same fallback). Sending an honest `0` instead of a computed delta that gets silently
+     * discarded anyway. Superseded the old fixed-amount jog row (`-1000..+1000`) and the typed-
+     * absolute-position control entirely — see docs/FORK-BACKLOG.md/memory for why neither could
+     * ever have worked once this was confirmed (every relative move this wire can send always
+     * lands on `focusTicks`, no exceptions found).
+     */
+    fun focusStepIn()
+    fun focusStepOut()
     fun setRate(index: Int)
     fun setSlewDir(key: String)
     fun stopSlew()
-    fun coolUp()
-    fun coolDown()
+    /** Real camera cooler setpoint, typed directly (2026-09, replaced the old +/-1° buttons per
+     *  user request — "put the value directly"). See [com.nocturne.session.EkosRemoteController]'s
+     *  override doc for the 2 real things this writes (raw `CCD_TEMPERATURE` device property +
+     *  Capture module's own `cameraTemperatureN`/`S`). */
+    fun setCoolTarget(value: Double)
     fun runAutofocusNow()
     fun startAutofocus()
     fun stopAutofocus()
@@ -157,6 +173,33 @@ interface SessionController {
 
     /** Sends the actual reboot request. See [AppState.rigRebootState] for the result. */
     fun rebootRig()
+
+    /**
+     * Sets the real Pi's OS system clock (`date -s`+`hwclock -w`, via the same reboot-daemon
+     * channel as [rebootRig] — no EkosRemote/INDI property controls this at all, it's the same
+     * class of OS-level gap as the reboot itself, see `pi-tools/reboot-daemon/`'s own doc).
+     * Requires the daemon token to already be configured ([setRigRebootConfig]); reuses
+     * [AppState.rigRebootState] for progress/result, same as [rebootRig]. Sends the phone's own
+     * current local wall-clock time — see [syncLocationToRig]'s doc for the same "co-located,
+     * same timezone" assumption this relies on.
+     */
+    fun syncTimeToRig()
+
+    /**
+     * Sets KStars' own real geographic location (`GeoLocation`/`Options.Latitude/Longitude/
+     * Elevation`) via the new `kstars_set_location` wire command (2026-09) — a direct in-process
+     * call to `KStars::setGPSLocation`, real and immediately effective for every subsequent
+     * almanac/riseset/meridian-flip calculation this session. The existing `option_set`/generic
+     * `invoke_method` hatches can't reach this: `option_set` only writes the *persisted default*,
+     * effective on next restart, and `invoke_method`'s `findObject()` can't resolve the top-level
+     * `KStars` singleton itself (only named children) — see the new command's own comment in the
+     * fork's `message.cpp` for the full finding. [lat]/[lon] in degrees, [elevM] in meters — real
+     * values read from the phone's own GPS by the UI layer (`MaintenanceSheet`), passed in
+     * already-resolved since this interface stays platform-agnostic. Assumes phone and rig are
+     * physically co-located (same site, same timezone) — true for the normal "syncing before
+     * tonight's session" use case this exists for, not meant for remote/offsite control.
+     */
+    fun syncLocationToRig(lat: Double, lon: Double, elevM: Double)
 
     // ── M3.3: Mount settings (curated subset, see docs/M3.3-plan.md) ──────
     fun setMountMeridianFlip(enabled: Boolean)
@@ -226,6 +269,24 @@ interface SessionController {
     fun setFocusFilter(filter: String)
     fun setFocusBacklash(steps: Int)
     fun setFocusAlgorithm(algorithm: String)
+    fun setFocusTicks(ticks: Int)
+    fun setFocusMaxTravel(ticks: Int)
+    // Mechanics + Process, practical subset (2026-09) — see WireFocusSettings' own field docs.
+    fun setFocusOutSteps(multiple: Double)
+    fun setFocusNumSteps(steps: Int)
+    fun setFocusWalk(walk: String)
+    fun setFocusAFOverscan(ticks: Int)
+    fun setFocusOverscanDelay(sec: Double)
+    fun setFocusMotionTimeout(sec: Int)
+    fun setFocusCaptureTimeout(sec: Int)
+    fun setFocusSettleTime(sec: Double)
+    fun setFocusDetection(method: String)
+    fun setFocusCurveFit(fit: String)
+    fun setFocusStarMeasure(measure: String)
+    fun setFocusTolerance(percent: Double)
+    fun setFocusR2Limit(limit: Double)
+    fun setFocusFramesCount(count: Int)
+    fun setFocusBinning(binning: String)
 
     // ── Bench "Snap main"/"Snap guide" preview capture params ──────────────
     fun setCapturePreviewExposure(sec: Double)

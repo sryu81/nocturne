@@ -1,5 +1,10 @@
 package com.nocturne.ui.session
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.location.LocationManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -30,7 +35,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import com.nocturne.session.DEVICES
 import com.nocturne.session.DRIVER_INDI_PROPS
 import com.nocturne.session.FILTER_CYCLE
@@ -51,6 +58,7 @@ import com.nocturne.session.AppState
 import com.nocturne.session.TrainRole
 import com.nocturne.session.TrainSlot
 import com.nocturne.session.coolAtSetPoint
+import com.nocturne.session.focRange
 import com.nocturne.session.indiNumber
 import com.nocturne.session.doneSpec
 import com.nocturne.session.endedJob
@@ -131,7 +139,7 @@ fun SheetHost(state: AppState, ctrl: SessionController, landscape: Boolean) {
         SheetType.SCOPES -> "Scopes" to "add, edit, remove"
         SheetType.MAINTENANCE -> "Rig maintenance" to "reboot the Pi if Ekos hangs"
         SheetType.MOUNT_SETTINGS -> "Mount settings" to "flip, limits, auto-park"
-        SheetType.CAMERA_SETTINGS -> "Camera settings" to "save path, dither"
+        SheetType.CAMERA_SETTINGS -> "File settings" to "save path, filename template"
         SheetType.ALIGN_SETTINGS -> "Align settings" to "exposure, gain, filter, accuracy"
         SheetType.GUIDE_SETTINGS -> "Guide settings" to "accuracy threshold, dither"
         SheetType.FOCUS_SETTINGS -> "Focus settings" to "exposure, gain, filter"
@@ -855,12 +863,16 @@ private fun DegreeField(value: Double, unit: String, onChange: (Double) -> Unit)
 // ── Camera settings (M3.3 phase 5, curated subset) ──────────────────────────
 
 /**
- * Curated subset of real Ekos's Camera tab (7 of 59 real fields — see
- * docs/M3.3-plan.md) — save path, guide-deviation abort guard, start-of-job
- * guide-drift guard, per-job dither. Real-rig only: [AppState.wireCaptureSettings]
- * is null under [SimulatedController] (no fixture equivalent, same real-only
- * gating as [MountSettingsSheet]) and briefly null on a real rig too, until
- * the first `capture_get_all_settings` reply lands.
+ * File-location settings only, as of 2026-09 (user request) — save path + placeholder/filename
+ * template, real Capture-module fields (`fileDirectoryT`/`placeholderFormatT`). Originally also
+ * held guide-deviation/drift/refocus guards and per-job dither; both moved out since (guards →
+ * `SchedulerSettingsSheet`'s "Guide & Focus Limits", 2026-08-23; dither → the same sheet's own
+ * "Dither" section, 2026-09) as neither was really about file locations, this sheet's own actual
+ * theme. Opened from Frames tab now (`FramesScreen`'s "File settings" card), not Controls tab —
+ * Controls tab's own Camera settings card was removed entirely, nothing else was left to show
+ * there. Real-rig only: [AppState.wireCaptureSettings] is null under [SimulatedController] (no
+ * fixture equivalent, same real-only gating as [MountSettingsSheet]) and briefly null on a real
+ * rig too, until the first `capture_get_all_settings` reply lands.
  */
 @Composable
 private fun CameraSettingsSheet(state: AppState, ctrl: SessionController) {
@@ -916,23 +928,6 @@ private fun CameraSettingsSheet(state: AppState, ctrl: SessionController) {
             "Real subfolder/filename template, applied after Save path — e.g. /%t/%T/%F/ (%t target, %T frame type, %F filter).",
             style = t.MonoMicro, color = c.textMuted,
         )
-        Spacer(Modifier.height(16.dp))
-        HDivider()
-        Spacer(Modifier.height(16.dp))
-
-        SwitchRow(
-            label = "Dither every job",
-            sub = "dither after this many captured subs, not just per-filter",
-            checked = cam.enableDitherPerJob,
-            onToggle = { ctrl.setCameraDitherPerJobEnabled(!cam.enableDitherPerJob) },
-            modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
-        )
-        if (cam.enableDitherPerJob) {
-            Spacer(Modifier.height(8.4.dp))
-            FieldLabel("Every N subs")
-            Spacer(Modifier.height(5.dp))
-            IntField(cam.guideDitherPerJobFrequency, ctrl::setCameraDitherPerJobFrequency)
-        }
     }
 }
 
@@ -1146,15 +1141,36 @@ private fun GuideSettingsSheet(state: AppState, ctrl: SessionController) {
     }
 }
 
-// ── Focus settings (M3.3 phase 6, curated subset) ───────────────────────────
+// ── Focus settings (M3.3 phase 6 + 2026-09 Mechanics/Process expansion) ─────
+
+/** Real `opsfocusmechanics.ui` combo (`focusWalk`) — Linear-only "Classic" included since the
+ *  combo itself offers it regardless of which algorithm is active; the field is free either way. */
+private val FOCUS_WALK_CYCLE = listOf("Classic", "Fixed Steps", "CFZ Shuffle")
+
+/** Real `opsfocusprocess.ui` combo (`focusDetection`). */
+private val FOCUS_DETECTION_CYCLE = listOf("Gradient", "Centroid", "Threshold", "SEP", "Bahtinov")
+
+/** Real `opsfocusprocess.ui` combo (`focusCurveFit`). */
+private val FOCUS_CURVE_FIT_CYCLE = listOf("Quadratic", "Hyperbola", "Parabola", "Gaussian")
+
+/** Real `opsfocusprocess.ui` combo (`focusStarMeasure`). */
+private val FOCUS_STAR_MEASURE_CYCLE =
+    listOf("HFR", "HFR Adj", "FWHM", "# Stars", "Fourier", "StdDev", "Sobel", "Laplassian", "Canny")
 
 /**
- * Curated subset of real Ekos's Focus tab (6 of 84 real fields — see
- * docs/M3.3-plan.md and [WireFocusSettings]'s own doc for the live-probe history) —
- * `absTicksSpin` (used elsewhere to seed [AppState.focPos], not shown here) plus
- * exposure/gain/filter/backlash/algorithm. Real-rig only: [AppState.wireFocusSettings]
- * is null under [SimulatedController] and briefly null on a real rig too, until the first
- * `focus_get_all_settings` reply lands — same gating shape as [GuideSettingsSheet].
+ * Real Ekos Focus tab settings, 2 groups matching Ekos's own layout: **Mechanics**
+ * (`opsfocusmechanics.ui`), **Process** (`opsfocusprocess.ui`) — 18 of ~84 real fields shown here
+ * (see [WireFocusSettings]'s own per-field docs for the live-probe history), a practical subset
+ * rather than a full 1:1 mirror (2026-09, user's own call: skip mosaic/masking/adaptive/CFZ-
+ * calculator/donut/multi-row/gaussian-denoise internals — expert-tuning fields, not the everyday
+ * set). Exposure/gain/filter/binning (4 more curated fields) deliberately live on Controls tab's
+ * Focuser card instead, not here — see that card's own doc. `absTicksSpin` (used elsewhere to
+ * seed [AppState.focPos]) isn't shown anywhere — no real fork command sets an absolute position
+ * directly (confirmed 2026-09, see [SessionController.focusStepIn]'s doc for the full finding);
+ * Focus In/Out on Controls tab's Focuser card is the real move control now. Real-rig only:
+ * [AppState.wireFocusSettings] is null under [SimulatedController] and briefly null on a real rig
+ * too, until the first `focus_get_all_settings` reply lands — same gating shape as
+ * [GuideSettingsSheet].
  */
 @Composable
 private fun FocusSettingsSheet(state: AppState, ctrl: SessionController) {
@@ -1168,36 +1184,100 @@ private fun FocusSettingsSheet(state: AppState, ctrl: SessionController) {
     }
 
     Column {
-        FieldLabel("Exposure")
-        Spacer(Modifier.height(5.dp))
-        DegreeField(f.focusExposure, "s", ctrl::setFocusExposure)
-        Spacer(Modifier.height(8.4.dp))
-        FieldLabel("Gain")
-        Spacer(Modifier.height(5.dp))
-        DegreeField(f.focusGain, "", ctrl::setFocusGain)
-        Spacer(Modifier.height(16.dp))
-        HDivider()
-        Spacer(Modifier.height(16.dp))
+        // Exposure/gain/filter/binning deliberately NOT here (2026-09) — moved to Controls tab's
+        // Focuser card instead, alongside the manual Focus In/Out buttons that actually use them,
+        // matching Primary Camera/Guide's own preview-row placement. This sheet is Mechanics +
+        // Process only now — real Ekos's own two Focus-tab settings groups, nothing else.
 
-        // Same tap-to-cycle idiom as AlignSettingsSheet's filter field — real filter-wheel
-        // position list, shared app-wide.
-        FieldLabel("Filter")
+        // ── Mechanics (opsfocusmechanics.ui) ────────────────────────────────
+        TextC("MECHANICS", style = t.MicroLabel, color = c.textMuted)
+        Spacer(Modifier.height(10.dp))
+
+        // Real kcfg fields (`focusTicks`/`focusMaxTravel`) — `focusTicks` doubles as the real
+        // default step `jogFocus` falls back to (see FocuserCard's own doc for the real bug this
+        // caused: the fork currently substitutes this for *every* jog, ignoring the requested
+        // amount entirely, not just as an ms<=0 fallback as the code first suggested).
+        FieldLabel("Initial step size (ticks)")
         Spacer(Modifier.height(5.dp))
-        CycleChip(f.focusFilter) { ctrl.setFocusFilter(FILTER_CYCLE[(FILTER_CYCLE.indexOf(f.focusFilter) + 1).mod(FILTER_CYCLE.size)]) }
+        IntField(f.focusTicks, ctrl::setFocusTicks)
         Spacer(Modifier.height(8.4.dp))
-        FieldLabel("Backlash")
+        FieldLabel("Out step multiple (× initial step)")
+        Spacer(Modifier.height(5.dp))
+        DegreeField(f.focusOutSteps, "x", ctrl::setFocusOutSteps)
+        Spacer(Modifier.height(8.4.dp))
+        FieldLabel("Walk")
+        Spacer(Modifier.height(5.dp))
+        CycleChip(f.focusWalk) { ctrl.setFocusWalk(FOCUS_WALK_CYCLE[(FOCUS_WALK_CYCLE.indexOf(f.focusWalk) + 1).mod(FOCUS_WALK_CYCLE.size)]) }
+        Spacer(Modifier.height(8.4.dp))
+        FieldLabel("Number steps (Fixed Steps / CFZ Shuffle)")
+        Spacer(Modifier.height(5.dp))
+        IntField(f.focusNumSteps, ctrl::setFocusNumSteps)
+        Spacer(Modifier.height(8.4.dp))
+        FieldLabel("Driver backlash (ticks)")
         Spacer(Modifier.height(5.dp))
         IntField(f.focusBacklash, ctrl::setFocusBacklash)
+        Spacer(Modifier.height(8.4.dp))
+        // Confirmed live this session: the mechanism behind FocuserCard's own documented overscan
+        // bug — added to every outward Focus-module move, then auto-corrected back.
+        FieldLabel("AF overscan (ticks)")
+        Spacer(Modifier.height(5.dp))
+        IntField(f.focusAFOverscan, ctrl::setFocusAFOverscan)
+        Spacer(Modifier.height(8.4.dp))
+        FieldLabel("AF overscan delay (s)")
+        Spacer(Modifier.height(5.dp))
+        DegreeField(f.focusOverscanDelay, "s", ctrl::setFocusOverscanDelay)
+        Spacer(Modifier.height(8.4.dp))
+        FieldLabel("Motion timeout (s)")
+        Spacer(Modifier.height(5.dp))
+        IntField(f.focusMotionTimeout, ctrl::setFocusMotionTimeout)
+        Spacer(Modifier.height(8.4.dp))
+        FieldLabel("Capture timeout (s)")
+        Spacer(Modifier.height(5.dp))
+        IntField(f.focusCaptureTimeout, ctrl::setFocusCaptureTimeout)
+        Spacer(Modifier.height(8.4.dp))
+        FieldLabel("Settle time (s)")
+        Spacer(Modifier.height(5.dp))
+        DegreeField(f.focusSettleTime, "s", ctrl::setFocusSettleTime)
+        Spacer(Modifier.height(8.4.dp))
+        // Relabeled from a plain "Max travel" — real user report, live-tested: this reads like a
+        // hardware safety bound (and the real overscan bug above made that confusion actively
+        // dangerous) but it's genuinely just a per-autofocus-run search-distance cap (`focus.cpp`'s
+        // `searchMin`/`searchMax`), not a device limit at all.
+        FieldLabel("Autofocus search range (ticks)")
+        Spacer(Modifier.height(5.dp))
+        IntField(f.focusMaxTravel, ctrl::setFocusMaxTravel)
+        TextC(
+            "how far one autofocus run is allowed to search from its start position — not a hardware limit",
+            style = t.MonoMicro, color = c.textFaint,
+        )
+        Spacer(Modifier.height(8.4.dp))
+        // The real hardware limit — ABS_FOCUS_POSITION's own min/max, read-only (driver-reported,
+        // nothing in Ekos or this app sets it). Shown here so "max position" has one unambiguous,
+        // real answer next to the policy field above instead of the two being conflated.
+        val range = state.focRange
+        FieldLabel("Real hardware range")
+        Spacer(Modifier.height(5.dp))
+        TextC(
+            if (range != null) "${range.first} – ${range.last} (read-only, from the focuser itself)" else "unknown — not connected yet",
+            style = t.Body13, color = c.textMuted,
+        )
         Spacer(Modifier.height(16.dp))
         HDivider()
         Spacer(Modifier.height(16.dp))
 
-        // Free-text, not a cycle chip: unlike alignBinning/guideBinning (a small fixed set,
-        // confirmed live), real Ekos's algorithm list isn't enumerated anywhere probed so far
-        // (confirmed live value: "Linear 1 Pass") — inventing a guessed option list here would
-        // be exactly the kind of wire-shape guess this project avoids elsewhere. Same free-text
-        // shape as CameraSettingsSheet's "Save path" field (direct passthrough, no parse/filter
-        // step, so no clear-and-retype bug risk).
+        // ── Process (opsfocusprocess.ui) ────────────────────────────────────
+        TextC("PROCESS", style = t.MicroLabel, color = c.textMuted)
+        Spacer(Modifier.height(10.dp))
+
+        FieldLabel("Star detection")
+        Spacer(Modifier.height(5.dp))
+        CycleChip(f.focusDetection) { ctrl.setFocusDetection(FOCUS_DETECTION_CYCLE[(FOCUS_DETECTION_CYCLE.indexOf(f.focusDetection) + 1).mod(FOCUS_DETECTION_CYCLE.size)]) }
+        Spacer(Modifier.height(8.4.dp))
+
+        // Free-text, not a cycle chip: unlike the combos above, real Ekos's algorithm list isn't
+        // enumerated anywhere probed so far (confirmed live value: "Linear 1 Pass") — inventing a
+        // guessed option list here would be exactly the kind of wire-shape guess this project
+        // avoids elsewhere. Same free-text shape as CameraSettingsSheet's "Save path" field.
         FieldLabel("Autofocus algorithm")
         Spacer(Modifier.height(5.dp))
         Box(
@@ -1216,6 +1296,26 @@ private fun FocusSettingsSheet(state: AppState, ctrl: SessionController) {
                 modifier = Modifier.fillMaxWidth(),
             )
         }
+        Spacer(Modifier.height(8.4.dp))
+        FieldLabel("Curve fit")
+        Spacer(Modifier.height(5.dp))
+        CycleChip(f.focusCurveFit) { ctrl.setFocusCurveFit(FOCUS_CURVE_FIT_CYCLE[(FOCUS_CURVE_FIT_CYCLE.indexOf(f.focusCurveFit) + 1).mod(FOCUS_CURVE_FIT_CYCLE.size)]) }
+        Spacer(Modifier.height(8.4.dp))
+        FieldLabel("Star measure")
+        Spacer(Modifier.height(5.dp))
+        CycleChip(f.focusStarMeasure) { ctrl.setFocusStarMeasure(FOCUS_STAR_MEASURE_CYCLE[(FOCUS_STAR_MEASURE_CYCLE.indexOf(f.focusStarMeasure) + 1).mod(FOCUS_STAR_MEASURE_CYCLE.size)]) }
+        Spacer(Modifier.height(8.4.dp))
+        FieldLabel("Tolerance (%)")
+        Spacer(Modifier.height(5.dp))
+        DegreeField(f.focusTolerance, "%", ctrl::setFocusTolerance)
+        Spacer(Modifier.height(8.4.dp))
+        FieldLabel("R² limit")
+        Spacer(Modifier.height(5.dp))
+        DegreeField(f.focusR2Limit, "", ctrl::setFocusR2Limit)
+        Spacer(Modifier.height(8.4.dp))
+        FieldLabel("Frames per point")
+        Spacer(Modifier.height(5.dp))
+        IntField(f.focusFramesCount, ctrl::setFocusFramesCount)
     }
 }
 
@@ -1497,8 +1597,10 @@ private fun SchedulerSettingsSheet(state: AppState, ctrl: SessionController) {
         // the same real capture_set_all_settings wire command (Capture module owns the dialog,
         // Nocturne's own sheet split is a UI-only grouping, not a wire-protocol one; each row
         // below still calls the same real setCameraXxx→sendCaptureSetting path it always did).
-        // Dither stays in Camera settings — it already has a real, distinct per-block home
-        // (Block.ditherEvery), so it's not part of this "when to abort/refocus" group at all.
+        // Dither moved here too as of 2026-09 (see its own section below) — no longer "stays in
+        // Camera settings" as this comment used to say; that card was removed from Controls tab
+        // entirely, and Dither's own real per-block sibling (`Block.ditherEvery`) already lives in
+        // this same Sequence tab, making this the right conceptual home now, not a leftover.
         val cam = state.wireCaptureSettings
         if (cam == null) {
             Spacer(Modifier.height(16.dp))
@@ -1576,6 +1678,32 @@ private fun SchedulerSettingsSheet(state: AppState, ctrl: SessionController) {
                 Spacer(Modifier.height(5.dp))
                 DegreeField(cam.maxFocusTemperatureDelta, "°C", ctrl::setCameraMaxFocusTemperatureDelta)
             }
+            Spacer(Modifier.height(16.dp))
+            HDivider()
+            Spacer(Modifier.height(16.dp))
+
+            // Moved here from Controls tab's own Camera settings card (2026-09, user request:
+            // "this is setting for multiple image shots, suitable for image session") — same
+            // real Capture-module global default `enableDitherPerJob`/`guideDitherPerJobFrequency`
+            // as before, just relocated next to its own natural siblings: the *per-block* override
+            // of this exact same real setting already lives in Sequence tab's own block editor
+            // (`Block.ditherEvery`, "Dither every" row, `SequenceScreen.kt`) — this is the global
+            // default that applies when a block doesn't override it.
+            TextC("DITHER (GLOBAL DEFAULT)", style = t.MicroUppercase, color = c.textFaint)
+            Spacer(Modifier.height(8.4.dp))
+            SwitchRow(
+                label = "Dither every job",
+                sub = "dither after this many captured subs, not just per-filter",
+                checked = cam.enableDitherPerJob,
+                onToggle = { ctrl.setCameraDitherPerJobEnabled(!cam.enableDitherPerJob) },
+                modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
+            )
+            if (cam.enableDitherPerJob) {
+                Spacer(Modifier.height(8.4.dp))
+                FieldLabel("Every N subs")
+                Spacer(Modifier.height(5.dp))
+                IntField(cam.guideDitherPerJobFrequency, ctrl::setCameraDitherPerJobFrequency)
+            }
         }
     }
 }
@@ -1615,6 +1743,32 @@ private fun TextFieldBox(value: String, onChange: (String) -> Unit) {
 // ── Rig maintenance ─────────────────────────────────────────────────────────
 
 /**
+ * Plain `LocationManager` last-known fix (2026-09) — no Play Services/`FusedLocationProviderClient`
+ * dependency added for this, a cached last-known reading is good enough for site
+ * location/almanac math (no meter-level precision need, and no fresh GPS lock wait either).
+ * Checks both `GPS_PROVIDER` and `NETWORK_PROVIDER`, returns whichever is more recent; either can
+ * legitimately be absent (no last-known fix cached yet, e.g. a fresh install that's never opened
+ * Maps) — null in that case, not a fabricated 0,0. Re-checks the permission itself (defensive,
+ * even though every call site already gates on it) since `getLastKnownLocation` requires it.
+ * Elevation defaults to 0.0 when a provider doesn't report altitude (common for NETWORK_PROVIDER)
+ * — real coordinates always take priority in `KStars::setGPSLocation`'s own math, elevation only
+ * affects atmospheric refraction correction, a small effect worth an honest default over blocking
+ * the whole sync on it.
+ */
+private fun requestLastKnownLocation(context: android.content.Context): Triple<Double, Double, Double>? {
+    if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
+        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED
+    ) return null
+    val lm = context.getSystemService(android.content.Context.LOCATION_SERVICE) as? LocationManager ?: return null
+    val candidates = listOfNotNull(
+        runCatching { lm.getLastKnownLocation(LocationManager.GPS_PROVIDER) }.getOrNull(),
+        runCatching { lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER) }.getOrNull(),
+    )
+    val best = candidates.maxByOrNull { it.time } ?: return null
+    return Triple(best.latitude, best.longitude, if (best.hasAltitude()) best.altitude else 0.0)
+}
+
+/**
  * Rig-level recovery, not an Ekos concept — the EkosRemote wire has no
  * OS-level reboot command (and couldn't rely on one anyway: a hung/crashed
  * Ekos process is exactly the case a reboot needs to recover from). Talks
@@ -1629,6 +1783,21 @@ private fun MaintenanceSheet(state: AppState, ctrl: SessionController) {
     var portText by remember { mutableStateOf(state.rigRebootPort.toString()) }
     var token by remember { mutableStateOf("") }
     var showConfirm by remember { mutableStateOf(false) }
+
+    // GPS sync (2026-09) — real Android LocationManager (no Play Services dependency added, a
+    // plain last-known fix is good enough for site location, no fresh-lock precision needed),
+    // separate from the reboot daemon entirely (this goes over the real EkosRemote wire, not the
+    // daemon's HTTP channel — see SessionController.syncLocationToRig's own doc).
+    val context = LocalContext.current
+    var locationError by remember { mutableStateOf<String?>(null) }
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            requestLastKnownLocation(context)?.let { (lat, lon, elev) -> ctrl.syncLocationToRig(lat, lon, elev) }
+                ?: run { locationError = "No cached GPS fix yet — open Maps once, then retry" }
+        } else {
+            locationError = "Location permission denied"
+        }
+    }
 
     Column {
         Row(
@@ -1733,6 +1902,67 @@ private fun MaintenanceSheet(state: AppState, ctrl: SessionController) {
             }
         } else {
             TextC("Save a token above to enable rig reboot.", style = t.Caption, color = c.textFaint)
+        }
+        Spacer(Modifier.height(24.dp))
+        HDivider()
+        Spacer(Modifier.height(24.dp))
+
+        // GPS/time sync (2026-09, user request) — location goes over the real EkosRemote wire
+        // (kstars_set_location, always available once connected, no daemon needed); time syncs
+        // BOTH the real Pi OS clock (daemon, needs the token above) AND KStars' own live clock
+        // (wire, works either way) — see SessionController's own docs for the split reasoning.
+        TextC("GPS / TIME SYNC", style = t.MicroUppercase, color = c.textMuted)
+        Spacer(Modifier.height(10.dp))
+        NocturneButton(
+            text = "Sync location from phone GPS",
+            onClick = {
+                locationError = null
+                val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                if (granted) {
+                    requestLastKnownLocation(context)?.let { (lat, lon, elev) -> ctrl.syncLocationToRig(lat, lon, elev) }
+                        ?: run { locationError = "No cached GPS fix yet — open Maps once, then retry" }
+                } else {
+                    permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                }
+            },
+            style = com.nocturne.ui.components.BtnStyle.OUTLINE,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        locationError?.let {
+            Spacer(Modifier.height(8.dp))
+            TextC(it, style = t.Caption, color = c.danger)
+        }
+        Spacer(Modifier.height(12.dp))
+        NocturneButton(
+            text = when (state.piTimeSyncState) {
+                RigRebootState.SENDING -> "Syncing…"
+                else -> "Sync time to rig"
+            },
+            onClick = ctrl::syncTimeToRig,
+            enabled = state.piTimeSyncState != RigRebootState.SENDING,
+            style = com.nocturne.ui.components.BtnStyle.OUTLINE,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        when (state.piTimeSyncState) {
+            RigRebootState.SENT -> {
+                Spacer(Modifier.height(8.dp))
+                TextC("Time synced — Pi OS clock + KStars' own clock both updated.", style = t.Caption, color = c.ok)
+            }
+            RigRebootState.FAILED -> {
+                Spacer(Modifier.height(8.dp))
+                TextC(
+                    "KStars' own clock still updated over the wire; Pi OS clock didn't: ${state.piTimeSyncError}",
+                    style = t.Caption, color = c.warn,
+                )
+            }
+            else -> {}
+        }
+        if (!state.rigRebootTokenSet) {
+            Spacer(Modifier.height(4.dp))
+            TextC(
+                "Without a saved token above, this only syncs KStars' own clock, not the Pi's real OS clock.",
+                style = t.MonoMicro, color = c.textFaint,
+            )
         }
     }
 

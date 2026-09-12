@@ -3,6 +3,12 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- 2026-09 — Rig maintenance's "Sync location" reads the phone's own last-known GPS fix to
+         send to the rig (kstars_set_location). COARSE alongside FINE: a last-known coarse fix is
+         often already cached (no fresh GPS lock needed) and good enough for site
+         location/almanac math, which doesn't need meter-level precision. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <application
         android:allowBackup="true"

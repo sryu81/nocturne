@@ -285,6 +285,14 @@ abstract class AbstractLocalSessionController : SessionController {
         s.copy(rigRebootState = RigRebootState.FAILED, rigRebootError = "No real rig connected — nothing to reboot")
     }
 
+    override open fun syncTimeToRig() = update { s ->
+        s.copy(piTimeSyncState = RigRebootState.FAILED, piTimeSyncError = "No real rig connected — nothing to sync")
+    }
+
+    override open fun syncLocationToRig(lat: Double, lon: Double, elevM: Double) {
+        // No-op: no real Ekos wire under a bare local mutation to send `kstars_set_location` to.
+    }
+
     // Mount settings (M3.3): Nothing populates wireMountSettings here (there's no
     // real mount_get_all_settings reply to translate), so these are safe no-ops there — the
     // sheet itself is gated on wireMountSettings != null and never calls them before it's arrived.
@@ -426,6 +434,57 @@ abstract class AbstractLocalSessionController : SessionController {
     }
     override open fun setFocusAlgorithm(algorithm: String) = update { s ->
         s.copy(wireFocusSettings = s.wireFocusSettings?.copy(focusAlgorithm = algorithm))
+    }
+    override open fun setFocusTicks(ticks: Int) = update { s ->
+        s.copy(wireFocusSettings = s.wireFocusSettings?.copy(focusTicks = ticks))
+    }
+    override open fun setFocusMaxTravel(ticks: Int) = update { s ->
+        s.copy(wireFocusSettings = s.wireFocusSettings?.copy(focusMaxTravel = ticks))
+    }
+    override open fun setFocusOutSteps(multiple: Double) = update { s ->
+        s.copy(wireFocusSettings = s.wireFocusSettings?.copy(focusOutSteps = multiple))
+    }
+    override open fun setFocusNumSteps(steps: Int) = update { s ->
+        s.copy(wireFocusSettings = s.wireFocusSettings?.copy(focusNumSteps = steps))
+    }
+    override open fun setFocusWalk(walk: String) = update { s ->
+        s.copy(wireFocusSettings = s.wireFocusSettings?.copy(focusWalk = walk))
+    }
+    override open fun setFocusAFOverscan(ticks: Int) = update { s ->
+        s.copy(wireFocusSettings = s.wireFocusSettings?.copy(focusAFOverscan = ticks))
+    }
+    override open fun setFocusOverscanDelay(sec: Double) = update { s ->
+        s.copy(wireFocusSettings = s.wireFocusSettings?.copy(focusOverscanDelay = sec))
+    }
+    override open fun setFocusMotionTimeout(sec: Int) = update { s ->
+        s.copy(wireFocusSettings = s.wireFocusSettings?.copy(focusMotionTimeout = sec))
+    }
+    override open fun setFocusCaptureTimeout(sec: Int) = update { s ->
+        s.copy(wireFocusSettings = s.wireFocusSettings?.copy(focusCaptureTimeout = sec))
+    }
+    override open fun setFocusSettleTime(sec: Double) = update { s ->
+        s.copy(wireFocusSettings = s.wireFocusSettings?.copy(focusSettleTime = sec))
+    }
+    override open fun setFocusDetection(method: String) = update { s ->
+        s.copy(wireFocusSettings = s.wireFocusSettings?.copy(focusDetection = method))
+    }
+    override open fun setFocusCurveFit(fit: String) = update { s ->
+        s.copy(wireFocusSettings = s.wireFocusSettings?.copy(focusCurveFit = fit))
+    }
+    override open fun setFocusStarMeasure(measure: String) = update { s ->
+        s.copy(wireFocusSettings = s.wireFocusSettings?.copy(focusStarMeasure = measure))
+    }
+    override open fun setFocusTolerance(percent: Double) = update { s ->
+        s.copy(wireFocusSettings = s.wireFocusSettings?.copy(focusTolerance = percent))
+    }
+    override open fun setFocusR2Limit(limit: Double) = update { s ->
+        s.copy(wireFocusSettings = s.wireFocusSettings?.copy(focusR2Limit = limit))
+    }
+    override open fun setFocusFramesCount(count: Int) = update { s ->
+        s.copy(wireFocusSettings = s.wireFocusSettings?.copy(focusFramesCount = count))
+    }
+    override open fun setFocusBinning(binning: String) = update { s ->
+        s.copy(wireFocusSettings = s.wireFocusSettings?.copy(focusBinning = binning))
     }
 
     // Primary/guide preview capture params: same shape as every other
@@ -596,8 +655,15 @@ abstract class AbstractLocalSessionController : SessionController {
     override fun snapMain() = update { it.copy(snappedMain = true) }
     override fun snapGuide() = update { it.copy(snappedGuide = true) }
 
-    override fun jogFocus(delta: Int) = update { s ->
-        s.copy(focPos = (s.focPos + delta).coerceIn(0, 62000))
+    // Local-only mirror moves by the real configured relative step (`focusTicks`), same amount
+    // the real fork always substitutes server-side — see [SessionController.focusStepIn]'s doc.
+    override open fun focusStepIn() = update { s ->
+        val step = s.wireFocusSettings?.focusTicks ?: 200
+        s.copy(focPos = (s.focPos - step).coerceIn(0, 62000))
+    }
+    override open fun focusStepOut() = update { s ->
+        val step = s.wireFocusSettings?.focusTicks ?: 200
+        s.copy(focPos = (s.focPos + step).coerceIn(0, 62000))
     }
 
     override fun setRate(index: Int) = update { it.copy(rate = index) }
@@ -608,8 +674,7 @@ abstract class AbstractLocalSessionController : SessionController {
 
     override fun stopSlew() = update { it.copy(slewDir = null) }
 
-    override fun coolUp() = update { it.copy(coolTarget = (it.coolTarget + 1).coerceAtMost(20.0)) }
-    override fun coolDown() = update { it.copy(coolTarget = (it.coolTarget - 1).coerceAtLeast(-25.0)) }
+    override open fun setCoolTarget(value: Double) = update { it.copy(coolTarget = value.coerceIn(-25.0, 20.0)) }
 
     // focusLastAfAt/focusTempAtLastAf are real bookkeeping (feed focusNextAfMin's real countdown
     // and TEMP Δ) kept optimistically here pending EkosRemoteController's real FOCUS_START send
