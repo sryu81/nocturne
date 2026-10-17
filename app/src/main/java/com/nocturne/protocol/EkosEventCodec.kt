@@ -6,7 +6,9 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 /** Decodes/encodes the wire [Envelope] format, dispatching to typed [EkosEvent]s. */
 object EkosEventCodec {
@@ -52,6 +54,10 @@ object EkosEventCodec {
                     ?: EkosEvent.Raw(envelope.type, envelope.payload)
                 "astro_search_objects" -> EkosEvent.AstroSearchResult(protocolJson.decodeFromJsonElement(envelope.payload))
                 "astro_get_objects_info" -> EkosEvent.AstroObjectsInfo(protocolJson.decodeFromJsonElement(envelope.payload))
+                "astro_get_object_info" -> EkosEvent.AstroObjectInfo(
+                    envelope.payload.jsonObject.takeIf { it["object"]?.jsonPrimitive?.booleanOrNull == true }
+                        ?.let { protocolJson.decodeFromJsonElement<WireAstroObject>(it) },
+                )
                 "astro_get_objects_riseset" -> EkosEvent.AstroObjectsRiseset(protocolJson.decodeFromJsonElement(envelope.payload))
                 "astro_get_almanac" -> protocolJson.decodeFromJsonElement<EkosEvent.AstroAlmanac>(envelope.payload)
                 "astro_get_location" -> protocolJson.decodeFromJsonElement<EkosEvent.AstroLocation>(envelope.payload)

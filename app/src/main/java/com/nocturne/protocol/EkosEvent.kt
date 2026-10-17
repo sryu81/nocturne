@@ -162,6 +162,13 @@ sealed interface EkosEvent {
     @Serializable
     data class AstroSearchResult(val names: List<String>) : EkosEvent
 
+    /**
+     * `astro_get_object_info` reply — single fuzzy name lookup across every catalog/type
+     * (`SkyMapComposite::findByName`). [obj] is null when the server's `"object": false`
+     * (no match); its `name` is then the resolved catalog name, not what was typed.
+     */
+    data class AstroObjectInfo(val obj: WireAstroObject?) : EkosEvent
+
     /** `astro_get_objects_info` reply. */
     @Serializable
     data class AstroObjectsInfo(val objects: List<WireAstroObject>) : EkosEvent

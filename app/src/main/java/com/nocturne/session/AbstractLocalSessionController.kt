@@ -197,6 +197,12 @@ abstract class AbstractLocalSessionController : SessionController {
         s.copy(chips = if (s.chips.contains(index)) s.chips.filter { it != index } else s.chips + index)
     }
 
+    override fun setSearchType(skyType: Int) = update { it.copy(searchType = skyType) }
+
+    override fun setSearchMaxMag(mag: Int) = update {
+        it.copy(searchMaxMag = mag.coerceIn(SEARCH_MAG_RANGE.first, SEARCH_MAG_RANGE.last))
+    }
+
     override fun setUserCatalogName(name: String) = update { it.copy(userCatalogName = name) }
 
     override fun addUserTarget(name: String, coords: String) = update { s ->
@@ -231,7 +237,7 @@ abstract class AbstractLocalSessionController : SessionController {
 
     override fun clearQuery() = update { it.copy(query = "") }
 
-    override fun selectTarget(id: String) = update { it.copy(targetId = id) }
+    override fun selectTarget(id: String) = update { it.copy(targetId = id, targetSnapshot = it.findTarget(id)) }
     // Fixture has no real astro engine to query — AltitudeChart keeps its decorative curve.
     override fun ensureTargetRiseset(targetId: String) {}
     // No CoroutineScope at this layer to launch the real fetch from (EkosRemoteController has

@@ -60,6 +60,10 @@ interface SessionController {
     /** `null` turns dithering off for this block — see [Block.ditherEvery]'s own doc. */
     fun setBlockDither(jobId: String, blockId: String, n: Int?)
     fun toggleChip(index: Int)
+    /** Plan tab search's object type — a real `SkyObject::TYPE` from [SEARCH_TYPES]. */
+    fun setSearchType(skyType: Int)
+    /** Plan tab search's faintest magnitude, clamped to [SEARCH_MAG_RANGE]. */
+    fun setSearchMaxMag(mag: Int)
     fun setUserCatalogName(name: String)
     fun addUserTarget(name: String, coords: String)
     fun editUserTarget(id: String, name: String, coords: String)

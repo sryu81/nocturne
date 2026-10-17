@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -49,7 +50,9 @@ import com.nocturne.session.realLookupName
 import com.nocturne.session.realNightWindow
 import com.nocturne.session.realUsableSeconds
 import java.time.Instant
-import com.nocturne.session.TARGETS
+import com.nocturne.session.SEARCH_MAG_RANGE
+import com.nocturne.session.SEARCH_RESULT_CAP
+import com.nocturne.session.SEARCH_TYPES
 import com.nocturne.session.Target
 import com.nocturne.session.displayName
 import com.nocturne.session.findScope
@@ -85,16 +88,10 @@ fun PlanScreen(
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val q = state.query.trim().lowercase()
-    // M3: a real connection's search bar drives astro_search_objects/astro_get_objects_info
-    // (EkosRemoteController) instead of filtering the fixture catalog — see AppState.wireSearchResults.
-    val matches = state.wireSearchResults ?: TARGETS.filter { tg ->
-        if (q.isNotEmpty() && !"${tg.id} ${tg.common} ${tg.coords}".lowercase().contains(q)) return@filter false
-        if (state.chips.contains(1) && (tg.max ?: 0) <= 40) return@filter false
-        if (state.chips.contains(2) && !Regex("Ha|SHO|OIII").containsMatchIn(tg.band ?: "")) return@filter false
-        if (state.chips.contains(3) && tg.fov == 0) return@filter false
-        true
-    }
-    val tgt = state.findTarget(state.targetId) ?: TARGETS[0]
+    // The search bar/chips drive real astro_search_objects → astro_get_objects_info
+    // (EkosRemoteController) — see AppState.wireSearchResults. No bundled fallback catalog.
+    val matches = state.wireSearchResults.orEmpty()
+    val tgt = state.findTarget(state.targetId)
     val userMatches = state.userTargets.filter { tg ->
         q.isEmpty() || "${tg.common} ${tg.coords}".lowercase().contains(q)
     }
@@ -110,20 +107,25 @@ fun PlanScreen(
                     onClear = ctrl::clearQuery,
                 )
             },
+            TabItem(full = true) { SearchTypeRow(state, ctrl) },
             TabItem(full = true) {
                 Row(Modifier.fillMaxWidth()) {
-                    listOf(0, 1, 2, 3).forEach { i ->
+                    com.nocturne.session.PLAN_CHIPS.indices.forEach { i ->
                         PlanChip(
                             text = com.nocturne.session.PLAN_CHIPS[i],
                             selected = state.chips.contains(i),
                             onClick = { ctrl.toggleChip(i) },
-                            modifier = Modifier.weight(1f).padding(end = if (i < 3) 6.dp else 0.dp),
+                            modifier = Modifier.weight(1f).padding(end = 6.dp),
                         )
                     }
+                    MagStepper(state, ctrl)
                 }
             },
-            TabItem(full = true) { ResultsList(state, ctrl, matches, live = state.wireSearchResults != null) },
+            TabItem(full = true) { ResultsList(state, ctrl, matches) },
             TabItem(full = true) { UserCatalogSection(state, ctrl, userMatches) },
+        ) + if (tgt == null) listOf(
+            TabItem(full = true) { NoTargetCard() },
+        ) else listOf(
             TabItem(full = true) { TargetCard(state, ctrl, tgt) },
             TabItem(full = true) { FramingCard(state, ctrl, tgt) },
             TabItem(full = true) {
@@ -159,6 +161,59 @@ fun PlanScreen(
             },
         ),
     )
+}
+
+/** Plan tab search's object-type picker — one `SkyObject::TYPE` per search, see [SEARCH_TYPES]. */
+@Composable
+private fun SearchTypeRow(state: AppState, ctrl: SessionController) {
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+        SEARCH_TYPES.forEach { type ->
+            PlanChip(
+                text = type.label,
+                selected = state.searchType == type.skyType,
+                onClick = { ctrl.setSearchType(type.skyType) },
+                modifier = Modifier.padding(end = 6.dp),
+            )
+        }
+    }
+}
+
+/**
+ * Faintest-magnitude stepper (`maxMagnitude`). Dimmed for planets — the fork only applies the
+ * magnitude limit to its DSO database query, not to KStars' planet list.
+ */
+@Composable
+private fun MagStepper(state: AppState, ctrl: SessionController) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    val applies = SEARCH_TYPES.firstOrNull { it.skyType == state.searchType }?.usesMagnitude != false
+    val mag = state.searchMaxMag
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        PlanChip(text = "−", selected = false, onClick = { if (applies) ctrl.setSearchMaxMag(mag - 1) })
+        TextC(
+            "mag ≤$mag",
+            style = t.Caption,
+            color = if (applies && mag in SEARCH_MAG_RANGE) c.text else c.textFaint,
+            modifier = Modifier.padding(horizontal = 6.dp),
+        )
+        PlanChip(text = "+", selected = false, onClick = { if (applies) ctrl.setSearchMaxMag(mag + 1) })
+    }
+}
+
+/** Shown in place of the target/framing cards until something is picked from the lists above. */
+@Composable
+private fun NoTargetCard() {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .background(c.surface, RoundedCornerShape(14.dp))
+            .border(1.dp, c.divider, RoundedCornerShape(14.dp))
+            .padding(16.dp),
+    ) {
+        TextC("No target selected — tap a search result or one of your targets above.", style = t.Body13, color = c.textMuted)
+    }
 }
 
 @Composable
@@ -211,7 +266,6 @@ private fun ResultsList(
     state: AppState,
     ctrl: SessionController,
     matches: List<Target>,
-    live: Boolean,
 ) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
@@ -234,8 +288,17 @@ private fun ResultsList(
                 }
             }
         }
+        val matchCount = state.wireSearchMatchCount
         TextC(
-            if (live) "${matches.size} results · tap to frame" else "${matches.size} of ${TARGETS.size} · tap to frame",
+            when {
+                matchCount == null && matches.isEmpty() -> "Waiting for Ekos to answer the first search…"
+                // Only the direct name lookup hit — it's outside this type/filter search.
+                (matchCount ?: 0) == 0 && matches.isNotEmpty() -> "Name match · outside this type/filter search"
+                matchCount == 0 || matchCount == null -> "No matches — try another type, a fainter mag limit, or fewer filters"
+                matches.isEmpty() -> "Resolving $matchCount matches…"
+                matchCount > SEARCH_RESULT_CAP -> "Brightest ${matches.size} of $matchCount · type to narrow"
+                else -> "${matches.size} results · tap to frame"
+            },
             style = t.MonoMicro, color = c.textFaint,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
         )

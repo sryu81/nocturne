@@ -26,6 +26,7 @@ inevitably-drifting tracker — check `README.md` itself for what's current, thi
 - [x] Device catalog + property sheets live (`wireDevices`, `DeviceRole`, `device_property_subscribe`)
 - [x] Profile management + Optical Train split (`RigProfile` shrink, `ADAPTIVE_OPTICS` role)
 - [x] Plan tab live `astro_*` search
+  - 2026-10-17: fixture `TARGETS` list removed (search auto-runs on connect instead); object-type row (galaxies/emission/planetary/open/globular/planets) + max-mag stepper replace the "Narrowband" chip; resolve capped to brightest 150 (`SEARCH_RESULT_CAP`); typed query re-filters cached names locally instead of re-searching; "My targets" persisted (`TargetRepository`); typed text also does a direct fuzzy name lookup (`astro_get_object_info`, any catalog/type) pinned first in results. Not live-verified yet.
 - [x] Sequence tab real Scheduler/`.esq` wiring (`EsqWriter`, sync lock, `wireIndex`)
 - [x] Per-block progress approximation (waterfall-fill) — **permanent**, not a stopgap (real per-block progress needs undocumented `capture_get_sequences`)
 - [ ] ~~Mock `mock_ekos_server.py` e2e harness~~ — SUPERSEDED: project norm became live-rig testing instead

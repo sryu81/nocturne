@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import com.nocturne.data.ConnectionRepository
 import com.nocturne.data.FrameRepository
 import com.nocturne.data.SequenceRepository
+import com.nocturne.data.TargetRepository
 import com.nocturne.session.EkosRemoteController
 import com.nocturne.session.SessionController
 import com.nocturne.transport.ConnectionState
@@ -44,6 +45,7 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
     private val repo = ConnectionRepository(app.applicationContext)
     private val sequenceRepo = SequenceRepository(app.applicationContext)
     private val frameRepo = FrameRepository(app.applicationContext)
+    private val targetRepo = TargetRepository(app.applicationContext)
 
     lateinit var ctrl: SessionController
         private set
@@ -83,7 +85,7 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
         client = newClient
         // Set ctrl before connectionMode flips to Connecting/Connected — NocturneShell
         // only composes once connectionMode says so, and must see the final ctrl then.
-        ctrl = EkosRemoteController(newClient, viewModelScope, repo, sequenceRepo, frameRepo)
+        ctrl = EkosRemoteController(newClient, viewModelScope, repo, sequenceRepo, frameRepo, targetRepo)
 
         viewModelScope.launch {
             newClient.connectionStatus.collect { status ->

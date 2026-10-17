@@ -377,4 +377,20 @@ class EkosEventCodecTest {
         assertEquals(setOf(DeviceRole.CCD, DeviceRole.GUIDER), bitmaskToRoles(DeviceRole.CCD.bit or DeviceRole.GUIDER.bit))
         assertEquals(emptySet<DeviceRole>(), bitmaskToRoles(0))
     }
+
+    @Test
+    fun `decodes astro_get_object_info hit — extra object flag ignored`() {
+        // shape per message.cpp's ASTRO_GET_OBJECT_INFO branch, not a live capture
+        val event = EkosEventCodec.decode("""{"payload":{"name":"M 31","designations":["Andromeda Galaxy"],"magnitude":3.4,"ra0":0.712,"de0":41.27,"ra":0.72,"de":41.4,"object":true},"type":"astro_get_object_info"}""")
+        event as EkosEvent.AstroObjectInfo
+        assertEquals("M 31", event.obj?.name)
+        assertEquals(41.27, event.obj!!.de0, 1e-9)
+    }
+
+    @Test
+    fun `decodes astro_get_object_info miss as null obj`() {
+        val event = EkosEventCodec.decode("""{"payload":{"name":"zzqq","object":false},"type":"astro_get_object_info"}""")
+        event as EkosEvent.AstroObjectInfo
+        assertNull(event.obj)
+    }
 }

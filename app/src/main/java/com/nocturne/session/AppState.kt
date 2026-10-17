@@ -117,7 +117,18 @@ data class AppState(
     val paRate: Int = 1,
     val query: String = "",
     val chips: List<Int> = listOf(0),
-    val targetId: String = "NGC 7000",
+    /** `astro_search_objects`' `type` — a real `SkyObject::TYPE` value, one of [SEARCH_TYPES]. */
+    val searchType: Int = SEARCH_TYPES.first().skyType,
+    /** `astro_search_objects`' `maxMagnitude` — only honored server-side for DSO types, not planets. */
+    val searchMaxMag: Int = 10,
+    /** Empty = nothing picked yet; Plan tab shows a "pick a target" hint instead of the target card. */
+    val targetId: String = "",
+    /**
+     * The target as it looked when [targetId] was picked — kept so the framed target survives the
+     * next search replacing [wireSearchResults] (the row it came from is gone by then, but goto,
+     * add-to-sequence, and the target card all still need its resolved coords). See [findTarget].
+     */
+    val targetSnapshot: Target? = null,
     /**
      * The user catalogue — exactly one, always exists, name is the only thing
      * about the catalogue itself the user can change (no add/remove catalogues,
@@ -330,11 +341,16 @@ data class AppState(
     val profileDeleteRefused: String? = null,
     /**
      * `astro_search_objects` → `astro_get_objects_info`/`astro_get_objects_riseset`
-     * pipeline result (M3) — read by `PlanScreen`'s `matches` instead of
-     * filtering the fixture [TARGETS] list when non-null. Null = no search
-     * run yet (or [SimulatedController], which never touches this).
+     * pipeline result (M3) — what `PlanScreen`'s results list shows. Null = no search
+     * reply yet (one runs automatically once Ekos is online, see EkosRemoteController).
      */
     val wireSearchResults: List<Target>? = null,
+    /**
+     * How many names the last search matched after the typed-query filter, before the
+     * [SEARCH_RESULT_CAP] cut — lets the results list tell "still resolving" apart from "no
+     * matches", and say when it's only showing the brightest slice. Null = no search reply yet.
+     */
+    val wireSearchMatchCount: Int? = null,
     /** `scheduler_get_jobs` translated (M3) — cross-referenced for progress; see [SequenceJob.synced]. */
     val wireSchedulerJobs: List<WireSchedulerJob>? = null,
     /**
@@ -441,7 +457,7 @@ data class AppState(
     /**
      * Real `astro_get_objects_riseset` for the Plan tab's *currently framed* target specifically —
      * independent of [wireSearchResults]' own riseset-driven fields (`Target.max`/`peak`), which
-     * only ever cover live search results, never the fixture `TARGETS` catalog or custom targets.
+     * only ever cover live search results, never custom targets.
      * Populated on demand (see [EkosRemoteController.ensureTargetRiseset]) whenever the framed
      * target changes; check `.name` matches the framed target before trusting it — real-rig only.
      */
@@ -494,15 +510,43 @@ data class CcdInfo(val maxX: Int, val maxY: Int, val pixelUm: Double)
 // ── Catalog data (prototype script constants) ──────────────────────────────
 
 val PA_SECS = listOf(1, 2, 5, 10)
-val PLAN_CHIPS = listOf("Up tonight", "Alt > 40°", "Narrowband", "Fits FOV")
+val PLAN_CHIPS = listOf("Up tonight", "Alt > 40°", "Fits FOV")
+
+/** One `astro_search_objects` object-type choice — [skyType] is the real `SkyObject::TYPE` value. */
+data class SearchType(val label: String, val skyType: Int, val usesMagnitude: Boolean = true)
 
 /**
- * [size]/[band]/[max]/[peak]/[usable]/[fov] are precomputed fixture display
- * values for the well-known catalog below — there's no real astro engine in
- * M1 (that's `astro_get_object_info` etc., M2/M3). They're nullable because
- * user-catalogue [custom] targets only ever get [id]/[common]/[coords] —
- * there's nothing to compute those fields from yet.
+ * Only types the fork's `astro_search_objects` actually handles (`message.cpp`'s type switch) —
+ * comets/asteroids/supernovae/satellites are left out on purpose: the latter two flip KStars'
+ * own display options on as a side effect, and the first two are huge, mostly-faint lists.
+ * Planets go through KStars' sky composite, not the DSO database, so `maxMagnitude` is ignored.
  */
+val SEARCH_TYPES = listOf(
+    SearchType("Galaxies", 8),
+    SearchType("Emission neb.", 5),
+    SearchType("Planetary neb.", 6),
+    SearchType("Open clusters", 3),
+    SearchType("Globulars", 4),
+    SearchType("Planets", 2, usesMagnitude = false),
+)
+
+/** Max-magnitude stepper bounds for [AppState.searchMaxMag]. */
+val SEARCH_MAG_RANGE = 6..16
+
+/**
+ * Most names one search resolves via `astro_get_objects_info`/`riseset`. The DSO database
+ * returns names brightest-first (`ORDER BY magnitude`), so this keeps the brightest slice — a
+ * blank query at mag 14 can otherwise ask the Pi for riseset curves on thousands of objects.
+ */
+const val SEARCH_RESULT_CAP = 150
+
+/**
+ * [size]/[max]/[peak]/[usable] come from real `astro_*` replies for search results. They're
+ * nullable because user-catalogue [custom] targets only ever get [id]/[common]/[coords].
+ * [band]/[fov] are only ever set by the old M1 fixture shape and are always null now.
+ * Serializable for [com.nocturne.data.TargetRepository] (user catalogue persistence).
+ */
+@Serializable
 data class Target(
     val id: String,
     val common: String,
@@ -524,20 +568,6 @@ data class Target(
     val ra0: Double? = null,
     val de0: Double? = null,
     val magnitude: Double? = null,
-)
-
-/** Well-known catalog — read-only, bundled with the app. Kept at 10 fixture entries for M1. */
-val TARGETS = listOf(
-    Target("NGC 7000", "North America", "20h59m17s +44°31′44″", "120′×100′", "Ha", 78, "01:12", "4h 22m", 1),
-    Target("IC 1396", "Elephant Trunk", "21h39m06s +57°30′00″", "170′×140′", "Ha", 81, "01:44", "4h 40m", 0),
-    Target("NGC 6888", "Crescent", "20h12m07s +38°21′18″", "18′×12′", "Ha OIII", 72, "00:18", "3h 50m", 1),
-    Target("IC 1805", "Heart", "02h32m42s +61°27′00″", "150′×150′", "SHO", 84, "04:02", "2h 10m", 0),
-    Target("M 31", "Andromeda", "00h42m44s +41°16′09″", "190′×60′", "LRGB", 76, "02:48", "3h 30m", 0),
-    Target("M 27", "Dumbbell", "19h59m36s +22°43′16″", "8′×6′", "LRGB Ha", 58, "23:40", "2h 55m", 1),
-    Target("NGC 7380", "Wizard", "22h47m00s +58°06′00″", "25′×25′", "SHO", 82, "02:26", "4h 05m", 1),
-    Target("IC 5070", "Pelican", "20h50m48s +44°21′00″", "60′×50′", "Ha", 78, "01:04", "4h 18m", 1),
-    Target("NGC 281", "Pacman", "00h52m59s +56°37′19″", "35′×30′", "SHO", 83, "03:20", "3h 05m", 1),
-    Target("M 45", "Pleiades", "03h47m24s +24°07′00″", "110′×110′", "LRGB", 61, "04:10", "1h 20m", 0),
 )
 
 /** Sensor spec used to derive pixel scale + FOV from a focal length. */
@@ -1268,10 +1298,14 @@ val AppState.contractJob: SequenceJob? get() =
 /** The job [endSession] stopped — what the Summary sheet and its export report are about. */
 val AppState.endedJob: SequenceJob? get() = jobs.firstOrNull { it.id == lastEndedJobId }
 
-/** Looks up a target by id across both catalogs, then the live search results if any (M3). */
+/**
+ * Looks up a target by id in the user catalogue, then the live search results, then the
+ * snapshot taken when it was picked (so a framed target outlives the search it came from).
+ */
 fun AppState.findTarget(id: String): Target? =
-    TARGETS.firstOrNull { it.id == id } ?: userTargets.firstOrNull { it.id == id }
+    userTargets.firstOrNull { it.id == id }
         ?: wireSearchResults?.firstOrNull { it.id == id }
+        ?: targetSnapshot?.takeIf { it.id == id }
 
 /** "NGC 7000 — North America" for the well-known catalog; just the name for custom targets (no catalog id to show). */
 val Target.displayName: String get() = if (custom) common else "$id — $common"
@@ -1279,7 +1313,7 @@ val Target.displayName: String get() = if (custom) common else "$id — $common"
 /**
  * The name to send to any real wire call that resolves an object by name (`mount_goto_target`,
  * `astro_get_objects_riseset`, the Scheduler's `nameEdit`, etc.) — **not** [displayName] or
- * [common] unconditionally. For the fixture `TARGETS` catalog, `id` is the real resolvable
+ * [common] unconditionally. For the old (since-removed) fixture catalog, `id` was the real resolvable
  * designation ("NGC 7000") while `common` is just the human nickname ("North America"), which
  * real KStars won't resolve as an object name at all — confirmed live (a real
  * `astro_get_objects_riseset { "names": ["North America"] }` call was the original bug here).
