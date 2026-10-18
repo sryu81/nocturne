@@ -2,6 +2,7 @@ package com.nocturne.ui.connect
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
@@ -20,21 +21,27 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.nocturne.transport.ConnectionState
 import com.nocturne.transport.ConnectionStatus
+import com.nocturne.transport.DiscoveredRig
+import com.nocturne.transport.rigBeacons
 import com.nocturne.ui.components.NocturneButton
 import com.nocturne.ui.components.BtnStyle
 import com.nocturne.ui.components.TextC
 import com.nocturne.ui.components.VSpacer
 import com.nocturne.ui.icons.Phosphor
 import com.nocturne.ui.theme.NocturneTheme
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * First-launch and manual-reconnect screen. Shown whenever
@@ -65,6 +72,31 @@ fun ConnectScreen(
     }
 
     val connecting = status.state == ConnectionState.CONNECTING || status.state == ConnectionState.SOCKET_OPEN
+
+    // LAN auto-discovery via the Pi's astro-beacon broadcast (transport/RigBeacon.kt). Listens
+    // only while this screen is composed. Discovery never dials on its own — it pre-fills an
+    // empty HOST field once and lists rigs; connecting still takes an explicit tap, per the
+    // trust-boundary note on this composable.
+    val context = LocalContext.current
+    val discovered = remember { mutableStateMapOf<String, DiscoveredRig>() }
+    var autoFilled by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        launch {
+            runCatching {
+                rigBeacons(context).collect { rig ->
+                    discovered[rig.hostname] = rig
+                    if (!autoFilled && host.isEmpty()) host = rig.address
+                    autoFilled = true
+                }
+            } // bind failure (port taken) / no Wi-Fi service — discovery is best-effort
+        }
+        // Beacon interval is 5 s; drop a rig after 3 missed beacons (powered off / left network).
+        while (true) {
+            delay(5_000)
+            val cutoff = System.currentTimeMillis() - 16_000
+            discovered.values.filter { it.seenAtMs < cutoff }.forEach { discovered.remove(it.hostname) }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -112,6 +144,25 @@ fun ConnectScreen(
             )
         }
         VSpacer(24)
+
+        TextC("ON THIS NETWORK", style = t.MicroUppercase, color = c.textMuted)
+        VSpacer(6)
+        if (discovered.isEmpty()) {
+            TextC("Searching for rigs…", style = t.Caption, color = c.textMuted)
+        } else {
+            discovered.values.sortedBy { it.hostname }.forEach { rig ->
+                DiscoveredRigRow(
+                    rig = rig,
+                    enabled = !connecting,
+                    onClick = {
+                        host = rig.address
+                        onConnect(rig.address, portText.toIntOrNull() ?: 9000)
+                    },
+                )
+                VSpacer(6)
+            }
+        }
+        VSpacer(18)
 
         TextC("HOST", style = t.MicroUppercase, color = c.textMuted)
         VSpacer(6)
@@ -185,6 +236,41 @@ fun ConnectScreen(
             )
         }
     }
+}
+
+@Composable
+private fun DiscoveredRigRow(rig: DiscoveredRig, enabled: Boolean, onClick: () -> Unit) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(c.accent.copy(alpha = 0.08f), RoundedCornerShape(10.dp))
+            .border(1.dp, c.accent.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            TextC(rig.hostname, style = t.Body13, color = c.text)
+            TextC(
+                listOfNotNull(rig.address, rig.uptimeSec?.let { "up ${formatUptime(it)}" }).joinToString(" · "),
+                style = t.MonoSmall, color = c.textMuted,
+            )
+            // vcgencmd get_throttled bit 0 = under-voltage right now — a real rig-health
+            // problem (USB dropouts, SD corruption) worth seeing before connecting.
+            if (rig.throttled?.removePrefix("0x")?.toLongOrNull(16)?.and(1L) == 1L) {
+                TextC("Under-voltage now", style = t.Caption, color = c.warn)
+            }
+        }
+        TextC("Connect", style = t.CaptionMedium, color = if (enabled) c.accent else c.textMuted)
+    }
+}
+
+private fun formatUptime(sec: Int): String = when {
+    sec < 3600 -> "${sec / 60}m"
+    sec < 86_400 -> "${sec / 3600}h ${sec % 3600 / 60}m"
+    else -> "${sec / 86_400}d ${sec % 86_400 / 3600}h"
 }
 
 @Composable
