@@ -47,8 +47,9 @@ inevitably-drifting tracker — check `README.md` itself for what's current, thi
       same reflection covers it; round-trip live-verified (rotation 30→60→30). Stage-driven sheet: image
       progress, `polar_slew_done` (manual slew), `polar_refresh` / `polar_refreshing_done` (adjust phase),
       `polar_set_crosshair` (tap a star, Move Star methods); Start/Stop now follows the real stage.
-      **Not live-verified**: an actual PAH run (needs sky; moves the mount). Not done: correction arrows on
-      the image (vector `pa` screen orientation unconfirmed), auto-park/auto-PAC options.
+      Correction arrows/triangle: drawn by Ekos itself into the `+A` updated frames (cropped from
+      AlignView's display pixmap, overlay included) — the sheet shows them as-is, no client-side drawing.
+      **Not live-verified**: an actual PAH run (needs sky; moves the mount). Not done: auto-park/auto-PAC.
 - [x] Align "Solve" / Guide start-stop → Controls tab (relocated from original Bench-card plan)
 - [ ] ~~5 separate Gear-tab cards~~ — SUPERSEDED: consolidated into one **Controls** tab
 - [ ] Observatory/dome settings sheet — **SKIPPED, permanently**: protocol has no settings surface for this at all

@@ -2199,9 +2199,10 @@ private fun PaRealSheet(state: AppState, ctrl: SessionController) {
             state.wirePolarMessage ?: "Put the mount either in the home position pointed toward the celestial pole, or pointed anywhere near the meridian, then tap Start.",
             style = t.Body13, color = c.textMuted,
         )
-        // Real align-solve frame (M4.2) — PAH drives its own align solves internally. No
-        // correction arrows drawn yet: wirePolarVector's pa/mag screen orientation isn't
-        // confirmed against a live solve, so the numeric errors below are shown instead.
+        // Real align frame (M4.2). Once PAH has a result, Ekos sends "+A" updated frames
+        // (Media::sendUpdatedFrame) cropped from AlignView's display pixmap, which already has
+        // Ekos's own correction triangle / plate-solve arrows painted in (FITSView::updateFrame
+        // → AlignView::drawOverlay) — so nothing is drawn client-side, it would only duplicate.
         Spacer(Modifier.height(14.dp))
         PaImage(state, canPickStar, ctrl)
         if (canPickStar) {
@@ -2323,8 +2324,10 @@ private fun PaRealSheet(state: AppState, ctrl: SessionController) {
 }
 
 /**
- * Latest align frame, 4:3 fit. When [pickable], a tap sends its position as a fraction of the
- * *image* (not the box — ContentScale.Fit letterboxes), which is what `polar_set_crosshair` takes.
+ * Latest align frame, box sized to the frame's own aspect (correction crops are square, a fixed
+ * 4:3 box would shrink them). When [pickable], a tap sends its position as a fraction of the
+ * *received image* (letterbox-corrected) — `polar_set_crosshair` maps that back through the
+ * crop's bounding rect server-side (Message::processPolarCommands).
  */
 @Composable
 private fun PaImage(state: AppState, pickable: Boolean, ctrl: SessionController) {
@@ -2342,7 +2345,7 @@ private fun PaImage(state: AppState, pickable: Boolean, ctrl: SessionController)
     Box(
         Modifier
             .fillMaxWidth()
-            .aspectRatio(4f / 3f)
+            .aspectRatio(imageSize?.let { (it.width.toFloat() / it.height).coerceIn(0.75f, 2f) } ?: (4f / 3f))
             .background(c.surfaceDeep, RoundedCornerShape(8.dp))
             .onSizeChanged { boxSize = it }
             .then(
