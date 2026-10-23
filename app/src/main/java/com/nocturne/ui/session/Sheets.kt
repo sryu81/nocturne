@@ -1772,7 +1772,7 @@ private fun requestLastKnownLocation(context: android.content.Context): Triple<D
  * Rig-level recovery, not an Ekos concept — the EkosRemote wire has no
  * OS-level reboot command (and couldn't rely on one anyway: a hung/crashed
  * Ekos process is exactly the case a reboot needs to recover from). Talks
- * instead to a small companion daemon on the Pi over its own HTTP+token
+ * instead to a small companion daemon on the Pi over its own HTTP
  * channel (`pi-tools/reboot-daemon/`, [RigRebootClient]).
  */
 @Composable
@@ -1781,7 +1781,6 @@ private fun MaintenanceSheet(state: AppState, ctrl: SessionController) {
     val t = NocturneTheme.type
 
     var portText by remember { mutableStateOf(state.rigRebootPort.toString()) }
-    var token by remember { mutableStateOf("") }
     var showConfirm by remember { mutableStateOf(false) }
 
     // GPS sync (2026-09) — real Android LocationManager (no Play Services dependency added, a
@@ -1837,71 +1836,43 @@ private fun MaintenanceSheet(state: AppState, ctrl: SessionController) {
                 modifier = Modifier.fillMaxWidth(),
             )
         }
-        Spacer(Modifier.height(16.dp))
-
-        TextC("TOKEN", style = t.MicroUppercase, color = c.textMuted)
-        Spacer(Modifier.height(6.dp))
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(48.dp)
-                .background(c.bg, RoundedCornerShape(4.dp))
-                .border(1.dp, c.divider, RoundedCornerShape(4.dp))
-                .padding(horizontal = 12.dp),
-            contentAlignment = Alignment.CenterStart,
-        ) {
-            BasicTextField(
-                value = token,
-                onValueChange = { token = it },
-                singleLine = true,
-                textStyle = t.Body13.copy(color = c.text),
-                cursorBrush = SolidColor(c.accent),
+        Spacer(Modifier.height(4.dp))
+        TextC(
+            "Same host as the rig connection. Default 9001 (pi-tools/reboot-daemon).",
+            style = t.MonoMicro, color = c.textFaint,
+        )
+        val typedPort = portText.toIntOrNull()?.takeIf { it in 1..65535 }
+        if (typedPort != null && typedPort != state.rigRebootPort) {
+            Spacer(Modifier.height(10.dp))
+            NocturneButton(
+                text = "Save port",
+                onClick = { ctrl.setRigRebootPort(typedPort) },
+                style = com.nocturne.ui.components.BtnStyle.OUTLINE,
                 modifier = Modifier.fillMaxWidth(),
             )
         }
-        Spacer(Modifier.height(4.dp))
-        TextC(
-            "One-time token printed by pi-tools/reboot-daemon/install.sh on the Pi.",
-            style = t.MonoMicro, color = c.textFaint,
-        )
-        Spacer(Modifier.height(16.dp))
-
-        NocturneButton(
-            text = if (state.rigRebootTokenSet) "Update config" else "Save config",
-            onClick = {
-                val port = portText.toIntOrNull() ?: 9001
-                if (token.isNotBlank()) ctrl.setRigRebootConfig(port, token)
-            },
-            enabled = token.isNotBlank(),
-            style = com.nocturne.ui.components.BtnStyle.OUTLINE,
-            modifier = Modifier.fillMaxWidth(),
-        )
         Spacer(Modifier.height(24.dp))
 
-        if (state.rigRebootAvailable) {
-            NocturneButton(
-                text = when (state.rigRebootState) {
-                    RigRebootState.SENDING -> "Sending…"
-                    else -> "Reboot Pi"
-                },
-                onClick = { showConfirm = true },
-                enabled = state.rigRebootState != RigRebootState.SENDING,
-                style = com.nocturne.ui.components.BtnStyle.DANGER,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            when (state.rigRebootState) {
-                RigRebootState.SENT -> {
-                    Spacer(Modifier.height(10.dp))
-                    TextC("Reboot sent — rig will be back in ~60s.", style = t.Caption, color = c.ok)
-                }
-                RigRebootState.FAILED -> {
-                    Spacer(Modifier.height(10.dp))
-                    TextC("Couldn't reboot: ${state.rigRebootError}", style = t.Caption, color = c.danger)
-                }
-                else -> {}
+        NocturneButton(
+            text = when (state.rigRebootState) {
+                RigRebootState.SENDING -> "Sending…"
+                else -> "Reboot Pi"
+            },
+            onClick = { showConfirm = true },
+            enabled = state.rigRebootState != RigRebootState.SENDING,
+            style = com.nocturne.ui.components.BtnStyle.DANGER,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        when (state.rigRebootState) {
+            RigRebootState.SENT -> {
+                Spacer(Modifier.height(10.dp))
+                TextC("Reboot sent — rig will be back in ~60s.", style = t.Caption, color = c.ok)
             }
-        } else {
-            TextC("Save a token above to enable rig reboot.", style = t.Caption, color = c.textFaint)
+            RigRebootState.FAILED -> {
+                Spacer(Modifier.height(10.dp))
+                TextC("Couldn't reboot: ${state.rigRebootError}", style = t.Caption, color = c.danger)
+            }
+            else -> {}
         }
         Spacer(Modifier.height(24.dp))
         HDivider()
@@ -1909,7 +1880,7 @@ private fun MaintenanceSheet(state: AppState, ctrl: SessionController) {
 
         // GPS/time sync (2026-09, user request) — location goes over the real EkosRemote wire
         // (kstars_set_location, always available once connected, no daemon needed); time syncs
-        // BOTH the real Pi OS clock (daemon, needs the token above) AND KStars' own live clock
+        // BOTH the real Pi OS clock (daemon) AND KStars' own live clock
         // (wire, works either way) — see SessionController's own docs for the split reasoning.
         TextC("GPS / TIME SYNC", style = t.MicroUppercase, color = c.textMuted)
         Spacer(Modifier.height(10.dp))
@@ -1956,13 +1927,6 @@ private fun MaintenanceSheet(state: AppState, ctrl: SessionController) {
                 )
             }
             else -> {}
-        }
-        if (!state.rigRebootTokenSet) {
-            Spacer(Modifier.height(4.dp))
-            TextC(
-                "Without a saved token above, this only syncs KStars' own clock, not the Pi's real OS clock.",
-                style = t.MonoMicro, color = c.textFaint,
-            )
         }
     }
 

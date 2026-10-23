@@ -19,11 +19,9 @@ data class ConnectionSettings(
     val host: String? = null,
     val port: Int = 9000,
     val lastConnectedAt: Long? = null,
-    /** Companion reboot-daemon port/token (`pi-tools/reboot-daemon/`) — separate channel from
-     *  the EkosRemote wire's own [port]. Token is null until the user pastes the one printed by
-     *  the Pi-side install script. */
+    /** Companion reboot-daemon port (`pi-tools/reboot-daemon/`) — separate channel from the
+     *  EkosRemote wire's own [port], same host. */
     val rebootPort: Int = 9001,
-    val rebootToken: String? = null,
 )
 
 /**
@@ -39,7 +37,8 @@ class ConnectionRepository(private val context: Context) {
         val PORT = intPreferencesKey("port")
         val LAST_CONNECTED_AT = longPreferencesKey("last_connected_at")
         val REBOOT_PORT = intPreferencesKey("reboot_port")
-        val REBOOT_TOKEN = stringPreferencesKey("reboot_token")
+        /** Left over from the removed daemon token — only read to delete it. */
+        val LEGACY_REBOOT_TOKEN = stringPreferencesKey("reboot_token")
     }
 
     val settings: Flow<ConnectionSettings> = context.connectionDataStore.data.map { prefs ->
@@ -48,7 +47,6 @@ class ConnectionRepository(private val context: Context) {
             port = prefs[Keys.PORT] ?: 9000,
             lastConnectedAt = prefs[Keys.LAST_CONNECTED_AT],
             rebootPort = prefs[Keys.REBOOT_PORT] ?: 9001,
-            rebootToken = prefs[Keys.REBOOT_TOKEN],
         )
     }
 
@@ -65,10 +63,10 @@ class ConnectionRepository(private val context: Context) {
         context.connectionDataStore.edit { prefs -> prefs[Keys.LAST_CONNECTED_AT] = System.currentTimeMillis() }
     }
 
-    suspend fun saveRebootConfig(port: Int, token: String) {
+    suspend fun saveRebootPort(port: Int) {
         context.connectionDataStore.edit { prefs ->
             prefs[Keys.REBOOT_PORT] = port
-            prefs[Keys.REBOOT_TOKEN] = token
+            prefs.remove(Keys.LEGACY_REBOOT_TOKEN)
         }
     }
 }

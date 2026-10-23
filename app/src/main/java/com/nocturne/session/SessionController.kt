@@ -167,13 +167,13 @@ interface SessionController {
     fun toggleEditScope(id: String)
 
     /**
-     * Configures the rig's companion reboot daemon (port + shared-secret token, see
+     * Sets the rig's companion reboot daemon port (same host as the EkosRemote connection, see
      * `pi-tools/reboot-daemon/`) — a channel entirely separate from the EkosRemote wire, since
      * that wire has no OS-level reboot command and can't be relied on anyway when it's a hung
      * Ekos process that needs the reboot. Persisted and wired for real under
      * [EkosRemoteController].
      */
-    fun setRigRebootConfig(port: Int, token: String)
+    fun setRigRebootPort(port: Int)
 
     /** Sends the actual reboot request. See [AppState.rigRebootState] for the result. */
     fun rebootRig()
@@ -182,8 +182,7 @@ interface SessionController {
      * Sets the real Pi's OS system clock (`date -s`+`hwclock -w`, via the same reboot-daemon
      * channel as [rebootRig] — no EkosRemote/INDI property controls this at all, it's the same
      * class of OS-level gap as the reboot itself, see `pi-tools/reboot-daemon/`'s own doc).
-     * Requires the daemon token to already be configured ([setRigRebootConfig]); reuses
-     * [AppState.rigRebootState] for progress/result, same as [rebootRig]. Sends the phone's own
+     * Reports progress/result in [AppState.piTimeSyncState]. Sends the phone's own
      * current local wall-clock time — see [syncLocationToRig]'s doc for the same "co-located,
      * same timezone" assumption this relies on.
      */

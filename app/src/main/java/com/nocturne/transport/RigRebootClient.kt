@@ -15,13 +15,13 @@ import kotlin.coroutines.resume
 
 /**
  * Talks to the small companion daemon installed on the rig's Pi
- * (`pi-tools/reboot-daemon/`) — a plain HTTP+shared-token channel, entirely
+ * (`pi-tools/reboot-daemon/`) — a plain unauthenticated HTTP channel, entirely
  * separate from the EkosRemote websocket. The wire protocol has no OS-level
  * reboot command, and even if it did, a hung/crashed Ekos process is exactly
  * the case a reboot needs to recover from — it can't depend on that same
  * process being alive to ask for one.
  */
-class RigRebootClient(private val host: String, private val port: Int, private val token: String) {
+class RigRebootClient(private val host: String, private val port: Int) {
 
     private val http = OkHttpClient()
 
@@ -31,7 +31,6 @@ class RigRebootClient(private val host: String, private val port: Int, private v
     suspend fun reboot(): Result<Unit> = suspendCancellableCoroutine { cont ->
         val request = Request.Builder()
             .url("http://$host:$port/reboot")
-            .header("X-Reboot-Token", token)
             .post(ByteArray(0).toRequestBody(null))
             .build()
         val call = http.newCall(request)
@@ -55,8 +54,7 @@ class RigRebootClient(private val host: String, private val port: Int, private v
     }
 
     /**
-     * POSTs `/set-time` with the phone's own local wall-clock date/time — same daemon, same
-     * shared-secret header, real `sudo date -s`+`hwclock -w` on the Pi (2026-09 addition, see
+     * POSTs `/set-time` with the phone's own local wall-clock date/time — same daemon, real `sudo date -s`+`hwclock -w` on the Pi (2026-09 addition, see
      * `reboot_daemon.py`'s own doc for why this needs OS-level `sudo` rather than anything on the
      * EkosRemote wire: no INDI/Ekos property controls the Pi's system clock at all, only KStars'
      * own internal simulated clock does, which is a separate real gap — see
@@ -70,7 +68,6 @@ class RigRebootClient(private val host: String, private val port: Int, private v
             .toRequestBody("application/json".toMediaType())
         val request = Request.Builder()
             .url("http://$host:$port/set-time")
-            .header("X-Reboot-Token", token)
             .post(body)
             .build()
         val call = http.newCall(request)

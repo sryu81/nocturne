@@ -9,7 +9,8 @@ wrong system clock on a Pi with no RTC battery is an OS-level fact, nothing
 Ekos/INDI exposes any control over.
 
 This is a small stdlib-only Python daemon that listens on its own port
-(9001 by default) for authenticated `POST /reboot` and `POST /set-time`.
+(9001 by default) for `POST /reboot` and `POST /set-time`. No token or
+pairing — the app finds it on the same host it already connects to.
 
 ## Install
 
@@ -23,28 +24,25 @@ sudo ./install.sh
 The script:
 1. Checks the current user has passwordless `sudo reboot` (prints the
    sudoers line to add if not, then exits — re-run after adding it).
-2. Generates a random token at `/etc/nocturne-reboot/token` (unless one
-   already exists) and prints it once — **copy it into Nocturne's Rig
-   maintenance sheet** (Token field) along with the port (9001 default).
-3. Installs the daemon to `/opt/nocturne-reboot/`, a systemd unit
+2. Installs the daemon to `/opt/nocturne-reboot/`, a systemd unit
    (`nocturne-reboot.service`), and starts it on boot.
 
-Re-running `install.sh` is safe (idempotent) — use `sudo ./install.sh
---rotate-token` to generate a fresh token if you ever need to revoke app
-access.
+Re-running `install.sh` is safe (idempotent). It also removes the
+`/etc/nocturne-reboot/token` file left by older, token-based installs.
 
 ## Security note
 
 Same trust model as Nocturne's own EkosRemote connection (see its Connect
-screen warning): **no encryption, LAN-only**. The shared-secret token stops
-anything that merely *guesses* your Pi's IP from rebooting it, but anything
-that can already sniff or reach your local network can. Don't expose this
-port past your LAN (no port-forwarding it to the internet).
+screen warning): **no auth, no encryption, LAN-only** — anything on your
+LAN can reboot the Pi or set its clock, just as it can already drive the
+rig over port 9000. An earlier shared-secret token was dropped: it added
+setup friction while guarding nothing 9000 didn't leave open. Don't expose
+this port past your LAN (no port-forwarding it to the internet).
 
 ## Uninstall
 
 ```
 sudo systemctl disable --now nocturne-reboot
-sudo rm -rf /opt/nocturne-reboot /etc/nocturne-reboot /etc/systemd/system/nocturne-reboot.service
+sudo rm -rf /opt/nocturne-reboot /etc/systemd/system/nocturne-reboot.service
 sudo systemctl daemon-reload
 ```

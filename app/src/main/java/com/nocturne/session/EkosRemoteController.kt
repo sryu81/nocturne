@@ -59,8 +59,8 @@ class EkosRemoteController(
     private val client: EkosRemoteClient,
     private val scope: CoroutineScope,
     /** For persisting/loading the rig's reboot-daemon config (host/port already live on
-     *  [client]; only the daemon's own port + shared token are stored here) — see
-     *  [setRigRebootConfig]/[rebootRig]. Optional: pass null and reboot config just won't
+     *  [client]; only the daemon's own port is stored here) — see
+     *  [setRigRebootPort]/[rebootRig]. Optional: pass null and reboot config just won't
      *  survive process death (used by tests that don't need it). */
     private val connectionRepo: ConnectionRepository? = null,
     /** Persists the app's own local job queue across process death (M3.4) — see
@@ -153,10 +153,8 @@ class EkosRemoteController(
     private data class PendingJobStart(val jobId: String, val targetName: String, val raDec: Pair<String, String>?, val trainName: String?, val alsoStart: Boolean = false)
     private var pendingJobStart: PendingJobStart? = null
 
-    /** In-memory mirror of the reboot daemon's port/token — [AppState] only ever exposes
-     *  whether a token is set ([AppState.rigRebootTokenSet]), never the token itself. */
+    /** In-memory mirror of the reboot daemon's port, for [rebootRig]/[syncTimeToRig]. */
     private var rigRebootPort: Int = 9001
-    private var rigRebootToken: String? = null
 
     /**
      * Last-applied wall-clock time per (device, property), keyed for [shouldThrottleNumberPush]
@@ -247,14 +245,7 @@ class EkosRemoteController(
             scope.launch {
                 val saved = repo.current()
                 rigRebootPort = saved.rebootPort
-                rigRebootToken = saved.rebootToken?.ifBlank { null }
-                _state.update {
-                    it.copy(
-                        rigRebootPort = saved.rebootPort,
-                        rigRebootTokenSet = rigRebootToken != null,
-                        rigRebootAvailable = rigRebootToken != null,
-                    )
-                }
+                _state.update { it.copy(rigRebootPort = saved.rebootPort) }
             }
         }
 
@@ -1292,25 +1283,11 @@ class EkosRemoteController(
         super.setModuleTrain(module, trainName) // optimistic; confirmed reply reconciles above
     }
 
-    /**
-     * Persists the reboot daemon's port + shared token (pasted from the Pi-side install
-     * script's one-time printout) both in memory (for [rebootRig] to use immediately) and to
-     * disk via [connectionRepo] (so it survives app restart without re-pasting).
-     */
-    override fun setRigRebootConfig(port: Int, token: String) {
-        val trimmed = token.trim().ifBlank { null }
+    /** Persists the reboot daemon's port in memory (for [rebootRig]) and to disk via [connectionRepo]. */
+    override fun setRigRebootPort(port: Int) {
         rigRebootPort = port
-        rigRebootToken = trimmed
-        _state.update {
-            it.copy(
-                rigRebootPort = port,
-                rigRebootTokenSet = trimmed != null,
-                rigRebootAvailable = trimmed != null,
-                rigRebootState = RigRebootState.IDLE,
-                rigRebootError = null,
-            )
-        }
-        if (trimmed != null) scope.launch { connectionRepo?.saveRebootConfig(port, trimmed) }
+        _state.update { it.copy(rigRebootPort = port, rigRebootState = RigRebootState.IDLE, rigRebootError = null) }
+        scope.launch { connectionRepo?.saveRebootPort(port) }
     }
 
     /**
@@ -1321,14 +1298,9 @@ class EkosRemoteController(
      * back — no separate "app restart" step needed on this end.
      */
     override fun rebootRig() {
-        val token = rigRebootToken
-        if (token == null) {
-            _state.update { it.copy(rigRebootState = RigRebootState.FAILED, rigRebootError = "Set the reboot token first") }
-            return
-        }
         _state.update { it.copy(rigRebootState = RigRebootState.SENDING, rigRebootError = null) }
         scope.launch {
-            val result = RigRebootClient(client.host, rigRebootPort, token).reboot()
+            val result = RigRebootClient(client.host, rigRebootPort).reboot()
             _state.update { s ->
                 result.fold(
                     onSuccess = { s.copy(rigRebootState = RigRebootState.SENT, rigRebootError = null) },
@@ -1339,15 +1311,14 @@ class EkosRemoteController(
     }
 
     /**
-     * Real Pi OS clock, via the same reboot daemon as [rebootRig] — `POST /set-time`, needs the
-     * same token. See [RigRebootClient.setTime]'s own doc for the exact local-time-string shape
+     * Real Pi OS clock, via the same reboot daemon as [rebootRig] — `POST /set-time`. See [RigRebootClient.setTime]'s own doc for the exact local-time-string shape
      * and why `date -s`/`hwclock -w` need root. Sends the phone's own current wall-clock date/time
      * (`java.time.LocalDateTime.now()`, no timezone conversion — same "co-located, same
      * timezone" assumption [syncLocationToRig] documents).
      */
     override fun syncTimeToRig() {
         // KStars' own live internal clock, over the real EkosRemote wire — always sent,
-        // independent of the daemon/token below (works even without the reboot daemon installed
+        // independent of the daemon below (works even without the reboot daemon installed
         // at all). See KSTARS_SET_TIME's own doc (Commands.kt) for why this needed a new command.
         val now = java.time.LocalDateTime.now()
         client.sendCommand(
@@ -1358,16 +1329,11 @@ class EkosRemoteController(
             },
         )
 
-        // Real Pi OS clock — best-effort, needs the reboot daemon's token configured.
-        val token = rigRebootToken
-        if (token == null) {
-            _state.update { it.copy(piTimeSyncState = RigRebootState.FAILED, piTimeSyncError = "Set the reboot daemon token first") }
-            return
-        }
+        // Real Pi OS clock — best-effort, needs the reboot daemon running on the Pi.
         _state.update { it.copy(piTimeSyncState = RigRebootState.SENDING, piTimeSyncError = null) }
         val iso = now.withNano(0).toString()
         scope.launch {
-            val result = RigRebootClient(client.host, rigRebootPort, token).setTime(iso)
+            val result = RigRebootClient(client.host, rigRebootPort).setTime(iso)
             _state.update { s ->
                 result.fold(
                     onSuccess = { s.copy(piTimeSyncState = RigRebootState.SENT, piTimeSyncError = null) },

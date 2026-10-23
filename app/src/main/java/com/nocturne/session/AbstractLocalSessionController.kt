@@ -283,9 +283,7 @@ abstract class AbstractLocalSessionController : SessionController {
     // Local-only bookkeeping; [EkosRemoteController] overrides both to actually talk to the
     // rig's companion reboot daemon. There's no real Pi under a bare local mutation, so a
     // reboot attempt fails honestly rather than pretending to succeed.
-    override open fun setRigRebootConfig(port: Int, token: String) = update { s ->
-        s.copy(rigRebootPort = port, rigRebootTokenSet = token.isNotBlank())
-    }
+    override open fun setRigRebootPort(port: Int) = update { s -> s.copy(rigRebootPort = port) }
 
     override open fun rebootRig() = update { s ->
         s.copy(rigRebootState = RigRebootState.FAILED, rigRebootError = "No real rig connected — nothing to reboot")

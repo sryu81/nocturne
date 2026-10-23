@@ -275,8 +275,7 @@ with zero WS-handshake-header plumbing needed:
 ```cpp
 // nodemanager.cpp, in onNewConnection, alongside the existing path check
 const QString token = QUrlQuery(socket->requestUrl()).queryItemValue("token");
-if (token != loadSharedToken())  // new helper — same shared-secret-file pattern as
-                                  // pi-tools/reboot-daemon/reboot_daemon.py's own TOKEN_PATH
+if (token != loadSharedToken())  // new helper — reads a shared-secret file
 {
     qCWarning(KSTARS_EKOS) << "EkosRemote: rejecting connection, bad/missing token";
     socket->close();
@@ -286,11 +285,11 @@ if (token != loadSharedToken())  // new helper — same shared-secret-file patte
 ```
 
 Real connect URL becomes `ws://<pi>:9000/message/ekos?token=<shared-secret>` (and the same for
-`/media/ekos`) — same shared-secret-file convention the reboot-daemon already established
-(`/etc/nocturne-reboot/token`-style path, a matching `/etc/nocturne-ekosremote/token` or reuse the
-same file), not a new auth scheme invented from scratch. **App side**: `EkosRemoteClient`/
-`MediaChannel` append `?token=...` to the connect URL, `ConnectionSettings` gains a token field —
-same shape as `RigRebootClient`'s own `rigRebootToken` already does for the reboot channel.
+`/media/ekos`), secret in e.g. `/etc/nocturne-ekosremote/token`. The reboot daemon (9001) should
+check the same secret at the same time — its own standalone token was removed 2026-10 because
+guarding 9001 alone while 9000 stays open protected nothing. **App side**: `EkosRemoteClient`/
+`MediaChannel` append `?token=...` to the connect URL, `RigRebootClient` sends the same value,
+`ConnectionSettings` gains one token field — ideally obtained by a pairing step, not a manual paste.
 
 ### Wire contract — per-client tracking
 

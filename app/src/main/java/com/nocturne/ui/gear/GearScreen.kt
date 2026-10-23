@@ -386,7 +386,7 @@ private fun MaintenanceCard(state: AppState, ctrl: SessionController) {
         Spacer(Modifier.height(5.dp))
         TextC("Rig maintenance", style = t.Body135, color = c.text)
         TextC(
-            if (state.rigRebootAvailable) "reboot ready" else "reboot not configured",
+            "reboot · time sync · GPS",
             style = t.MonoMicro, color = c.textFaint,
         )
     }

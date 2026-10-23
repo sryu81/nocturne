@@ -8,8 +8,8 @@ matters exactly when Ekos is the thing that's hung.
 
 Endpoints:
   GET  /health   -> 200 "ok"                          (no auth; harmless)
-  POST /reboot   -> 202 "rebooting" then `sudo reboot` (requires X-Reboot-Token)
-  POST /set-time -> 200 "set" then `sudo date -s ...`  (requires X-Reboot-Token)
+  POST /reboot   -> 202 "rebooting" then `sudo reboot`
+  POST /set-time -> 200 "set" then `sudo date -s ...`
                     body: {"iso": "YYYY-MM-DDTHH:MM:SS"} — a LOCAL wall-clock
                     time (no timezone suffix), same shape `date -s` itself
                     expects: interpreted in whatever timezone the Pi's own
@@ -19,39 +19,24 @@ Endpoints:
                     afterward (silently skipped if no RTC hardware) so the
                     corrected time survives a power loss, not just this boot.
 
-Auth is a single shared-secret header, not because the LAN is assumed
-hostile (Nocturne's own EkosRemote wire has none either — see its
-ConnectScreen warning), but because this daemon's blast radius is real OS
-state (reboot, system clock), not a telescope setting, and the check costs
-nothing. Name/token/service file predate `/set-time` (this daemon started as
-reboot-only) — kept as-is rather than renamed for a 2nd endpoint; still not
-installed on the real Pi as of this addition (see README), so renaming
-would've been free, just not worth the churn for what's still one small
-maintenance daemon.
+No auth — same trust-the-LAN model as the EkosRemote wire on 9000, which
+already lets any LAN client slew the mount, stop Ekos or set KStars' clock.
+A shared-secret header here (removed 2026-10) guarded nothing that port
+didn't already leave open, and it travelled in plain HTTP anyway; the app's
+typed "REBOOT" confirm is the real guard against an accidental tap. Real
+auth, if ever needed, belongs on both channels together (docs/FORK-BACKLOG.md).
+Name/service file predate `/set-time` (this daemon started as reboot-only).
 """
 import http.server
 import json
 import os
 import subprocess
-import sys
 import threading
 
-TOKEN_PATH = "/etc/nocturne-reboot/token"
 PORT = int(os.environ.get("NOCTURNE_REBOOT_PORT", "9001"))
 
 
-def load_token() -> str:
-    try:
-        with open(TOKEN_PATH) as f:
-            return f.read().strip()
-    except FileNotFoundError:
-        print(f"error: token file {TOKEN_PATH} not found — run install.sh first", file=sys.stderr)
-        sys.exit(1)
-
-
 class Handler(http.server.BaseHTTPRequestHandler):
-    token = ""  # set in main()
-
     def log_message(self, fmt, *args):
         print(f"[nocturne-reboot] {self.address_string()} {fmt % args}")
 
@@ -64,9 +49,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         if self.path not in ("/reboot", "/set-time"):
             self._respond(404, "not found")
-            return
-        if self.headers.get("X-Reboot-Token", "") != self.token:
-            self._respond(403, "bad token")
             return
         if self.path == "/reboot":
             self._respond(202, "rebooting")
@@ -103,7 +85,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 
 def main():
-    Handler.token = load_token()
     server = http.server.ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     print(f"[nocturne-reboot] listening on 0.0.0.0:{PORT}")
     server.serve_forever()

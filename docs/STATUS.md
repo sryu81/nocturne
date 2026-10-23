@@ -580,10 +580,11 @@ section gets audited.
   `usesCleartextTraffic="true"` is set app-wide (`<application>` level), not scoped to private
   ranges via `network_security_config.xml`. No client-side check that an entered host is actually
   RFC1918. `ws://`, no TLS — matches the protocol, which has no TLS story at all.
-- **Existing precedent that a token scheme is workable**: the separate reboot-daemon side-channel
-  (`pi-tools/reboot-daemon/`, `ConnectionSettings.rebootPort`/`rebootToken`) already does real token
-  auth — proof this pattern works *on a channel Nocturne controls*. The main EkosRemote channel is
-  upstream-fork protocol, not something Nocturne can unilaterally add auth to from the app side.
+- **Reboot-daemon side-channel** (`pi-tools/reboot-daemon/`, port 9001): no auth either, same
+  trust model as 9000. Its earlier shared-secret token was removed 2026-10 — it guarded nothing
+  9000 didn't already leave open and forced a manual paste. Real auth, if ever added, should cover
+  both channels together. The main EkosRemote channel is upstream-fork protocol, not something
+  Nocturne can unilaterally add auth to from the app side.
 
 ### Bottom line / threat model
 
@@ -610,8 +611,8 @@ App-side changes Nocturne can make unilaterally (no fork changes needed):
 
 Changes that require touching the KStars fork itself (out of Nocturne's own repo, bigger lift,
 needed only if real auth is ever actually required):
-4. **Real handshake/token auth on the EkosRemote channel** — same shape as the reboot-daemon's
-   existing token scheme, or restoring a stripped-down version of stock EkosLive's HTTP-auth-before-
+4. **Real handshake/token auth on the EkosRemote channel** (and the reboot daemon with it) — a
+   shared-secret query param, or restoring a stripped-down version of stock EkosLive's HTTP-auth-before-
    socket pattern. This is the only way to close the "no credential check at all" gap — no amount of
    app-side work reaches it, since the server accepts any correctly-pathed socket.
 5. **mDNS advertisement** — would need the fork to call `qMDNS`'s registration side (currently

@@ -39,7 +39,7 @@ enum class SheetType {
 
 /**
  * Progress of a [SessionController.rebootRig] request against the rig's
- * companion reboot daemon (separate HTTP+token channel — the EkosRemote wire
+ * companion reboot daemon (separate HTTP channel — the EkosRemote wire
  * itself has no OS-level reboot command, see `pi-tools/reboot-daemon/`).
  */
 enum class RigRebootState { IDLE, SENDING, SENT, FAILED }
@@ -487,14 +487,10 @@ data class AppState(
     val referenceImageForTargetId: String? = null,
     /** Companion reboot daemon's port on the rig's Pi — separate from the EkosRemote wire port (see `pi-tools/reboot-daemon/`). */
     val rigRebootPort: Int = 9001,
-    /** Whether a reboot token has been configured — the token itself never enters [AppState] (kept only inside the controller), so nothing display-worthy leaks it into logs/recompositions. */
-    val rigRebootTokenSet: Boolean = false,
-    /** True once a token is configured under a real rig — [MaintenanceSheet] shows the reboot button only then. */
-    val rigRebootAvailable: Boolean = false,
     val rigRebootState: RigRebootState = RigRebootState.IDLE,
     val rigRebootError: String? = null,
     /** [SessionController.syncTimeToRig]'s own progress — deliberately a separate field from
-     *  [rigRebootState] even though both use the reboot daemon's token: they're independent
+     *  [rigRebootState] even though both go to the reboot daemon: they're independent
      *  actions (reboot vs. set-time), and sharing one state field would have one action's
      *  success/failure text wrongly show up under the other button. */
     val piTimeSyncState: RigRebootState = RigRebootState.IDLE,
