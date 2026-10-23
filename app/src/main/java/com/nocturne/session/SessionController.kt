@@ -128,6 +128,21 @@ interface SessionController {
     fun stopGuiding()
     fun startPolarAlign()
     fun stopPolarAlign()
+    /** Manual-slew mode: tell PAH the hand rotation is done (`polar_slew_done`). */
+    fun polarSlewDone()
+    /** Start the adjust phase (`polar_refresh`) using the current refresh exposure. */
+    fun polarRefresh()
+    /** Finish the adjust phase (`polar_refreshing_done`). */
+    fun polarRefreshDone()
+    /** Pick the correction star at ([x], [y]) — 0..1 fractions of the align image. */
+    fun polarSelectStar(x: Double, y: Double)
+    // Polar Alignment Assistant settings — see WireAlignSettings' pAH* fields.
+    fun setPahDirection(direction: String)
+    fun setPahRotation(degrees: Int)
+    fun setPahMountSpeed(speed: String)
+    fun setPahManualSlew(enabled: Boolean)
+    fun setPahExposure(sec: Double)
+    fun setPahRefreshAlgorithm(algorithm: String)
 
     fun startProfile(name: String)
     fun stopProfile()

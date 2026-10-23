@@ -706,6 +706,28 @@ abstract class AbstractLocalSessionController : SessionController {
     override fun stopGuiding() = update { it.copy(guiding = false) }
     override fun startPolarAlign() = update { it.copy(polarRunning = true) }
     override fun stopPolarAlign() = update { it.copy(polarRunning = false) }
+    override fun polarSlewDone() {}
+    override fun polarRefresh() {}
+    override fun polarRefreshDone() = update { it.copy(polarRunning = false) }
+    override fun polarSelectStar(x: Double, y: Double) {}
+    override open fun setPahDirection(direction: String) = update { s ->
+        s.copy(wireAlignSettings = s.wireAlignSettings?.copy(pAHDirection = direction))
+    }
+    override open fun setPahRotation(degrees: Int) = update { s ->
+        s.copy(wireAlignSettings = s.wireAlignSettings?.copy(pAHRotation = degrees))
+    }
+    override open fun setPahMountSpeed(speed: String) = update { s ->
+        s.copy(wireAlignSettings = s.wireAlignSettings?.copy(pAHMountSpeed = speed))
+    }
+    override open fun setPahManualSlew(enabled: Boolean) = update { s ->
+        s.copy(wireAlignSettings = s.wireAlignSettings?.copy(pAHManualSlew = enabled))
+    }
+    override open fun setPahExposure(sec: Double) = update { s ->
+        s.copy(wireAlignSettings = s.wireAlignSettings?.copy(pAHExposure = sec))
+    }
+    override open fun setPahRefreshAlgorithm(algorithm: String) = update { s ->
+        s.copy(wireAlignSettings = s.wireAlignSettings?.copy(pAHRefreshAlgorithm = algorithm))
+    }
 
     override fun openPa() = update { it.copy(sheet = SheetType.PA, paStep = 0) }
     override fun paNext() = update { it.copy(paStep = minOf(2, it.paStep + 1)) }

@@ -44,6 +44,24 @@ enum class SheetType {
  */
 enum class RigRebootState { IDLE, SENDING, SENT, FAILED }
 
+/**
+ * Real `new_polar_state.stage` strings — `PolarAlignmentAssistant::PAHStages`
+ * (polaralignmentassistant.cpp:26-43, English locale), in run order.
+ */
+const val PAH_STAGE_IDLE = "Idle"
+const val PAH_STAGE_SELECT_STAR = "Select Star"
+const val PAH_STAGE_REFRESHING = "Refreshing"
+val PAH_ROTATE_STAGES = setOf("First Rotation", "Second Rotation")
+/** Measurement stages → which of the 3 images it belongs to. */
+val PAH_MEASURE_IMAGE = mapOf(
+    "First Capture" to 1, "First Solve" to 1, "Finding CP" to 1, "First Rotation" to 1, "First Settle" to 1,
+    "Second Capture" to 2, "Second Solve" to 2, "Second Rotation" to 2, "Second Settle" to 2,
+    "Third Capture" to 3, "Third Solve" to 3,
+)
+val PAH_DIRECTIONS = listOf("West", "East")
+val PAH_ROTATIONS = listOf(15, 30, 45, 60)
+val PAH_REFRESH_ALGORITHMS = listOf("Plate Solve", "Move Star", "Move Star & Calc Error")
+
 /** Which meridian-flip action is awaiting confirmation. */
 enum class FlipConfirm { DEFER, NOW }
 

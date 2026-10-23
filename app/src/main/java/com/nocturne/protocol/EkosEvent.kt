@@ -1178,4 +1178,20 @@ data class WireAlignSettings(
      * matching the settings-sheet control the user edits it through).
      */
     val kcfg_AstrometryRotatorThreshold: Double = 30.0,
+    /**
+     * Polar Alignment Assistant settings — widgets of `polaralignmentassistant.ui`, a child
+     * widget of Align (`new PolarAlignmentAssistant(this, ...)`), so the same `findChildren`
+     * reflection covers them. Nullable: absent until a reply that actually carries them lands.
+     * [pAHDirection] "West"/"East"; [pAHRotation] QSpinBox 15..60 step 15; [pAHMountSpeed] one of
+     * the mount's own `TELESCOPE_SLEW_RATE` labels; [pAHExposure] refresh-phase exposure, 1..30 s;
+     * [pAHRefreshAlgorithm] "Plate Solve"/"Move Star"/"Move Star & Calc Error" (combos are set
+     * by text). Set via this path, not `polar_set_algorithm` — that handler looks up a stale
+     * widget name (`PAHRefreshAlgorithmCombo`) and silently does nothing.
+     */
+    val pAHDirection: String? = null,
+    val pAHRotation: Int? = null,
+    val pAHMountSpeed: String? = null,
+    val pAHManualSlew: Boolean? = null,
+    val pAHExposure: Double? = null,
+    val pAHRefreshAlgorithm: String? = null,
 )

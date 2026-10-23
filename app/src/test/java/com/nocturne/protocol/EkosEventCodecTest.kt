@@ -332,6 +332,12 @@ class EkosEventCodecTest {
         assertEquals("L", settings.alignFilter)
         assertEquals("1x1", settings.alignBinning)
         assertEquals(30.0, settings.alignAccuracyThreshold, 0.0)
+        // Polar Alignment Assistant widgets ride the same reply (PAA is a child of Align) —
+        // present in this live capture, so the PA sheet's settings read real values.
+        assertEquals("West", settings.pAHDirection)
+        assertEquals(3.0, settings.pAHExposure!!, 0.0)
+        assertEquals(30, settings.pAHRotation)
+        assertEquals(null, settings.pAHManualSlew)
     }
 
     @Test

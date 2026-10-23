@@ -304,6 +304,17 @@ which would surprise a second device trying to connect with no explanation eithe
 
 ---
 
+## 6. Small fix — `polar_set_algorithm` is a silent no-op
+
+`Message::processPolarCommands` looks up `findChild<QComboBox*>("PAHRefreshAlgorithmCombo")`, but the
+real widget is `pAHRefreshAlgorithm` (`polaralignmentassistant.ui`) — the lookup returns null and the
+command does nothing. The app sets the method through `align_set_all_settings`
+(`{"pAHRefreshAlgorithm": "Plate Solve"|"Move Star"|"Move Star & Calc Error"}`) instead, so this is
+only worth fixing for other clients. One-line fix: use the real object name. (Also in the same
+function: `if (PAH_START) … if (PAH_STOP) else if …` is missing an `else` — harmless today.)
+
+---
+
 ## Explicitly not on this list (deliberately out of scope, not forgotten)
 
 - **Observatory/dome control** (`DOME_*` wire commands) — no real dome hardware to test against on

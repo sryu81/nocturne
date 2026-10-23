@@ -340,6 +340,9 @@ class EkosRemoteController(
         // previously-known stage (or vice versa).
         is EkosEvent.NewPolarState -> s.copy(
             wirePolarStage = event.stage ?: s.wirePolarStage,
+            // Real stage wins over the optimistic Start/Stop flag — also catches a run that
+            // finished, failed or was started/stopped from the Ekos desktop.
+            polarRunning = event.stage?.let { it != PAH_STAGE_IDLE } ?: s.polarRunning,
             wirePolarEnabled = event.enabled ?: s.wirePolarEnabled,
             wirePolarMessage = event.message ?: s.wirePolarMessage,
             wirePolarVector = event.vector ?: s.wirePolarVector,
@@ -1178,6 +1181,44 @@ class EkosRemoteController(
     override fun stopPolarAlign() {
         client.sendCommand(Commands.POLAR_STOP)
         super.stopPolarAlign()
+    }
+    override fun polarSlewDone() {
+        client.sendCommand(Commands.POLAR_SLEW_DONE)
+    }
+    override fun polarRefresh() {
+        val exposure = _state.value.wireAlignSettings?.pAHExposure ?: 2.0
+        client.sendCommand(Commands.POLAR_REFRESH, buildJsonObject { put("value", exposure) })
+    }
+    override fun polarRefreshDone() {
+        client.sendCommand(Commands.POLAR_REFRESHING_DONE)
+        super.polarRefreshDone()
+    }
+    override fun polarSelectStar(x: Double, y: Double) {
+        client.sendCommand(Commands.POLAR_SET_CROSSHAIR, buildJsonObject { put("x", x); put("y", y) })
+    }
+    override fun setPahDirection(direction: String) {
+        sendAlignSetting("pAHDirection", JsonPrimitive(direction))
+        super.setPahDirection(direction)
+    }
+    override fun setPahRotation(degrees: Int) {
+        sendAlignSetting("pAHRotation", JsonPrimitive(degrees))
+        super.setPahRotation(degrees)
+    }
+    override fun setPahMountSpeed(speed: String) {
+        sendAlignSetting("pAHMountSpeed", JsonPrimitive(speed))
+        super.setPahMountSpeed(speed)
+    }
+    override fun setPahManualSlew(enabled: Boolean) {
+        sendAlignSetting("pAHManualSlew", JsonPrimitive(enabled))
+        super.setPahManualSlew(enabled)
+    }
+    override fun setPahExposure(sec: Double) {
+        sendAlignSetting("pAHExposure", JsonPrimitive(sec))
+        super.setPahExposure(sec)
+    }
+    override fun setPahRefreshAlgorithm(algorithm: String) {
+        sendAlignSetting("pAHRefreshAlgorithm", JsonPrimitive(algorithm))
+        super.setPahRefreshAlgorithm(algorithm)
     }
 
     // ── Profiles / Optical Train (M3 §3) ────────────────────────────────

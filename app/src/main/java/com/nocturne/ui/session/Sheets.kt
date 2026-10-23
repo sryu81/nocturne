@@ -96,6 +96,19 @@ import com.nocturne.ui.theme.NocturnePalette
 import com.nocturne.ui.theme.NocturneTheme
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
+import com.nocturne.session.PAH_DIRECTIONS
+import com.nocturne.session.PAH_MEASURE_IMAGE
+import com.nocturne.session.PAH_REFRESH_ALGORITHMS
+import com.nocturne.session.PAH_ROTATE_STAGES
+import com.nocturne.session.PAH_ROTATIONS
+import com.nocturne.session.PAH_STAGE_REFRESHING
+import com.nocturne.session.PAH_STAGE_SELECT_STAR
 
 /** Tintable big circle icon used in alert rows. */
 private data class AlertStyle(val color: Color, val icon: ImageVector)
@@ -2140,61 +2153,63 @@ private fun ReducerField(value: Double, onChange: (Double) -> Unit) {
 
 
 /**
- * Real-mode Polar Align — raw `new_polar_state` passthrough, not a stage-driven wizard. Real
- * pushes arrive as independent partial shapes ("scattered across several functions" per the
- * protocol reference — `{"stage"}` alone, `{"message"}` alone, `{"vector":...}`, `{"enabled"}`
- * alone), confirmed live via a direct probe (`polar_start` → `{"stage":"First Capture"}` then
- * `{"message":"...capturing the first image..."}` as two separate frames, `{"stage":"First
- * Solve"}`/`{"message":"Solving the first image..."}` next, `polar_stop` → `{"stage":"Idle"}` +
- * reset instructional message). No documented stage count/order/vocabulary for the full cycle —
- * mapping these onto fixed step-pills (like the fixture wizard above) would be exactly the kind
- * of wire-shape guess this project's established norm forbids (see `WireAlignSettings`'s
- * `alignBinning` history). Shows the raw text instead; a richer stage-driven UI is a reasonable
- * follow-up once more real PAH runs establish a stable vocabulary.
- *
- * [AppState.polarRunning] is a client-side optimistic flag driving the Start/Stop button only —
- * same shape as [FocuserCard][com.nocturne.ui.controls]'s autofocus row — never derived from the
- * wire text.
+ * Real Polar Alignment Assistant, driven by `new_polar_state`. Pushes are independent partial
+ * shapes (`{"stage"}`, `{"message"}`, `{"vector"}`, `{"enabled"}`, updated errors), merged in
+ * [AppState]. Stage strings are the real `PAHStages` table (see [PAH_MEASURE_IMAGE]), so the
+ * sheet branches on them: image progress while measuring, Done rotating (manual slew), Select
+ * Star → Start adjusting, Refreshing → Done. Settings are the assistant's own widgets via
+ * `align_set_all_settings`, editable only when the desktop enables them.
  */
 @Composable
 private fun PaRealSheet(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
+    val stage = state.wirePolarStage
+    val running = state.polarRunning
+    val pah = state.wireAlignSettings
+    val manualSlew = pah?.pAHManualSlew == true
+    val algorithm = pah?.pAHRefreshAlgorithm
+    val starSelect = stage == PAH_STAGE_SELECT_STAR
+    val refreshing = stage == PAH_STAGE_REFRESHING
+    // Move Star methods need a star picked on the image; Plate Solve doesn't.
+    val canPickStar = starSelect && algorithm != null && algorithm != PAH_REFRESH_ALGORITHMS[0]
+
     Column {
         TextC(
-            state.wirePolarStage ?: if (state.polarRunning) "running…" else "not started",
-            style = t.Mono26, color = if (state.polarRunning) c.warn else c.text,
+            stage ?: if (running) "running…" else "not started",
+            style = t.Mono26, color = if (running) c.warn else c.text,
         )
-        state.wirePolarEnabled?.let {
+        PAH_MEASURE_IMAGE[stage]?.let { image ->
+            Spacer(Modifier.height(6.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                (1..3).forEach { i ->
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .height(4.dp)
+                            .background(if (i <= image) c.accent else c.divider, RoundedCornerShape(2.dp)),
+                    )
+                }
+            }
             Spacer(Modifier.height(4.dp))
-            TextC(if (it) "PAH active" else "inactive", style = t.MonoSmall, color = c.textMuted)
+            TextC("measuring · image $image of 3", style = t.MonoSmall, color = c.textMuted)
         }
         Spacer(Modifier.height(9.dp))
         TextC(
             state.wirePolarMessage ?: "Put the mount either in the home position pointed toward the celestial pole, or pointed anywhere near the meridian, then tap Start.",
             style = t.Body13, color = c.textMuted,
         )
-        // Real align-solve frame (M4.2) — PAH drives its own align solves internally; this is
-        // the same imagery real Ekos's own PAH wizard shows. No directional correction-vector
-        // arrow drawn over it (M4.4) — Qt's QLineF::angle() rotation convention behind
-        // wirePolarVector's pa/mag isn't confirmed against a live solve, so it's not guessed;
-        // the real numeric error fields below it are shown instead, not fabricated.
+        // Real align-solve frame (M4.2) — PAH drives its own align solves internally. No
+        // correction arrows drawn yet: wirePolarVector's pa/mag screen orientation isn't
+        // confirmed against a live solve, so the numeric errors below are shown instead.
         Spacer(Modifier.height(14.dp))
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .aspectRatio(4f / 3f)
-                .background(c.surfaceDeep, RoundedCornerShape(8.dp)),
-        ) {
-            MediaFramePreview(state.latestAlignFrame, Modifier.fillMaxSize(), hatchColor = c.surfaceRaised)
+        PaImage(state, canPickStar, ctrl)
+        if (canPickStar) {
+            Spacer(Modifier.height(6.dp))
+            TextC("Tap a bright star to place the correction triangle.", style = t.Caption, color = c.accent400)
         }
-        // Real polar error numbers (M4.4) — updatedError/Az/Alt arrive after a correction slew
-        // (setUpdatedErrors); vector.error/azError/altError arrive with the solve itself
-        // (setPolarResults) — shown together, most-recent-of-either-shape wins per field already
-        // (AppState's own merge-not-overwrite). Unit confirmed degrees, not arcmin
-        // (PolarAlignmentAssistant emits `.Degrees()` — polaralignmentassistant.cpp:433,1019).
-        // `-1` is the real "not yet computed" sentinel (polaralignmentassistant.cpp:202,574),
-        // filtered here rather than shown as a fake near-zero error.
+        // updatedError/Az/Alt arrive during refresh (setUpdatedErrors); vector.* with the
+        // measurement (setPolarResults). Degrees; -1 is the real "not computed yet" sentinel.
         val azErr = (state.wirePolarUpdatedAzError ?: state.wirePolarVector?.azError)?.takeIf { it >= 0 }
         val altErr = (state.wirePolarUpdatedAltError ?: state.wirePolarVector?.altError)?.takeIf { it >= 0 }
         val totalErr = (state.wirePolarUpdatedError ?: state.wirePolarVector?.error)?.takeIf { it >= 0 }
@@ -2206,18 +2221,154 @@ private fun PaRealSheet(state: AppState, ctrl: SessionController) {
                 altErr?.let { TextC("alt %.2f°".format(it), style = t.MonoMid, color = c.textMuted, modifier = Modifier.weight(1f)) }
             }
         }
+
+        // Settings — same enable rules as the desktop assistant: measurement settings only while
+        // idle, refresh exposure/method also at Select Star (before adjusting starts).
+        if (!running || starSelect) {
+            Spacer(Modifier.height(16.dp))
+            HDivider()
+            Spacer(Modifier.height(16.dp))
+            if (pah?.pAHDirection == null) {
+                TextC("Polar alignment settings load once Ekos's Align module replies.", style = t.Caption, color = c.textFaint)
+            } else {
+                if (!running) {
+                    Row(Modifier.fillMaxWidth()) {
+                        Column(Modifier.weight(1f)) {
+                            FieldLabel("Direction")
+                            Spacer(Modifier.height(5.dp))
+                            CycleChip(pah.pAHDirection) {
+                                ctrl.setPahDirection(PAH_DIRECTIONS[(PAH_DIRECTIONS.indexOf(pah.pAHDirection) + 1).mod(PAH_DIRECTIONS.size)])
+                            }
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Column(Modifier.weight(1f)) {
+                            FieldLabel("Rotation")
+                            Spacer(Modifier.height(5.dp))
+                            val rot = pah.pAHRotation ?: 30
+                            CycleChip("$rot°") {
+                                ctrl.setPahRotation(PAH_ROTATIONS[(PAH_ROTATIONS.indexOf(rot) + 1).mod(PAH_ROTATIONS.size)])
+                            }
+                        }
+                    }
+                    // Mount speed options are the mount's own slew-rate labels (the desktop combo
+                    // is filled from the same TELESCOPE_SLEW_RATE list).
+                    val speeds = state.realSlewRateProp?.options.orEmpty()
+                    if (speeds.isNotEmpty() && pah.pAHMountSpeed != null) {
+                        Spacer(Modifier.height(8.4.dp))
+                        FieldLabel("Mount speed")
+                        Spacer(Modifier.height(5.dp))
+                        CycleChip(pah.pAHMountSpeed) {
+                            ctrl.setPahMountSpeed(speeds[(speeds.indexOf(pah.pAHMountSpeed) + 1).mod(speeds.size)])
+                        }
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    SwitchRow(
+                        label = "Manual slew",
+                        sub = "For non-GOTO mounts — you rotate RA by hand, then tap Done",
+                        checked = manualSlew,
+                        onToggle = { ctrl.setPahManualSlew(!manualSlew) },
+                    )
+                }
+                Row(Modifier.fillMaxWidth()) {
+                    Column(Modifier.weight(1f)) {
+                        FieldLabel("Refresh exposure")
+                        Spacer(Modifier.height(5.dp))
+                        DegreeField(pah.pAHExposure ?: 2.0, "s") { ctrl.setPahExposure(it.coerceIn(1.0, 30.0)) }
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Column(Modifier.weight(1f)) {
+                        FieldLabel("Refresh method")
+                        Spacer(Modifier.height(5.dp))
+                        val alg = algorithm ?: PAH_REFRESH_ALGORITHMS[0]
+                        CycleChip(alg) {
+                            ctrl.setPahRefreshAlgorithm(PAH_REFRESH_ALGORITHMS[(PAH_REFRESH_ALGORITHMS.indexOf(alg) + 1).mod(PAH_REFRESH_ALGORITHMS.size)])
+                        }
+                    }
+                }
+            }
+        }
+
         Spacer(Modifier.height(20.dp))
         TextC(
             "Real PAH drives its own mount rotation sequence once started — watch the mount. Stop cancels immediately, mid-motion if it's already rotating.",
             style = t.MonoMicro, color = c.warn,
         )
         Spacer(Modifier.height(14.dp))
-        com.nocturne.ui.components.NocturneButton(
-            text = if (state.polarRunning) "Stop" else "Start",
-            onClick = { if (state.polarRunning) ctrl.stopPolarAlign() else ctrl.startPolarAlign() },
-            style = if (state.polarRunning) com.nocturne.ui.components.BtnStyle.SOLID else com.nocturne.ui.components.BtnStyle.OUTLINE,
-            modifier = Modifier.fillMaxWidth().height(44.dp),
-        )
+        val primary: Pair<String, () -> Unit>? = when {
+            !running -> "Start" to ctrl::startPolarAlign
+            stage in PAH_ROTATE_STAGES && manualSlew -> "Done rotating" to ctrl::polarSlewDone
+            starSelect -> "Start adjusting" to ctrl::polarRefresh
+            refreshing -> "Done" to ctrl::polarRefreshDone
+            else -> null
+        }
+        primary?.let { (label, action) ->
+            com.nocturne.ui.components.NocturneButton(
+                text = label,
+                onClick = action,
+                style = com.nocturne.ui.components.BtnStyle.SOLID,
+                modifier = Modifier.fillMaxWidth().height(44.dp),
+            )
+        }
+        // Refreshing's "Done" already ends the run (same server call as Stop).
+        if (running && !refreshing) {
+            if (primary != null) Spacer(Modifier.height(8.dp))
+            com.nocturne.ui.components.NocturneButton(
+                text = "Stop",
+                onClick = ctrl::stopPolarAlign,
+                style = com.nocturne.ui.components.BtnStyle.OUTLINE,
+                modifier = Modifier.fillMaxWidth().height(44.dp),
+            )
+        }
+    }
+}
+
+/**
+ * Latest align frame, 4:3 fit. When [pickable], a tap sends its position as a fraction of the
+ * *image* (not the box — ContentScale.Fit letterboxes), which is what `polar_set_crosshair` takes.
+ */
+@Composable
+private fun PaImage(state: AppState, pickable: Boolean, ctrl: SessionController) {
+    val c = NocturneTheme.colors
+    val jpeg = state.latestAlignFrame?.jpeg
+    val imageSize = remember(jpeg) {
+        jpeg?.let {
+            val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size, o)
+            if (o.outWidth > 0 && o.outHeight > 0) IntSize(o.outWidth, o.outHeight) else null
+        }
+    }
+    var boxSize by remember { mutableStateOf(IntSize.Zero) }
+    var picked by remember(jpeg) { mutableStateOf<Offset?>(null) }
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .aspectRatio(4f / 3f)
+            .background(c.surfaceDeep, RoundedCornerShape(8.dp))
+            .onSizeChanged { boxSize = it }
+            .then(
+                if (pickable && imageSize != null) {
+                    Modifier.pointerInput(imageSize, boxSize) {
+                        detectTapGestures { tap ->
+                            val scale = minOf(boxSize.width / imageSize.width.toFloat(), boxSize.height / imageSize.height.toFloat())
+                            val ox = (boxSize.width - imageSize.width * scale) / 2f
+                            val oy = (boxSize.height - imageSize.height * scale) / 2f
+                            val fx = (tap.x - ox) / (imageSize.width * scale)
+                            val fy = (tap.y - oy) / (imageSize.height * scale)
+                            if (fx in 0f..1f && fy in 0f..1f) {
+                                picked = tap
+                                ctrl.polarSelectStar(fx.toDouble(), fy.toDouble())
+                            }
+                        }
+                    }
+                } else Modifier,
+            ),
+    ) {
+        MediaFramePreview(state.latestAlignFrame, Modifier.fillMaxSize(), hatchColor = c.surfaceRaised)
+        picked?.takeIf { pickable }?.let { p ->
+            Canvas(Modifier.fillMaxSize()) {
+                drawCircle(c.warn, radius = 14.dp.toPx(), center = p, style = Stroke(width = 1.5.dp.toPx()))
+            }
+        }
     }
 }
 

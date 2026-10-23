@@ -42,6 +42,13 @@ inevitably-drifting tracker — check `README.md` itself for what's current, thi
 - [x] Align settings (5 curated fields)
 - [x] Guide settings (7 curated fields, corrected once from a bad initial field-name probe)
 - [x] Real Autofocus start/stop, real Polar Alignment (moved from Gear → Controls tab)
+- [x] Polar Alignment parity pass (2026-10-22): PAH settings (direction, rotation, mount speed, manual
+      slew, refresh exposure/method) via `align_*_all_settings` — PAA is a child widget of Align, so the
+      same reflection covers it; round-trip live-verified (rotation 30→60→30). Stage-driven sheet: image
+      progress, `polar_slew_done` (manual slew), `polar_refresh` / `polar_refreshing_done` (adjust phase),
+      `polar_set_crosshair` (tap a star, Move Star methods); Start/Stop now follows the real stage.
+      **Not live-verified**: an actual PAH run (needs sky; moves the mount). Not done: correction arrows on
+      the image (vector `pa` screen orientation unconfirmed), auto-park/auto-PAC options.
 - [x] Align "Solve" / Guide start-stop → Controls tab (relocated from original Bench-card plan)
 - [ ] ~~5 separate Gear-tab cards~~ — SUPERSEDED: consolidated into one **Controls** tab
 - [ ] Observatory/dome settings sheet — **SKIPPED, permanently**: protocol has no settings surface for this at all

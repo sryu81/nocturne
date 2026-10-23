@@ -102,6 +102,14 @@ object Commands {
     const val GUIDE_STOP = "guide_stop"
     const val POLAR_START = "polar_start"
     const val POLAR_STOP = "polar_stop"
+    /** `{"value": refreshExposureSec}` — starts the adjust (refresh) phase. */
+    const val POLAR_REFRESH = "polar_refresh"
+    /** Ends the refresh phase — server-side this is the same stopPAHProcess() as [POLAR_STOP]. */
+    const val POLAR_REFRESHING_DONE = "polar_refreshing_done"
+    /** Manual-slew mode: user finished rotating the RA axis by hand. */
+    const val POLAR_SLEW_DONE = "polar_slew_done"
+    /** `{"x","y"}` as 0..1 fractions of the sent align image — picks the correction star. */
+    const val POLAR_SET_CROSSHAIR = "polar_set_crosshair"
 
     // M4.1 — Media channel. Payload is a bare boolean, not an object-wrapped one like every
     // other command here — see MediaChannel/EkosRemoteClient call sites.
