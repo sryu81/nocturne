@@ -341,6 +341,16 @@ class EkosEventCodecTest {
     }
 
     @Test
+    fun `decodes astro_get_names — bare string array`() {
+        // Shape confirmed live 2026-10-22 (43,780 names, ~520 KB): payload is a flat array.
+        val event = EkosEventCodec.decode(
+            """{"payload":["51  Andromedae","Andromeda Galaxy","M 31","Whirlpool Galaxy"],"type":"astro_get_names"}""",
+        )
+        assertTrue("expected AstroNames, got $event", event is EkosEvent.AstroNames)
+        assertEquals(listOf("51  Andromedae", "Andromeda Galaxy", "M 31", "Whirlpool Galaxy"), (event as EkosEvent.AstroNames).names)
+    }
+
+    @Test
     fun `decodes new_polar_state — partial payloads (stage-only, message-only) must not fall back to Raw`() {
         // Regression: NewPolarState originally had no defaults on any field. Real pushes arrive
         // as independent partial shapes per the protocol reference ({"stage"} alone, {"message"}

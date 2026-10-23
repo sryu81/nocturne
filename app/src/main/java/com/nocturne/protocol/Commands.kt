@@ -28,6 +28,8 @@ object Commands {
 
     // M3 — astro lookups.
     const val ASTRO_SEARCH_OBJECTS = "astro_search_objects"
+    /** Every object name KStars knows (stars, planets, comets, DSOs…) — ~44k names / ~0.5 MB live. */
+    const val ASTRO_GET_NAMES = "astro_get_names"
     const val ASTRO_GET_OBJECTS_INFO = "astro_get_objects_info"
     const val ASTRO_GET_OBJECT_INFO = "astro_get_object_info"
     const val ASTRO_GET_OBJECTS_RISESET = "astro_get_objects_riseset"

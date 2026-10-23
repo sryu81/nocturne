@@ -30,6 +30,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.Color
@@ -109,7 +110,9 @@ fun PlanScreen(
             },
             TabItem(full = true) { SearchTypeRow(state, ctrl) },
             TabItem(full = true) {
-                Row(Modifier.fillMaxWidth()) {
+                // These filters (and mag) only drive astro_search_objects — a no-type name
+                // search ignores them, so they're dimmed rather than looking active.
+                Row(Modifier.fillMaxWidth().alpha(if (state.searchType == null) 0.4f else 1f)) {
                     com.nocturne.session.PLAN_CHIPS.indices.forEach { i ->
                         PlanChip(
                             text = com.nocturne.session.PLAN_CHIPS[i],
@@ -163,7 +166,8 @@ fun PlanScreen(
     )
 }
 
-/** Plan tab search's object-type picker — one `SkyObject::TYPE` per search, see [SEARCH_TYPES]. */
+/** Plan tab search's object-type picker — one `SkyObject::TYPE` per search, see [SEARCH_TYPES].
+ *  Tapping the selected type deselects it (plain name search across every catalog). */
 @Composable
 private fun SearchTypeRow(state: AppState, ctrl: SessionController) {
     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
@@ -171,7 +175,7 @@ private fun SearchTypeRow(state: AppState, ctrl: SessionController) {
             PlanChip(
                 text = type.label,
                 selected = state.searchType == type.skyType,
-                onClick = { ctrl.setSearchType(type.skyType) },
+                onClick = { ctrl.setSearchType(if (state.searchType == type.skyType) null else type.skyType) },
                 modifier = Modifier.padding(end = 6.dp),
             )
         }
@@ -186,7 +190,9 @@ private fun SearchTypeRow(state: AppState, ctrl: SessionController) {
 private fun MagStepper(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
-    val applies = SEARCH_TYPES.firstOrNull { it.skyType == state.searchType }?.usesMagnitude != false
+    // No type selected = name search, which has no magnitude filter at all.
+    val applies = state.searchType != null &&
+        SEARCH_TYPES.firstOrNull { it.skyType == state.searchType }?.usesMagnitude != false
     val mag = state.searchMaxMag
     Row(verticalAlignment = Alignment.CenterVertically) {
         PlanChip(text = "−", selected = false, onClick = { if (applies) ctrl.setSearchMaxMag(mag - 1) })
@@ -291,6 +297,8 @@ private fun ResultsList(
         val matchCount = state.wireSearchMatchCount
         TextC(
             when {
+                state.searchType == null && state.query.trim().length < 2 && matches.isEmpty() ->
+                    "Pick an object type, or type a name to search every catalog"
                 matchCount == null && matches.isEmpty() -> "Waiting for Ekos to answer the first search…"
                 // Only the direct name lookup hit — it's outside this type/filter search.
                 (matchCount ?: 0) == 0 && matches.isNotEmpty() -> "Name match · outside this type/filter search"

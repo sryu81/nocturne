@@ -135,8 +135,9 @@ data class AppState(
     val paRate: Int = 1,
     val query: String = "",
     val chips: List<Int> = listOf(0),
-    /** `astro_search_objects`' `type` — a real `SkyObject::TYPE` value, one of [SEARCH_TYPES]. */
-    val searchType: Int = SEARCH_TYPES.first().skyType,
+    /** `astro_search_objects`' `type` — a real `SkyObject::TYPE` value, one of [SEARCH_TYPES].
+     *  Null = no type: nothing listed until the user types, then names from every catalog. */
+    val searchType: Int? = SEARCH_TYPES.first().skyType,
     /** `astro_search_objects`' `maxMagnitude` — only honored server-side for DSO types, not planets. */
     val searchMaxMag: Int = 10,
     /** Empty = nothing picked yet; Plan tab shows a "pick a target" hint instead of the target card. */

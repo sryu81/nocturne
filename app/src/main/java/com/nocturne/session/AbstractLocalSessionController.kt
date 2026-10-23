@@ -197,7 +197,7 @@ abstract class AbstractLocalSessionController : SessionController {
         s.copy(chips = if (s.chips.contains(index)) s.chips.filter { it != index } else s.chips + index)
     }
 
-    override fun setSearchType(skyType: Int) = update { it.copy(searchType = skyType) }
+    override fun setSearchType(skyType: Int?) = update { it.copy(searchType = skyType) }
 
     override fun setSearchMaxMag(mag: Int) = update {
         it.copy(searchMaxMag = mag.coerceIn(SEARCH_MAG_RANGE.first, SEARCH_MAG_RANGE.last))

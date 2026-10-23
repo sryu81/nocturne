@@ -53,6 +53,7 @@ object EkosEventCodec {
                     ?.let { EkosEvent.DeviceProperty(it) }
                     ?: EkosEvent.Raw(envelope.type, envelope.payload)
                 "astro_search_objects" -> EkosEvent.AstroSearchResult(protocolJson.decodeFromJsonElement(envelope.payload))
+                "astro_get_names" -> EkosEvent.AstroNames(protocolJson.decodeFromJsonElement(envelope.payload))
                 "astro_get_objects_info" -> EkosEvent.AstroObjectsInfo(protocolJson.decodeFromJsonElement(envelope.payload))
                 "astro_get_object_info" -> EkosEvent.AstroObjectInfo(
                     envelope.payload.jsonObject.takeIf { it["object"]?.jsonPrimitive?.booleanOrNull == true }

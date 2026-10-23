@@ -93,6 +93,10 @@ class EkosRemoteController(
     private var lastAstroObjects: List<WireAstroObject> = emptyList()
     private var lastRiseset: List<WireRiseset> = emptyList()
     private var lastSearchNames: List<String>? = null
+    // No-type name search: every name KStars knows (astro_get_names), fetched once per
+    // connection on first need and filtered locally like lastSearchNames.
+    private var allNames: List<String>? = null
+    private var allNamesRequested = false
     // Typed-name lookup (astro_get_object_info) — catches what the type search can't: a name of
     // another type, below the altitude cutoff, or with no catalogued magnitude at all. One
     // request in flight at a time; replies carry the *resolved* name, not the typed one, so
@@ -486,6 +490,10 @@ class EkosRemoteController(
             lastSearchNames = event.names
             resetSearchResults(s)
         }
+        is EkosEvent.AstroNames -> {
+            allNames = event.names
+            resetSearchResults(s)
+        }
         is EkosEvent.AstroObjectInfo -> {
             lookupInFlight = false
             if (queuedLookupQuery == null) {
@@ -533,10 +541,19 @@ class EkosRemoteController(
         is EkosEvent.Raw -> s
     }
 
-    /** Names from [lastSearchNames] matching the typed query, before the [SEARCH_RESULT_CAP] cut. */
+    /** Names matching the typed query, before the [SEARCH_RESULT_CAP] cut. With a type: that
+     *  search's names (all of them for a blank query). Without one: nothing until the query is
+     *  [minLookupLength]+ chars, then every catalog's names, prefix matches first. */
     private fun matchingSearchNames(s: AppState): List<String> {
-        val names = lastSearchNames ?: return emptyList()
         val q = s.query.trim()
+        if (s.searchType == null) {
+            val names = allNames ?: return emptyList()
+            if (q.length < minLookupLength) return emptyList()
+            val (prefix, rest) = names.filter { it.contains(q, ignoreCase = true) }
+                .partition { it.startsWith(q, ignoreCase = true) }
+            return prefix + rest
+        }
+        val names = lastSearchNames ?: return emptyList()
         return if (q.isBlank()) names else names.filter { it.contains(q, ignoreCase = true) }
     }
 
@@ -707,7 +724,8 @@ class EkosRemoteController(
             // astro_search_objects carries no free-text field — the query is applied here,
             // client-side, against the flat name list before resolving the (usually much
             // smaller) matching subset's coordinates/riseset.
-            is EkosEvent.AstroSearchResult -> sendSearchResolve()
+            is EkosEvent.AstroSearchResult -> if (_state.value.searchType != null) sendSearchResolve()
+            is EkosEvent.AstroNames -> if (_state.value.searchType == null) sendSearchResolve()
             is EkosEvent.AstroObjectInfo -> {
                 val queued = queuedLookupQuery
                 if (queued != null) {
@@ -2078,7 +2096,7 @@ class EkosRemoteController(
         runSearch()
     }
 
-    override fun setSearchType(skyType: Int) {
+    override fun setSearchType(skyType: Int?) {
         super.setSearchType(skyType)
         runSearch()
     }
@@ -2095,7 +2113,8 @@ class EkosRemoteController(
     private fun refilterSearch() {
         lastLookupObject = null
         requestNameLookup(_state.value.query.trim())
-        if (lastSearchNames == null) return runSearch()
+        val haveNames = if (_state.value.searchType == null) allNames != null else lastSearchNames != null
+        if (!haveNames) return runSearch()
         _state.update { resetSearchResults(it) }
         sendSearchResolve()
     }
@@ -2147,6 +2166,20 @@ class EkosRemoteController(
      */
     private fun runSearch() {
         val s = _state.value
+        if (s.searchType == null) {
+            // Name search — no server-side filtering at all; the name list is the source.
+            if (allNames == null) {
+                if (!allNamesRequested) {
+                    allNamesRequested = true
+                    client.sendCommand(Commands.ASTRO_GET_NAMES)
+                }
+                _state.update { it.copy(wireSearchResults = emptyList(), wireSearchMatchCount = null) }
+            } else {
+                _state.update { resetSearchResults(it) }
+                sendSearchResolve()
+            }
+            return
+        }
         client.sendCommand(Commands.ASTRO_SEARCH_OBJECTS, buildJsonObject {
             put("type", s.searchType)
             put("maxMagnitude", s.searchMaxMag.toDouble())
