@@ -57,6 +57,8 @@ fun ConnectScreen(
     savedPort: Int,
     onConnect: (host: String, port: Int) -> Unit,
     onCancel: () -> Unit,
+    /** Optional status line under the subtitle, e.g. after a rig reboot. */
+    notice: String? = null,
 ) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
@@ -124,6 +126,10 @@ fun ConnectScreen(
             "Enter the EkosRemote Pi's address on your local network.",
             style = t.Body13, color = c.textMuted,
         )
+        if (notice != null) {
+            VSpacer(10)
+            TextC(notice, style = t.Body13, color = c.accent400)
+        }
         VSpacer(20)
 
         // Trust-boundary warning — always visible, not dismissible. The wire has

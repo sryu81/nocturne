@@ -63,6 +63,9 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var savedPort: Int by mutableStateOf(9000)
         private set
+    /** One-line note for ConnectScreen after a rig reboot sent us back there; cleared on [connect]. */
+    var connectNotice: String? by mutableStateOf(null)
+        private set
 
     init {
         viewModelScope.launch {
@@ -79,6 +82,7 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
     fun connect(host: String, port: Int) {
         client?.disconnect()
         reachedOnline = false
+        connectNotice = null
         viewModelScope.launch { repo.save(host, port) }
 
         val newClient = EkosRemoteClient(host, port, viewModelScope)
@@ -109,6 +113,14 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
         client = null
         reachedOnline = false
         _connectionMode.value = ConnectionMode.NeedsConnect
+    }
+
+    /** The daemon accepted a reboot: the Pi is about to drop, so instead of leaving the shell up
+     *  behind a "Reconnecting" banner (with sheets/dialogs still open over stale state), go back to
+     *  ConnectScreen. No auto-dial — the user reconnects once the beacon shows the Pi again. */
+    fun disconnectAfterReboot() {
+        disconnect()
+        connectNotice = "Rig is rebooting — reconnect once it shows up again (about a minute)."
     }
 
     override fun onCleared() {

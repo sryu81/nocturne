@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -51,6 +52,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.nocturne.protocol.SchedulerJobStatus
 import com.nocturne.protocol.jobStatusLabel
 import com.nocturne.session.FlipConfirm
+import com.nocturne.session.RigRebootState
 import com.nocturne.session.SheetType
 import com.nocturne.session.AppState
 import com.nocturne.session.contractJob
@@ -89,6 +91,7 @@ fun NocturneApp() {
                 savedPort = vm.savedPort,
                 onConnect = vm::connect,
                 onCancel = vm::disconnect,
+                notice = vm.connectNotice,
             )
             // SOCKET_OPEN means the WebSocket handshake succeeded and get_profiles/get_devices
             // are already flowing — there's a real, useful app to show. Only the pre-socket
@@ -156,6 +159,11 @@ private fun NocturneShell(
 
     val state by vm.ctrl.state.collectAsState()
     val ctrl = vm.ctrl
+
+    // Reboot accepted by the Pi — leave the shell entirely (closes every sheet/dialog with it).
+    LaunchedEffect(state.rigRebootState) {
+        if (state.rigRebootState == RigRebootState.SENT) vm.disconnectAfterReboot()
+    }
 
     val configuration = LocalConfiguration.current
     val landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
