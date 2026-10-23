@@ -1,7 +1,5 @@
 package com.nocturne.ui
 
-import android.app.Activity
-import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -39,7 +37,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -167,7 +164,6 @@ private fun NocturneShell(
 
     val configuration = LocalConfiguration.current
     val landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-    val context = LocalContext.current
 
     fun navigate(tab: NocturneTab) {
         navController.navigate(tab.route) {
@@ -252,12 +248,6 @@ private fun NocturneShell(
                         redMode = redMode,
                         landscape = landscape,
                         onToggleRed = onToggleRed,
-                        onToggleOrientation = {
-                            val activity = context as Activity
-                            activity.requestedOrientation =
-                                if (landscape) ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                                else ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-                        },
                         alertCount = state.wireNotifications.size,
                         onOpenAlerts = { ctrl.openSheet(SheetType.ALERTS) },
                     )
@@ -391,7 +381,6 @@ private fun NocturneHeader(
     redMode: Boolean,
     landscape: Boolean,
     onToggleRed: () -> Unit,
-    onToggleOrientation: () -> Unit,
     alertCount: Int,
     onOpenAlerts: () -> Unit,
 ) {
@@ -461,12 +450,8 @@ private fun NocturneHeader(
                 )
             }
 
-            HeaderIconButton(
-                icon = if (landscape) Phosphor.ArrowsInLineHorizontal else Phosphor.DeviceRotate,
-                contentDescription = if (landscape) "Portrait" else "Landscape",
-                onClick = onToggleOrientation,
-            )
-            Spacer(Modifier.width(NocturneTheme.spacing.s2))
+            // No orientation toggle: forcing requestedOrientation overrode the phone's own
+            // auto-rotate lock (and stuck until toggled back). The app follows the phone.
 
             Row(
                 modifier = Modifier
