@@ -106,6 +106,12 @@ class EkosRemoteController(
     private var lookupInFlight = false
     private var queuedLookupQuery: String? = null
 
+    // Devices whose full property set has been requested (DEVICE_GET + full subscribe). The
+    // DEVICE_GET reply itself carries CONNECTION=connected, so without this every reply
+    // re-triggered fetchFullDeviceIfNewlyConnected → another DEVICE_GET, forever (seen live
+    // 2026-10-23: ~2k requests per device in 10 min).
+    private val fullyFetchedDevices = mutableSetOf<String>()
+
     /** Name a standalone [ensureTargetRiseset] fetch is in flight for — see that function's doc. */
     private var pendingTargetRisesetName: String? = null
 
@@ -713,16 +719,9 @@ class EkosRemoteController(
      */
     private fun sendFollowUpCommands(event: EkosEvent) {
         when (event) {
-            is EkosEvent.Devices -> event.devices.forEach { device ->
-                if (device.connected) {
-                    client.sendCommand(Commands.DEVICE_GET, buildJsonObject { put("device", device.name) })
-                    client.sendCommand(Commands.DEVICE_PROPERTY_SUBSCRIBE, buildJsonObject { put("device", device.name) })
-                } else {
-                    client.sendCommand(Commands.DEVICE_PROPERTY_SUBSCRIBE, buildJsonObject {
-                        put("device", device.name)
-                        putJsonArray("properties") { add("CONNECTION") }
-                    })
-                }
+            is EkosEvent.Devices -> {
+                fullyFetchedDevices.clear()
+                event.devices.forEach { device -> subscribeDevice(device) }
             }
             is EkosEvent.DeviceProperty -> fetchFullDeviceIfNewlyConnected(event.property.device, event.property)
             is EkosEvent.DeviceProperties -> event.properties.forEach { fetchFullDeviceIfNewlyConnected(event.device, it) }
@@ -813,13 +812,31 @@ class EkosRemoteController(
         return "$rh:$rm:$rs" to "$sign$dd:$dm:$ds"
     }
 
+    private fun subscribeDevice(device: WireDevice) {
+        if (device.connected) {
+            fullyFetchedDevices += device.name
+            client.sendCommand(Commands.DEVICE_GET, buildJsonObject { put("device", device.name) })
+            client.sendCommand(Commands.DEVICE_PROPERTY_SUBSCRIBE, buildJsonObject { put("device", device.name) })
+        } else {
+            client.sendCommand(Commands.DEVICE_PROPERTY_SUBSCRIBE, buildJsonObject {
+                put("device", device.name)
+                putJsonArray("properties") { add("CONNECTION") }
+            })
+        }
+    }
+
     /** See [sendFollowUpCommands]'s doc — a device that arrived not-yet-connected only gets a
      *  narrow CONNECTION subscribe up front; once that reports it's actually connected, fetch
      *  its full property set + subscribe to everything, same as an already-connected device got
      *  from the initial `get_devices` snapshot. */
     private fun fetchFullDeviceIfNewlyConnected(device: String, property: WireProperty) {
         if (property !is WireProperty.Switch || property.name != "CONNECTION") return
-        if (property.switches.none { it.name == "CONNECT" && it.state == 1 }) return
+        if (property.switches.none { it.name == "CONNECT" && it.state == 1 }) {
+            // Disconnected — fetch again in full if it comes back.
+            fullyFetchedDevices -= device
+            return
+        }
+        if (!fullyFetchedDevices.add(device)) return
         client.sendCommand(Commands.DEVICE_GET, buildJsonObject { put("device", device) })
         client.sendCommand(Commands.DEVICE_PROPERTY_SUBSCRIBE, buildJsonObject { put("device", device) })
     }
