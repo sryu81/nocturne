@@ -45,6 +45,13 @@ enum class SheetType {
 enum class RigRebootState { IDLE, SENDING, SENT, FAILED }
 
 /**
+ * Real `new_guide_state.status` strings for which Ekos's Guide module is *not* busy — the same
+ * idle group `Guide::checkCamera` (guide.cpp) switches on; every other `guideStates` value
+ * (`ekos.h`: Capturing, Looping, Calibrating, Guiding, Dithering, Settling...) means busy.
+ */
+val GUIDE_IDLE_STATES = setOf("Idle", "Aborted", "Connected", "Disconnected", "Calibration error")
+
+/**
  * Real `new_polar_state.stage` strings — `PolarAlignmentAssistant::PAHStages`
  * (polaralignmentassistant.cpp:26-43, English locale), in run order.
  */
@@ -113,8 +120,11 @@ data class AppState(
      * Polar-Align control — flipped on tap, same shape as [mountTracking]/[mountParked]. Doesn't
      * attempt to string-match the real wire's undocumented status/stage values (see
      * `EkosRemoteController.startAutofocus`'s doc) — the raw wire text is shown alongside these,
-     * never derived from them. Known limitation, accepted: none of these three auto-clear when a
-     * real routine finishes on its own; user taps Stop manually even after real completion.
+     * never derived from them. Known limitation, accepted: [focusRunning] doesn't auto-clear when
+     * a real routine finishes on its own. [guiding] and [polarRunning] do: the real status/stage
+     * push overrides the optimistic value (see [GUIDE_IDLE_STATES], [PAH_STAGE_IDLE]). [guiding]
+     * means "Guide module busy" (guiding, calibrating, looping, capturing...), like Ekos's own
+     * Stop button being enabled.
      */
     val focusRunning: Boolean = false,
     val guiding: Boolean = false,

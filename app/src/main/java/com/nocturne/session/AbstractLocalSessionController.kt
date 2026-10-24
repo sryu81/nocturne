@@ -422,6 +422,48 @@ abstract class AbstractLocalSessionController : SessionController {
     override open fun setGuideReuseCalibration(enabled: Boolean) = update { s ->
         s.copy(wireGuideSettings = s.wireGuideSettings?.copy(kcfg_ReuseGuideCalibration = enabled))
     }
+    override open fun setGuideDarkFrame(enabled: Boolean) = update { s ->
+        s.copy(wireGuideSettings = s.wireGuideSettings?.copy(guideDarkFrame = enabled))
+    }
+    override open fun setGuideSubframe(enabled: Boolean) = update { s ->
+        s.copy(wireGuideSettings = s.wireGuideSettings?.copy(guideSubframe = enabled))
+    }
+    override open fun setGuideAutoStar(enabled: Boolean) = update { s ->
+        s.copy(wireGuideSettings = s.wireGuideSettings?.copy(guideAutoStar = enabled))
+    }
+    override open fun setGuideDitherSettle(sec: Int) = update { s ->
+        s.copy(wireGuideSettings = s.wireGuideSettings?.copy(kcfg_DitherSettle = sec))
+    }
+    override open fun setGuideDitherTimeout(sec: Int) = update { s ->
+        s.copy(wireGuideSettings = s.wireGuideSettings?.copy(kcfg_DitherTimeout = sec))
+    }
+    override open fun setGuideDitherMaxIterations(n: Int) = update { s ->
+        s.copy(wireGuideSettings = s.wireGuideSettings?.copy(kcfg_DitherMaxIterations = n))
+    }
+    override open fun setGuideDitherFailAbortsGuide(enabled: Boolean) = update { s ->
+        s.copy(wireGuideSettings = s.wireGuideSettings?.copy(kcfg_DitherFailAbortsAutoGuide = enabled))
+    }
+    override open fun setGuideCalibrationPulse(ms: Int) = update { s ->
+        s.copy(wireGuideSettings = s.wireGuideSettings?.copy(kcfg_CalibrationPulseDuration = ms))
+    }
+    override open fun setGuideCalibrationMaxMove(px: Int) = update { s ->
+        s.copy(wireGuideSettings = s.wireGuideSettings?.copy(kcfg_CalibrationMaxMove = px))
+    }
+    override open fun setGuideTwoAxis(enabled: Boolean) = update { s ->
+        s.copy(wireGuideSettings = s.wireGuideSettings?.copy(kcfg_TwoAxisEnabled = enabled))
+    }
+    override open fun setGuideCalibrationBacklash(enabled: Boolean) = update { s ->
+        s.copy(wireGuideSettings = s.wireGuideSettings?.copy(kcfg_GuideCalibrationBacklash = enabled))
+    }
+    override open fun setGuideResetCalibration(enabled: Boolean) = update { s ->
+        s.copy(wireGuideSettings = s.wireGuideSettings?.copy(kcfg_ResetGuideCalibration = enabled))
+    }
+    override open fun setGuideReverseDecOnFlip(enabled: Boolean) = update { s ->
+        s.copy(wireGuideSettings = s.wireGuideSettings?.copy(kcfg_ReverseDecOnPierSideChange = enabled))
+    }
+    override open fun setGuideLostStarTimeout(sec: Int) = update { s ->
+        s.copy(wireGuideSettings = s.wireGuideSettings?.copy(kcfg_GuideLostStarTimeout = sec))
+    }
 
     // Focus settings (M3.3 phase 6): same shape as Guide above.
     override open fun setFocusExposure(sec: Double) = update { s ->
@@ -704,6 +746,8 @@ abstract class AbstractLocalSessionController : SessionController {
     override fun gotoAndCenter(targetId: String) = update { it.copy(mountSolved = true) }
     override fun startGuiding() = update { it.copy(guiding = true) }
     override fun stopGuiding() = update { it.copy(guiding = false) }
+    override fun loopGuide() = update { it.copy(guiding = true) }
+    override fun clearGuideCalibration() {}
     override fun startPolarAlign() = update { it.copy(polarRunning = true) }
     override fun stopPolarAlign() = update { it.copy(polarRunning = false) }
     override fun polarSlewDone() {}

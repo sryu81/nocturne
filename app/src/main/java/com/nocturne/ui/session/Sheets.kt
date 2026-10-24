@@ -1097,11 +1097,11 @@ private fun CycleChip(value: String, enabled: Boolean = true, onTap: () -> Unit)
 // ── Guide settings (M3.3 phase 4, curated subset) ───────────────────────────
 
 /**
- * Curated subset of real Ekos's Guide tab (8 of 84 real fields — see
+ * Curated subset of real Ekos's Guide tab (22 of 84 real fields — see
  * docs/M3.3-plan.md and [WireGuideSettings]'s own doc for the live-probe history) —
- * exposure/gain/binning (already live via Bench "Snap guide", shown read-only here for
- * context) plus solver accuracy threshold and dither. Real-rig only: [AppState.wireGuideSettings]
- * is null under [SimulatedController] and briefly null on a real rig too, until the first
+ * exposure/gain/binning live on the Controls tab's guide preview row; this sheet holds accuracy
+ * threshold, dither, frame (dark/subframe/auto star/lost star) and calibration options.
+ * Real-rig only: [AppState.wireGuideSettings] is null under [SimulatedController] and briefly null on a real rig too, until the first
  * `guide_get_all_settings` reply lands — same gating shape as [AlignSettingsSheet].
  */
 @Composable
@@ -1139,19 +1139,91 @@ private fun GuideSettingsSheet(state: AppState, ctrl: SessionController) {
             FieldLabel("Settle threshold")
             Spacer(Modifier.height(5.dp))
             DegreeField(g.kcfg_DitherThreshold, "px", ctrl::setGuideDitherThreshold)
+            Spacer(Modifier.height(8.4.dp))
+            FieldLabel("Settle time after dither (s)")
+            Spacer(Modifier.height(5.dp))
+            IntField(g.kcfg_DitherSettle, ctrl::setGuideDitherSettle)
+            Spacer(Modifier.height(8.4.dp))
+            FieldLabel("Dither timeout (s)")
+            Spacer(Modifier.height(5.dp))
+            IntField(g.kcfg_DitherTimeout, ctrl::setGuideDitherTimeout)
+            Spacer(Modifier.height(8.4.dp))
+            FieldLabel("Max dither iterations")
+            Spacer(Modifier.height(5.dp))
+            IntField(g.kcfg_DitherMaxIterations, ctrl::setGuideDitherMaxIterations)
+            Spacer(Modifier.height(8.4.dp))
+            GuideSwitch("Dither failure aborts guiding", "otherwise guiding continues after a failed dither", g.kcfg_DitherFailAbortsAutoGuide) {
+                ctrl.setGuideDitherFailAbortsGuide(!g.kcfg_DitherFailAbortsAutoGuide)
+            }
         }
         Spacer(Modifier.height(16.dp))
         HDivider()
         Spacer(Modifier.height(16.dp))
 
-        SwitchRow(
-            label = "Reuse calibration",
-            sub = "skip re-calibrating the guider at the start of each session",
-            checked = g.kcfg_ReuseGuideCalibration,
-            onToggle = { ctrl.setGuideReuseCalibration(!g.kcfg_ReuseGuideCalibration) },
-            modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
-        )
+        // ── Frame (guide.ui) ─────────────────────────────────────────────
+        TextC("FRAME", style = t.MicroLabel, color = c.textMuted)
+        Spacer(Modifier.height(10.dp))
+        GuideSwitch("Dark frame", "subtract a dark from each guide frame", g.guideDarkFrame) {
+            ctrl.setGuideDarkFrame(!g.guideDarkFrame)
+        }
+        Spacer(Modifier.height(8.4.dp))
+        GuideSwitch("Subframe", "only download a box around the guide star", g.guideSubframe) {
+            ctrl.setGuideSubframe(!g.guideSubframe)
+        }
+        Spacer(Modifier.height(8.4.dp))
+        GuideSwitch("Auto star", "pick the guide star automatically", g.guideAutoStar) {
+            ctrl.setGuideAutoStar(!g.guideAutoStar)
+        }
+        Spacer(Modifier.height(8.4.dp))
+        FieldLabel("Lost star timeout (s)")
+        Spacer(Modifier.height(5.dp))
+        IntField(g.kcfg_GuideLostStarTimeout, ctrl::setGuideLostStarTimeout)
+        Spacer(Modifier.height(16.dp))
+        HDivider()
+        Spacer(Modifier.height(16.dp))
+
+        // ── Calibration (opscalibration.ui) ──────────────────────────────
+        TextC("CALIBRATION", style = t.MicroLabel, color = c.textMuted)
+        Spacer(Modifier.height(10.dp))
+        GuideSwitch("Reuse calibration", "skip re-calibrating the guider at the start of each session", g.kcfg_ReuseGuideCalibration) {
+            ctrl.setGuideReuseCalibration(!g.kcfg_ReuseGuideCalibration)
+        }
+        Spacer(Modifier.height(8.4.dp))
+        GuideSwitch("Reset calibration after slew", "always re-calibrate when guiding starts after a mount slew", g.kcfg_ResetGuideCalibration) {
+            ctrl.setGuideResetCalibration(!g.kcfg_ResetGuideCalibration)
+        }
+        Spacer(Modifier.height(8.4.dp))
+        GuideSwitch("Reverse DEC on pier change", "flip DEC calibration after a meridian flip", g.kcfg_ReverseDecOnPierSideChange) {
+            ctrl.setGuideReverseDecOnFlip(!g.kcfg_ReverseDecOnPierSideChange)
+        }
+        Spacer(Modifier.height(8.4.dp))
+        GuideSwitch("Two-axis calibration", "calibrate DEC as well as RA", g.kcfg_TwoAxisEnabled) {
+            ctrl.setGuideTwoAxis(!g.kcfg_TwoAxisEnabled)
+        }
+        Spacer(Modifier.height(8.4.dp))
+        GuideSwitch("Clear DEC backlash", "take up DEC gear backlash before calibrating", g.kcfg_GuideCalibrationBacklash) {
+            ctrl.setGuideCalibrationBacklash(!g.kcfg_GuideCalibrationBacklash)
+        }
+        Spacer(Modifier.height(8.4.dp))
+        FieldLabel("Pulse duration (ms)")
+        Spacer(Modifier.height(5.dp))
+        IntField(g.kcfg_CalibrationPulseDuration, ctrl::setGuideCalibrationPulse)
+        Spacer(Modifier.height(8.4.dp))
+        FieldLabel("Max move (px)")
+        Spacer(Modifier.height(5.dp))
+        IntField(g.kcfg_CalibrationMaxMove, ctrl::setGuideCalibrationMaxMove)
     }
+}
+
+@Composable
+private fun GuideSwitch(label: String, sub: String, checked: Boolean, onToggle: () -> Unit) {
+    SwitchRow(
+        label = label,
+        sub = sub,
+        checked = checked,
+        onToggle = onToggle,
+        modifier = Modifier.fillMaxWidth().background(NocturneTheme.colors.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
+    )
 }
 
 // ── Focus settings (M3.3 phase 6 + 2026-09 Mechanics/Process expansion) ─────

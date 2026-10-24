@@ -409,4 +409,27 @@ class EkosEventCodecTest {
         event as EkosEvent.AstroObjectInfo
         assertNull(event.obj)
     }
+
+    @Test
+    fun `decodes new_guide_state with and without status`() {
+        val event = EkosEventCodec.decode("""{"payload":{"status":"Calibrating"},"type":"new_guide_state"}""")
+        event as EkosEvent.NewGuideState
+        assertEquals("Calibrating", event.status)
+        // Planned guide-stats shape (FORK-BACKLOG §1) carries no status — must still decode.
+        val stats = EkosEventCodec.decode("""{"payload":{"rmsRA":0.61,"rmsDE":0.55},"type":"new_guide_state"}""")
+        stats as EkosEvent.NewGuideState
+        assertNull(stats.status)
+    }
+
+    @Test
+    fun `decodes guide_get_all_settings expanded fields`() {
+        val event = EkosEventCodec.decode("""{"payload":{"guideDarkFrame":true,"guideSubframe":false,"guideAutoStar":true,"kcfg_DitherSettle":5,"kcfg_CalibrationPulseDuration":750,"kcfg_ReverseDecOnPierSideChange":true,"guideSquareSize":"32"},"type":"guide_get_all_settings"}""")
+        event as EkosEvent.GuideSettings
+        assertTrue(event.settings.guideDarkFrame)
+        assertTrue(event.settings.guideAutoStar)
+        assertEquals(5, event.settings.kcfg_DitherSettle)
+        assertEquals(750, event.settings.kcfg_CalibrationPulseDuration)
+        assertTrue(event.settings.kcfg_ReverseDecOnPierSideChange)
+        assertEquals(45, event.settings.kcfg_DitherTimeout)
+    }
 }

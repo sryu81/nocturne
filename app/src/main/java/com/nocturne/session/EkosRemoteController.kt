@@ -319,7 +319,12 @@ class EkosRemoteController(
             wireMountPierSide = event.pierSide ?: s.wireMountPierSide,
         )
         is EkosEvent.NewFocusState -> s.copy(wireFocusStatus = event.status)
-        is EkosEvent.NewGuideState -> s.copy(wireGuideStatus = event.status)
+        is EkosEvent.NewGuideState -> s.copy(
+            wireGuideStatus = event.status ?: s.wireGuideStatus,
+            // Real status wins over the optimistic Start/Stop flag — catches guiding started by
+            // the scheduler or the desktop, and lost-star/calibration-failure aborts.
+            guiding = event.status?.let { it !in GUIDE_IDLE_STATES } ?: s.guiding,
+        )
         // Merges non-null fields rather than overwriting — see NewAlignState's own doc: status
         // and solution are two entirely independent real senders sharing this one push name.
         is EkosEvent.NewAlignState -> s.copy(
@@ -1185,6 +1190,13 @@ class EkosRemoteController(
         client.sendCommand(Commands.GUIDE_STOP)
         super.stopGuiding()
     }
+    override fun loopGuide() {
+        client.sendCommand(Commands.GUIDE_LOOP)
+        super.loopGuide()
+    }
+    override fun clearGuideCalibration() {
+        client.sendCommand(Commands.GUIDE_CLEAR)
+    }
 
     /**
      * `polar_start`/`polar_stop` — no direct reply, watch `new_polar_state` (M2, hardened for
@@ -1715,6 +1727,62 @@ class EkosRemoteController(
     override fun setGuideReuseCalibration(enabled: Boolean) {
         sendGuideSetting("kcfg_ReuseGuideCalibration", JsonPrimitive(enabled))
         super.setGuideReuseCalibration(enabled)
+    }
+    override fun setGuideDarkFrame(enabled: Boolean) {
+        sendGuideSetting("guideDarkFrame", JsonPrimitive(enabled))
+        super.setGuideDarkFrame(enabled)
+    }
+    override fun setGuideSubframe(enabled: Boolean) {
+        sendGuideSetting("guideSubframe", JsonPrimitive(enabled))
+        super.setGuideSubframe(enabled)
+    }
+    override fun setGuideAutoStar(enabled: Boolean) {
+        sendGuideSetting("guideAutoStar", JsonPrimitive(enabled))
+        super.setGuideAutoStar(enabled)
+    }
+    override fun setGuideDitherSettle(sec: Int) {
+        sendGuideSetting("kcfg_DitherSettle", JsonPrimitive(sec))
+        super.setGuideDitherSettle(sec)
+    }
+    override fun setGuideDitherTimeout(sec: Int) {
+        sendGuideSetting("kcfg_DitherTimeout", JsonPrimitive(sec))
+        super.setGuideDitherTimeout(sec)
+    }
+    override fun setGuideDitherMaxIterations(n: Int) {
+        sendGuideSetting("kcfg_DitherMaxIterations", JsonPrimitive(n))
+        super.setGuideDitherMaxIterations(n)
+    }
+    override fun setGuideDitherFailAbortsGuide(enabled: Boolean) {
+        sendGuideSetting("kcfg_DitherFailAbortsAutoGuide", JsonPrimitive(enabled))
+        super.setGuideDitherFailAbortsGuide(enabled)
+    }
+    override fun setGuideCalibrationPulse(ms: Int) {
+        sendGuideSetting("kcfg_CalibrationPulseDuration", JsonPrimitive(ms))
+        super.setGuideCalibrationPulse(ms)
+    }
+    override fun setGuideCalibrationMaxMove(px: Int) {
+        sendGuideSetting("kcfg_CalibrationMaxMove", JsonPrimitive(px))
+        super.setGuideCalibrationMaxMove(px)
+    }
+    override fun setGuideTwoAxis(enabled: Boolean) {
+        sendGuideSetting("kcfg_TwoAxisEnabled", JsonPrimitive(enabled))
+        super.setGuideTwoAxis(enabled)
+    }
+    override fun setGuideCalibrationBacklash(enabled: Boolean) {
+        sendGuideSetting("kcfg_GuideCalibrationBacklash", JsonPrimitive(enabled))
+        super.setGuideCalibrationBacklash(enabled)
+    }
+    override fun setGuideResetCalibration(enabled: Boolean) {
+        sendGuideSetting("kcfg_ResetGuideCalibration", JsonPrimitive(enabled))
+        super.setGuideResetCalibration(enabled)
+    }
+    override fun setGuideReverseDecOnFlip(enabled: Boolean) {
+        sendGuideSetting("kcfg_ReverseDecOnPierSideChange", JsonPrimitive(enabled))
+        super.setGuideReverseDecOnFlip(enabled)
+    }
+    override fun setGuideLostStarTimeout(sec: Int) {
+        sendGuideSetting("kcfg_GuideLostStarTimeout", JsonPrimitive(sec))
+        super.setGuideLostStarTimeout(sec)
     }
 
     /**

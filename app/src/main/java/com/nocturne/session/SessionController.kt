@@ -127,6 +127,10 @@ interface SessionController {
     fun plateSolveHere()
     fun startGuiding()
     fun stopGuiding()
+    /** `guide_loop` — continuous guide-cam frames (Ekos's Loop button); [stopGuiding] ends it. */
+    fun loopGuide()
+    /** `guide_clear` — drop the stored calibration so the next start recalibrates. */
+    fun clearGuideCalibration()
     fun startPolarAlign()
     fun stopPolarAlign()
     /** Manual-slew mode: tell PAH the hand rotation is done (`polar_slew_done`). */
@@ -281,6 +285,20 @@ interface SessionController {
     fun setGuideDitherPixels(px: Int)
     fun setGuideDitherThreshold(value: Double)
     fun setGuideReuseCalibration(enabled: Boolean)
+    fun setGuideDarkFrame(enabled: Boolean)
+    fun setGuideSubframe(enabled: Boolean)
+    fun setGuideAutoStar(enabled: Boolean)
+    fun setGuideDitherSettle(sec: Int)
+    fun setGuideDitherTimeout(sec: Int)
+    fun setGuideDitherMaxIterations(n: Int)
+    fun setGuideDitherFailAbortsGuide(enabled: Boolean)
+    fun setGuideCalibrationPulse(ms: Int)
+    fun setGuideCalibrationMaxMove(px: Int)
+    fun setGuideTwoAxis(enabled: Boolean)
+    fun setGuideCalibrationBacklash(enabled: Boolean)
+    fun setGuideResetCalibration(enabled: Boolean)
+    fun setGuideReverseDecOnFlip(enabled: Boolean)
+    fun setGuideLostStarTimeout(sec: Int)
 
     // ── M3.3 phase 6: Focus settings (curated subset, see docs/M3.3-plan.md) ──
     fun setFocusExposure(sec: Double)

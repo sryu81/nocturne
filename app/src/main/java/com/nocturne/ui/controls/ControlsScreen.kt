@@ -829,10 +829,9 @@ private fun DPad(state: AppState, ctrl: SessionController) {
 
 /**
  * Real Guide start/stop — `guide_start`/`guide_stop` (`guide_stop` = server-side `abort()`, not a
- * graceful pause, see [com.nocturne.session.EkosRemoteController.startGuiding]'s doc). Same
- * optimistic-boolean + raw-status-passthrough shape as [FocuserCard]'s autofocus row.
- * **Ungated** — works under the simulator too via [AppState.guiding], matching every other
- * Bench-derived live-control card in this file.
+ * graceful pause, see [com.nocturne.session.EkosRemoteController.startGuiding]'s doc), plus
+ * `guide_loop`/`guide_clear`. [AppState.guiding] is optimistic on tap, then overridden by the real
+ * `new_guide_state` status (busy unless in [com.nocturne.session.GUIDE_IDLE_STATES]).
  */
 @Composable
 private fun GuideControlCard(state: AppState, ctrl: SessionController) {
@@ -856,6 +855,26 @@ private fun GuideControlCard(state: AppState, ctrl: SessionController) {
                 onClick = { if (state.guiding) ctrl.stopGuiding() else ctrl.startGuiding() },
                 style = if (state.guiding) BtnStyle.SOLID else BtnStyle.SUBTLE,
                 modifier = Modifier.height(34.dp),
+            )
+        }
+        // Ekos's own Loop / Clear calibration buttons — both only while the module is idle,
+        // same as the desktop (Stop above ends a loop too: `guide_stop` = `abort()`).
+        Spacer(Modifier.height(8.dp))
+        Row {
+            NocturneButton(
+                text = "Loop",
+                onClick = ctrl::loopGuide,
+                style = BtnStyle.SUBTLE,
+                enabled = !state.guiding,
+                modifier = Modifier.weight(1f).height(34.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            NocturneButton(
+                text = "Clear calibration",
+                onClick = ctrl::clearGuideCalibration,
+                style = BtnStyle.SUBTLE,
+                enabled = !state.guiding,
+                modifier = Modifier.weight(1f).height(34.dp),
             )
         }
     }

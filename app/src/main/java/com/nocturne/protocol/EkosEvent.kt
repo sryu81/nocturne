@@ -50,8 +50,14 @@ sealed interface EkosEvent {
     @Serializable
     data class NewFocusState(val status: String) : EkosEvent
 
+    /**
+     * `new_guide_state` push. Today every real sender is `{"status"}` alone, but `status` is
+     * still optional: the planned guide-stats push (docs/FORK-BACKLOG.md §1) reuses this same
+     * push name with status-less shapes, and a required field would fail to decode those —
+     * same standing lesson as [NewMountState]/[NewAlignState].
+     */
     @Serializable
-    data class NewGuideState(val status: String) : EkosEvent
+    data class NewGuideState(val status: String? = null) : EkosEvent
 
     /**
      * `new_align_state` push — **a 4th occurrence of this repo's own standing decode lesson**
@@ -1138,6 +1144,25 @@ data class WireGuideSettings(
     val kcfg_DitherPixels: Int = 2,
     val kcfg_DitherThreshold: Double = 1.0,
     val kcfg_ReuseGuideCalibration: Boolean = true,
+    // 2026-10 expansion, all real `guide_get_all_settings` keys (widget objectNames, defaults
+    // from kstars.kcfg). guide.ui checkboxes:
+    val guideDarkFrame: Boolean = false,
+    val guideSubframe: Boolean = false,
+    val guideAutoStar: Boolean = false,
+    // opsdither.ui (all QSpinBox — ints):
+    val kcfg_DitherSettle: Int = 0,
+    val kcfg_DitherTimeout: Int = 45,
+    val kcfg_DitherMaxIterations: Int = 10,
+    val kcfg_DitherFailAbortsAutoGuide: Boolean = false,
+    // opscalibration.ui:
+    val kcfg_CalibrationPulseDuration: Int = 1000,
+    val kcfg_CalibrationMaxMove: Int = 15,
+    val kcfg_TwoAxisEnabled: Boolean = true,
+    val kcfg_GuideCalibrationBacklash: Boolean = true,
+    val kcfg_ResetGuideCalibration: Boolean = true,
+    val kcfg_ReverseDecOnPierSideChange: Boolean = false,
+    // opsguide.ui:
+    val kcfg_GuideLostStarTimeout: Int = 60,
 )
 
 @Serializable

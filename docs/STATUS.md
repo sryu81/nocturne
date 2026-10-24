@@ -42,6 +42,13 @@ inevitably-drifting tracker — check `README.md` itself for what's current, thi
 - [x] Focus settings (22 curated fields: camera/filter/binning + Mechanics + Process groups, expanded 2026-09 from the original 5 — see `WireFocusSettings`' own per-field docs)
 - [x] Align settings (5 curated fields)
 - [x] Guide settings (7 curated fields, corrected once from a bad initial field-name probe)
+- [x] Guide parity pass 1 (2026-10-23): Start/Stop follows real `new_guide_state` (busy unless
+      Idle/Aborted/Connected/Disconnected/Calibration error, Ekos's own idle group) — scheduler/desktop
+      starts and lost-star aborts now show; `NewGuideState.status` optional (guide-stats push prep);
+      Loop (`guide_loop`) + Clear calibration (`guide_clear`) buttons; Guide settings sheet +14 fields
+      (dither settle/timeout/iterations/fail-aborts, dark frame/subframe/auto star/lost-star timeout,
+      calibration pulse/max move/two-axis/backlash/reset-after-slew/reverse DEC on pier change).
+      NOT live-verified (Pi unreachable that day).
 - [x] Real Autofocus start/stop, real Polar Alignment (moved from Gear → Controls tab)
 - [x] Polar Alignment parity pass (2026-10-22): PAH settings (direction, rotation, mount speed, manual
       slew, refresh exposure/method) via `align_*_all_settings` — PAA is a child widget of Align, so the

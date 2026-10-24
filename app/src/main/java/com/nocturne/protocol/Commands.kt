@@ -102,6 +102,10 @@ object Commands {
     const val FOCUS_STOP = "focus_stop"
     const val GUIDE_START = "guide_start"
     const val GUIDE_STOP = "guide_stop"
+    // `guide_loop` = Ekos's Loop button (continuous guide-cam frames, stopped by `guide_stop`);
+    // `guide_clear` = Clear calibration. Both take no payload (`message.cpp` processGuideCommands).
+    const val GUIDE_LOOP = "guide_loop"
+    const val GUIDE_CLEAR = "guide_clear"
     const val POLAR_START = "polar_start"
     const val POLAR_STOP = "polar_stop"
     /** `{"value": refreshExposureSec}` — starts the adjust (refresh) phase. */
