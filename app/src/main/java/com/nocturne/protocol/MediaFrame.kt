@@ -88,7 +88,8 @@ class MediaFrame(val header: MediaHeader, val jpeg: ByteArray) {
             }
             val headerText = String(bytes, 0, nullAt, Charsets.UTF_8)
             val header = runCatching { json.decodeFromString<MediaHeader>(headerText) }.getOrNull() ?: return null
-            return MediaFrame(header, bytes.copyOfRange(METADATA_PACKET, bytes.size))
+            // Ekos sends HFR -1 (INVALID_STAR_MEASURE) when no star was measured: not a value.
+            return MediaFrame(header.copy(hfr = header.hfr?.takeIf { it > 0.0 }), bytes.copyOfRange(METADATA_PACKET, bytes.size))
         }
     }
 }

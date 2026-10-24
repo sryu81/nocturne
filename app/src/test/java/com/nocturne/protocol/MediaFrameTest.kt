@@ -40,7 +40,8 @@ class MediaFrameTest {
         assertEquals("16", frame.header.bpp)
         assertEquals("250", frame.header.focalLength)
         assertEquals("3.7600", frame.header.pixelSize)
-        assertEquals(-1.0, frame.header.hfr)
+        // the live frame really carried "hfr": -1 (Ekos INVALID_STAR_MEASURE) — decoded as no HFR
+        assertNull(frame.header.hfr)
         // A real per-image identifier, not "" — MediaFrameType.CAPTURE is the default case, not
         // gated on an empty uuid (see MediaHeader.frameType's own doc).
         assertEquals(MediaFrameType.CAPTURE, frame.header.frameType)
@@ -89,5 +90,13 @@ class MediaFrameTest {
     @Test
     fun `returns null when the header text isn't valid JSON`() {
         assertNull(MediaFrame.parse(frameBytes("not json at all")))
+    }
+
+    @Test
+    fun `Ekos's HFR -1 (no star measured) decodes as no HFR, a real one is kept`() {
+        val none = MediaFrame.parse(frameBytes("""{"uuid":"abc","hfr":-1}"""))!!
+        assertNull(none.header.hfr)
+        val real = MediaFrame.parse(frameBytes("""{"uuid":"abc","hfr":2.07}"""))!!
+        assertEquals(2.07, real.header.hfr!!, 1e-9)
     }
 }

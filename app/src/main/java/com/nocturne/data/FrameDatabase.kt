@@ -9,6 +9,7 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.nocturne.protocol.MediaFrame
 import com.nocturne.session.sanitizeFileToken
 import kotlinx.coroutines.flow.Flow
@@ -190,6 +191,12 @@ class FrameRepository(context: Context) {
     private val appContext = context.applicationContext
     private val db = Room.databaseBuilder(appContext, FrameDatabase::class.java, "frames.db")
         .fallbackToDestructiveMigration(true)
+        .addCallback(object : RoomDatabase.Callback() {
+            // Rows saved before MediaFrame.parse dropped Ekos's HFR -1 ("no star measured").
+            override fun onOpen(db: SupportSQLiteDatabase) {
+                db.execSQL("UPDATE frames SET hfr = NULL WHERE hfr <= 0")
+            }
+        })
         .build()
     private val dao = db.frameDao()
     private val fileWriter = FrameFileWriter(appContext.getExternalFilesDir(null) ?: appContext.filesDir)
