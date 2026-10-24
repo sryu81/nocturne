@@ -16,6 +16,13 @@ actually decides whether a session is worth continuing).
 
 ## 1. Guide RMS/drift/SNR — real live data, currently 3 local consumers, 0 remote
 
+> **IMPLEMENTED 2026-10-23** (fork branch `ekosremote-fork`), exactly the wire contract below:
+> `Message::sendGuideStats`/`sendGuideSigma` + 2 `manager.cpp` connections. Same fork change also
+> added `guide_calibrate`/`guide_dither`/`guide_suspend`/`guide_resume` (no payload; call
+> `Guide::calibrate/dither/suspend/resume`) and fixed `guide_set_calibration_settings` writing
+> `max_move` into `GuideCalibrationBacklash` instead of `CalibrationMaxMove`. App side (decode +
+> drift chart/RMS) is the next step.
+
 **Why it matters**: this is the number an imager actually watches to decide "keep going or pack
 up" — confirmed the user's own priority for this list.
 

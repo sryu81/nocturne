@@ -26,6 +26,8 @@ import okhttp3.OkHttpClient
 import java.time.Duration
 import kotlin.math.min
 
+private const val SETTINGS_RETRY_MS = 2_000L
+
 /**
  * Owns the Message + Media channels and their shared reconnect state
  * machine. Client owns 100% of reconnect/backoff — the server "just accepts
@@ -69,6 +71,16 @@ class EkosRemoteClient(
     // scheduleReconnect() a moment later (real bug: disconnect appeared to work, then silently
     // reconnected). Cleared by connect(), the only other place that should ever reconnect.
     private var userDisconnected = false
+
+    /**
+     * Module `*_get_all_settings` requests whose reply hasn't arrived yet this online session,
+     * keyed by command, value = last send time (ms). The eager fetch on `online` races module
+     * creation: a module that isn't up yet makes the server drop the request ("Ignoring command
+     * ... as guide module is not available", seen live on a fresh profile start), and nothing
+     * asks again. Each module's state push (sent when the module becomes ready) re-requests
+     * until the reply lands — see [retryPendingSettings].
+     */
+    private val pendingSettings = mutableMapOf<String, Long>()
 
     init {
         // Persistent collectors for the lifetime of this client — reconnects
@@ -158,6 +170,13 @@ class EkosRemoteClient(
                 it.copy(state = if (event.online) ConnectionState.ONLINE else ConnectionState.SOCKET_OPEN)
             }
             if (event.online) {
+                val now = System.currentTimeMillis()
+                pendingSettings.clear()
+                listOf(
+                    Commands.MOUNT_GET_ALL_SETTINGS, Commands.CAPTURE_GET_ALL_SETTINGS,
+                    Commands.ALIGN_GET_ALL_SETTINGS, Commands.GUIDE_GET_ALL_SETTINGS,
+                    Commands.FOCUS_GET_ALL_SETTINGS,
+                ).forEach { pendingSettings[it] = now }
                 sendCommand(Commands.GET_STATES)
                 sendCommand(Commands.GET_DEVICES)
                 // OpticalTrainManager is a real Ekos module — only meaningful once Ekos has
@@ -217,7 +236,34 @@ class EkosRemoteClient(
                 })
             }
         }
+        retryPendingSettings(event)
         _events.tryEmit(event)
+    }
+
+    private fun retryPendingSettings(event: EkosEvent) {
+        when (event) {
+            is EkosEvent.MountSettings -> pendingSettings.remove(Commands.MOUNT_GET_ALL_SETTINGS)
+            is EkosEvent.CaptureSettings -> pendingSettings.remove(Commands.CAPTURE_GET_ALL_SETTINGS)
+            is EkosEvent.AlignSettings -> pendingSettings.remove(Commands.ALIGN_GET_ALL_SETTINGS)
+            is EkosEvent.GuideSettings -> pendingSettings.remove(Commands.GUIDE_GET_ALL_SETTINGS)
+            is EkosEvent.FocusSettings -> pendingSettings.remove(Commands.FOCUS_GET_ALL_SETTINGS)
+            else -> {
+                val command = when (event) {
+                    is EkosEvent.NewMountState -> Commands.MOUNT_GET_ALL_SETTINGS
+                    is EkosEvent.NewCaptureState -> Commands.CAPTURE_GET_ALL_SETTINGS
+                    is EkosEvent.NewAlignState -> Commands.ALIGN_GET_ALL_SETTINGS
+                    is EkosEvent.NewGuideState -> Commands.GUIDE_GET_ALL_SETTINGS
+                    is EkosEvent.NewFocusState -> Commands.FOCUS_GET_ALL_SETTINGS
+                    else -> return
+                }
+                val sentAt = pendingSettings[command] ?: return
+                val now = System.currentTimeMillis()
+                // Mount state pushes are frequent — at most one retry per 2 s per module.
+                if (now - sentAt < SETTINGS_RETRY_MS) return
+                pendingSettings[command] = now
+                sendCommand(command)
+            }
+        }
     }
 
     private fun onSocketClosedOrFailed(reason: String?) {

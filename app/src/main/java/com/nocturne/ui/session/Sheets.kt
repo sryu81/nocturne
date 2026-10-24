@@ -154,7 +154,7 @@ fun SheetHost(state: AppState, ctrl: SessionController, landscape: Boolean) {
         SheetType.MOUNT_SETTINGS -> "Mount settings" to "flip, limits, auto-park"
         SheetType.CAMERA_SETTINGS -> "File settings" to "save path, filename template"
         SheetType.ALIGN_SETTINGS -> "Align settings" to "exposure, gain, filter, accuracy"
-        SheetType.GUIDE_SETTINGS -> "Guide settings" to "accuracy threshold, dither"
+        SheetType.GUIDE_SETTINGS -> "Guide settings" to "dither, frame, calibration"
         SheetType.FOCUS_SETTINGS -> "Focus settings" to "exposure, gain, filter"
         // Kept short like every other sheet's meta — NocturneSheet's title gets Modifier.weight(1f)
         // but meta doesn't, so an unusually long meta string (the first cut named all 5 groups,
