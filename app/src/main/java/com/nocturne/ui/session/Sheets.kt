@@ -55,6 +55,9 @@ import com.nocturne.session.realNightWindow
 import com.nocturne.session.SessionController
 import com.nocturne.session.SheetType
 import com.nocturne.session.AppState
+import com.nocturne.session.guideCameraDevice
+import com.nocturne.session.alignCameraDevice
+import com.nocturne.session.gainSpecialValue
 import com.nocturne.session.TrainRole
 import com.nocturne.session.TrainSlot
 import com.nocturne.session.coolAtSetPoint
@@ -83,6 +86,7 @@ import com.nocturne.session.trainRolePool
 import com.nocturne.session.keepCount
 import com.nocturne.session.rejectCount
 import com.nocturne.session.medHfr
+import com.nocturne.ui.components.GainField
 import com.nocturne.ui.components.GuideTelemetry
 import com.nocturne.ui.components.HDivider
 import com.nocturne.ui.components.HatchBg
@@ -246,7 +250,10 @@ private fun GuideSheet(state: AppState, landscape: Boolean) {
         if (guide != null) {
             Spacer(Modifier.height(11.2.dp))
             TextC(
-                "${"%.1f".format(guide.guideExposure)}s exposure · g${"%.0f".format(guide.guideGain)} · bin ${guide.guideBinning}",
+                "${"%.1f".format(guide.guideExposure)}s exposure · gain ${
+                    if (state.gainSpecialValue(state.guideCameraDevice)?.let { guide.guideGain <= it + 1e-6 } == true) "--"
+                    else "%.0f".format(guide.guideGain)
+                } · bin ${guide.guideBinning}",
                 style = t.MonoSmall, color = c.neutral500,
             )
         }
@@ -997,9 +1004,7 @@ private fun AlignSettingsSheet(state: AppState, ctrl: SessionController) {
         Spacer(Modifier.height(5.dp))
         DegreeField(a.alignExposure, "s", ctrl::setAlignExposure)
         Spacer(Modifier.height(8.4.dp))
-        FieldLabel("Gain")
-        Spacer(Modifier.height(5.dp))
-        DegreeField(a.alignGain, "", ctrl::setAlignGain)
+        GainField(a.alignGain, state.gainSpecialValue(state.alignCameraDevice), Modifier.fillMaxWidth(), ctrl::setAlignGain)
         Spacer(Modifier.height(16.dp))
         HDivider()
         Spacer(Modifier.height(16.dp))

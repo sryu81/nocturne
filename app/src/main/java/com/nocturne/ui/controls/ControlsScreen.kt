@@ -43,12 +43,15 @@ import com.nocturne.session.coolBarPct
 import com.nocturne.session.coolPowerPct
 import com.nocturne.session.framingFovDeg
 import com.nocturne.session.guideCameraDevice
+import com.nocturne.session.focusCameraDevice
+import com.nocturne.session.gainSpecialValue
 import com.nocturne.session.indiNumber
 import com.nocturne.session.mountParkedReal
 import com.nocturne.session.mountTrackingOn
 import com.nocturne.session.paTotal
 import com.nocturne.session.realFilterNames
 import com.nocturne.session.realSlewRateProp
+import com.nocturne.ui.components.GainField
 import com.nocturne.ui.components.GuideTelemetry
 import com.nocturne.ui.components.BtnStyle
 import com.nocturne.protocol.WireAlignSolution
@@ -129,7 +132,7 @@ fun ControlsScreen(
                                 Row(Modifier.fillMaxWidth()) {
                                     MiniField("EXP", it.captureExposureN, "s", Modifier.weight(1f), ctrl::setCapturePreviewExposure)
                                     Spacer(Modifier.width(8.dp))
-                                    MiniField("GAIN", it.captureGainN, "", Modifier.weight(1f), ctrl::setCapturePreviewGain)
+                                    GainField(it.captureGainN, state.gainSpecialValue(state.primaryTrain.camera), Modifier.weight(1f), ctrl::setCapturePreviewGain)
                                     Spacer(Modifier.width(8.dp))
                                     Column(Modifier.weight(1f)) {
                                         TextC("BIN", style = tt.MonoMicro, color = cc.textMuted)
@@ -212,7 +215,7 @@ fun ControlsScreen(
                                 Row(Modifier.fillMaxWidth()) {
                                     MiniField("EXP", it.guideExposure, "s", Modifier.weight(1f), ctrl::setGuidePreviewExposure)
                                     Spacer(Modifier.width(8.dp))
-                                    MiniField("GAIN", it.guideGain, "", Modifier.weight(1f), ctrl::setGuidePreviewGain)
+                                    GainField(it.guideGain, state.gainSpecialValue(guideCam), Modifier.weight(1f), ctrl::setGuidePreviewGain)
                                     Spacer(Modifier.width(8.dp))
                                     Column(Modifier.weight(1f)) {
                                         TextC("BIN", style = tt.MonoMicro, color = cc.textMuted)
@@ -572,7 +575,7 @@ private fun FocuserCard(state: AppState, ctrl: SessionController) {
             Row(Modifier.fillMaxWidth()) {
                 MiniField("EXP", fs.focusExposure, "s", Modifier.weight(1f), ctrl::setFocusExposure)
                 Spacer(Modifier.width(8.dp))
-                MiniField("GAIN", fs.focusGain, "", Modifier.weight(1f), ctrl::setFocusGain)
+                GainField(fs.focusGain, state.gainSpecialValue(state.focusCameraDevice), Modifier.weight(1f), ctrl::setFocusGain)
                 Spacer(Modifier.width(8.dp))
                 Column(Modifier.weight(1f)) {
                     TextC("BIN", style = t.MonoMicro, color = c.textMuted)

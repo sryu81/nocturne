@@ -417,11 +417,13 @@ class EkosRemoteController(
         is EkosEvent.DeviceProperties -> event.properties.fold(s) { acc, prop ->
             if (shouldThrottleNumberPush(event.device, prop, acc)) acc
             else acc.withProperty(event.device, prop).withConnectionState(event.device, prop).withCcdInfo(event.device, prop)
+                .withGainRange(event.device, prop)
         }.withValidBlockFilters()
         is EkosEvent.DeviceProperty -> if (shouldThrottleNumberPush(event.property.device, event.property, s)) s
         else s.withProperty(event.property.device, event.property)
             .withConnectionState(event.property.device, event.property)
             .withCcdInfo(event.property.device, event.property)
+            .withGainRange(event.property.device, event.property)
             .withValidBlockFilters()
 
         // `state.profiles` is directly overwritten, not additive — get_profiles is always
@@ -2553,6 +2555,22 @@ private fun AppState.withConnectionState(device: String, property: WireProperty)
  * Framing card — see that field's doc for why this reads all three elements directly instead of
  * going through the generic (lossy, single-element) [withProperty]/[indiProps] path.
  */
+/** See [AppState.wireGainRangeByDevice]. */
+private fun AppState.withGainRange(device: String, property: WireProperty): AppState {
+    if (property !is WireProperty.Number) return this
+    val el = when (property.name) {
+        "CCD_GAIN" -> property.numbers.firstOrNull()
+        "CCD_CONTROLS" -> property.numbers.firstOrNull {
+            it.name.equals("gain", ignoreCase = true) || it.label.equals("gain", ignoreCase = true)
+        }
+        else -> null
+    } ?: return this
+    // Value-only pushes (live updates) carry no range — keep what device_get gave us.
+    val min = el.min ?: return this
+    val range = GainRange(min, el.max ?: min, el.step?.takeIf { it > 0 } ?: 1.0)
+    return if (wireGainRangeByDevice[device] == range) this else copy(wireGainRangeByDevice = wireGainRangeByDevice + (device to range))
+}
+
 private fun AppState.withCcdInfo(device: String, property: WireProperty): AppState {
     if (property !is WireProperty.Number || property.name != "CCD_INFO") return this
     val maxX = property.numbers.firstOrNull { it.name == "CCD_MAX_X" }?.value?.roundToInt() ?: return this

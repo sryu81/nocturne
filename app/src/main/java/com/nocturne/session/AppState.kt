@@ -339,6 +339,10 @@ data class AppState(
      * until each connected camera's own `device_get` reply arrives.
      */
     val wireCcdInfoByDevice: Map<String, CcdInfo> = emptyMap(),
+    /** Each camera's real gain range — `CCD_GAIN`, or the "gain" element of `CCD_CONTROLS`, same
+     *  lookup as Ekos's `Camera::getGainMinMaxStep`. Read directly for the same multi-element
+     *  reason as [wireCcdInfoByDevice]. See [gainSpecialValue]. */
+    val wireGainRangeByDevice: Map<String, GainRange> = emptyMap(),
     /** `train_get_all` translated (M3) — read by `OpticalTrainCard` when present instead of [trainRolePool]. */
     val wireTrains: List<WireTrain>? = null,
     /**
@@ -540,6 +544,9 @@ data class LiveDevice(val name: String, val connected: Boolean, val roles: Set<D
 
 /** A real camera's `CCD_INFO` vector — see [AppState.wireCcdInfoByDevice]. */
 data class CcdInfo(val maxX: Int, val maxY: Int, val pixelUm: Double)
+
+/** A real camera's gain range — see [AppState.wireGainRangeByDevice]. */
+data class GainRange(val min: Double, val max: Double, val step: Double)
 
 // ── Catalog data (prototype script constants) ──────────────────────────────
 
@@ -1738,6 +1745,22 @@ val AppState.focRange: IntRange? get() {
  */
 val AppState.guideCameraDevice: String?
     get() = wireTrains?.firstOrNull { it.name == moduleTrainAssignments?.get("guide") }?.camera?.takeIf { it.isNotBlank() }
+
+val AppState.alignCameraDevice: String?
+    get() = wireTrains?.firstOrNull { it.name == moduleTrainAssignments?.get("align") }?.camera?.takeIf { it.isNotBlank() }
+
+val AppState.focusCameraDevice: String?
+    get() = wireTrains?.firstOrNull { it.name == moduleTrainAssignments?.get("focus") }?.camera?.takeIf { it.isNotBlank() }
+
+/**
+ * Ekos's "--" gain for [device]: Capture/Guide/Focus all set their gain spinbox range to
+ * `min - step` and show that value as "--", meaning "send no gain, leave the driver's own"
+ * (`camera_device.cpp`, `guide.cpp`, `focus.cpp` "Gain Check"). `*_get_all_settings` reports the
+ * raw number (e.g. 99 for a ToupTek G3M178 whose gain min is 100, -10 for the CCD Simulator), so
+ * any module gain at or below this is "--", not a real gain. Null until the camera's range is known.
+ */
+fun AppState.gainSpecialValue(device: String?): Double? =
+    device?.let { wireGainRangeByDevice[it] }?.let { it.min - it.step }
 
 /**
  * Real live exposure countdown/busy state for a Snap preview shot (M3.4 — Controls tab's Primary
