@@ -85,6 +85,8 @@ class Guard:
         if name == "OnStep Status":
             return values.get("Error", "")
         on = [k for k, v in values.items() if v == "On"]
+        if not on and set(values.values()) <= {"Off"}:
+            return "none"  # a switch with nothing selected (e.g. pier side at home)
         if on:
             labels = {PROP: {"1": "West", "2": "East", "3": "Best"},
                       "AutoFlip": {"1": "OFF", "2": "ON"}}.get(name, {})
