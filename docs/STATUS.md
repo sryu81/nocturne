@@ -65,6 +65,12 @@ inevitably-drifting tracker — check `README.md` itself for what's current, thi
       Pi) sets East whenever any device reports otherwise; the app does the same while connected and
       raises a Mount alert. East in both hemispheres (OnStep picks the side by hour angle). Verified
       live: guard Best→East on install; app on connect and on a live change.
+- [x] Main-camera image size on Controls (2026-10-24): `IMAGE W × H · full sensor` (or an orange
+      `CROP of …` warning) from Ekos's capture frame (`captureFrame*N`, in every capture settings push)
+      vs `CCD_INFO`, plus the last frame's real size; "Set full frame" writes the frame through
+      `capture_set_all_settings`, which also saves it with the optical train. Found because a new
+      train (id 17) inherited the CCD Simulator's 1280×1024 and Ekos's own Reset doesn't persist, so
+      the crop came back on the next train refresh. Live: fixed, full-res capture confirmed by user.
 - [x] Profile wizard shows every installed INDI driver (2026-10-24): stock `get_drivers` (KStars'
       DriverManager catalog, answered with Ekos stopped) sent on connect; pickers get a search box,
       "Used before" (profiles' saved drivers + connected devices) and "All installed drivers" grouped

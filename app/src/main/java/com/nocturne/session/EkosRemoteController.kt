@@ -1753,6 +1753,22 @@ class EkosRemoteController(
         client.sendCommand(Commands.CAPTURE_SET_ALL_SETTINGS, buildJsonObject { put(field, value) })
     }
 
+    override fun setCaptureFullFrame() {
+        val size = _state.value.primaryImageSize() ?: return
+        val w = size.sensorW ?: return
+        val h = size.sensorH ?: return
+        client.sendCommand(Commands.CAPTURE_SET_ALL_SETTINGS, buildJsonObject {
+            put("captureFrameXN", 0); put("captureFrameYN", 0)
+            put("captureFrameWN", w); put("captureFrameHN", h)
+        })
+        // optimistic; Ekos pushes its full settings back (settingsUpdated) right after
+        _state.update { s ->
+            s.copy(wireCaptureSettings = s.wireCaptureSettings?.copy(
+                captureFrameXN = 0, captureFrameYN = 0, captureFrameWN = w, captureFrameHN = h,
+            ))
+        }
+    }
+
     override fun setCameraSaveDir(path: String) {
         sendCaptureSetting("fileDirectoryT", JsonPrimitive(path))
         super.setCameraSaveDir(path)

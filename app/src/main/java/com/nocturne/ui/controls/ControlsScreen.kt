@@ -35,6 +35,7 @@ import com.nocturne.session.FILTER_CYCLE
 import com.nocturne.session.SessionController
 import com.nocturne.session.SheetType
 import com.nocturne.session.AppState
+import com.nocturne.session.primaryImageSize
 import com.nocturne.session.benchFocPos
 import com.nocturne.session.captureProgress
 import com.nocturne.session.coolAtSetPoint
@@ -152,6 +153,7 @@ fun ControlsScreen(
                                         FilterCycleChip(it.FilterPosCombo, filterNames, modifier = Modifier.fillMaxWidth()) { ctrl.setCameraFilter(it) }
                                     }
                                 }
+                                ImageSizeLine(state, ctrl::setCaptureFullFrame)
                             }
                         },
                         // M5 (docs/STATUS.md) — real camera FOV reticle, rotated to the real
@@ -512,6 +514,41 @@ private fun FilterCycleChip(value: String, names: List<String>, modifier: Modifi
  * when no real camera is connected (including under `SimulatedController`, which never
  * populates `wireDevices`/`wireCaptureSettings`).
  */
+/**
+ * The main camera's real output size under the preview controls: Ekos's capture frame (what it
+ * applies to CCD_FRAME before each exposure) against the full sensor, plus the last captured
+ * frame's own size. A crop shows in the warning colour — a new optical train once silently
+ * inherited the CCD Simulator's 1280×1024 frame (2026-10-24); Ekos's Capture "Reset" fixes it.
+ */
+@Composable
+private fun ImageSizeLine(state: AppState, onFullFrame: () -> Unit) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    val size = state.primaryImageSize() ?: return
+    val last = state.latestCaptureFrame?.header?.resolution?.replace("x", "×")
+    val binned = if (size.binH > 1 || size.binV > 1) " · bin ${size.binH}×${size.binV} → ${size.outW} × ${size.outH} px" else ""
+    val text = if (size.cropped) {
+        "IMAGE ${size.frameW} × ${size.frameH} · CROP of ${size.sensorW} × ${size.sensorH} at x ${size.x}, y ${size.y}$binned"
+    } else {
+        "IMAGE ${size.frameW} × ${size.frameH}" + (if (size.sensorW != null) " · full sensor" else "") + binned
+    }
+    Spacer(Modifier.height(6.dp))
+    TextC(
+        text + (last?.let { " · last frame $it" } ?: ""),
+        style = t.MonoMicro,
+        color = if (size.cropped) c.warn else c.textMuted,
+    )
+    if (size.cropped) {
+        Spacer(Modifier.height(6.dp))
+        NocturneButton(
+            text = "Set full frame (${size.sensorW} × ${size.sensorH})",
+            onClick = onFullFrame,
+            style = com.nocturne.ui.components.BtnStyle.OUTLINE,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
 @Composable
 private fun CoolerCard(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors

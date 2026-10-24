@@ -215,6 +215,11 @@ interface SessionController {
 
     fun cancelSkyAtlasCopy()
 
+    /** Sets Ekos's capture frame to the main camera's whole sensor and saves it with the optical
+     *  train (`capture_set_all_settings` persists; Ekos's own Reset button doesn't, so a train
+     *  refresh brought the old crop back). See [AppState.primaryImageSize]. */
+    fun setCaptureFullFrame()
+
     /** Deletes the phone's copy of the sky atlas. */
     fun clearSkyAtlas()
 

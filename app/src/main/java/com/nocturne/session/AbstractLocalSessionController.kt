@@ -295,6 +295,7 @@ abstract class AbstractLocalSessionController : SessionController {
         s.copy(skyAtlas = s.skyAtlas.copy(error = "No real rig connected — nothing to copy from"))
     }
     override open fun cancelSkyAtlasCopy() {}
+    override open fun setCaptureFullFrame() {}
     override open fun clearSkyAtlas() {}
 
     override open fun syncTimeToRig() = update { s ->

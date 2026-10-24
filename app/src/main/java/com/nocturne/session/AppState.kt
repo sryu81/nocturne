@@ -579,6 +579,31 @@ data class AppState(
 /** One `get_devices` entry, decoded to the roles its `interface` bitmask ORs together. */
 data class LiveDevice(val name: String, val connected: Boolean, val roles: Set<DeviceRole>)
 
+/**
+ * What the main camera will actually capture: Ekos's capture frame and binning against the
+ * sensor's full size ([CcdInfo]). [cropped] is true when the frame is smaller than the sensor.
+ */
+data class PrimaryImageSize(
+    val frameW: Int, val frameH: Int, val x: Int, val y: Int,
+    val binH: Int, val binV: Int,
+    val sensorW: Int?, val sensorH: Int?,
+) {
+    val outW get() = frameW / binH.coerceAtLeast(1)
+    val outH get() = frameH / binV.coerceAtLeast(1)
+    val cropped get() = sensorW != null && sensorH != null && (frameW < sensorW || frameH < sensorH)
+}
+
+fun AppState.primaryImageSize(): PrimaryImageSize? {
+    val cs = wireCaptureSettings ?: return null
+    val w = cs.captureFrameWN?.takeIf { it > 0 } ?: return null
+    val h = cs.captureFrameHN?.takeIf { it > 0 } ?: return null
+    val sensor = wireCcdInfoByDevice[primaryTrain.camera]
+    return PrimaryImageSize(
+        w, h, cs.captureFrameXN ?: 0, cs.captureFrameYN ?: 0, cs.captureBinHN, cs.captureBinVN,
+        sensor?.maxX?.takeIf { it > 0 }, sensor?.maxY?.takeIf { it > 0 },
+    )
+}
+
 /** A real camera's `CCD_INFO` vector — see [AppState.wireCcdInfoByDevice]. */
 data class CcdInfo(val maxX: Int, val maxY: Int, val pixelUm: Double)
 

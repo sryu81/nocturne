@@ -1016,6 +1016,13 @@ data class WireCaptureSettings(
     val captureGainN: Double = 99.0,
     val captureBinHN: Int = 1,
     val captureBinVN: Int = 1,
+    /** Ekos's capture frame (subframe) in unbinned sensor pixels, applied to the camera's
+     *  CCD_FRAME before every exposure. Null when absent. A new optical train once inherited the
+     *  CCD Simulator's 1280×1024 here and silently cropped the ATR2600M (2026-10-24). */
+    val captureFrameXN: Int? = null,
+    val captureFrameYN: Int? = null,
+    val captureFrameWN: Int? = null,
+    val captureFrameHN: Int? = null,
     val cameraTemperatureN: Double = -10.0,
     /** Capture's "enforce temperature" checkbox: when on, every capture (previews included) waits
      *  in "Setting Temperature" until the sensor is within MaxTemperatureDiff of
