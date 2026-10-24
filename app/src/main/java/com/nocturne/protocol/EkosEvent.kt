@@ -981,6 +981,10 @@ data class WireCaptureSettings(
     val captureBinHN: Int = 1,
     val captureBinVN: Int = 1,
     val cameraTemperatureN: Double = -10.0,
+    /** Capture's "enforce temperature" checkbox: when on, every capture (previews included) waits
+     *  in "Setting Temperature" until the sensor is within MaxTemperatureDiff of
+     *  [cameraTemperatureN] — a set point the cooler can't reach holds previews indefinitely. */
+    val cameraTemperatureS: Boolean = false,
     /**
      * Real "Refocus every:" trigger (2026-08-23) — confirmed against real KStars source
      * (`limits.ui`: `enforceRefocusEveryN` checkbox + `refocusEveryN` spinbox,

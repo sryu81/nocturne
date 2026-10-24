@@ -60,6 +60,8 @@ object Commands {
 
     // M3.2 — Bench check (Capture preview/Focus jog/Mount motion — EkosRemote-Command-Reference.md §5/6/8/9).
     const val CAPTURE_PREVIEW = "capture_preview"
+    /** Cancels a preview still waiting in preparation (e.g. "Setting Temperature"). */
+    const val CAPTURE_STOP = "capture_stop"
     const val GUIDE_CAPTURE = "guide_capture"
     const val FOCUS_IN = "focus_in"
     const val FOCUS_OUT = "focus_out"
@@ -69,6 +71,7 @@ object Commands {
     const val MOUNT_PARK = "mount_park"
     const val MOUNT_SET_TRACKING = "mount_set_tracking"
     const val MOUNT_GOTO_TARGET = "mount_goto_target"
+    const val MOUNT_ABORT = "mount_abort"
     const val ALIGN_SOLVE = "align_solve"
     // M5 — rotator angle-readback + auto-drive (docs/STATUS.md M5 steps 4/5). Real
     // align_manual_rotator_toggle also exists but is deliberately unused here — confirmed it

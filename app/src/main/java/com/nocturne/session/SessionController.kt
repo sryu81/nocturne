@@ -113,11 +113,20 @@ interface SessionController {
     fun setRate(index: Int)
     fun setSlewDir(key: String)
     fun stopSlew()
-    /** Real camera cooler setpoint, typed directly (2026-09, replaced the old +/-1° buttons per
-     *  user request — "put the value directly"). See [com.nocturne.session.EkosRemoteController]'s
-     *  override doc for the 2 real things this writes (raw `CCD_TEMPERATURE` device property +
-     *  Capture module's own `cameraTemperatureN`/`S`). */
+    /** Edits the cooler set point locally; nothing is sent until [applyCoolTarget] (the Set
+     *  button) — typing used to push every keystroke (e.g. "2" then "20"). */
     fun setCoolTarget(value: Double)
+    /** Set button: sends [AppState.coolTarget] to the camera (`CCD_TEMPERATURE`) and Capture's
+     *  `cameraTemperatureN`, like Ekos's own Set button. Doesn't touch enforce. */
+    fun applyCoolTarget()
+    /** Capture's "enforce temperature" (`cameraTemperatureS`). */
+    fun setTemperatureEnforced(enabled: Boolean)
+    /** `CCD_COOLER` on/off on the primary camera. */
+    fun setCoolerEnabled(enabled: Boolean)
+    /** Camera fan switch element (ToupTek `TC_FAN_SPEED`: `INDI_DISABLED`/`INDI_ENABLED`/`FAN_SPEEDn`). */
+    fun setCameraFan(element: String)
+    /** `capture_stop` — cancels a preview stuck in preparation (see [Commands.CAPTURE_STOP]). */
+    fun cancelPendingCapture()
     fun runAutofocusNow()
     fun startAutofocus()
     fun stopAutofocus()

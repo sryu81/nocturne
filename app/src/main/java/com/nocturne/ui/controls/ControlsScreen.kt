@@ -43,6 +43,8 @@ import com.nocturne.session.coolBarPct
 import com.nocturne.session.coolPowerPct
 import com.nocturne.session.framingFovDeg
 import com.nocturne.session.guideCameraDevice
+import com.nocturne.session.indiSwitchElements
+import com.nocturne.session.indiSwitchElement
 import com.nocturne.session.focusCameraDevice
 import com.nocturne.session.gainSpecialValue
 import com.nocturne.session.indiNumber
@@ -117,6 +119,8 @@ fun ControlsScreen(
                         onSnap = ctrl::snapMain,
                         progress = progress,
                         onStop = { ctrl.setIndiSwitch(state.primaryTrain.camera, "CCD_ABORT_EXPOSURE", 0) },
+                        pendingNote = if (real) capturePendingNote(state) else null,
+                        onCancelPending = ctrl::cancelPendingCapture,
                         // Real capture frame (M4.2) — a focus run's own frames land in
                         // latestFocusFrame instead, shown here too since they're the same physical
                         // camera and there's only one preview box on this card.
@@ -262,6 +266,25 @@ private fun SectionHeader(text: String, sub: Boolean = false) {
  * capture/guide status push, not a fabricated readout. `SimulatedController` keeps the canned
  * fixture text, unchanged.
  */
+/**
+ * Capture states in which a requested capture is held before exposing (`ekos.h` captureStates).
+ * "Setting Temperature" is the common one: with enforce temperature on, a preview waits until the
+ * sensor reaches the set point — indefinitely if the cooler can't get there (2026-10-23).
+ */
+private fun capturePendingNote(state: AppState): String? {
+    val status = state.wireCaptureStatus ?: return null
+    return when (status) {
+        "Setting Temperature" -> {
+            val now = state.indiNumber(state.primaryTrain.camera, "CCD_TEMPERATURE")
+            val target = state.wireCaptureSettings?.cameraTemperatureN ?: state.coolTarget
+            "waiting for temperature " + (now?.let { "%.1f".format(it) } ?: "?") +
+                " → %.1f °C before exposing (enforce temperature is on)".format(target)
+        }
+        "Setting Rotator", "Waiting", "Paused", "Meridian Flip" -> "capture held: $status — will start by itself when it clears"
+        else -> null
+    }
+}
+
 private fun benchSnapLabel(real: Boolean, snapped: Boolean, status: String?, fixtureText: String): String = when {
     !real -> if (snapped) fixtureText else "no test frame yet"
     status != null -> "status: $status"
@@ -295,6 +318,10 @@ private fun SnapPanel(
     /** M5 (docs/STATUS.md) — optional extra content drawn over the preview image, e.g.
      * [FovOverlayBox]. Only the Primary Camera call site passes one; Guide's stays null. */
     overlay: (@Composable BoxScope.() -> Unit)? = null,
+    /** Non-null while a capture was requested but hasn't started exposing yet (e.g. waiting for
+     *  temperature) — shown with [onCancelPending] so a late exposure is never a surprise. */
+    pendingNote: String? = null,
+    onCancelPending: (() -> Unit)? = null,
 ) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
@@ -338,8 +365,23 @@ private fun SnapPanel(
             Spacer(Modifier.height(8.dp))
             previewControls()
         }
+        if (pendingNote != null && !busy) {
+            TextC(pendingNote, style = t.MonoSmall, color = c.warn, modifier = Modifier.padding(top = 2.dp))
+        }
         Spacer(Modifier.height(8.dp))
-        if (busy && onStop != null) {
+        if (pendingNote != null && !busy && onCancelPending != null) {
+            Row(Modifier.fillMaxWidth()) {
+                NocturneButton(
+                    text = snapLabel, onClick = onSnap, style = BtnStyle.OUTLINE, enabled = false,
+                    modifier = Modifier.weight(1f).height(34.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                NocturneButton(
+                    text = "Cancel", onClick = onCancelPending, style = BtnStyle.DANGER,
+                    modifier = Modifier.weight(1f).height(34.dp),
+                )
+            }
+        } else if (busy && onStop != null) {
             Row(Modifier.fillMaxWidth()) {
                 NocturneButton(
                     text = snapLabel, onClick = onSnap, style = BtnStyle.OUTLINE, enabled = false,
@@ -480,6 +522,12 @@ private fun CoolerCard(state: AppState, ctrl: SessionController) {
     val sensorNow = liveTemp ?: state.coolNow
     val powerPct = livePowerPct?.roundToInt() ?: state.coolPowerPct
     val atSet = if (liveTemp != null) abs(liveTemp - state.coolTarget) < 0.5 else state.coolAtSetPoint
+    // Real CCD_COOLER / fan switches (2026-10-23, user request: cooler + fan on/off, enforce and
+    // Set temperature together here, like Ekos's Capture tab). Null = property not seen yet.
+    val coolerOn = if (cameraConnected) state.indiSwitchElement(camera, "CCD_COOLER")?.let { it == "COOLER_ON" } else null
+    val fanElements = if (cameraConnected) state.indiSwitchElements(camera, CAMERA_FAN_PROP) else emptyList()
+    val fanNow = if (cameraConnected) state.indiSwitchElement(camera, CAMERA_FAN_PROP) else null
+    val enforce = state.wireCaptureSettings?.cameraTemperatureS
     Column(
         Modifier
             .fillMaxWidth()
@@ -490,20 +538,59 @@ private fun CoolerCard(state: AppState, ctrl: SessionController) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextC("COOLER", style = t.MicroLabel, color = c.textMuted, modifier = Modifier.weight(1f))
             TextC(
-                (if (atSet) "at set point" else "ramping") + " · $powerPct%",
-                style = t.Mono115, color = if (atSet) c.ok else c.warn,
+                when {
+                    coolerOn == false -> "cooler off"
+                    atSet -> "at set point · $powerPct%"
+                    else -> "ramping · $powerPct%"
+                },
+                style = t.Mono115, color = if (coolerOn == false) c.textMuted else if (atSet) c.ok else c.warn,
             )
         }
         Spacer(Modifier.height(9.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(verticalAlignment = Alignment.Bottom) {
             Column(Modifier.weight(1f)) {
                 TextC(String.format("%.1f", sensorNow) + " °C", style = t.Mono26, color = c.text)
                 TextC(if (liveTemp != null) "sensor now (live)" else "sensor now", style = t.MonoMicro, color = c.textMuted)
             }
             Spacer(Modifier.width(8.dp))
             MiniField("SET POINT", state.coolTarget, "°C", Modifier.width(96.dp), ctrl::setCoolTarget)
+            Spacer(Modifier.width(6.dp))
+            NocturneButton(
+                text = "Set", onClick = ctrl::applyCoolTarget, style = BtnStyle.SUBTLE,
+                enabled = cameraConnected, modifier = Modifier.width(64.dp).height(40.dp),
+            )
         }
         Spacer(Modifier.height(9.dp))
+        Row(Modifier.fillMaxWidth()) {
+            NocturneButton(
+                text = "Cooler " + when (coolerOn) { true -> "ON"; false -> "OFF"; null -> "—" },
+                onClick = { ctrl.setCoolerEnabled(coolerOn != true) },
+                style = if (coolerOn == true) BtnStyle.SOLID else BtnStyle.SUBTLE,
+                enabled = cameraConnected,
+                modifier = Modifier.weight(1f).height(36.dp),
+            )
+            if (fanElements.isNotEmpty()) {
+                Spacer(Modifier.width(8.dp))
+                NocturneButton(
+                    text = "Fan " + fanLabel(fanNow),
+                    // Cycles OFF → ON (→ speed 2 → … on multi-speed models) → OFF.
+                    onClick = {
+                        val i = fanElements.indexOf(fanNow)
+                        ctrl.setCameraFan(fanElements[(i + 1).mod(fanElements.size)])
+                    },
+                    style = if (fanNow != null && fanNow != "INDI_DISABLED") BtnStyle.SOLID else BtnStyle.SUBTLE,
+                    modifier = Modifier.weight(1f).height(36.dp),
+                )
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        SwitchRow(
+            label = "Enforce temperature",
+            sub = "captures and previews wait until the sensor reaches the set point",
+            checked = enforce == true,
+            onToggle = { ctrl.setTemperatureEnforced(enforce != true) },
+        )
+        Spacer(Modifier.height(6.dp))
         Box(
             Modifier
                 .fillMaxWidth()
@@ -520,6 +607,16 @@ private fun CoolerCard(state: AppState, ctrl: SessionController) {
     }
 }
 
+/** ToupTek-family fan switch (indi_toupbase `TC_FAN_SPEED`). */
+private const val CAMERA_FAN_PROP = "TC_FAN_SPEED"
+
+private fun fanLabel(element: String?): String = when {
+    element == null -> "—"
+    element == "INDI_DISABLED" -> "OFF"
+    element == "INDI_ENABLED" -> "ON"
+    element.startsWith("FAN_SPEED") -> "speed " + element.removePrefix("FAN_SPEED")
+    else -> element
+}
 
 /**
  * Focus In/Out (plain, no amount — see [SessionController.focusStepIn]'s doc for why the old

@@ -49,6 +49,16 @@ inevitably-drifting tracker — check `README.md` itself for what's current, thi
       (dither settle/timeout/iterations/fail-aborts, dark frame/subframe/auto star/lost-star timeout,
       calibration pulse/max move/two-axis/backlash/reset-after-slew/reverse DEC on pier change).
       NOT live-verified (Pi unreachable that day).
+- [x] Goto/capture fixes (2026-10-23, from a "capture fired by itself" investigation): a goto issued
+      while the mount is slewing (or <5 s after the last one) first sends `mount_abort` and waits for
+      it to stop — OnStep otherwise rejects it ("Goto in progress") and aborts both; new goto cancels
+      an in-flight goto-and-center (restoring Align's solver action). Primary preview shows "waiting
+      for temperature X → Y °C" / "capture held: …" + Cancel (`capture_stop`) while Capture holds it.
+      Cooler card: Cooler ON/OFF (`CCD_COOLER`), Fan (ToupTek `TC_FAN_SPEED`), Enforce temperature
+      (`cameraTemperatureS`), Set button (set point no longer pushed per keystroke and no longer
+      forces enforce on). All live-verified on the rig. Root cause of the stray capture: a preview
+      held in "Setting Temperature" (cooler off, enforce on) fired when the hold cleared; also Ekos
+      plans a bogus meridian flip on every goto from home (fork-side, not fixed).
 - [x] Preferred Pier Side guard (2026-10-23): OnStep keeps it in RAM only (`:SX96` never hits NV,
       power-on = compile-time `PIER_SIDE_PREFERRED_DEFAULT`, stock BEST) so every mount power cycle
       undid the 10-18 flip fix. `pi-tools/pier-guard` (systemd INDI client, installed + enabled on the

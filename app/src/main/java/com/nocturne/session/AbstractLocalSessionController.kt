@@ -720,7 +720,14 @@ abstract class AbstractLocalSessionController : SessionController {
 
     override fun stopSlew() = update { it.copy(slewDir = null) }
 
-    override open fun setCoolTarget(value: Double) = update { it.copy(coolTarget = value.coerceIn(-25.0, 20.0)) }
+    override open fun setCoolTarget(value: Double) = update { it.copy(coolTarget = value.coerceIn(-50.0, 40.0)) }
+    override open fun applyCoolTarget() {}
+    override open fun setTemperatureEnforced(enabled: Boolean) = update { s ->
+        s.copy(wireCaptureSettings = s.wireCaptureSettings?.copy(cameraTemperatureS = enabled))
+    }
+    override open fun setCoolerEnabled(enabled: Boolean) {}
+    override open fun setCameraFan(element: String) {}
+    override open fun cancelPendingCapture() {}
 
     // focusLastAfAt/focusTempAtLastAf are real bookkeeping (feed focusNextAfMin's real countdown
     // and TEMP Δ) kept optimistically here pending EkosRemoteController's real FOCUS_START send

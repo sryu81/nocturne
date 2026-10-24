@@ -29,6 +29,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonElement
@@ -873,16 +876,7 @@ class EkosRemoteController(
         // Live pushes are compact (no labels) — map OnStep's element names ourselves.
         val was = property.switches.firstOrNull { it.state == 1 }
             ?.let { mapOf("1" to "West", "3" to "Best")[it.name] ?: it.label ?: it.name } ?: "unset"
-        _state.update { s ->
-            val alert = Alert(
-                uuid = "pier-side-$device-$now",
-                message = "$device preferred pier side was $was — set to East (needed for meridian flip)",
-                time = s.formatSiteTime(java.time.Instant.now()),
-                source = 5, // Mount
-                severity = 2, // Warn
-            )
-            s.copy(wireNotifications = (listOf(alert) + s.wireNotifications).take(MAX_NOTIFICATIONS))
-        }
+        pushLocalAlert("$device preferred pier side was $was — set to East (needed for meridian flip)", source = 5, severity = 2)
     }
 
     /** See [sendFollowUpCommands]'s doc — a device that arrived not-yet-connected only gets a
@@ -1010,21 +1004,39 @@ class EkosRemoteController(
      * the "enforce/use this" checkbox — set true unconditionally here since actively dialing a
      * target via Nocturne's cooler card only makes sense with it enabled.
      */
-    override fun setCoolTarget(value: Double) {
-        super.setCoolTarget(value)
-        pushCoolerSetpoint()
-    }
-
-    private fun pushCoolerSetpoint() {
+    override fun applyCoolTarget() {
         val target = _state.value.coolTarget
-        client.sendCommand(Commands.CAPTURE_SET_ALL_SETTINGS, buildJsonObject {
-            put("cameraTemperatureN", target)
-            put("cameraTemperatureS", true)
-        })
+        client.sendCommand(Commands.CAPTURE_SET_ALL_SETTINGS, buildJsonObject { put("cameraTemperatureN", target) })
         val camera = _state.value.primaryTrain.camera
         if (_state.value.wireDevices?.any { it.name == camera && it.connected } == true) {
             setIndiNumber(camera, "CCD_TEMPERATURE", target)
         }
+    }
+
+    override fun setTemperatureEnforced(enabled: Boolean) {
+        client.sendCommand(Commands.CAPTURE_SET_ALL_SETTINGS, buildJsonObject { put("cameraTemperatureS", enabled) })
+        super.setTemperatureEnforced(enabled)
+    }
+
+    override fun setCoolerEnabled(enabled: Boolean) =
+        sendSwitchElement(_state.value.primaryTrain.camera, "CCD_COOLER", if (enabled) "COOLER_ON" else "COOLER_OFF")
+
+    override fun setCameraFan(element: String) =
+        sendSwitchElement(_state.value.primaryTrain.camera, CAMERA_FAN_PROP, element)
+
+    override fun cancelPendingCapture() {
+        client.sendCommand(Commands.CAPTURE_STOP)
+    }
+
+    /** Direct element write — `CCD_COOLER` is write-only on ToupTek, so it may never land in
+     *  [AppState.indiProps] for [setIndiSwitch]'s index lookup. */
+    private fun sendSwitchElement(device: String, property: String, element: String) {
+        if (device.isBlank()) return
+        client.sendCommand(Commands.DEVICE_PROPERTY_SET, buildJsonObject {
+            put("device", device)
+            put("property", property)
+            putJsonArray("elements") { addJsonObject { put("name", element); put("state", 1) } }
+        })
     }
 
     override fun focusStepIn() {
@@ -1210,8 +1222,48 @@ class EkosRemoteController(
      */
     override fun gotoTarget(targetId: String) {
         val target = _state.value.findTarget(targetId) ?: return
-        client.sendCommand(Commands.MOUNT_GOTO_TARGET, buildJsonObject { put("target", target.realLookupName) })
+        gotoJob?.cancel()
+        gotoJob = scope.launch {
+            abortSlewIfMoving(target.realLookupName)
+            client.sendCommand(Commands.MOUNT_GOTO_TARGET, buildJsonObject { put("target", target.realLookupName) })
+        }
         super.gotoTarget(targetId)
+    }
+
+    // The goto (or goto-and-center sequence) in flight — a new goto cancels it.
+    private var gotoJob: Job? = null
+    private var lastGotoSentAt = 0L
+
+    /**
+     * OnStep refuses a goto while another slew is running ("Goto in progress") and aborts the
+     * first one too, leaving the mount stopped between targets (live-verified 2026-10-23). So a
+     * goto issued mid-slew first aborts the slew, waits (≤10 s) for the mount to stop, then goes.
+     */
+    private suspend fun abortSlewIfMoving(nextTarget: String) {
+        // The status push lags the command by a moment, so a goto sent in the last few seconds
+        // counts as moving too (aborting an already-idle mount is harmless).
+        val recentGoto = System.currentTimeMillis() - lastGotoSentAt < RECENT_GOTO_MS
+        lastGotoSentAt = System.currentTimeMillis()
+        if (_state.value.wireMountStatus !in MOUNT_MOVING_STATES && !recentGoto) return
+        client.sendCommand(Commands.MOUNT_ABORT)
+        pushLocalAlert("Mount was still slewing — stopped it before going to $nextTarget", source = 5, severity = 1)
+        delay(1_500) // let the abort land and the status push catch up before trusting "Idle"
+        withTimeoutOrNull(10_000) { _state.first { it.wireMountStatus !in MOUNT_MOVING_STATES } }
+        delay(500)
+    }
+
+    private fun pushLocalAlert(message: String, source: Int, severity: Int) {
+        val now = System.currentTimeMillis()
+        _state.update { s ->
+            val alert = Alert(
+                uuid = "local-$now-${message.hashCode()}",
+                message = message,
+                time = s.formatSiteTime(java.time.Instant.now()),
+                source = source,
+                severity = severity,
+            )
+            s.copy(wireNotifications = (listOf(alert) + s.wireNotifications).take(MAX_NOTIFICATIONS))
+        }
     }
 
     /**
@@ -1234,20 +1286,26 @@ class EkosRemoteController(
     override fun gotoAndCenter(targetId: String) {
         val target = _state.value.findTarget(targetId) ?: return
         val original = _state.value.wireAlignSettings
-        client.sendCommand(Commands.MOUNT_GOTO_TARGET, buildJsonObject { put("target", target.realLookupName) })
-        scope.launch {
+        gotoJob?.cancel()
+        gotoJob = scope.launch {
+            abortSlewIfMoving(target.realLookupName)
+            client.sendCommand(Commands.MOUNT_GOTO_TARGET, buildJsonObject { put("target", target.realLookupName) })
             delay(8_000) // heuristic slew-settle wait — see this function's own doc
             client.sendCommand(Commands.ALIGN_SET_ALL_SETTINGS, buildJsonObject {
                 put("nothingR", false); put("slewR", true); put("syncR", false)
             })
-            delay(500)
-            client.sendCommand(Commands.ALIGN_SOLVE)
-            delay(15_000) // heuristic solve+reslew-settle wait
-            client.sendCommand(Commands.ALIGN_SET_ALL_SETTINGS, buildJsonObject {
-                put("nothingR", original?.nothingR ?: true)
-                put("slewR", original?.slewR ?: false)
-                put("syncR", original?.syncR ?: false)
-            })
+            try {
+                delay(500)
+                client.sendCommand(Commands.ALIGN_SOLVE)
+                delay(15_000) // heuristic solve+reslew-settle wait
+            } finally {
+                // Also on cancel (a newer goto replaced this one): never leave slewR switched on.
+                client.sendCommand(Commands.ALIGN_SET_ALL_SETTINGS, buildJsonObject {
+                    put("nothingR", original?.nothingR ?: true)
+                    put("slewR", original?.slewR ?: false)
+                    put("syncR", original?.syncR ?: false)
+                })
+            }
         }
         super.gotoAndCenter(targetId)
     }
@@ -1514,7 +1572,7 @@ class EkosRemoteController(
      * present in the map — confirmed against `Mount::setAllSettings` in the real source, so
      * this can't clobber the other 16 real fields Nocturne doesn't model) and applies the same
      * local update the simulator would via `super` — fire-and-forget, **no** immediate
-     * `mount_get_all_settings` re-fetch, matching [pushCoolerSetpoint]'s own precedent.
+     * `mount_get_all_settings` re-fetch, matching [applyCoolTarget]'s own precedent.
      *
      * Confirmed live this *needs* to be fire-and-forget, not optimistic-then-reconcile like
      * [setModuleTrain]: sending the get immediately after the set raced on the app's real
@@ -2599,6 +2657,10 @@ private fun AppState.withConnectionState(device: String, property: WireProperty)
  * going through the generic (lossy, single-element) [withProperty]/[indiProps] path.
  */
 /** See [AppState.wireGainRangeByDevice]. */
+private const val CAMERA_FAN_PROP = "TC_FAN_SPEED" // ToupTek-family drivers (indi_toupbase)
+/** `new_mount_state.status` values while the mount is moving (ISD::Mount status text). */
+private val MOUNT_MOVING_STATES = setOf("Slewing", "Moving", "Parking")
+private const val RECENT_GOTO_MS = 5_000L
 private const val PREFERRED_PIER_SIDE = "Preferred Pier Side"
 private const val PIER_SIDE_EAST = "2" // lx200_OnStep.cpp: "1" West, "2" East, "3" Best
 private const val PIER_SIDE_RESEND_MS = 10_000L

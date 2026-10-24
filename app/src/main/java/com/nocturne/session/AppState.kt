@@ -1019,6 +1019,16 @@ fun AppState.indiNumber(deviceName: String, propName: String): Double? {
     return (props.firstOrNull { it.name == propName } as? IndiProperty.NumberProp)?.value
 }
 
+/** A switch property's currently-on INDI element name, or null if the property isn't known. */
+fun AppState.indiSwitchElement(deviceName: String, propName: String): String? {
+    val prop = indiProps[deviceName]?.firstOrNull { it.name == propName } as? IndiProperty.SwitchProp ?: return null
+    return prop.elementNames.getOrNull(prop.selected)
+}
+
+/** A switch property's element names (all choices), empty if unknown. */
+fun AppState.indiSwitchElements(deviceName: String, propName: String): List<String> =
+    (indiProps[deviceName]?.firstOrNull { it.name == propName } as? IndiProperty.SwitchProp)?.elementNames.orEmpty()
+
 /** Looks up a NumberProp's own vector-level IPState (see [IndiProperty.NumberProp.state]) by property name. */
 fun AppState.indiBusy(deviceName: String, propName: String): Boolean {
     val props = indiProps[deviceName] ?: DRIVER_INDI_PROPS[deviceName] ?: emptyList()
