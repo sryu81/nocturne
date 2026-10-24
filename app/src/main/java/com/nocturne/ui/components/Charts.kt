@@ -9,7 +9,6 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
-import com.nocturne.session.wiggle
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.min
@@ -55,9 +54,9 @@ fun TraceLine(
 /** The Session-tab night arc (viewBox 348×196, uniform 'meet' scale). */
 @Composable
 fun NightArc(
-    shotFraction: Double,
-    plannedFraction: Double,
-    nowFraction: Double,
+    shotFraction: Double?,
+    plannedFraction: Double?,
+    nowFraction: Double?,
     modifier: Modifier,
 ) {
     val colors = com.nocturne.ui.theme.NocturneTheme.colors
@@ -90,7 +89,8 @@ fun NightArc(
             topLeft = arcTopLeft, size = arcSize,
             style = Stroke(width = strokeWidth, cap = androidx.compose.ui.graphics.StrokeCap.Round),
         )
-        drawArc(
+        // Parts with unknown values (null) are not drawn.
+        if (plannedFraction != null) drawArc(
             color = plannedColor,
             startAngle = 180f, sweepAngle = 180f, useCenter = false,
             topLeft = arcTopLeft, size = arcSize,
@@ -99,7 +99,7 @@ fun NightArc(
                 pathEffect = PathEffect.dashPathEffect(floatArrayOf((plannedFraction * arcLen).toFloat(), arcLen)),
             ),
         )
-        drawArc(
+        if (shotFraction != null) drawArc(
             color = shotColor,
             startAngle = 180f, sweepAngle = 180f, useCenter = false,
             topLeft = arcTopLeft, size = arcSize,
@@ -109,9 +109,11 @@ fun NightArc(
             ),
         )
         // Now dot + ring. No flip tick: flip time would need RA and local sidereal time.
-        val now = pt(nowFraction, 140f)
-        drawCircle(nowColor, radius = vw(6.5f), center = now)
-        drawCircle(ringColor, radius = vw(12f), center = now, style = Stroke(width = vw(2f)))
+        if (nowFraction != null) {
+            val now = pt(nowFraction, 140f)
+            drawCircle(nowColor, radius = vw(6.5f), center = now)
+            drawCircle(ringColor, radius = vw(12f), center = now, style = Stroke(width = vw(2f)))
+        }
     }
 }
 
@@ -333,18 +335,6 @@ fun HfrRunChart(values: List<Float>, modifier: Modifier) {
         }
         val path = Path().apply { polyline(pts) }
         drawPath(path, colors.accent, style = Stroke(width = 1.6f))
-    }
-}
-
-/** RMS card mini trace (viewBox 96×20, stretched). */
-@Composable
-fun MiniTrace(t: Int, modifier: Modifier) {
-    val colors = com.nocturne.ui.theme.NocturneTheme.colors
-    val vals = wiggle(t, 0, 40, 7.0)
-    Canvas(modifier = modifier) {
-        val pts = traceOffsets(vals, size.width, size.height)
-        val path = Path().apply { polyline(pts) }
-        drawPath(path, colors.accent, style = Stroke(width = 1.2f))
     }
 }
 

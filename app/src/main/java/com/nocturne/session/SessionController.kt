@@ -48,7 +48,7 @@ interface SessionController {
     fun addBlock(jobId: String)
     fun removeBlock(jobId: String, blockId: String)
     fun moveBlock(jobId: String, blockId: String, toIndex: Int)
-    /** Advances to the next of [names]; the caller picks the list (wheel slot names or [FILTER_CYCLE]). */
+    /** Advances to the next of [names] (the wheel's slot names); no-op when empty. */
     fun cycleBlockFilter(jobId: String, blockId: String, names: List<String>)
     fun setBlockExposure(jobId: String, blockId: String, sec: Int)
     fun setBlockSubCount(jobId: String, blockId: String, count: Int)

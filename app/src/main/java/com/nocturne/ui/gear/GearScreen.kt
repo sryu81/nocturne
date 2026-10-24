@@ -60,9 +60,10 @@ private val DEVICE_ICONS: Map<String, ImageVector> = mapOf(
 @Composable
 private fun paColor(state: AppState): Color {
     val c = NocturneTheme.colors
+    val total = state.paTotal ?: return c.textMuted
     return when {
-        state.paTotal < 1 -> c.ok
-        state.paTotal < 3 -> c.warn
+        total < 1 -> c.ok
+        total < 3 -> c.warn
         else -> c.danger
     }
 }

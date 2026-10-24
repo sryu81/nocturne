@@ -41,8 +41,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.nocturne.session.DEVICES
-import com.nocturne.session.DRIVER_INDI_PROPS
-import com.nocturne.session.FILTER_CYCLE
 import com.nocturne.session.Device
 import com.nocturne.session.IndiProperty
 import com.nocturne.session.LiveDevice
@@ -64,7 +62,6 @@ import com.nocturne.session.alignCameraDevice
 import com.nocturne.session.gainSpecialValue
 import com.nocturne.session.TrainRole
 import com.nocturne.session.TrainSlot
-import com.nocturne.session.coolAtSetPoint
 import com.nocturne.session.focRange
 import com.nocturne.session.indiNumber
 import com.nocturne.session.doneSpec
@@ -73,8 +70,6 @@ import com.nocturne.session.fRatio
 import com.nocturne.session.get
 import com.nocturne.session.opticNote
 import com.nocturne.session.ScopeDef
-import com.nocturne.session.coolBarPct
-import com.nocturne.session.coolPowerPct
 import com.nocturne.session.isOn
 import com.nocturne.session.isSelected
 import com.nocturne.session.missing
@@ -84,7 +79,6 @@ import com.nocturne.session.ready
 import com.nocturne.session.eafTemp
 import com.nocturne.session.benchFocPos
 import com.nocturne.session.realSlewRateProp
-import com.nocturne.session.focusNextAfMin
 import com.nocturne.session.train
 import com.nocturne.session.trainRolePool
 import com.nocturne.session.keepCount
@@ -148,7 +142,7 @@ fun SheetHost(state: AppState, ctrl: SessionController, landscape: Boolean) {
         SheetType.SUMMARY -> "Session summary" to (
             state.realNightWindow?.let {
                 "${state.formatSiteTime(it.first)} → ${state.formatSiteTime(it.second)}"
-            } ?: "21:48 → 04:12"
+            } ?: "night N/A"
         )
         SheetType.PA -> "Polar alignment" to "live status"
         SheetType.PREFS -> "Alert rules" to "push + on-screen"
@@ -277,7 +271,9 @@ private fun GuideSheet(state: AppState, landscape: Boolean) {
 private fun FocusSheet(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
-    val tempDelta = state.eafTemp - state.focusTempAtLastAf
+    val tempNow = state.eafTemp
+    val tempAtAf = state.focusTempAtLastAf
+    val tempDelta = if (tempNow != null && tempAtAf != null) tempNow - tempAtAf else null
     val hfr = state.latestFocusFrame?.header?.hfr
     Column {
         Panel {
@@ -302,11 +298,12 @@ private fun FocusSheet(state: AppState, ctrl: SessionController) {
         }
         Spacer(Modifier.height(11.2.dp))
         Row(Modifier.fillMaxWidth()) {
-            Stat("POSITION", "${state.focPos}", Modifier.weight(1f))
+            Stat("POSITION", state.benchFocPos?.toString() ?: "N/A", Modifier.weight(1f))
             Spacer(Modifier.width(8.4.dp))
-            Stat("TEMP Δ", "${if (tempDelta >= 0) "+" else ""}${"%.1f".format(tempDelta)}°", Modifier.weight(1f))
+            Stat("TEMP Δ", tempDelta?.let { "%+.1f°".format(it) } ?: "N/A", Modifier.weight(1f))
             Spacer(Modifier.width(8.4.dp))
-            Stat("NEXT AF", "${state.focusNextAfMin} m", Modifier.weight(1f))
+            val refocus = state.wireCaptureSettings?.let { if (it.enforceRefocusEveryN) "every ${it.refocusEveryN} m" else "off" } ?: "N/A"
+            Stat("REFOCUS", refocus, Modifier.weight(1f))
         }
         Spacer(Modifier.height(11.2.dp))
         NocturneButton(
@@ -988,8 +985,10 @@ private fun AlignSettingsSheet(state: AppState, ctrl: SessionController) {
                     CycleChip(state.wireCaptureSettings?.FilterPosCombo?.ifBlank { "—" } ?: "—", enabled = false) {}
                 } else {
                     // Cycle the wheel's own slot names; Ekos silently rejects a name it doesn't have.
-                    val filterNames = state.realFilterNames ?: FILTER_CYCLE
-                    CycleChip(a.alignFilter) { ctrl.setAlignFilter(filterNames[(filterNames.indexOf(a.alignFilter) + 1).mod(filterNames.size)]) }
+                    val filterNames = state.realFilterNames.orEmpty()
+                    CycleChip(a.alignFilter.ifBlank { "N/A" }) {
+                        if (filterNames.isNotEmpty()) ctrl.setAlignFilter(filterNames[(filterNames.indexOf(a.alignFilter) + 1).mod(filterNames.size)])
+                    }
                 }
             }
             Spacer(Modifier.width(8.dp))
@@ -2436,7 +2435,7 @@ private fun DeviceSheet(state: AppState, ctrl: SessionController) {
             style = t.Mono115, color = c.textMuted,
         )
         val driverName = state.selectedDeviceNames[d.key] ?: d.name
-        IndiPropertyPanel(deviceKey = driverName, props = state.indiProps[driverName] ?: DRIVER_INDI_PROPS[driverName] ?: emptyList(), ctrl = ctrl)
+        IndiPropertyPanel(deviceKey = driverName, props = state.indiProps[driverName] ?: emptyList(), ctrl = ctrl)
     }
 }
 

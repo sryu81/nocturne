@@ -25,6 +25,8 @@ per-block progress; scheduler settings.
 **Session** — night arc, latest sub, HFR/RMS/SNR tiles, module status row (tap for sheets),
 alerts from Ekos notifications, session summary and export.
 
+Anything the rig hasn't reported yet shows "N/A" — there are no demo values or placeholders.
+
 **Frames** — captured previews stored on the phone (Room + JPEG files), keep/discard, HFR across
 the run. HFR shows "—" when Ekos measured no star.
 
@@ -64,11 +66,8 @@ maintenance); the Pi keeps orders 0–5 on the SD card for KStars' offline HiPS.
 - **Rig status and logs** — plan in `docs/STATUS-AND-LOGS-PLAN.md` (rig health chain, merged log
   screen stored on the phone, Android notifications). Still being discussed.
 - **Tab layout** — to be discussed (decides where the log screen lives).
-- Remove leftover demo fixtures still used as defaults: `DEVICES` names, `TrainAssignment`
-  defaults, `DEFAULT_JOBS`, `DEFAULT_PROFILES`, `DRIVER_INDI_PROPS`, `ALERTS`, `TARGETS`; unpark
-  sets a made-up mount alt/az (49.2°/71.6°) — `new_mount_state` has no alt/az; Plan's night window
-  falls back to fixed "21:48"/"04:12" before the almanac arrives; Session/report still show fixed
-  "dither in 2" and "Ha 12/40 · OIII 0/30" when data is missing; `TabPlaceholder` is unused.
+- New sequence blocks start at 300 s × 10, gain 100, offset 50, dither every 2 — could start from
+  Ekos's current capture settings instead. `TabPlaceholder` is unused.
 - Warn when a second client takes over the connection.
 - Per-job in-sequence autofocus option (`inSequenceFocus`).
 - Scope cleartext traffic to the LAN (`network_security_config.xml`) and reject non-private hosts.

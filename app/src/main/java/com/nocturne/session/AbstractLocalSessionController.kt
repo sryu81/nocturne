@@ -76,7 +76,7 @@ abstract class AbstractLocalSessionController : SessionController {
     override fun addToSequence(targetId: String) {
         update { s ->
             val block = Block(
-                id = "b1", filter = (s.realFilterNames ?: FILTER_CYCLE).first(), exposureSec = 300, subCount = 10, doneCount = 0,
+                id = "b1", filter = s.realFilterNames?.firstOrNull() ?: "", exposureSec = 300, subCount = 10, doneCount = 0,
                 gain = 100, offset = 50, binning = 1, ditherEvery = 2,
             )
             val job = SequenceJob(
@@ -128,9 +128,10 @@ abstract class AbstractLocalSessionController : SessionController {
 
     override fun addBlock(jobId: String) = update { s ->
         val job = s.jobs.firstOrNull { it.id == jobId } ?: return@update s
-        val names = s.realFilterNames ?: FILTER_CYCLE
+        val names = s.realFilterNames.orEmpty()
         val used = job.blocks.map { it.filter }.toSet()
-        val filter = names.firstOrNull { it !in used } ?: names[job.blockSeq % names.size]
+        // no filter until the wheel's slot names are known
+        val filter = names.firstOrNull { it !in used } ?: names.getOrNull(job.blockSeq % names.size.coerceAtLeast(1)) ?: ""
         val block = Block(
             id = "b${job.blockSeq}", filter = filter, exposureSec = 300, subCount = 10, doneCount = 0,
             gain = 100, offset = 50, binning = 1, ditherEvery = 2,
@@ -157,6 +158,7 @@ abstract class AbstractLocalSessionController : SessionController {
     }
 
     override fun cycleBlockFilter(jobId: String, blockId: String, names: List<String>) = update { s ->
+        if (names.isEmpty()) return@update s
         s.mapJobBlock(jobId, blockId) { b ->
             val i = names.indexOf(b.filter)
             b.copy(filter = names[(i + 1).mod(names.size)])
@@ -679,11 +681,11 @@ abstract class AbstractLocalSessionController : SessionController {
     // Moves by `focusTicks` (the app sends steps=0); see [SessionController.focusStepIn].
     override open fun focusStepIn() = update { s ->
         val step = s.wireFocusSettings?.focusTicks ?: 200
-        s.copy(focPos = (s.focPos - step).coerceIn(0, 62000))
+        s.copy(focPos = s.focPos?.let { (it - step).coerceIn(0, 62000) })
     }
     override open fun focusStepOut() = update { s ->
         val step = s.wireFocusSettings?.focusTicks ?: 200
-        s.copy(focPos = (s.focPos + step).coerceIn(0, 62000))
+        s.copy(focPos = s.focPos?.let { (it + step).coerceIn(0, 62000) })
     }
 
     override fun setRate(index: Int) = update { it.copy(rate = index) }
@@ -712,7 +714,7 @@ abstract class AbstractLocalSessionController : SessionController {
     override fun stopAutofocus() = update { it.copy(focusRunning = false) }
 
     override fun unparkMount() = update {
-        it.copy(mountParked = false, mountAlt = 49.2, mountAz = 71.6, slewDir = null, mountSolved = false)
+        it.copy(mountParked = false, slewDir = null, mountSolved = false)
     }
     override fun parkMount() = update { it.copy(mountParked = true, slewDir = null) }
     override fun setMountTracking(enabled: Boolean) = update { it.copy(mountTracking = enabled) }
@@ -787,21 +789,21 @@ abstract class AbstractLocalSessionController : SessionController {
     override fun setDomeOpen(open: Boolean) = update { it.copy(domeOpen = open) }
 
     override open fun setIndiSwitch(deviceKey: String, propName: String, selected: Int) = update { s ->
-        val current = s.indiProps[deviceKey] ?: DRIVER_INDI_PROPS[deviceKey] ?: emptyList()
+        val current = s.indiProps[deviceKey] ?: emptyList()
         s.copy(indiProps = s.indiProps + (deviceKey to current.map { p ->
             if (p is IndiProperty.SwitchProp && p.name == propName) p.copy(selected = selected) else p
         }))
     }
 
     override open fun setIndiNumber(deviceKey: String, propName: String, value: Double) = update { s ->
-        val current = s.indiProps[deviceKey] ?: DRIVER_INDI_PROPS[deviceKey] ?: emptyList()
+        val current = s.indiProps[deviceKey] ?: emptyList()
         s.copy(indiProps = s.indiProps + (deviceKey to current.map { p ->
             if (p is IndiProperty.NumberProp && p.name == propName) p.copy(value = value.coerceIn(p.min, p.max)) else p
         }))
     }
 
     override open fun setIndiText(deviceKey: String, propName: String, elementName: String, value: String) = update { s ->
-        val current = s.indiProps[deviceKey] ?: DRIVER_INDI_PROPS[deviceKey] ?: emptyList()
+        val current = s.indiProps[deviceKey] ?: emptyList()
         s.copy(indiProps = s.indiProps + (deviceKey to current.map { p ->
             if (p is IndiProperty.TextProp && p.name == propName) {
                 p.copy(elements = p.elements.map { if (it.first == elementName) elementName to value else it })

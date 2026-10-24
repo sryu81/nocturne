@@ -831,7 +831,7 @@ class EkosRemoteController(
     }
 
     private inline fun <reified T : IndiProperty> currentIndiProp(deviceKey: String, propName: String): T? =
-        (_state.value.indiProps[deviceKey] ?: DRIVER_INDI_PROPS[deviceKey] ?: emptyList())
+        (_state.value.indiProps[deviceKey] ?: emptyList())
             .firstOrNull { it.name == propName } as? T
 
     // ── Bench check ─────────────────────────────────────────────────────
@@ -863,7 +863,7 @@ class EkosRemoteController(
      * otherwise stays stale.
      */
     override fun applyCoolTarget() {
-        val target = _state.value.coolTarget
+        val target = _state.value.coolTarget ?: return
         client.sendCommand(Commands.CAPTURE_SET_ALL_SETTINGS, buildJsonObject { put("cameraTemperatureN", target) })
         val camera = _state.value.primaryTrain.camera
         if (_state.value.wireDevices?.any { it.name == camera && it.connected } == true) {

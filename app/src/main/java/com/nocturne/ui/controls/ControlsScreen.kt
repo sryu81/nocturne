@@ -31,17 +31,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.unit.dp
 import com.nocturne.session.CaptureProgress
-import com.nocturne.session.FILTER_CYCLE
 import com.nocturne.session.SessionController
 import com.nocturne.session.SheetType
 import com.nocturne.session.AppState
 import com.nocturne.session.primaryImageSize
 import com.nocturne.session.benchFocPos
 import com.nocturne.session.captureProgress
-import com.nocturne.session.coolAtSetPoint
 import com.nocturne.session.focRange
-import com.nocturne.session.coolBarPct
-import com.nocturne.session.coolPowerPct
 import com.nocturne.session.framingFovDeg
 import com.nocturne.session.guideCameraDevice
 import com.nocturne.session.indiSwitchElements
@@ -129,7 +125,7 @@ fun ControlsScreen(
                                     Column(Modifier.weight(1f)) {
                                         TextC("FILTER", style = tt.MonoMicro, color = cc.textMuted)
                                         Spacer(Modifier.height(3.dp))
-                                        val filterNames = state.realFilterNames ?: FILTER_CYCLE
+                                        val filterNames = state.realFilterNames.orEmpty()
                                         FilterCycleChip(it.FilterPosCombo, filterNames, modifier = Modifier.fillMaxWidth()) { ctrl.setCameraFilter(it) }
                                     }
                                 }
@@ -232,8 +228,8 @@ private fun capturePendingNote(state: AppState): String? {
         "Setting Temperature" -> {
             val now = state.indiNumber(state.primaryTrain.camera, "CCD_TEMPERATURE")
             val target = state.wireCaptureSettings?.cameraTemperatureN ?: state.coolTarget
-            "waiting for temperature " + (now?.let { "%.1f".format(it) } ?: "?") +
-                " → %.1f °C before exposing (enforce temperature is on)".format(target)
+            "waiting for temperature " + (now?.let { "%.1f".format(it) } ?: "N/A") + " → " +
+                (target?.let { "%.1f °C".format(it) } ?: "N/A") + " before exposing (enforce temperature is on)"
         }
         "Setting Rotator", "Waiting", "Paused", "Meridian Flip" -> "capture held: $status — will start by itself when it clears"
         else -> null
@@ -355,10 +351,11 @@ private fun SnapPanel(
  * `"."`) survives recomposition; [onChange] fires only when the text parses.
  */
 @Composable
-private fun MiniField(label: String, value: Double, unit: String, modifier: Modifier, onChange: (Double) -> Unit) {
+private fun MiniField(label: String, value: Double?, unit: String, modifier: Modifier, onChange: (Double) -> Unit) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
-    var text by remember { mutableStateOf("%.1f".format(value)) }
+    // re-seeded once when an unknown value (null) becomes known
+    var text by remember(value == null) { mutableStateOf(value?.let { "%.1f".format(it) } ?: "") }
     Column(modifier) {
         TextC(label, style = t.MonoMicro, color = c.textMuted)
         Spacer(Modifier.height(3.dp))
@@ -371,18 +368,21 @@ private fun MiniField(label: String, value: Double, unit: String, modifier: Modi
                 .padding(horizontal = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            BasicTextField(
-                value = text,
-                onValueChange = { new ->
-                    val filtered = new.filter { ch -> ch.isDigit() || ch == '.' || ch == '-' }
-                    text = filtered
-                    filtered.toDoubleOrNull()?.let(onChange)
-                },
-                singleLine = true,
-                textStyle = t.Body13.copy(color = c.text),
-                cursorBrush = SolidColor(c.accent),
-                modifier = Modifier.weight(1f),
-            )
+            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                if (text.isEmpty()) TextC("N/A", style = t.Body13, color = c.textFaint)
+                BasicTextField(
+                    value = text,
+                    onValueChange = { new ->
+                        val filtered = new.filter { ch -> ch.isDigit() || ch == '.' || ch == '-' }
+                        text = filtered
+                        filtered.toDoubleOrNull()?.let(onChange)
+                    },
+                    singleLine = true,
+                    textStyle = t.Body13.copy(color = c.text),
+                    cursorBrush = SolidColor(c.accent),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
             if (unit.isNotEmpty()) TextC(unit, style = t.MonoSmall, color = c.neutral500)
         }
     }
@@ -410,7 +410,7 @@ private fun <T> BinCycleChip(value: T, options: List<T>, labelOf: (T) -> String,
 }
 
 /**
- * Tap-to-cycle filter chip over [names] (filter-wheel slot names when known, else [FILTER_CYCLE]).
+ * Tap-to-cycle filter chip over the filter wheel's slot [names]; shows N/A and doesn't cycle when unknown.
  * Sets the module's own filter, which is what a preview or autofocus run uses, independent of
  * any queued sequence.
  */
@@ -424,11 +424,11 @@ private fun FilterCycleChip(value: String, names: List<String>, modifier: Modifi
             .height(40.dp)
             .background(c.bg, RoundedCornerShape(4.dp))
             .border(1.dp, c.divider, RoundedCornerShape(4.dp))
-            .clickable { onSelect(names[(idx + 1).mod(names.size)]) }
+            .clickable(enabled = names.isNotEmpty()) { onSelect(names[(idx + 1).mod(names.size)]) }
             .padding(horizontal = 12.dp),
         contentAlignment = Alignment.Center,
     ) {
-        TextC(value.ifBlank { names.firstOrNull() ?: "—" }, style = t.Body13, color = c.text)
+        TextC(value.ifBlank { "N/A" }, style = t.Body13, color = if (value.isBlank()) c.textMuted else c.text)
     }
 }
 
@@ -478,9 +478,10 @@ private fun CoolerCard(state: AppState, ctrl: SessionController) {
     val cameraConnected = state.wireDevices?.any { it.name == camera && it.connected } == true
     val liveTemp = if (cameraConnected) state.indiNumber(camera, "CCD_TEMPERATURE") else null
     val livePowerPct = if (cameraConnected) state.indiNumber(camera, "CCD_COOLER_POWER") else null
-    val sensorNow = liveTemp ?: state.coolNow
-    val powerPct = livePowerPct?.roundToInt() ?: state.coolPowerPct
-    val atSet = if (liveTemp != null) abs(liveTemp - state.coolTarget) < 0.5 else state.coolAtSetPoint
+    val powerPct = livePowerPct?.roundToInt()
+    val powerText = powerPct?.let { "$it%" } ?: "power N/A"
+    val target = state.coolTarget
+    val atSet = if (liveTemp != null && target != null) abs(liveTemp - target) < 0.5 else null
     // CCD_COOLER / fan switches; null = property not seen yet.
     val coolerOn = if (cameraConnected) state.indiSwitchElement(camera, "CCD_COOLER")?.let { it == "COOLER_ON" } else null
     val fanElements = if (cameraConnected) state.indiSwitchElements(camera, CAMERA_FAN_PROP) else emptyList()
@@ -498,17 +499,19 @@ private fun CoolerCard(state: AppState, ctrl: SessionController) {
             TextC(
                 when {
                     coolerOn == false -> "cooler off"
-                    atSet -> "at set point · $powerPct%"
-                    else -> "ramping · $powerPct%"
+                    atSet == true -> "at set point · $powerText"
+                    atSet == false -> "ramping · $powerText"
+                    else -> powerText
                 },
-                style = t.Mono115, color = if (coolerOn == false) c.textMuted else if (atSet) c.ok else c.warn,
+                style = t.Mono115,
+                color = when { coolerOn == false || atSet == null -> c.textMuted; atSet -> c.ok; else -> c.warn },
             )
         }
         Spacer(Modifier.height(9.dp))
         Row(verticalAlignment = Alignment.Bottom) {
             Column(Modifier.weight(1f)) {
-                TextC(String.format("%.1f", sensorNow) + " °C", style = t.Mono26, color = c.text)
-                TextC(if (liveTemp != null) "sensor now (live)" else "sensor now", style = t.MonoMicro, color = c.textMuted)
+                TextC(liveTemp?.let { String.format("%.1f °C", it) } ?: "N/A", style = t.Mono26, color = if (liveTemp != null) c.text else c.textMuted)
+                TextC("sensor now", style = t.MonoMicro, color = c.textMuted)
             }
             Spacer(Modifier.width(8.dp))
             MiniField("SET POINT", state.coolTarget, "°C", Modifier.width(96.dp), ctrl::setCoolTarget)
@@ -557,7 +560,7 @@ private fun CoolerCard(state: AppState, ctrl: SessionController) {
         ) {
             Box(
                 Modifier
-                    .fillMaxWidth(state.coolBarPct / 100f)
+                    .fillMaxWidth((powerPct ?: 0).coerceIn(0, 100) / 100f)
                     .height(4.dp)
                     .background(c.accent, RoundedCornerShape(2.dp)),
             )
@@ -599,11 +602,11 @@ private fun FocuserCard(state: AppState, ctrl: SessionController) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextC("FOCUSER · MANUAL", style = t.MicroLabel, color = c.textMuted, modifier = Modifier.weight(1f))
             TextC(
-                if (range != null) "$pos  (${range.first}–${range.last})" else "$pos",
-                style = t.Mono15, color = c.text,
+                (pos?.toString() ?: "N/A") + (range?.let { "  (${it.first}–${it.last})" } ?: ""),
+                style = t.Mono15, color = if (pos != null) c.text else c.textMuted,
             )
         }
-        if (range != null) {
+        if (range != null && pos != null) {
             Spacer(Modifier.height(6.dp))
             FocuserRangeBar(pos, range)
         }
@@ -625,7 +628,7 @@ private fun FocuserCard(state: AppState, ctrl: SessionController) {
                 Column(Modifier.weight(1f)) {
                     TextC("FILTER", style = t.MonoMicro, color = c.textMuted)
                     Spacer(Modifier.height(3.dp))
-                    val filterNames = state.realFilterNames ?: FILTER_CYCLE
+                    val filterNames = state.realFilterNames.orEmpty()
                     FilterCycleChip(fs.focusFilter, filterNames, modifier = Modifier.fillMaxWidth()) { ctrl.setFocusFilter(it) }
                 }
             }
@@ -635,8 +638,8 @@ private fun FocuserCard(state: AppState, ctrl: SessionController) {
         Spacer(Modifier.height(9.dp))
         val step = state.wireFocusSettings?.focusTicks
         Row(Modifier.fillMaxWidth()) {
-            val atMin = range != null && pos <= range.first
-            val atMax = range != null && pos >= range.last
+            val atMin = range != null && pos != null && pos <= range.first
+            val atMax = range != null && pos != null && pos >= range.last
             NocturneButton(
                 text = "Focus In" + (step?.let { " (−$it)" } ?: ""),
                 onClick = ctrl::focusStepIn,
@@ -712,7 +715,7 @@ private fun MountControlCard(state: AppState, ctrl: SessionController) {
     val realRates = state.realSlewRateProp
     val rateLabels = realRates?.options ?: RATES
     val selectedRateIndex = realRates?.selected ?: state.rate
-    val currentRateLabel = rateLabels.getOrNull(selectedRateIndex) ?: "?"
+    val currentRateLabel = selectedRateIndex?.let { rateLabels.getOrNull(it) } ?: "N/A"
     val parked = state.mountParkedReal
     val trackingOn = state.mountTrackingOn
     Column(
@@ -728,12 +731,17 @@ private fun MountControlCard(state: AppState, ctrl: SessionController) {
                 when {
                     state.slewDir != null -> "slewing ${state.slewDir} at $currentRateLabel"
                     parked -> "parked"
+                    trackingOn == null -> "tracking N/A"
                     !trackingOn -> "tracking off"
                     state.mountSolved -> "tracking · sidereal · solved"
                     else -> "tracking · sidereal"
                 },
                 style = t.Mono115,
-                color = if (state.slewDir != null || parked || !trackingOn) c.warn else c.ok,
+                color = when {
+                    trackingOn == null -> c.textMuted
+                    state.slewDir != null || parked || !trackingOn -> c.warn
+                    else -> c.ok
+                },
             )
         }
         Spacer(Modifier.height(9.dp))
@@ -764,7 +772,8 @@ private fun MountControlCard(state: AppState, ctrl: SessionController) {
                 }
                 Spacer(Modifier.height(6.dp))
                 TextC(
-                    "alt ${"%.1f".format(state.mountAlt)}° · az ${"%.1f".format(state.mountAz)}°" +
+                    "alt " + (state.mountAlt?.let { "%.1f°".format(it) } ?: "N/A") +
+                        " · az " + (state.mountAz?.let { "%.1f°".format(it) } ?: "N/A") +
                         if (state.mountSolved) "\nsolved — re-solve after moving" else "\nnot solved",
                     style = t.Mono115, color = c.neutral500,
                 )
@@ -799,9 +808,9 @@ private fun MountControlCard(state: AppState, ctrl: SessionController) {
             )
             Spacer(Modifier.width(8.4.dp))
             NocturneButton(
-                text = if (trackingOn) "Tracking: ON" else "Tracking: OFF",
-                onClick = { ctrl.setMountTracking(!trackingOn) },
-                style = if (trackingOn) BtnStyle.SOLID else BtnStyle.SUBTLE,
+                text = "Tracking: " + when (trackingOn) { true -> "ON"; false -> "OFF"; null -> "N/A" },
+                onClick = { ctrl.setMountTracking(trackingOn != true) },
+                style = if (trackingOn == true) BtnStyle.SOLID else BtnStyle.SUBTLE,
                 modifier = Modifier.weight(1f).height(44.dp),
             )
         }

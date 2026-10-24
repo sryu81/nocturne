@@ -114,23 +114,23 @@ data class AppState(
     val flipDeferSec: Int = 0,
     /** Flip/defer action awaiting user confirmation on the Session tab. */
     val pendingFlipConfirm: FlipConfirm? = null,
-    val jobs: List<SequenceJob> = DEFAULT_JOBS,
+    val jobs: List<SequenceJob> = emptyList(),
     /** Which job's block editor is drilled into on the Sequence tab; null = job-list view. */
-    val activeJobId: String? = DEFAULT_JOBS.firstOrNull()?.id,
+    val activeJobId: String? = null,
     /** Monotonic job id counter — survives removals, unlike jobs.size + 1. */
-    val jobSeq: Int = DEFAULT_JOBS.size + 1,
+    val jobSeq: Int = 1,
     /**
      * Last job that was started: the Session tab's fallback when nothing is running, so pausing
      * a job doesn't jump to another one by list position. Only [contractJob] should read this.
      */
     val lastActiveJobId: String? = null,
     /** Which block card is expanded — global scalar is fine, only one job is ever drilled into at a time. */
-    val openBlockId: String? = DEFAULT_BLOCKS.getOrNull(1)?.id,
+    val openBlockId: String? = null,
     /** The job [endSession] stopped, pending a Back-to-session/Next-job/Finish choice on the Summary sheet. */
     val lastEndedJobId: String? = null,
     val mountParked: Boolean = false,
     /** Local default only; a connected rig reads [mountTrackingOn] (INDI `TELESCOPE_TRACK_STATE`). */
-    val mountTracking: Boolean = true,
+    val mountTracking: Boolean? = null,
     /**
      * Optimistic "routine running" flags for Autofocus/Guide/Polar Align, flipped on tap. The
      * status/stage push overrides them (see [FOCUS_IDLE_STATES], [GUIDE_IDLE_STATES],
@@ -143,16 +143,16 @@ data class AppState(
     val deviceKey: String = "mount",
     /** Sheet to return to when the device sheet closes, e.g. SETUP when opened from the rig wizard's device list. */
     val deviceOrigin: SheetType? = null,
-    val focPos: Int = 18422,
-    val coolTarget: Double = -10.0,
-    val coolNow: Double = 12.4,
+    val focPos: Int? = null,
+    val coolTarget: Double? = null,
+    val coolNow: Double? = null,
     val snappedMain: Boolean = false,
     val snappedGuide: Boolean = false,
-    val rate: Int = 2,
+    val rate: Int? = null,
     val slewDir: String? = null,
     val paStep: Int = 0,
-    val paAlt: Double = 4.2,
-    val paAz: Double = -1.8,
+    val paAlt: Double? = null,
+    val paAz: Double? = null,
     val paRate: Int = 1,
     val query: String = "",
     val chips: List<Int> = listOf(0),
@@ -179,20 +179,20 @@ data class AppState(
      * Scopes catalog. Ekos keeps telescopes/lenses separate from profiles and trains
      * (`get_scopes`/`scope_add`, docs/PROTOCOL.md); a train's Scope role references one by name.
      */
-    val scopes: List<ScopeDef> = DEFAULT_SCOPES,
+    val scopes: List<ScopeDef> = emptyList(),
     /** Monotonic id counter for user-added scopes; survives removals. */
-    val scopeSeq: Int = DEFAULT_SCOPES.size + 1,
+    val scopeSeq: Int = 1,
     val editingScopeId: String? = null,
     val addingScope: Boolean = false,
-    val profileName: String = "Field · 550 mm",
-    val ekosRunning: Boolean = true,
-    val activeProfile: String? = "Field · 550 mm",
-    val profiles: List<RigProfile> = DEFAULT_PROFILES,
-    val selectedProfile: String? = "Field · 550 mm",
+    val profileName: String = "",
+    val ekosRunning: Boolean = false,
+    val activeProfile: String? = null,
+    val profiles: List<RigProfile> = emptyList(),
+    val selectedProfile: String? = null,
     val setupEditingName: String? = null,
-    val rotatorAngle: Double = 118.4,
-    val domeOpen: Boolean = true,
-    /** User edits only — keyed by catalog device name; unedited defaults come from [DRIVER_INDI_PROPS]. */
+    val rotatorAngle: Double = 0.0,
+    val domeOpen: Boolean = false,
+    /** INDI properties per device name, from `device_get` and live property pushes. */
     val indiProps: Map<String, List<IndiProperty>> = emptyMap(),
     /**
      * Ekos options via `option_get`/`option_set`: the master gate for the `new_notification`
@@ -207,21 +207,18 @@ data class AppState(
      * [FrameEntity.keep] is its keep/cut state.
      */
     val frameRows: List<FrameEntity> = emptyList(),
-    val devOff: Set<String> = setOf("rotator", "dome"),
+    val devOff: Set<String> = DEVICES.map { it.key }.toSet(),
     /** Which catalog entry is assigned per device category — key -> chosen name from that [Device.catalog]. */
-    val selectedDeviceNames: Map<String, String> = DEVICES.associate { it.key to it.name },
+    val selectedDeviceNames: Map<String, String> = DEVICES.associate { it.key to "None" },
     val primaryTrain: TrainAssignment = TrainAssignment(),
-    val secondaryTrain: TrainAssignment = TrainAssignment(
-        camera = "ASI174MM mini", rotator = "None", scope = "OAG",
-        filterWheel = "None", focuser = "None",
-    ),
-    /** Focus sheet: bookkeeping from the last "Run autofocus now" tap; feeds [focusNextAfMin]/TEMP Δ. */
+    val secondaryTrain: TrainAssignment = TrainAssignment(),
+    /** Focus sheet: bookkeeping from the last "Run autofocus now" tap; feeds TEMP Δ. */
     val focusLastAfAt: Int = 0,
-    val focusTempAtLastAf: Double = -0.6,
+    val focusTempAtLastAf: Double? = null,
     val quietHoursEnabled: Boolean = true,
     /** Bench sheet mount pointing. `new_mount_state` has no alt/az, so these keep their defaults. */
-    val mountAlt: Double = 49.2,
-    val mountAz: Double = 71.6,
+    val mountAlt: Double? = null,
+    val mountAz: Double? = null,
     /** Cleared whenever the mount slews — a solve is only valid until the mount moves again. */
     val mountSolved: Boolean = false,
     /**
@@ -565,19 +562,11 @@ data class RigProfile(
     val deviceKeys: List<String>,
     /**
      * `get_profiles`' `drivers` map (device family → driver labels). [editProfile]'s per-category
-     * picker needs it; the flat [deviceKeys] lose the family. Empty for [DEFAULT_PROFILES], whose
-     * [deviceKeys] are category keys, not driver labels.
+     * picker needs it; the flat [deviceKeys] lose the family.
      */
     val drivers: Map<String, List<String>> = emptyMap(),
     /** Which entry in `drivers["CCDs"]` (if any) is the guide camera — see [WireProfile.guider]. */
     val guider: String = "",
-)
-
-val DEFAULT_PROFILES = listOf(
-    RigProfile("Field · 550 mm", listOf("mount", "cam", "efw", "guide", "focus", "rotator", "weather")),
-    RigProfile("Wide field · 250 mm", listOf("mount", "cam", "efw", "focus", "weather")),
-    RigProfile("RC8 imaging · 1000 mm", listOf("mount", "cam", "efw", "guide", "focus", "rotator", "weather")),
-    RigProfile("Bench test · 550 mm", listOf("mount", "cam")),
 )
 
 val AppState.activeRigProfile: RigProfile? get() = profiles.firstOrNull { it.name == activeProfile }
@@ -603,11 +592,6 @@ data class ScopeDef(
     val apertureMm: Int,
 )
 
-val DEFAULT_SCOPES = listOf(
-    ScopeDef(id = "scope_1", name = "Field APO", vendor = "", type = "Refractor", focalMm = 550, apertureMm = 130),
-    ScopeDef(id = "scope_2", name = "OAG", vendor = "", type = "Guide scope", focalMm = 240, apertureMm = 50),
-)
-
 /** Which Optical Train slot — Ekos only ever has these two roles. */
 enum class TrainSlot { PRIMARY, SECONDARY }
 
@@ -620,14 +604,14 @@ enum class TrainRole { MOUNT, CAMERA, ROTATOR, GUIDE_VIA, DUST_CAP, SCOPE, FILTE
  * Dust cap and Light box have no device category yet, so they stay "None".
  */
 data class TrainAssignment(
-    val mount: String = "EQ6-R Pro",
-    val camera: String = "ASI2600MM Pro",
+    val mount: String = "None",
+    val camera: String = "None",
     val rotator: String = "None",
-    val guideVia: String = "EQ6-R Pro",
+    val guideVia: String = "None",
     val dustCap: String = "None",
-    val scope: String = "Field APO",
-    val filterWheel: String = "EFW 7×36 mm",
-    val focuser: String = "EAF",
+    val scope: String = "None",
+    val filterWheel: String = "None",
+    val focuser: String = "None",
     val reducer: Double = 1.0,
     val lightBox: String = "None",
     val adaptiveOptics: String = "None",
@@ -722,49 +706,15 @@ data class Device(
 )
 
 val DEVICES = listOf(
-    Device("mount", "EQ6-R Pro", "tracking · sidereal · W of pier", true, listOf(
-        "Driver" to "EQMOD ASCOM",
-        "Port" to "USB · COM4 · 115 200",
-        "Site" to "52.37 N · 4.89 E · 12 m",
-        "Pier side" to "West · flip at +5 min",
-    ), catalog = listOf("EQ6-R Pro", "LX200 OnStep", "iOptron CEM70")),
-    Device("cam", "ASI2600MM Pro", "−10.0 °C · cooler 68% · 42 subs", true, listOf(
-        "Driver" to "ZWO ASCOM · native",
-        "Set point" to "−10.0 °C · cooler 68%",
-        "Readout" to "Mode 0 · gain 100 · off 50",
-        "Pixel scale" to "3.76 µm · 1.24 ″/px @ 550 mm",
-    ), catalog = listOf("ASI2600MM Pro", "ToupTek ATR2600M", "QHY268M")),
-    Device("guide", "ASI174MM mini", "2 s · 38 SNR · 0.48″", false, listOf(
-        "Driver" to "PHD2 · localhost:4400",
-        "Scope" to "OAG · 550 mm · 4.86 ″/px",
-        "Calibration" to "valid · 22:04",
-    ), catalog = listOf("None", "ASI174MM mini", "ASI120MM mini")),
-    Device("efw", "EFW 7×36 mm", "pos 2 · Ha 3 nm", false, listOf(
-        "Driver" to "ZWO EFW",
-        "Slots" to "L · R · G · B · Ha · OIII · SII",
-        "Offsets" to "per-filter focus offsets on",
-    ), catalog = listOf("None", "EFW 7×36 mm", "ZWO EFW mini")),
-    Device("focus", "EAF", "18 422 · −0.6 °C drift", false, listOf(
-        "Driver" to "ZWO EAF",
-        "Range" to "0 → 62 000 · backlash 90",
-        "Temp comp" to "−12 steps / °C",
-    ), catalog = listOf("None", "EAF", "Pegasus FocusCube 3")),
-    Device("rotator", "Optec Pyxis", "118.4° · sky PA locked", false, listOf(
-        "Driver" to "Optec Pyxis",
-        "Sky PA" to "locked to 118.4°",
-        "Reverse" to "off",
-    ), catalog = listOf("None", "Optec Pyxis")),
-    Device("dome", "None", "not assigned", false, listOf(
-        "Driver" to "—",
-    ), catalog = listOf("None", "MaxDome II", "NexDome")),
-    Device("weather", "AAG CloudWatcher NG", "safe · cloud 4% · wind 6 km/h", false, listOf(
-        "Driver" to "AAG CloudWatcher NG",
-        "Unsafe when" to "cloud > 30% · wind > 35 km/h · rain",
-        "On unsafe" to "park + close roof",
-    ), catalog = listOf("None", "AAG CloudWatcher NG", "Weather Watcher")),
-    Device("powerbox", "Pegasus Ultimate Powerbox v2", "12.1 V · 3.42 A", false, listOf(
-        "Driver" to "Pegasus Ultimate Powerbox v2",
-    ), catalog = listOf("None", "Pegasus Ultimate Powerbox v2", "Pegasus Pocket Powerbox")),
+    Device("mount", "None", "", true, emptyList(), emptyList()),
+    Device("cam", "None", "", true, emptyList(), emptyList()),
+    Device("guide", "None", "", false, emptyList(), emptyList()),
+    Device("efw", "None", "", false, emptyList(), emptyList()),
+    Device("focus", "None", "", false, emptyList(), emptyList()),
+    Device("rotator", "None", "", false, emptyList(), emptyList()),
+    Device("dome", "None", "", false, emptyList(), emptyList()),
+    Device("weather", "None", "", false, emptyList(), emptyList()),
+    Device("powerbox", "None", "", false, emptyList(), emptyList()),
 )
 
 /** [DeviceRole] bits each rig-setup category's device pool draws from. */
@@ -882,9 +832,9 @@ sealed class IndiProperty {
     ) : IndiProperty()
 }
 
-/** A NumberProp's value by property name: the user's edit, else the [DRIVER_INDI_PROPS] default. */
+/** A NumberProp's value by property name, or null when the device hasn't reported it. */
 fun AppState.indiNumber(deviceName: String, propName: String): Double? {
-    val props = indiProps[deviceName] ?: DRIVER_INDI_PROPS[deviceName] ?: emptyList()
+    val props = indiProps[deviceName] ?: emptyList()
     return (props.firstOrNull { it.name == propName } as? IndiProperty.NumberProp)?.value
 }
 
@@ -900,152 +850,9 @@ fun AppState.indiSwitchElements(deviceName: String, propName: String): List<Stri
 
 /** Whether a NumberProp is Busy (see [IndiProperty.NumberProp.state]). */
 fun AppState.indiBusy(deviceName: String, propName: String): Boolean {
-    val props = indiProps[deviceName] ?: DRIVER_INDI_PROPS[deviceName] ?: emptyList()
+    val props = indiProps[deviceName] ?: emptyList()
     return (props.firstOrNull { it.name == propName } as? IndiProperty.NumberProp)?.state == 2
 }
-
-/**
- * Default per-driver property layouts, keyed by catalog device name. Names, groups and ranges
- * come from the `indi` and `indi-3rdparty` driver sources, trimmed to main controls. Values that a
- * connected driver reports (gain ranges, step counts) are plausible placeholders here.
- */
-val DRIVER_INDI_PROPS: Map<String, List<IndiProperty>> = mapOf(
-    // Mounts — INDI::Telescope base (EQUATORIAL_EOD_COORD/ON_COORD_SET/etc.) omitted;
-    // Nocturne's Session tab already covers RA/DEC/slew/park at a higher level.
-    "EQ6-R Pro" to listOf(
-        IndiProperty.SwitchProp("TELESCOPE_SLEW_RATE", "Slew Rate", "Motion Control", listOf("1x", "32x", "128x", "800x"), 2),
-        IndiProperty.SwitchProp("TELESCOPE_TRACK_MODE", "Track Mode", "Main Control", listOf("Sidereal", "Solar", "Lunar", "Custom"), 0),
-        IndiProperty.NumberProp("GUIDE_RATE_WE", "Guide rate WE", "Motion Control", 0.5, 0.0, 1.0, 0.1),
-        IndiProperty.NumberProp("GUIDE_RATE_NS", "Guide rate NS", "Motion Control", 0.5, 0.0, 1.0, 0.1),
-        IndiProperty.SwitchProp("REVERSEDEC", "Reverse DEC", "Main Control", listOf("Enable", "Disable"), 1),
-    ),
-    "LX200 OnStep" to listOf(
-        IndiProperty.SwitchProp("TELESCOPE_SLEW_RATE", "Slew Rate", "Motion Control", listOf("0.25x", "1x", "8x", "Max"), 2),
-        IndiProperty.SwitchProp("TELESCOPE_TRACK_MODE", "Track Mode", "Main Control", listOf("Sidereal", "Solar", "Lunar", "Custom"), 0),
-        IndiProperty.SwitchProp("COMPENSATION", "Compensation Tracking", "Motion Control", listOf("Full Compensation", "Refraction", "Off"), 2),
-        IndiProperty.SwitchProp("AUTOFLIP", "Meridian Auto Flip", "Motion Control", listOf("Off", "On"), 1),
-        IndiProperty.NumberProp("GUIDE_RATE_WE", "Guide rate WE", "Motion Control", 0.5, 0.0, 1.0, 0.25),
-        IndiProperty.NumberProp("GUIDE_RATE_NS", "Guide rate NS", "Motion Control", 0.5, 0.0, 1.0, 0.25),
-    ),
-    "iOptron CEM70" to listOf(
-        IndiProperty.SwitchProp("TELESCOPE_SLEW_RATE", "Slew Rate", "Motion Control", listOf("1x", "64x", "256x", "MAX"), 1),
-        IndiProperty.SwitchProp("TELESCOPE_TRACK_MODE", "Track Mode", "Main Control", listOf("Sidereal", "Lunar", "Solar"), 0),
-        IndiProperty.SwitchProp("MERIDIAN_ACTION", "Meridian Action", "Meridian Behavior", listOf("Stop", "Flip"), 1),
-        IndiProperty.NumberProp("MERIDIAN_LIMIT", "Meridian limit", "Meridian Behavior", 0.0, 0.0, 10.0, 1.0, "%.0f°"),
-        IndiProperty.NumberProp("RA_GUIDE_RATE", "RA guide rate", "Motion Control", 0.5, 0.01, 0.9, 0.1),
-        IndiProperty.NumberProp("DE_GUIDE_RATE", "DE guide rate", "Motion Control", 0.5, 0.1, 0.99, 0.1),
-    ),
-
-    // Cameras — ZWO ASI (same driver for all three), ToupTek, QHY.
-    "ASI2600MM Pro" to listOf(
-        IndiProperty.SwitchProp("CCD_COOLER", "Cooler", "Main Control", listOf("On", "Off"), 0),
-        IndiProperty.NumberProp("CCD_TEMPERATURE", "CCD temperature", "Main Control", -10.0, -50.0, 50.0, 1.0, "%.1f °C"),
-        IndiProperty.NumberProp("Gain", "Gain", "Controls", 100.0, 0.0, 570.0, 1.0, "%.0f"),
-        IndiProperty.NumberProp("Offset", "Offset", "Controls", 50.0, 0.0, 400.0, 1.0, "%.0f"),
-    ),
-    "ASI174MM mini" to listOf(
-        IndiProperty.NumberProp("Gain", "Gain", "Controls", 200.0, 0.0, 570.0, 1.0, "%.0f"),
-        IndiProperty.NumberProp("Offset", "Offset", "Controls", 20.0, 0.0, 400.0, 1.0, "%.0f"),
-        IndiProperty.SwitchProp("FLIP", "Flip", "Main Control", listOf("Horizontal", "Vertical"), -1),
-    ),
-    "ASI120MM mini" to listOf(
-        IndiProperty.NumberProp("Gain", "Gain", "Controls", 200.0, 0.0, 600.0, 1.0, "%.0f"),
-        IndiProperty.NumberProp("Offset", "Offset", "Controls", 20.0, 0.0, 400.0, 1.0, "%.0f"),
-    ),
-    "ToupTek ATR2600M" to listOf(
-        IndiProperty.SwitchProp("CCD_COOLER", "Cooler", "Main Control", listOf("On", "Off"), 0),
-        IndiProperty.NumberProp("CCD_TEMPERATURE", "CCD temperature", "Main Control", -10.0, -40.0, 20.0, 1.0, "%.1f °C"),
-        IndiProperty.NumberProp("Gain", "Gain", "Control", 100.0, 0.0, 1000.0, 1.0, "%.0f"),
-        IndiProperty.NumberProp("Contrast", "Contrast", "Control", 0.0, -255.0, 255.0, 1.0, "%.0f"),
-        IndiProperty.NumberProp("Gamma", "Gamma", "Control", 100.0, 20.0, 180.0, 1.0, "%.0f"),
-    ),
-    "QHY268M" to listOf(
-        IndiProperty.SwitchProp("CCD_COOLER", "Cooler", "Main Control", listOf("On", "Off"), 0),
-        IndiProperty.NumberProp("CCD_COOLER_POWER", "Cooling power", "Main Control", 68.0, 0.0, 100.0, 5.0, "%.0f %"),
-        IndiProperty.NumberProp("CCD_TEMPERATURE", "CCD temperature", "Main Control", -10.0, -40.0, 20.0, 1.0, "%.1f °C"),
-        IndiProperty.NumberProp("GAIN", "Gain", "Main Control", 30.0, 0.0, 100.0, 1.0, "%.0f"),
-        IndiProperty.NumberProp("OFFSET", "Offset", "Main Control", 20.0, 0.0, 255.0, 1.0, "%.0f"),
-    ),
-
-    // Filter wheel — ZWO EFW driver (asi_wheel.cpp).
-    "EFW 7×36 mm" to listOf(
-        IndiProperty.NumberProp("FILTER_SLOT_VALUE", "Filter", "Filter Wheel", 2.0, 1.0, 7.0, 1.0, "%.0f"),
-        IndiProperty.SwitchProp("FILTER_UNIDIRECTIONAL_MOTION", "Uni Direction", "Main Control", listOf("Enable", "Disable"), 1),
-    ),
-    "ZWO EFW mini" to listOf(
-        IndiProperty.NumberProp("FILTER_SLOT_VALUE", "Filter", "Filter Wheel", 1.0, 1.0, 5.0, 1.0, "%.0f"),
-        IndiProperty.SwitchProp("FILTER_UNIDIRECTIONAL_MOTION", "Uni Direction", "Main Control", listOf("Enable", "Disable"), 1),
-    ),
-
-    // Focusers — ZWO EAF (asi_focuser.cpp), Pegasus FocusCube3.
-    "EAF" to listOf(
-        IndiProperty.SwitchProp("FOCUS_MOTION", "Direction", "Main Control", listOf("Focus In", "Focus Out"), 0),
-        IndiProperty.NumberProp("FOCUS_ABSOLUTE_POSITION", "Absolute position", "Main Control", 18422.0, 0.0, 100000.0, 1000.0, "%.0f"),
-        IndiProperty.SwitchProp("FOCUS_REVERSE_MOTION", "Reverse Motion", "Main Control", listOf("Enabled", "Disabled"), 1),
-        IndiProperty.SwitchProp("FOCUS_BACKLASH_TOGGLE", "Backlash", "Main Control", listOf("Enabled", "Disabled"), 1),
-        IndiProperty.NumberProp("FOCUS_TEMPERATURE", "Temperature", "Main Control", -0.6, -50.0, 70.0, 0.1, "%.1f °C"),
-    ),
-    "Pegasus FocusCube 3" to listOf(
-        IndiProperty.SwitchProp("FOCUS_MOTION", "Direction", "Main Control", listOf("Focus In", "Focus Out"), 0),
-        IndiProperty.NumberProp("FOCUS_ABSOLUTE_POSITION", "Absolute position", "Main Control", 18422.0, 0.0, 1317500.0, 1000.0, "%.0f"),
-        IndiProperty.NumberProp("TEMP", "Temperature", "Settings", -0.6, -40.0, 40.0, 0.1, "%.1f °C"),
-        IndiProperty.NumberProp("MaxSpeed", "Max speed", "Settings", 400.0, 100.0, 1000.0, 100.0, "%.0f"),
-    ),
-
-    // Rotator — Optec Pyxis (core INDI, drivers/rotator/pyxis.cpp).
-    "Optec Pyxis" to listOf(
-        IndiProperty.NumberProp("ANGLE", "Angle", "Main Control", 118.4, 0.0, 360.0, 10.0, "%.2f°"),
-        IndiProperty.SwitchProp("ROTATOR_REVERSE", "Reverse", "Main Control", listOf("Enabled", "Disabled"), 1),
-        IndiProperty.NumberProp("ROTATION_RATE", "Rotation rate", "Settings", 8.0, 0.0, 99.0, 10.0, "%.0f"),
-    ),
-
-    // Domes — NexDome (indi-3rdparty); MaxDome II uses only the shared INDI::Dome base properties.
-    "NexDome" to listOf(
-        IndiProperty.SwitchProp("DOME_SHUTTER", "Shutter", "Main Control", listOf("Open", "Close"), 1),
-        IndiProperty.SwitchProp("DOME_MOTION", "Motion", "Main Control", listOf("Dome CW", "Dome CCW"), -1),
-        IndiProperty.NumberProp("DOME_ABSOLUTE_POSITION", "Absolute position", "Main Control", 0.0, 0.0, 360.0, 1.0, "%.0f°"),
-        IndiProperty.SwitchProp("DOME_PARK", "Parking", "Main Control", listOf("Park", "UnPark"), 1),
-        IndiProperty.SwitchProp("DOME_AUTOSYNC", "Slaving", "Dome Slaving", listOf("Enable", "Disable"), 1),
-    ),
-    "MaxDome II" to listOf(
-        IndiProperty.SwitchProp("DOME_SHUTTER", "Shutter", "Main Control", listOf("Open", "Close"), 1),
-        IndiProperty.SwitchProp("DOME_MOTION", "Motion", "Main Control", listOf("Dome CW", "Dome CCW"), -1),
-        IndiProperty.NumberProp("DOME_ABSOLUTE_POSITION", "Absolute position", "Main Control", 0.0, 0.0, 360.0, 1.0, "%.0f°"),
-        IndiProperty.SwitchProp("DOME_PARK", "Parking", "Main Control", listOf("Park", "UnPark"), 1),
-    ),
-
-    // Weather — AAG CloudWatcher NG (indi-3rdparty); Weather Watcher (core INDI, file/URL poll).
-    "AAG CloudWatcher NG" to listOf(
-        IndiProperty.LightProp("WEATHER_STATUS", "Status", "Main Control", listOf("Wind" to 1, "Rain" to 1, "Cloud" to 1, "Humidity" to 1)),
-        IndiProperty.NumberProp("WEATHER_WIND_SPEED", "Wind speed", "Parameters", 6.0, 0.0, 30.0, 1.0, "%.1f km/h"),
-        IndiProperty.NumberProp("WEATHER_CLOUD", "Cloud (sky-temp diff)", "Parameters", -20.0, -40.0, 60.0, 1.0, "%.1f °C"),
-        IndiProperty.NumberProp("WEATHER_HUMIDITY", "Humidity", "Parameters", 42.0, 0.0, 100.0, 1.0, "%.0f %"),
-        IndiProperty.NumberProp("WEATHER_RAIN", "Rain (cycles)", "Parameters", 8500.0, 2000.0, 10000.0, 100.0, "%.0f"),
-    ),
-    "Weather Watcher" to listOf(
-        IndiProperty.LightProp("WEATHER_STATUS", "Status", "Main Control", listOf("Rain" to 1, "Wind" to 1, "Clouds" to 1)),
-        IndiProperty.NumberProp("WEATHER_TEMPERATURE", "Temperature", "Parameters", 12.0, -10.0, 30.0, 1.0, "%.1f °C"),
-        IndiProperty.NumberProp("WEATHER_WIND_SPEED", "Wind speed", "Parameters", 6.0, 0.0, 20.0, 1.0, "%.1f km/h"),
-        IndiProperty.NumberProp("WEATHER_HUMIDITY", "Humidity", "Parameters", 42.0, 0.0, 100.0, 1.0, "%.0f %"),
-    ),
-
-    // Powerbox — Pegasus UPB v2 / PPBA (migrated to core indi/drivers/power/).
-    "Pegasus Ultimate Powerbox v2" to listOf(
-        IndiProperty.SwitchProp("POWER_CHANNEL_1", "Power ch. 1", "Power", listOf("On", "Off"), 0),
-        IndiProperty.SwitchProp("POWER_CHANNEL_2", "Power ch. 2", "Power", listOf("On", "Off"), 0),
-        IndiProperty.NumberProp("DEW_A", "Dew A duty cycle", "Dew", 62.0, 0.0, 100.0, 10.0, "%.0f %"),
-        IndiProperty.NumberProp("DEW_B", "Dew B duty cycle", "Dew", 40.0, 0.0, 100.0, 10.0, "%.0f %"),
-        IndiProperty.SwitchProp("AUTO_DEW_CONTROL", "Auto dew", "Dew", listOf("Enable", "Disable"), 0),
-        IndiProperty.NumberProp("SENSOR_VOLTAGE", "Voltage", "Main Control", 12.1, 0.0, 15.0, 0.1, "%.1f V"),
-        IndiProperty.NumberProp("SENSOR_CURRENT", "Current", "Main Control", 3.42, 0.0, 20.0, 0.1, "%.2f A"),
-    ),
-    "Pegasus Pocket Powerbox" to listOf(
-        IndiProperty.SwitchProp("POWER_CHANNELS", "Quad output", "Power", listOf("On", "Off"), 0),
-        IndiProperty.SwitchProp("ADJOUT_VOLTAGE", "Adjustable output", "Power", listOf("Off", "3V", "5V", "8V", "9V", "12V"), 0),
-        IndiProperty.NumberProp("DEW_A", "Dew A duty cycle", "Dew", 50.0, 0.0, 100.0, 10.0, "%.0f %"),
-        IndiProperty.NumberProp("DEW_B", "Dew B duty cycle", "Dew", 30.0, 0.0, 100.0, 10.0, "%.0f %"),
-    ),
-)
 
 @Serializable
 data class Block(
@@ -1065,12 +872,6 @@ data class Block(
     val ditherEvery: Int?,
 )
 
-val DEFAULT_BLOCKS = listOf(
-    Block("b1", "Ha", 300, 40, 12, 100, 50, 1, 2),
-    Block("b2", "OIII", 300, 30, 0, 100, 50, 1, 2),
-    Block("b3", "SII", 300, 20, 0, 100, 50, 1, 2),
-)
-
 /**
  * One queued target's capture plan, the counterpart of Ekos's `SchedulerJob`
  * (`scheduler_get_jobs`/`scheduler_add_jobs`): one target, one sequence of [blocks].
@@ -1080,8 +881,8 @@ val DEFAULT_BLOCKS = listOf(
 data class SequenceJob(
     val id: String,
     val targetId: String,
-    val blocks: List<Block> = DEFAULT_BLOCKS,
-    val blockSeq: Int = DEFAULT_BLOCKS.size + 1,
+    val blocks: List<Block> = emptyList(),
+    val blockSeq: Int = 1,
     /**
      * True once "Push to Ekos" was confirmed by a `scheduler_get_jobs` round-trip. Says only that
      * Ekos lists the job; use [wireJobFor] for its state. The block editor is read-only while true
@@ -1096,10 +897,6 @@ data class SequenceJob(
      * those keep their undated name so a synced job still matches what Ekos has.
      */
     val createdAtMs: Long = 0L,
-)
-
-val DEFAULT_JOBS = listOf(
-    SequenceJob(id = "j1", targetId = "NGC 7000", blocks = DEFAULT_BLOCKS, blockSeq = DEFAULT_BLOCKS.size + 1),
 )
 
 /**
@@ -1217,11 +1014,9 @@ val AppState.medHfr: Double? get() {
 val SequenceJob.currentBlockIndex: Int? get() =
     if (blocks.isEmpty()) null else blocks.indexOfFirst { it.doneCount < it.subCount }.let { if (it == -1) blocks.lastIndex else it }
 
-val FILTER_CYCLE = listOf("Ha", "OIII", "SII", "L", "R", "G", "B")
-
 /**
  * Filter slot names (INDI `FILTER_NAME`) from the connected filter wheel; null otherwise, and
- * callers fall back to [FILTER_CYCLE]. [indiProps] is keyed by device name, not the `"efw"` key.
+ * callers treat that as unknown. [indiProps] is keyed by device name, not the `"efw"` key.
  */
 val AppState.realFilterNames: List<String>? get() {
     val filterWheel = wireDevices?.firstOrNull { DeviceRole.FILTER in it.roles } ?: return null
@@ -1441,27 +1236,18 @@ data class GuideSample(val ra: Double, val de: Double, val raPulse: Int, val deP
 
 // ── Derived values ─────────────────────────────────────────────────────────
 
-private fun hhmm(s: Int): String {
-    val m = floor(s / 60.0).toInt()
-    val r = s % 60
-    return "$m:${r.toString().padStart(2, '0')}"
-}
 
-val AppState.elapsed: Int get() = (128 + t) % 300
-val AppState.expRemain: String get() = hhmm(300 - elapsed)
-val AppState.fNow: Double get() = 0.485 + t / 9000.0
 
 /** Minutes until the next scheduled autofocus, from [WireCaptureSettings.refocusEveryN] and the last run. */
-val AppState.focusNextAfMin: Int get() = ((wireCaptureSettings?.refocusEveryN ?: 45) - (t - focusLastAfAt) / 60).coerceAtLeast(0)
 
-/** EAF focuser temperature: the user's edit, else the [DRIVER_INDI_PROPS] default. */
-val AppState.eafTemp: Double get() = indiNumber("EAF", "FOCUS_TEMPERATURE") ?: -0.6
+/** Focuser temperature (`FOCUS_TEMPERATURE`), or null when the focuser doesn't report one. */
+val AppState.eafTemp: Double? get() = indiNumber(primaryTrain.focuser, "FOCUS_TEMPERATURE")
 
 /**
  * Focuser position for the Bench Focuser card: the focuser's `ABS_FOCUS_POSITION` when known,
  * else the local optimistic [focPos]. Always prefer the INDI value; [focPos] drifts with jogs.
  */
-val AppState.benchFocPos: Int get() =
+val AppState.benchFocPos: Int? get() =
     indiNumber(primaryTrain.focuser, "ABS_FOCUS_POSITION")?.roundToInt() ?: focPos
 
 /**
@@ -1474,7 +1260,7 @@ val AppState.benchFocPos: Int get() =
  * Step, `WireFocusSettings.focusTicks`.)
  */
 val AppState.focRange: IntRange? get() {
-    val props = indiProps[primaryTrain.focuser] ?: DRIVER_INDI_PROPS[primaryTrain.focuser] ?: emptyList()
+    val props = indiProps[primaryTrain.focuser] ?: emptyList()
     val prop = props.firstOrNull { it.name == "ABS_FOCUS_POSITION" } as? IndiProperty.NumberProp ?: return null
     if (prop.min == 0.0 && prop.max == 0.0) return null
     return prop.min.roundToInt()..prop.max.roundToInt()
@@ -1533,7 +1319,7 @@ val AppState.realSlewRateProp: IndiProperty.SwitchProp?
  * Mount tracking from INDI `TELESCOPE_TRACK_STATE` (`TRACK_ON`/`TRACK_OFF`), else [mountTracking].
  * Display only; writes go through `mount_set_tracking`.
  */
-val AppState.mountTrackingOn: Boolean get() {
+val AppState.mountTrackingOn: Boolean? get() {
     val prop = (indiProps[primaryTrain.mount] ?: emptyList()).firstOrNull { it.name == "TELESCOPE_TRACK_STATE" } as? IndiProperty.SwitchProp
     return prop?.let { it.elementNames.getOrNull(it.selected) == "TRACK_ON" } ?: mountTracking
 }
@@ -1575,17 +1361,29 @@ val AppState.framingFovDeg: Pair<Double, Double>? get() {
     return (scale * ccd.maxX / 3600.0) to (scale * ccd.maxY / 3600.0)
 }
 
-val AppState.paTotal: Double get() = hypot(paAlt, paAz)
-val AppState.coolAtSetPoint: Boolean get() = abs(coolNow - coolTarget) < 0.2
-val AppState.coolBarPct: Int get() {
-    val raw = ((12.4 - coolNow) / (12.4 - coolTarget) * 100).roundToInt()
-    return raw.coerceIn(2, 100)
-}
-val AppState.coolPowerPct: Int get() = min(99, (abs(coolNow - 12.4) * 3 + 8).roundToInt())
+val AppState.paTotal: Double? get() = if (paAlt != null && paAz != null) hypot(paAlt, paAz) else null
 val AppState.rejectCount: Int get() = frameRows.count { !it.keep }
 val AppState.keepCount: Int get() = frameRows.count { it.keep }
 val AppState.ready: Boolean get() = ekosRunning && isOn("mount") && isOn("cam")
-fun AppState.isOn(key: String): Boolean = ekosRunning && key !in devOff
+/**
+ * Whether the rig has a connected device for a setup role: Ekos running and, among the devices
+ * Ekos reports, the one on the primary train (else any with the role's INDI interface) connected.
+ */
+fun AppState.isOn(key: String): Boolean {
+    if (!ekosRunning) return false
+    val live = wireDevices ?: return false
+    val trainDevice = when (key) {
+        "mount" -> primaryTrain.mount
+        "cam" -> primaryTrain.camera
+        "focus" -> primaryTrain.focuser
+        "efw" -> primaryTrain.filterWheel
+        "rotator" -> primaryTrain.rotator
+        else -> null
+    }?.takeIf { it != "None" }
+    if (trainDevice != null) return live.any { it.name == trainDevice && it.connected }
+    val roles = CATEGORY_DEVICE_ROLES[key] ?: return false
+    return live.any { d -> d.connected && d.roles.any { it in roles } }
+}
 
 /** Whether a device is picked for the profile being built, regardless of Ekos running. */
 fun AppState.isSelected(key: String): Boolean = key !in devOff
@@ -1596,13 +1394,3 @@ val AppState.missing: String get() {    val parts = buildList {
     return parts.joinToString(" + ")
 }
 
-/** Synthetic trace: x = i + t*0.6 + seed, summed sines. */
-fun wiggle(t: Int, seed: Int, n: Int, amp: Double): List<Double> =
-    (0 until n).map { i ->
-        val x = i + t * 0.6 + seed
-        (sin(x * 0.7) + sin(x * 0.31) * 0.7 + sin(x * 1.9) * 0.35) / 2.05 * amp
-    }
-
-/** Ease a polar-align axis toward zero. */
-fun ease(v: Double): Double =
-    if (abs(v) < 0.15) 0.0 else (v - sign(v) * 0.22)

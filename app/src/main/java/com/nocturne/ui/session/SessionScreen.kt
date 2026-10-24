@@ -29,8 +29,6 @@ import com.nocturne.session.SessionController
 import com.nocturne.session.AppState
 import com.nocturne.session.SheetType
 import com.nocturne.session.contractJob
-import com.nocturne.session.expRemain
-import com.nocturne.session.fNow
 import com.nocturne.session.doneHM
 import com.nocturne.session.filterBreakdown
 import com.nocturne.session.formatSiteTime
@@ -159,12 +157,12 @@ private fun NightArcCard(state: AppState) {
                     .fillMaxWidth()
                     .height(176.dp),
             ) {
-                val shotFraction = nowFrac ?: state.fNow
+                val shotFraction = nowFrac
                 val plannedFraction = if (realProgress && window != null) {
                     val spanSec = (window.second.epochSecond - window.first.epochSecond).coerceAtLeast(1)
                     (job!!.totalPlannedSec.toDouble() / spanSec).coerceIn(0.0, 1.0)
                 } else {
-                    0.78
+                    null
                 }
                 NightArc(
                     shotFraction = shotFraction,
@@ -184,23 +182,23 @@ private fun NightArcCard(state: AppState) {
                         style = t.Caption10, color = c.textFaint,
                     )
                     TextC(
-                        if (realProgress) "sub ${job!!.totalDone}/${job.totalSubs}" else "sub 13/40 · ${state.expRemain} left",
+                        if (realProgress) "sub ${job!!.totalDone}/${job.totalSubs}" else "sub N/A",
                         style = t.Mono115, color = c.accent400,
                     )
                 }
                 TextC(
-                    if (window != null) state.formatSiteTime(window.first) else "21:48", style = t.MonoMicro, color = c.textFaint,
+                    if (window != null) state.formatSiteTime(window.first) else "N/A", style = t.MonoMicro, color = c.textFaint,
                     modifier = Modifier.align(Alignment.BottomStart).padding(bottom = 6.dp),
                 )
                 TextC(
-                    if (window != null) state.formatSiteTime(window.second) else "04:12", style = t.MonoMicro, color = c.textFaint,
+                    if (window != null) state.formatSiteTime(window.second) else "N/A", style = t.MonoMicro, color = c.textFaint,
                     modifier = Modifier.align(Alignment.BottomEnd).padding(bottom = 6.dp),
                 )
             }
         }
         Row(Modifier.fillMaxWidth()) {
             TextC(
-                if (realProgress) job!!.filterBreakdown else "Ha 12/40 · OIII 0/30",
+                if (realProgress) job!!.filterBreakdown else "filters N/A",
                 style = t.MonoMicro, color = c.textMuted, modifier = Modifier.weight(1f),
             )
             // No dither event on the wire; this is the same every-N-subs countdown Ekos computes
@@ -211,7 +209,7 @@ private fun NightArcCard(state: AppState) {
                         b.ditherEvery == null || b.ditherEvery <= 0 -> "dither off"
                         else -> "dither in ${b.ditherEvery - (b.doneCount % b.ditherEvery)}"
                     }
-                } ?: "dither —" else "dither in 2",
+                } ?: "dither N/A" else "dither N/A",
                 style = t.MonoMicro, color = c.textFaint,
             )
         }

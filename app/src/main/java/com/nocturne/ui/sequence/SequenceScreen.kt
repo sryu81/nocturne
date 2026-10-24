@@ -37,7 +37,6 @@ import com.nocturne.protocol.jobStatusLabel
 import com.nocturne.session.BINNING_OPTIONS
 import com.nocturne.session.Block
 import com.nocturne.session.DITHER_OPTIONS
-import com.nocturne.session.FILTER_CYCLE
 import com.nocturne.session.SequenceJob
 import com.nocturne.session.SessionController
 import com.nocturne.session.SheetType
@@ -464,7 +463,7 @@ private fun BlocksList(state: AppState, ctrl: SessionController, job: SequenceJo
     val heights = remember { mutableStateMapOf<String, Int>() }
 
     val locked = job.synced
-    val filterNames = state.realFilterNames ?: FILTER_CYCLE
+    val filterNames = state.realFilterNames.orEmpty()
     Column(Modifier.fillMaxWidth()) {
         job.blocks.forEach { b ->
             val isDragging = b.id == draggingId
@@ -556,7 +555,7 @@ private fun BlockCard(
                     .padding(horizontal = 10.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                TextC(block.filter, style = t.Mono14, color = if (first) c.accent400 else c.text)
+                TextC(block.filter.ifBlank { "N/A" }, style = t.Mono14, color = if (first) c.accent400 else c.text)
             }
             Spacer(Modifier.width(11.2.dp))
             Column(Modifier.weight(1f)) {

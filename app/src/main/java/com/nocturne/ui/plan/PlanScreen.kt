@@ -433,7 +433,7 @@ private fun TargetCard(state: AppState, ctrl: SessionController, tgt: Target) {
                 }
             }
             TextC(
-                window?.let { state.formatSiteTime(it.first) } ?: "21:48",
+                window?.let { state.formatSiteTime(it.first) } ?: "N/A",
                 style = t.MonoSmall, color = c.textMuted, modifier = Modifier.align(Alignment.BottomStart),
             )
             if (realAltitudes != null && nowFraction != null) {
@@ -441,12 +441,9 @@ private fun TargetCard(state: AppState, ctrl: SessionController, tgt: Target) {
                     "now ${state.formatSiteTime(Instant.now())}", style = t.Mono115, color = c.text,
                     modifier = Modifier.align(Alignment.BottomStart).padding(start = maxWidth * nowFraction.toFloat()),
                 )
-            } else {
-                TextC("now", style = t.Mono115, color = c.text, modifier = Modifier.align(Alignment.BottomStart).padding(start = 104.dp))
-                TextC("flip", style = t.Mono115, color = c.warn, modifier = Modifier.align(Alignment.BottomStart).padding(start = 186.dp))
             }
             TextC(
-                window?.let { state.formatSiteTime(it.second) } ?: "04:12",
+                window?.let { state.formatSiteTime(it.second) } ?: "N/A",
                 style = t.MonoSmall, color = c.textMuted, modifier = Modifier.align(Alignment.BottomEnd),
             )
             TextC(
