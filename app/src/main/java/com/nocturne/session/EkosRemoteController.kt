@@ -2527,15 +2527,17 @@ private fun AppState.withProperty(device: String, property: WireProperty): AppSt
  * compact push (no label/group/bounds) doesn't blank what an earlier non-compact `device_get`
  * populated. Only value/state are fresh on every push.
  */
-private fun WireProperty.toIndiProperty(existing: IndiProperty?): IndiProperty = when (this) {
+internal fun WireProperty.toIndiProperty(existing: IndiProperty?): IndiProperty = when (this) {
     is WireProperty.Switch -> {
         val ex = existing as? IndiProperty.SwitchProp
         val selectedIndex = switches.indexOfFirst { it.state == 1 }
+        // Compact pushes drop element labels too; keep each element's last known label.
+        val knownLabels = ex?.let { it.elementNames.zip(it.options).toMap() } ?: emptyMap()
         IndiProperty.SwitchProp(
             name = name,
             label = label ?: ex?.label ?: name,
             group = group ?: ex?.group ?: "",
-            options = switches.map { it.label ?: it.name },
+            options = switches.map { it.label ?: knownLabels[it.name] ?: it.name },
             selected = if (selectedIndex >= 0) selectedIndex else ex?.selected ?: 0,
             elementNames = switches.map { it.name },
         )
