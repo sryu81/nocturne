@@ -320,6 +320,25 @@ command does nothing. The app sets the method through `align_set_all_settings`
 only worth fixing for other clients. One-line fix: use the real object name. (Also in the same
 function: `if (PAH_START) … if (PAH_STOP) else if …` is missing an `else` — harmless today.)
 
+## 7. Meridian flip timeout — done (2026-10-24, fork branch `ekosremote-fork`)
+
+On 2026-10-23 the M31 flip retry sat in `MOUNT_FLIP_RUNNING` for 26 min: the mount stayed "Slewing"
+and RUNNING is only re-checked on a coord update while the mount is *not* slewing, so nothing ever
+ended it. Stock KStars never sets or handles `MOUNT_FLIP_ERROR`. Fork now: a single-shot timer from
+the flip slew start (max(300 s, MinFlipDuration + 120 s)); on expiry, Ekos log + `MeridianFlipFailed`
+Alert notification (reaches the app as `new_notification`), mount abort, `MOUNT_FLIP_ERROR`
+("Meridian flip failed."). Capture resets the flip stage and aborts the job (scheduler's error policy
+takes over); alt limits suspended at flip start are resumed on ERROR too. The next slew resets the
+state to NONE (`resetMeridianFlip`). App side: nothing needed for the alert. EkosRemote doesn't push
+flip states at all (see §3), so the app can't show the ERROR state itself.
+
+## 8. Tracking off without a dialog — done (2026-10-24)
+
+`mount_set_tracking {enabled:false}` → `Mount::setTrackEnabled` used to `click()` the Ekos Track Off
+button, whose handler opened a modal "Are you sure you want to turn off mount tracking?" on the Pi,
+so the app's command waited for someone at the Pi. Fork: `setTrackEnabled` calls the device
+directly, and the Track Off button no longer asks either.
+
 ---
 
 ## Explicitly not on this list (deliberately out of scope, not forgotten)
