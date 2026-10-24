@@ -1,50 +1,36 @@
-# Rig-maintenance companion daemon
+# Maintenance daemon
 
-Nocturne's "Reboot Pi" button (Gear → Rig maintenance) needs a way to power-
-cycle the Pi itself — something the EkosRemote protocol (port 9000) has no
-command for, and couldn't rely on anyway, since a hung/crashed Ekos process
-is exactly the case a reboot needs to recover from. Same reasoning applies
-to setting the Pi's real OS clock (2026-09 addition, `POST /set-time`) — a
-wrong system clock on a Pi with no RTC battery is an OS-level fact, nothing
-Ekos/INDI exposes any control over.
+A small stdlib-only Python daemon on the Pi (port 9001) for things the EkosRemote protocol can't
+do, or can't do when KStars is hung:
 
-This is a small stdlib-only Python daemon that listens on its own port
-(9001 by default) for `POST /reboot` and `POST /set-time`. No token or
-pairing — the app finds it on the same host it already connects to.
+| Endpoint | Does |
+|---|---|
+| `GET /health` | `{"status": "ok"}` |
+| `POST /reboot` | Reboots the Pi (replies 202 first) |
+| `POST /set-time` | `{"iso": "YYYY-MM-DDTHH:MM:SS"}` local time → `sudo date -s` (+ `hwclock -w` if an RTC exists). The Pi has no RTC, so its clock is wrong after every power loss |
+| `GET /hips/status` | Sky-atlas tiles present per order |
+| `GET /hips/<path>` | One sky-atlas tile (`Norder<k>/Dir<d>/Npix<n>.jpg`, `properties`, `Norder3/Allsky.jpg`); nothing else is served |
 
-## Sky atlas tiles
-
-`GET /hips/status` (tiles per order) and `GET /hips/<Norder/Dir/Npix path>` serve the offline
-DSS2 colour HiPS copy at `~/.local/share/kstars/hips/DSSColor` (override `NOCTURNE_HIPS_DIR`),
-the same folder KStars' offline HiPS reads. The app copies missing tiles from here (Gear →
-Rig maintenance → Sky atlas); only HiPS tile paths are served, nothing else on the Pi.
+The sky atlas is the offline DSS2 colour HiPS copy at `~/.local/share/kstars/hips/DSSColor`
+(override with `NOCTURNE_HIPS_DIR`), the same folder KStars' offline HiPS reads; the app copies
+missing tiles from it (Gear → Rig maintenance → Sky atlas).
 
 ## Install
 
 ```
-scp -r pi-tools/reboot-daemon pi@<rig-ip>:~/reboot-daemon
-ssh pi@<rig-ip>
-cd reboot-daemon
-sudo ./install.sh
+scp -r pi-tools/reboot-daemon <user>@<rig-ip>:~/reboot-daemon
+ssh <user>@<rig-ip>
+cd reboot-daemon && sudo ./install.sh
 ```
 
-The script:
-1. Checks the current user has passwordless `sudo reboot` (prints the
-   sudoers line to add if not, then exits — re-run after adding it).
-2. Installs the daemon to `/opt/nocturne-reboot/`, a systemd unit
-   (`nocturne-reboot.service`), and starts it on boot.
+Installs to `/opt/nocturne-reboot/` with the systemd unit `nocturne-reboot.service` (starts on
+boot). Needs passwordless `sudo reboot`/`date`/`hwclock`; the script prints the sudoers line if
+missing. Re-running is safe.
 
-Re-running `install.sh` is safe (idempotent). It also removes the
-`/etc/nocturne-reboot/token` file left by older, token-based installs.
+## Security
 
-## Security note
-
-Same trust model as Nocturne's own EkosRemote connection (see its Connect
-screen warning): **no auth, no encryption, LAN-only** — anything on your
-LAN can reboot the Pi or set its clock, just as it can already drive the
-rig over port 9000. An earlier shared-secret token was dropped: it added
-setup friction while guarding nothing 9000 didn't leave open. Don't expose
-this port past your LAN (no port-forwarding it to the internet).
+No auth, no encryption, LAN only — the same trust model as port 9000, which already lets any LAN
+client drive the rig. Never forward this port to the internet.
 
 ## Uninstall
 

@@ -1,36 +1,23 @@
 #!/usr/bin/env python3
-"""Tiny companion daemon for Nocturne's rig-maintenance "Reboot Pi" feature.
+"""Nocturne maintenance daemon: acts on the Pi itself, separate from KStars.
 
-Stdlib-only (no pip install needed on the Pi). Listens on its own port,
-entirely separate from EkosRemote's websocket (9000) — this is the one piece
-of Nocturne that can act on the Pi itself rather than through Ekos, which
-matters exactly when Ekos is the thing that's hung.
+Stdlib only. Listens on its own port (9001), apart from EkosRemote (9000), so it still works when
+KStars/Ekos is hung — the case a reboot exists for. (The service is named "nocturne-reboot"
+because reboot was its first job.)
 
 Endpoints:
-  GET  /health   -> 200 "ok"                          (no auth; harmless)
-  GET  /hips/status -> 200 {"status":"ok","orders":{"0":12,...},"complete":{"0":true,...}}
-                    tiles present per order in the offline DSS2 colour HiPS
-                    mirror (pi-tools/hips-mirror), so the app knows what it can copy
-  GET  /hips/<path> -> one file of that mirror: properties, Norder3/Allsky.jpg or
-                    Norder<k>/Dir<d>/Npix<n>.jpg (nothing else is served)
-  POST /reboot   -> 202 "rebooting" then `sudo reboot`
-  POST /set-time -> 200 "set" then `sudo date -s ...`
-                    body: {"iso": "YYYY-MM-DDTHH:MM:SS"} — a LOCAL wall-clock
-                    time (no timezone suffix), same shape `date -s` itself
-                    expects: interpreted in whatever timezone the Pi's own
-                    `/etc/localtime` is set to, matching the app's own real
-                    intent (phone and rig are co-located, same local time),
-                    not a UTC instant. Also runs `hwclock -w` best-effort
-                    afterward (silently skipped if no RTC hardware) so the
-                    corrected time survives a power loss, not just this boot.
+  GET  /health        -> 200 {"status": "ok"}
+  GET  /hips/status   -> tiles present per order in the offline DSS2 colour HiPS copy, e.g.
+                         {"status":"ok","orders":{"0":12,...},"complete":{"0":true,...}}
+  GET  /hips/<path>   -> one file of that copy: properties, Norder3/Allsky.jpg or
+                         Norder<k>/Dir<d>/Npix<n>.jpg (nothing else is served)
+  POST /reboot        -> 202, then `sudo reboot`
+  POST /set-time      -> body {"iso": "YYYY-MM-DDTHH:MM:SS"}, a LOCAL wall-clock time (phone and
+                         rig share a timezone); runs `sudo date -s`, then `hwclock -w` if an RTC
+                         exists so the time survives a power loss
 
-No auth — same trust-the-LAN model as the EkosRemote wire on 9000, which
-already lets any LAN client slew the mount, stop Ekos or set KStars' clock.
-A shared-secret header here (removed 2026-10) guarded nothing that port
-didn't already leave open, and it travelled in plain HTTP anyway; the app's
-typed "REBOOT" confirm is the real guard against an accidental tap. Real
-auth, if ever needed, belongs on both channels together (docs/FORK-BACKLOG.md).
-Name/service file predate `/set-time` (this daemon started as reboot-only).
+No auth: same trusted-LAN model as port 9000, which already lets any LAN client drive the rig.
+The app's typed "REBOOT" confirmation guards against accidental taps.
 """
 import http.server
 import json

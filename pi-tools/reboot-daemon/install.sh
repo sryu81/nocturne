@@ -24,7 +24,7 @@ if ! sudo -n -u "$RUN_USER" sudo -n true 2>/dev/null; then
 fi
 
 mkdir -p "$INSTALL_DIR"
-# Token auth was removed (2026-10) — clean up the old token from earlier installs.
+# Remove the token file left by old (token-auth) installs.
 rm -rf /etc/nocturne-reboot
 
 cp "$(dirname "$0")/reboot_daemon.py" "$INSTALL_DIR/reboot_daemon.py"

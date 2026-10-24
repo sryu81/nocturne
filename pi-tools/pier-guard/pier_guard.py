@@ -12,13 +12,12 @@ Side" property that isn't East, it switches it to East.
 East is right in both hemispheres: OnStep picks the side from hour angle
 (Goto.ino), and East means "post-flip side for targets west of the meridian".
 
-It also keeps a mount event log (pier side, slew/track state, preferred
-side, AutoFlip, OnStep errors, driver messages) in a rotating file, warns
+It also keeps a mount event log (pier side, slew/track/park state, preferred
+side, AutoFlip, OnStep errors, driver messages) in a rotating file and warns
 when a slew stays Busy too long. The driver's messages are the same
-errors/warnings/info its own INDI log file would hold at default levels;
-that file needs the DEBUG switch, which Ekos turns back off unless its INDI
-logging settings include the mount. The 2026-10-23 M31 flip failure left
-no trace because none of this survived the night.
+errors/warnings/info its own INDI log file would hold at default levels; that
+file needs the DEBUG switch, which Ekos turns back off unless its INDI logging
+settings include the mount.
 
 Stdlib only. Reconnects whenever indiserver goes away (Ekos stopped).
 """

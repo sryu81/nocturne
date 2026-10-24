@@ -2,7 +2,7 @@
 
 Keeps OnStep's **Preferred Pier Side** on **East**, which Ekos's meridian
 flip needs on this rig. With "Best", OnStep stays on the current side when it
-can, so the flip re-slew does nothing (2026-10-18 incident, docs/STATUS.md).
+can, so the flip re-slew does nothing.
 
 OnStep can't remember this setting: `:SX96` (what the INDI switch sends) only
 changes RAM, and the power-on value is the compile-time
@@ -40,12 +40,10 @@ Log: `journalctl -u nocturne-pier-guard -f`
 
 ## Mount event log
 
-The guard also logs what the mount does, so a failed flip leaves a trace
-(the 2026-10-23 M31 flip didn't): pier side, slew state (coords
-Idle/Ok/Busy/Alert with RA/DEC), tracking, park, Preferred Pier Side,
-AutoFlip, OnStep's error field and the mount driver's own messages, one
-line per change. It warns when a slew stays Busy for more than 5 minutes
-(a flip takes about 80 s), which is how the M31 session stalled.
+The guard also logs what the mount does, one line per change: pier side, slew state (coords
+Idle/Ok/Busy/Alert with RA/DEC), tracking, park, Preferred Pier Side, AutoFlip, OnStep's error
+field and the mount driver's messages. It warns when a slew stays Busy for more than 5 minutes
+(a flip takes about 80 s), the sign of a hung mount or serial link.
 
 - File: `~/nocturne-logs/mount-events.log` (5 MB × 10 rotated files;
   override with `PIER_GUARD_LOG`). Same lines also go to the journal.
