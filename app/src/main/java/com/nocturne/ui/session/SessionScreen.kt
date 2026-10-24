@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import com.nocturne.session.guideRmsTotal
 import com.nocturne.session.SessionController
 import com.nocturne.session.AppState
 import com.nocturne.session.SheetType
@@ -359,9 +360,8 @@ private fun ChipTag(text: String, accent: Boolean) {
 
 /**
  * HFR (M4.2) comes from the real capture frame header's own `hfr` field — real, once a frame has
- * landed. RMS/SNR stay honest placeholders: confirmed against source (docs/M4-plan.md "Guide/Focus
- * real telemetry does not exist on this protocol") that `new_guide_state` never carries either
- * value, on this or any future Media-channel work — not a "not yet wired" gap, a permanent one.
+ * landed. RMS/SNR come from the fork's guide-stats push (docs/FORK-BACKLOG.md §1); SNR only when
+ * the guide detector reports one (plain SEP/Smart send 0).
  */
 @Composable
 private fun StatsRow(state: AppState, ctrl: SessionController) {
@@ -378,18 +378,15 @@ private fun StatsRow(state: AppState, ctrl: SessionController) {
         Spacer(Modifier.width(8.4.dp))
         MiniStat(
             label = "RMS",
-            value = "—",
-            sub = "no wire telemetry",
-            subColor = NocturneTheme.colors.textFaint,
+            value = state.guideRmsTotal?.let { "%.2f\"".format(it) } ?: "—",
             onClick = { ctrl.openSheet(SheetType.GUIDE) },
             modifier = Modifier.weight(1f),
         )
         Spacer(Modifier.width(8.4.dp))
         MiniStat(
             label = "SNR",
-            value = "—",
-            sub = "no wire telemetry",
-            subColor = NocturneTheme.colors.textMuted,
+            value = state.guideSnr?.let { "%.0f".format(it) } ?: "—",
+            onClick = { ctrl.openSheet(SheetType.GUIDE) },
             modifier = Modifier.weight(1f),
         )
     }

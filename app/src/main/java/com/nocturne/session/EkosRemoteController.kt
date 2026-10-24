@@ -325,12 +325,27 @@ class EkosRemoteController(
             wireMountPierSide = event.pierSide ?: s.wireMountPierSide,
         )
         is EkosEvent.NewFocusState -> s.copy(wireFocusStatus = event.status)
-        is EkosEvent.NewGuideState -> s.copy(
-            wireGuideStatus = event.status ?: s.wireGuideStatus,
+        is EkosEvent.NewGuideState -> {
             // Real status wins over the optimistic Start/Stop flag — catches guiding started by
             // the scheduler or the desktop, and lost-star/calibration-failure aborts.
-            guiding = event.status?.let { it !in GUIDE_IDLE_STATES } ?: s.guiding,
-        )
+            val guiding = event.status?.let { it !in GUIDE_IDLE_STATES } ?: s.guiding
+            // A new run (wire status idle → busy) starts a fresh trace, like Ekos's own graph.
+            val newRun = event.status != null && guiding &&
+                (s.wireGuideStatus == null || s.wireGuideStatus in GUIDE_IDLE_STATES)
+            val base = if (newRun) s.copy(guideSamples = emptyList(), guideRmsRA = null, guideRmsDE = null) else s
+            val sample = if (event.raError != null && event.decError != null) {
+                GuideSample(event.raError, event.decError, event.raPulse ?: 0, event.decPulse ?: 0)
+            } else null
+            base.copy(
+                wireGuideStatus = event.status ?: s.wireGuideStatus,
+                guiding = guiding,
+                guideSamples = sample?.let { (base.guideSamples + it).takeLast(MAX_GUIDE_SAMPLES) } ?: base.guideSamples,
+                guideRmsRA = event.rmsRA ?: base.guideRmsRA,
+                guideRmsDE = event.rmsDE ?: base.guideRmsDE,
+                guideSnr = if (sample != null) event.snr?.takeIf { it > 0 } else s.guideSnr,
+                guideStarCount = if (sample != null) event.numStars?.takeIf { it > 0 } else s.guideStarCount,
+            )
+        }
         // Merges non-null fields rather than overwriting — see NewAlignState's own doc: status
         // and solution are two entirely independent real senders sharing this one push name.
         is EkosEvent.NewAlignState -> s.copy(

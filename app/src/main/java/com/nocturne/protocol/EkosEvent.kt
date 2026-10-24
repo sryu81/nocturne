@@ -51,13 +51,28 @@ sealed interface EkosEvent {
     data class NewFocusState(val status: String) : EkosEvent
 
     /**
-     * `new_guide_state` push. Today every real sender is `{"status"}` alone, but `status` is
-     * still optional: the planned guide-stats push (docs/FORK-BACKLOG.md §1) reuses this same
-     * push name with status-less shapes, and a required field would fail to decode those —
-     * same standing lesson as [NewMountState]/[NewAlignState].
+     * `new_guide_state` push — 3 independent real shapes share this name (fork
+     * `Message::updateGuideStatus`/`sendGuideStats`/`sendGuideSigma`, docs/FORK-BACKLOG.md §1),
+     * so every field is optional and the controller merges non-null ones:
+     * - `{status}` — module state text.
+     * - per guide frame: `raError`/`decError` (arcsec), `raPulse`/`decPulse` (ms, signed),
+     *   `snr`/`skyBg`/`numStars` — the last 3 are 0 with the plain SEP/Smart detectors
+     *   (live-verified 2026-10-23), only meaningful when > 0.
+     * - running RMS: `rmsRA`/`rmsDE` (arcsec).
      */
     @Serializable
-    data class NewGuideState(val status: String? = null) : EkosEvent
+    data class NewGuideState(
+        val status: String? = null,
+        val raError: Double? = null,
+        val decError: Double? = null,
+        val raPulse: Int? = null,
+        val decPulse: Int? = null,
+        val snr: Double? = null,
+        val skyBg: Double? = null,
+        val numStars: Int? = null,
+        val rmsRA: Double? = null,
+        val rmsDE: Double? = null,
+    ) : EkosEvent
 
     /**
      * `new_align_state` push — **a 4th occurrence of this repo's own standing decode lesson**

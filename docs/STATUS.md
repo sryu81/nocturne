@@ -49,6 +49,11 @@ inevitably-drifting tracker — check `README.md` itself for what's current, thi
       (dither settle/timeout/iterations/fail-aborts, dark frame/subframe/auto star/lost-star timeout,
       calibration pulse/max move/two-axis/backlash/reset-after-slew/reverse DEC on pier change).
       NOT live-verified (Pi unreachable that day).
+- [x] Guide telemetry (2026-10-23, needs fork `4b199d984`): `new_guide_state` stats/RMS decoded into
+      `AppState.guideSamples` (150 max, cleared on each new run) + `guideRmsRA/DE`; `GuideTelemetry`
+      (RMS RA/DEC/total, RA solid / DEC dashed drift chart with scale, SNR/stars when > 0) in the Guide
+      sheet and Controls guide card (tap → Guide sheet); Session RMS/SNR tiles real. Live-verified on the
+      Simulators profile (sim guiding itself runs away, so the numbers are large — real-sky test pending).
 - [x] Real Autofocus start/stop, real Polar Alignment (moved from Gear → Controls tab)
 - [x] Polar Alignment parity pass (2026-10-22): PAH settings (direction, rotation, mount speed, manual
       slew, refresh exposure/method) via `align_*_all_settings` — PAA is a child widget of Align, so the

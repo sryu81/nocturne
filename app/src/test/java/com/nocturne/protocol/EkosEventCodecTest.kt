@@ -419,6 +419,14 @@ class EkosEventCodecTest {
         val stats = EkosEventCodec.decode("""{"payload":{"rmsRA":0.61,"rmsDE":0.55},"type":"new_guide_state"}""")
         stats as EkosEvent.NewGuideState
         assertNull(stats.status)
+        assertEquals(0.61, stats.rmsRA!!, 1e-9)
+        // live capture (fork guideStats, Simulators profile 2026-10-23)
+        val sample = EkosEventCodec.decode("""{"payload":{"decError":122.5135222954195,"decPulse":-101,"numStars":0,"raError":-120.23391303781872,"raPulse":98,"skyBg":0,"snr":0},"type":"new_guide_state"}""")
+        sample as EkosEvent.NewGuideState
+        assertNull(sample.status)
+        assertEquals(-120.23391303781872, sample.raError!!, 1e-9)
+        assertEquals(-101, sample.decPulse)
+        assertEquals(0, sample.numStars)
     }
 
     @Test

@@ -49,6 +49,7 @@ import com.nocturne.session.mountTrackingOn
 import com.nocturne.session.paTotal
 import com.nocturne.session.realFilterNames
 import com.nocturne.session.realSlewRateProp
+import com.nocturne.ui.components.GuideTelemetry
 import com.nocturne.ui.components.BtnStyle
 import com.nocturne.protocol.WireAlignSolution
 import com.nocturne.ui.components.AccuracyTrendChart
@@ -875,6 +876,15 @@ private fun GuideControlCard(state: AppState, ctrl: SessionController) {
                 style = BtnStyle.SUBTLE,
                 enabled = !state.guiding,
                 modifier = Modifier.weight(1f).height(34.dp),
+            )
+        }
+        if (state.guideSamples.isNotEmpty() || state.guideRmsRA != null) {
+            Spacer(Modifier.height(10.dp))
+            // Tap for the full Guide sheet (bigger chart + guide frame) — its only other entry
+            // point is the Session tab's RMS tile, which is hidden when no job is running.
+            GuideTelemetry(
+                state, chartHeight = 64.dp,
+                modifier = Modifier.clickable { ctrl.openSheet(SheetType.GUIDE) },
             )
         }
     }

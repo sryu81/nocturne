@@ -278,11 +278,52 @@ fun AltitudeChart(
 }
 
 /**
- * M4.4: deleted `GuideTraceChart`/`VCurve` — both were fixture-only (Guide/Focus sheets' fake
- * RA/DEC trace and hardcoded 9-point V-curve), confirmed against source that no real data exists
- * on the wire to ever back either (see `GuideSheet`/`FocusSheet` in `Sheets.kt`, docs/M4-plan.md
- * "Guide/Focus real telemetry does not exist"). Not a "not yet wired" case — removed outright.
+ * Real guide drift trace — [com.nocturne.session.AppState.guideSamples] (fork `guideStats` push,
+ * docs/FORK-BACKLOG.md §1), oldest-to-newest left-to-right, centered on 0. RA solid in [raColor],
+ * DEC dashed in [deColor] (dash keeps them apart in red mode, where hues collapse). Vertical scale
+ * is ±[guideDriftScale] — symmetric, follows the data, never tighter than ±[minScaleArcsec] so a
+ * calm trace doesn't get blown up into noise; [thresholdArcsec] draws dashed ± guide lines.
  */
+/** Half-height of [GuideDriftChart]'s vertical axis, arcsec — exposed so callers can label it. */
+fun guideDriftScale(ra: List<Double>, de: List<Double>, thresholdArcsec: Double?, minScaleArcsec: Double = 2.0): Double =
+    maxOf((ra + de).maxOfOrNull { kotlin.math.abs(it) } ?: 0.0, thresholdArcsec ?: 0.0, minScaleArcsec)
+
+@Composable
+fun GuideDriftChart(
+    ra: List<Double>,
+    de: List<Double>,
+    raColor: Color,
+    deColor: Color,
+    modifier: Modifier,
+    thresholdArcsec: Double? = null,
+    minScaleArcsec: Double = 2.0,
+) {
+    val colors = com.nocturne.ui.theme.NocturneTheme.colors
+    val scale = guideDriftScale(ra, de, thresholdArcsec, minScaleArcsec)
+    Canvas(modifier = modifier) {
+        val mid = size.height / 2f
+        fun y(v: Double) = mid - (v / scale).toFloat().coerceIn(-1f, 1f) * mid
+        drawLine(colors.divider, Offset(0f, mid), Offset(size.width, mid), strokeWidth = 1f)
+        if (thresholdArcsec != null) {
+            for (v in listOf(thresholdArcsec, -thresholdArcsec)) {
+                drawLine(
+                    colors.warn.copy(alpha = 0.5f), Offset(0f, y(v)), Offset(size.width, y(v)),
+                    strokeWidth = 1f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 4f)),
+                )
+            }
+        }
+        fun trace(values: List<Double>, color: Color, dashed: Boolean) {
+            if (values.size < 2) return
+            val pts = values.mapIndexed { i, v -> Offset(i / (values.size - 1f) * size.width, y(v)) }
+            drawPath(
+                Path().apply { polyline(pts) }, color,
+                style = Stroke(width = 1.6f, pathEffect = if (dashed) PathEffect.dashPathEffect(floatArrayOf(6f, 3f)) else null),
+            )
+        }
+        trace(ra, raColor, dashed = false)
+        trace(de, deColor, dashed = true)
+    }
+}
 
 /**
  * Real per-solve pointing-accuracy trend (follow-up to M5, docs/STATUS.md) — [AppState.alignAccuracyHistory]'s

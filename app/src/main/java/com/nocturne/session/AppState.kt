@@ -245,6 +245,15 @@ data class AppState(
     val wireMountPierSide: Int? = null,
     val wireFocusStatus: String? = null,
     val wireGuideStatus: String? = null,
+    /** Per-frame guide error/pulse, oldest first, bounded at [MAX_GUIDE_SAMPLES]; cleared when a
+     *  new guide run starts (status idle → busy). See [EkosEvent.NewGuideState]. */
+    val guideSamples: List<GuideSample> = emptyList(),
+    /** Ekos's running RMS (arcsec) per axis — same numbers as the desktop's RMS label. */
+    val guideRmsRA: Double? = null,
+    val guideRmsDE: Double? = null,
+    /** Latest SNR / star count; null when the detector doesn't report them (wire sends 0). */
+    val guideSnr: Double? = null,
+    val guideStarCount: Int? = null,
     /** Real vocabulary (`ekos.h`): `Idle`/`Complete`/`Failed`/`Aborted`/`In Progress`/
      * `Successful`/`Syncing`/`Slewing`/`Rotating`/`Suspended` — shown in `FramingCard`/
      * `AlignSolveCard` as of M5 (docs/STATUS.md). */
@@ -1642,6 +1651,16 @@ const val MAX_NOTIFICATIONS = 100
 /** Cap on [AppState.alignAccuracyHistory] — enough points for a meaningful trend without growing
  * unbounded over a long imaging session. */
 const val MAX_ACCURACY_HISTORY = 30
+
+/** Cap on [AppState.guideSamples] — one per guide frame, so ~2.5 min at a 1 s exposure. */
+const val MAX_GUIDE_SAMPLES = 150
+
+/** Combined RMS, same formula as Ekos's own label (`Guide::setAxisSigma`: hypot(ra, de)). */
+val AppState.guideRmsTotal: Double?
+    get() = if (guideRmsRA != null && guideRmsDE != null) kotlin.math.hypot(guideRmsRA, guideRmsDE) else null
+
+/** One guide frame's correction (fork `guideStats`): error in arcsec, pulse in ms (signed). */
+data class GuideSample(val ra: Double, val de: Double, val raPulse: Int, val dePulse: Int)
 
 // ── Derived values (mirror the prototype renderVals math) ─────────────────
 

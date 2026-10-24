@@ -83,6 +83,7 @@ import com.nocturne.session.trainRolePool
 import com.nocturne.session.keepCount
 import com.nocturne.session.rejectCount
 import com.nocturne.session.medHfr
+import com.nocturne.ui.components.GuideTelemetry
 import com.nocturne.ui.components.HDivider
 import com.nocturne.ui.components.HatchBg
 import com.nocturne.ui.components.IconBtn
@@ -133,7 +134,7 @@ fun SheetHost(state: AppState, ctrl: SessionController, landscape: Boolean) {
     val sheet = state.sheet ?: return
     val full = sheet == SheetType.PA || sheet == SheetType.SETUP
     val (title, meta) = when (sheet) {
-        SheetType.GUIDE -> "Guiding" to "status + live frame"
+        SheetType.GUIDE -> "Guiding" to "RMS, drift + live frame"
         SheetType.FOCUS -> "Focus" to "status + live frame"
         SheetType.ALERTS -> "Alerts" to "tonight"
         // Real dusk/dawn (same `state.realNightWindow` source as `NightArcCard`'s Session-tab
@@ -215,12 +216,8 @@ fun SheetHost(state: AppState, ctrl: SessionController, landscape: Boolean) {
 // ── Guide ────────────────────────────────────────────────────────────────
 
 /**
- * M4.4 — the fixture RA/DEC trace + RMS/PEAK/SNR stat row are gone, not deferred: confirmed
- * against source (`Message::updateGuideStatus`, `message.cpp:2598-2601` and the two inline
- * `new_guide_state` construction sites, `:2670-2677`/`:2910-2918`) that a real push is *always*
- * `{"status": string}` alone — no RA/DEC drift, RMS, or SNR value exists on this wire protocol at
- * all, for any device, ever. Not something a future Media-channel pass unlocks either. What's
- * real instead: the status string itself, and the guide camera's own frame image (M4.2).
+ * Guide camera frame + status, and live RMS/drift ([GuideTelemetry]) from the fork's guide-stats
+ * push (docs/FORK-BACKLOG.md §1, 2026-10-23 — stock EkosRemote only ever sent `{status}`).
  */
 @Composable
 private fun GuideSheet(state: AppState, landscape: Boolean) {
@@ -245,14 +242,11 @@ private fun GuideSheet(state: AppState, landscape: Boolean) {
         }
     }
     val info = @Composable {
-        TextC(
-            "No RA/DEC drift, RMS, or SNR data exists on this wire protocol (confirmed against source) — real Ekos itself only reports guide status text over EkosRemote, not the plotted numbers its own desktop chart shows.",
-            style = t.MonoMicro, color = c.textMuted,
-        )
+        GuideTelemetry(state, chartHeight = 120.dp)
         if (guide != null) {
             Spacer(Modifier.height(11.2.dp))
             TextC(
-                "${"%.0f".format(guide.guideExposure)}s exposure · g${"%.0f".format(guide.guideGain)} · bin ${guide.guideBinning}",
+                "${"%.1f".format(guide.guideExposure)}s exposure · g${"%.0f".format(guide.guideGain)} · bin ${guide.guideBinning}",
                 style = t.MonoSmall, color = c.neutral500,
             )
         }
