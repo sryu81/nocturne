@@ -65,6 +65,16 @@ inevitably-drifting tracker — check `README.md` itself for what's current, thi
       Pi) sets East whenever any device reports otherwise; the app does the same while connected and
       raises a Mount alert. East in both hemispheres (OnStep picks the side by hour angle). Verified
       live: guard Best→East on install; app on connect and on a live change.
+- [x] Night forensics (2026-10-24): 10-23 M31 flip was a 1 s no-op (pier stayed West, Ekos retried
+      once, then sat 26 min in FLIP_RUNNING with the mount "Slewing"/frozen and tracking stopped);
+      M45 flipped fine at 02:50, job finished 04:34 (80/80), power cut ~05:53. Nothing but the
+      analyze files survived, so: `pi-tools/persistent-journal` (journald drop-in, Storage=persistent,
+      200 MB) and the pier guard now also writes a mount event log `~/nocturne-logs/mount-events.log`
+      (pier side, slew/track/park state, preferred side, AutoFlip, OnStep error, driver messages;
+      warns on a slew Busy > 5 min). Both installed on the Pi. The driver's own INDI log file is not
+      used: it needs DEBUG, which Ekos forces back off unless its INDI log settings include the mount.
+      Still open: OnStep reflash with `PIER_SIDE_PREFERRED_DEFAULT EAST`, fork FLIP_RUNNING timeout,
+      scheduler park at end of night.
 - [x] Guide telemetry (2026-10-23, needs fork `4b199d984`): `new_guide_state` stats/RMS decoded into
       `AppState.guideSamples` (150 max, cleared on each new run) + `guideRmsRA/DE`; `GuideTelemetry`
       (RMS RA/DEC/total, RA solid / DEC dashed drift chart with scale, SNR/stars when > 0) in the Guide

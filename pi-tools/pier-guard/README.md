@@ -37,3 +37,22 @@ Installs to `/opt/nocturne-pier-guard/` with a systemd unit
 (`nocturne-pier-guard.service`) that starts on boot. Re-running is safe.
 
 Log: `journalctl -u nocturne-pier-guard -f`
+
+## Mount event log
+
+The guard also logs what the mount does, so a failed flip leaves a trace
+(the 2026-10-23 M31 flip didn't): pier side, slew state (coords
+Idle/Ok/Busy/Alert with RA/DEC), tracking, park, Preferred Pier Side,
+AutoFlip, OnStep's error field and the mount driver's own messages, one
+line per change. It warns when a slew stays Busy for more than 5 minutes
+(a flip takes about 80 s), which is how the M31 session stalled.
+
+- File: `~/nocturne-logs/mount-events.log` (5 MB × 10 rotated files;
+  override with `PIER_GUARD_LOG`). Same lines also go to the journal.
+- Driver messages are the errors/warnings/info lines the driver's own INDI
+  log file would hold at default levels. That file isn't used: it needs the
+  driver's DEBUG switch, and Ekos turns DEBUG back off unless its INDI
+  logging settings include the mount (Settings → Logs).
+
+Pair it with `pi-tools/persistent-journal` so the journal survives a
+power cut too.
