@@ -431,6 +431,9 @@ abstract class AbstractLocalSessionController : SessionController {
     override open fun setGuideAutoStar(enabled: Boolean) = update { s ->
         s.copy(wireGuideSettings = s.wireGuideSettings?.copy(guideAutoStar = enabled))
     }
+    override open fun setGuideBoxSize(px: String) = update { s ->
+        s.copy(wireGuideSettings = s.wireGuideSettings?.copy(guideSquareSize = px))
+    }
     override open fun setGuideDitherSettle(sec: Int) = update { s ->
         s.copy(wireGuideSettings = s.wireGuideSettings?.copy(kcfg_DitherSettle = sec))
     }

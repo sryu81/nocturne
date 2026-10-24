@@ -8,6 +8,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.unit.dp
 import com.nocturne.session.wiggle
 import kotlin.math.PI
 import kotlin.math.cos
@@ -385,4 +386,58 @@ fun MiniTrace(t: Int, modifier: Modifier) {
         val path = Path().apply { polyline(pts) }
         drawPath(path, colors.accent, style = Stroke(width = 1.2f))
     }
+}
+
+/**
+ * Autofocus V-curve — one dot per measured focus frame ([com.nocturne.session.AppState.focusSamples]),
+ * x = focuser position, y = HFR (lower is better, so the best focus sits at the bottom of the V).
+ * A faint line joins the points in position order so the V shape reads at a glance; the newest
+ * frame is ringed in [latestColor] and the lowest-HFR frame is filled in [bestColor]. On a relative
+ * focuser (pos -1) frames are spread evenly in arrival order instead.
+ */
+@Composable
+fun FocusVCurveChart(
+    samples: List<com.nocturne.session.FocusSample>,
+    pointColor: Color,
+    bestColor: Color,
+    latestColor: Color,
+    modifier: Modifier,
+) {
+    val colors = com.nocturne.ui.theme.NocturneTheme.colors
+    Canvas(modifier = modifier) {
+        val pad = 6.dp.toPx()
+        val w = size.width - 2 * pad
+        val h = size.height - 2 * pad
+        for (f in listOf(0f, 0.5f, 1f)) {
+            val y = pad + f * h
+            drawLine(colors.divider, Offset(pad, y), Offset(pad + w, y), strokeWidth = 1f)
+        }
+        if (samples.isEmpty()) return@Canvas
+        val byPosition = samples.all { it.pos >= 0 }
+        val xs = if (byPosition) samples.map { it.pos.toDouble() } else samples.indices.map { it.toDouble() }
+        val (xMin, xMax) = xs.min() to xs.max()
+        val (yMin, yMax) = focusHfrRange(samples)
+        fun pt(i: Int) = Offset(
+            pad + (if (xMax > xMin) ((xs[i] - xMin) / (xMax - xMin)).toFloat() else 0.5f) * w,
+            pad + (1f - ((samples[i].hfr - yMin) / (yMax - yMin)).toFloat()) * h,
+        )
+        val order = samples.indices.sortedBy { xs[it] }
+        if (order.size >= 2) {
+            drawPath(Path().apply { polyline(order.map { pt(it) }) }, pointColor.copy(alpha = 0.35f), style = Stroke(width = 1.4f))
+        }
+        val best = samples.indices.minBy { samples[it].hfr }
+        val r = 3.dp.toPx()
+        samples.indices.forEach { drawCircle(pointColor, radius = r, center = pt(it)) }
+        drawCircle(bestColor, radius = r * 1.5f, center = pt(best))
+        drawCircle(latestColor, radius = r * 2.2f, center = pt(samples.lastIndex), style = Stroke(width = 1.6f))
+    }
+}
+
+/** Vertical HFR range of [FocusVCurveChart], padded 10% and never thinner than 0.5 — exposed for axis labels. */
+fun focusHfrRange(samples: List<com.nocturne.session.FocusSample>): Pair<Double, Double> {
+    val lo = samples.minOfOrNull { it.hfr } ?: 0.0
+    val hi = samples.maxOfOrNull { it.hfr } ?: 1.0
+    val span = maxOf(hi - lo, 0.5)
+    val mid = (hi + lo) / 2
+    return (mid - span * 0.55).coerceAtLeast(0.0) to mid + span * 0.55
 }

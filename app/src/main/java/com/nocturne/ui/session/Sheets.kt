@@ -87,6 +87,8 @@ import com.nocturne.session.keepCount
 import com.nocturne.session.rejectCount
 import com.nocturne.session.medHfr
 import com.nocturne.ui.components.GainField
+import com.nocturne.protocol.GUIDE_BOX_SIZES
+import com.nocturne.ui.components.FocusCurve
 import com.nocturne.ui.components.GuideTelemetry
 import com.nocturne.ui.components.HDivider
 import com.nocturne.ui.components.HatchBg
@@ -281,11 +283,8 @@ private fun GuideSheet(state: AppState, landscape: Boolean) {
 // ── Focus ────────────────────────────────────────────────────────────────
 
 /**
- * M4.4 — the fixture hardcoded 9-point V-curve is gone, not deferred: same permanent-gap
- * reasoning as [GuideSheet] — real `new_focus_state` is `{"status": string}` alone (confirmed
- * against source), no V-curve position/HFR series rides on it. What's real instead: the status
- * string, the real HFR off the focus camera's own latest frame header (M4.2), and POSITION/
- * TEMP Δ/NEXT AF below, which were already real (`focPos`/`eafTemp`/`focusNextAfMin`).
+ * Focus frame + status, the live autofocus V-curve ([FocusCurve], from `new_focus_state`'s
+ * per-frame `{hfr, pos}`), and POSITION/TEMP Δ/NEXT AF.
  */
 @Composable
 private fun FocusSheet(state: AppState, ctrl: SessionController) {
@@ -311,6 +310,8 @@ private fun FocusSheet(state: AppState, ctrl: SessionController) {
                 ).joinToString(" · "),
                 style = t.Mono17, color = c.text,
             )
+            Spacer(Modifier.height(10.dp))
+            FocusCurve(state, chartHeight = 140.dp)
         }
         Spacer(Modifier.height(11.2.dp))
         Row(Modifier.fillMaxWidth()) {
@@ -1172,6 +1173,13 @@ private fun GuideSettingsSheet(state: AppState, ctrl: SessionController) {
         Spacer(Modifier.height(8.4.dp))
         GuideSwitch("Auto star", "pick the guide star automatically", g.guideAutoStar) {
             ctrl.setGuideAutoStar(!g.guideAutoStar)
+        }
+        Spacer(Modifier.height(8.4.dp))
+        // Ekos locks this combo while the guider is busy (guide.cpp setBusy) — same here.
+        FieldLabel("Box size (px)" + if (state.guiding) " · locked while guiding" else "")
+        Spacer(Modifier.height(5.dp))
+        CycleChip(g.guideSquareSize, enabled = !state.guiding) {
+            ctrl.setGuideBoxSize(GUIDE_BOX_SIZES[(GUIDE_BOX_SIZES.indexOf(g.guideSquareSize) + 1).mod(GUIDE_BOX_SIZES.size)])
         }
         Spacer(Modifier.height(8.4.dp))
         FieldLabel("Lost star timeout (s)")

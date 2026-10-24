@@ -47,8 +47,23 @@ sealed interface EkosEvent {
         val pierSide: Int? = null,
     ) : EkosEvent
 
+    /**
+     * `new_focus_state` push — several independent shapes share this name (stock
+     * `Manager::updateCurrentHFR`/`setTitle`/`newLog`, `Message::sendStates`), so every field is
+     * optional and the controller merges non-null ones:
+     * - `{status}` — module state text (`ekos.h` `focusStates`).
+     * - per measured focus frame: `hfr` + `pos` (absolute focuser position, -1 on a relative
+     *   focuser) — HFR even when Autofocus is set to another star measure.
+     * - `title` — the V-curve plot title (curve fit / R² / scan progress text).
+     * Was `{status}`-only: every HFR/title push failed to decode and was dropped.
+     */
     @Serializable
-    data class NewFocusState(val status: String) : EkosEvent
+    data class NewFocusState(
+        val status: String? = null,
+        val hfr: Double? = null,
+        val pos: Int? = null,
+        val title: String? = null,
+    ) : EkosEvent
 
     /**
      * `new_guide_state` push — 3 independent real shapes share this name (fork
@@ -1153,6 +1168,9 @@ data class WireFocusSettings(
     val focusBinning: String = "1x1",
 )
 
+/** `guide.ui` `guideSquareSize` combo items (px); Ekos sets the combo by text. */
+val GUIDE_BOX_SIZES = listOf("8", "16", "32", "64", "128")
+
 @Serializable
 data class WireGuideSettings(
     val guideExposure: Double = 1.0,
@@ -1168,6 +1186,8 @@ data class WireGuideSettings(
     val guideDarkFrame: Boolean = false,
     val guideSubframe: Boolean = false,
     val guideAutoStar: Boolean = false,
+    /** Tracking box size, px — `guide.ui` QComboBox, its text is one of [GUIDE_BOX_SIZES]. */
+    val guideSquareSize: String = "16",
     // opsdither.ui (all QSpinBox — ints):
     val kcfg_DitherSettle: Int = 0,
     val kcfg_DitherTimeout: Int = 45,

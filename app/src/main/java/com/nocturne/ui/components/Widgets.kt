@@ -1,6 +1,7 @@
 package com.nocturne.ui.components
 
 import android.graphics.BitmapFactory
+import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -24,6 +25,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.CornerRadius
@@ -34,6 +36,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -59,6 +62,19 @@ fun TextC(
     overflow: TextOverflow = TextOverflow.Clip,
 ) {
     Text(text = text, style = style, color = color, modifier = modifier, maxLines = maxLines, overflow = overflow)
+}
+
+/**
+ * Wraps a button's click with a light key-press haptic (honors the phone's touch-feedback
+ * setting), so a tap is felt even without looking — the ripple alone is easy to miss outdoors.
+ */
+@Composable
+fun tapFeedback(onClick: () -> Unit): () -> Unit {
+    val view = LocalView.current
+    return {
+        view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+        onClick()
+    }
 }
 
 /** Button — prototype has solid accent fill (dark text), outline, danger fills. */
@@ -99,9 +115,10 @@ fun NocturneButton(
     val shape = RoundedCornerShape(10.dp)
     val base = Modifier
         .height(38.dp) // was 34 — most call sites override with their own explicit height anyway
+        .clip(shape)
         .background(bg, shape)
+        .clickable(enabled = enabled, onClick = tapFeedback(onClick)) // before padding: ripple fills the button
         .padding(horizontal = 14.dp)
-        .clickable(enabled = enabled, onClick = onClick)
     val bordered = if (bd != null) base.border(1.dp, bd, shape) else base
     Box(modifier = modifier.then(bordered), contentAlignment = Alignment.Center) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -131,9 +148,10 @@ fun IconBtn(
     Box(
         modifier = modifier
             .size(size.dp)
+            .clip(shape)
             .background(c.surfaceRaised, shape)
             .border(1.dp, c.divider, shape)
-            .clickable(enabled = enabled, onClick = onClick),
+            .clickable(enabled = enabled, onClick = tapFeedback(onClick)),
         contentAlignment = Alignment.Center,
     ) {
         Phosphor.Icon(icon, size = iconSize, tint = tint ?: c.textMuted)

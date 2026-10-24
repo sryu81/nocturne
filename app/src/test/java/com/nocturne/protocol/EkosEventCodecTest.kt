@@ -439,5 +439,24 @@ class EkosEventCodecTest {
         assertEquals(750, event.settings.kcfg_CalibrationPulseDuration)
         assertTrue(event.settings.kcfg_ReverseDecOnPierSideChange)
         assertEquals(45, event.settings.kcfg_DitherTimeout)
+        assertEquals("32", event.settings.guideSquareSize)
+    }
+
+    @Test
+    fun `decodes every new_focus_state shape`() {
+        val status = EkosEventCodec.decode("""{"payload":{"status":"In Progress"},"type":"new_focus_state"}""")
+        status as EkosEvent.NewFocusState
+        assertEquals("In Progress", status.status)
+        // Manager::updateCurrentHFR — one per measured focus frame, no status. Used to fall to Raw.
+        val frame = EkosEventCodec.decode("""{"payload":{"hfr":2.41,"pos":29535},"type":"new_focus_state"}""")
+        frame as EkosEvent.NewFocusState
+        assertNull(frame.status)
+        assertEquals(2.41, frame.hfr!!, 1e-9)
+        assertEquals(29535, frame.pos)
+        val title = EkosEventCodec.decode("""{"payload":{"title":"Hyperbola (W): R²=0.98"},"type":"new_focus_state"}""")
+        title as EkosEvent.NewFocusState
+        assertEquals("Hyperbola (W): R²=0.98", title.title)
+        val plotInit = EkosEventCodec.decode("""{"payload":{"focusinitHFRPlot":true},"type":"new_focus_state"}""")
+        assertTrue(plotInit is EkosEvent.NewFocusState)
     }
 }

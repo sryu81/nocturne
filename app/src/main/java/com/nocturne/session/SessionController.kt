@@ -297,6 +297,7 @@ interface SessionController {
     fun setGuideDarkFrame(enabled: Boolean)
     fun setGuideSubframe(enabled: Boolean)
     fun setGuideAutoStar(enabled: Boolean)
+    fun setGuideBoxSize(px: String)
     fun setGuideDitherSettle(sec: Int)
     fun setGuideDitherTimeout(sec: Int)
     fun setGuideDitherMaxIterations(n: Int)

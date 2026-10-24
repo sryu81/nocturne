@@ -221,7 +221,7 @@ private fun NocturneShell(
             // still meaningful context even during a connection hiccup (SOCKET_OPEN specifically:
             // socket fine, values just stale from the last real push), and showing "—" for
             // everything pre-connection is itself honest signal, not clutter to hide.
-            ModuleStatusRow(state, landscape)
+            ModuleStatusRow(state, landscape, onOpen = ctrl::openSheet)
             // NocturneHeader used to sit here, above this whole Row — meaning the vertical
             // NavRail's own top started below it, leaving a visible gap between the connection
             // status banner and the rail (confirmed live, user-reported: "the session message
@@ -328,7 +328,7 @@ private fun NocturneShell(
  * once a status word itself is long ("Filter Focus", "Guider Settling").
  */
 @Composable
-private fun ModuleStatusRow(state: AppState, landscape: Boolean) {
+private fun ModuleStatusRow(state: AppState, landscape: Boolean, onOpen: (SheetType) -> Unit) {
     val c = NocturneTheme.colors
     Row(
         modifier = Modifier
@@ -341,17 +341,23 @@ private fun ModuleStatusRow(state: AppState, landscape: Boolean) {
         ModuleStatusBadge("Sched", if (state.schedulerRunning) "Running" else "Idle")
         ModuleStatusBadge("Mount", state.wireMountStatus)
         ModuleStatusBadge("Cam", state.wireCaptureStatus)
-        ModuleStatusBadge("Focus", state.wireFocusStatus)
-        ModuleStatusBadge("Guide", state.wireGuideStatus)
+        // Focus/Guide open their live charts (V-curve, drift) — the badge alone is too little.
+        ModuleStatusBadge("Focus", state.wireFocusStatus, onClick = { onOpen(SheetType.FOCUS) })
+        ModuleStatusBadge("Guide", state.wireGuideStatus, onClick = { onOpen(SheetType.GUIDE) })
         ModuleStatusBadge("Align", state.wireAlignStatus)
     }
 }
 
 /** One module's compact "Label: Status" badge — [statusColorFor]'s own doc explains the coloring. */
 @Composable
-private fun ModuleStatusBadge(label: String, status: String?, modifier: Modifier = Modifier) {
+private fun ModuleStatusBadge(label: String, status: String?, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
     val c = NocturneTheme.colors
-    Row(modifier.padding(end = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        modifier
+            .let { if (onClick != null) it.clickable(onClick = onClick) else it }
+            .padding(end = 14.dp, top = 2.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Box(
             Modifier
                 .size(6.dp)
@@ -359,6 +365,7 @@ private fun ModuleStatusBadge(label: String, status: String?, modifier: Modifier
         )
         Spacer(Modifier.width(5.dp))
         Text("$label ${status ?: "—"}", style = NocturneTheme.type.MonoMicro, color = statusColorFor(status, c))
+        if (onClick != null) Text(" ›", style = NocturneTheme.type.MonoMicro, color = c.textFaint)
     }
 }
 

@@ -54,6 +54,7 @@ import com.nocturne.session.paTotal
 import com.nocturne.session.realFilterNames
 import com.nocturne.session.realSlewRateProp
 import com.nocturne.ui.components.GainField
+import com.nocturne.ui.components.FocusCurve
 import com.nocturne.ui.components.GuideTelemetry
 import com.nocturne.ui.components.BtnStyle
 import com.nocturne.protocol.WireAlignSolution
@@ -622,13 +623,8 @@ private fun fanLabel(element: String?): String = when {
  * Focus In/Out (plain, no amount — see [SessionController.focusStepIn]'s doc for why the old
  * fixed-amount jog row and typed-absolute-goto were both removed 2026-09) + real Autofocus
  * start/stop. `focus_start`/`focus_stop` have no meaningful params or reply —
- * [AppState.focusRunning] is a client-side optimistic flag driving
- * the button's own label, not derived from the real wire status text, which is shown verbatim
- * alongside it instead (`state.wireFocusStatus`) — see
- * [com.nocturne.session.EkosRemoteController.startAutofocus]'s doc for why. Known limitation:
- * `focusRunning` doesn't auto-clear when a real autofocus finishes on its own — the raw status
- * text is the only place that'd actually show real completion; the button still needs a manual
- * Stop tap.
+ * [AppState.focusRunning] drives the button's label: optimistic on tap, then follows the real
+ * status ([com.nocturne.session.FOCUS_IDLE_STATES]), which is also shown verbatim. The V-curve ([FocusCurve]) shows each measured frame.
  */
 @Composable
 private fun FocuserCard(state: AppState, ctrl: SessionController) {
@@ -731,6 +727,10 @@ private fun FocuserCard(state: AppState, ctrl: SessionController) {
                 style = if (state.focusRunning) BtnStyle.SOLID else BtnStyle.SUBTLE,
                 modifier = Modifier.height(34.dp),
             )
+        }
+        if (state.focusRunning || state.focusSamples.isNotEmpty()) {
+            Spacer(Modifier.height(9.dp))
+            FocusCurve(state, chartHeight = 110.dp)
         }
     }
 }

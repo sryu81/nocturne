@@ -52,6 +52,13 @@ enum class RigRebootState { IDLE, SENDING, SENT, FAILED }
 val GUIDE_IDLE_STATES = setOf("Idle", "Aborted", "Connected", "Disconnected", "Calibration error")
 
 /**
+ * Real `new_focus_state.status` strings for which no Autofocus run is going (`ekos.h`
+ * `focusStates`). "Framing" is the Focus module's plain loop, not an autofocus run, so it counts
+ * as idle here too; busy = "In Progress", "User Input", "Changing Filter".
+ */
+val FOCUS_IDLE_STATES = setOf("Idle", "Complete", "Failed", "Aborted", "Framing")
+
+/**
  * Real `new_polar_state.stage` strings — `PolarAlignmentAssistant::PAHStages`
  * (polaralignmentassistant.cpp:26-43, English locale), in run order.
  */
@@ -120,9 +127,9 @@ data class AppState(
      * Polar-Align control — flipped on tap, same shape as [mountTracking]/[mountParked]. Doesn't
      * attempt to string-match the real wire's undocumented status/stage values (see
      * `EkosRemoteController.startAutofocus`'s doc) — the raw wire text is shown alongside these,
-     * never derived from them. Known limitation, accepted: [focusRunning] doesn't auto-clear when
-     * a real routine finishes on its own. [guiding] and [polarRunning] do: the real status/stage
-     * push overrides the optimistic value (see [GUIDE_IDLE_STATES], [PAH_STAGE_IDLE]). [guiding]
+     * never derived from them. [focusRunning], [guiding] and [polarRunning] auto-clear: the real
+     * status/stage push overrides the optimistic value (see [FOCUS_IDLE_STATES],
+     * [GUIDE_IDLE_STATES], [PAH_STAGE_IDLE]). [guiding]
      * means "Guide module busy" (guiding, calibrating, looping, capturing...), like Ekos's own
      * Stop button being enabled.
      */
@@ -244,6 +251,11 @@ data class AppState(
     val wireMountSlewRate: Int? = null,
     val wireMountPierSide: Int? = null,
     val wireFocusStatus: String? = null,
+    /** Per-frame focus measurements (position, HFR), oldest first, bounded at
+     *  [MAX_FOCUS_SAMPLES]; cleared when an autofocus run starts. See [EkosEvent.NewFocusState]. */
+    val focusSamples: List<FocusSample> = emptyList(),
+    /** Ekos's own V-curve plot title (curve fit, R², scan progress); cleared with [focusSamples]. */
+    val focusCurveTitle: String? = null,
     val wireGuideStatus: String? = null,
     /** Per-frame guide error/pulse, oldest first, bounded at [MAX_GUIDE_SAMPLES]; cleared when a
      *  new guide run starts (status idle → busy). See [EkosEvent.NewGuideState]. */
@@ -1671,6 +1683,12 @@ const val MAX_ACCURACY_HISTORY = 30
 
 /** Cap on [AppState.guideSamples] — one per guide frame, so ~2.5 min at a 1 s exposure. */
 const val MAX_GUIDE_SAMPLES = 150
+
+/** Cap on [AppState.focusSamples] — a full autofocus run is typically 10–30 frames. */
+const val MAX_FOCUS_SAMPLES = 120
+
+/** One measured focus frame: absolute focuser position (-1 on a relative focuser) and its HFR. */
+data class FocusSample(val pos: Int, val hfr: Double)
 
 /** Combined RMS, same formula as Ekos's own label (`Guide::setAxisSigma`: hypot(ra, de)). */
 val AppState.guideRmsTotal: Double?

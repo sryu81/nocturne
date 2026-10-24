@@ -330,7 +330,24 @@ class EkosRemoteController(
             wireMountSlewRate = event.slewRate ?: s.wireMountSlewRate,
             wireMountPierSide = event.pierSide ?: s.wireMountPierSide,
         )
-        is EkosEvent.NewFocusState -> s.copy(wireFocusStatus = event.status)
+        is EkosEvent.NewFocusState -> {
+            // Real status wins over the optimistic Start/Stop flag (scheduler/desktop-started runs,
+            // runs that finish or fail on their own) — same shape as NewGuideState below.
+            val running = event.status?.let { it !in FOCUS_IDLE_STATES } ?: s.focusRunning
+            // A new autofocus run (idle → busy) starts a fresh V-curve, like Ekos's own plot.
+            // Not keyed off `focusinitHFRPlot`: Ekos re-sends that mid-run whenever it redraws.
+            val newRun = event.status != null && running &&
+                (s.wireFocusStatus == null || s.wireFocusStatus in FOCUS_IDLE_STATES)
+            val base = if (newRun) s.copy(focusSamples = emptyList(), focusCurveTitle = null) else s
+            // HFR <= 0 = no star detected on that frame — nothing to plot.
+            val sample = if (event.hfr != null && event.hfr > 0 && event.pos != null) FocusSample(event.pos, event.hfr) else null
+            base.copy(
+                wireFocusStatus = event.status ?: s.wireFocusStatus,
+                focusRunning = running,
+                focusSamples = sample?.let { (base.focusSamples + it).takeLast(MAX_FOCUS_SAMPLES) } ?: base.focusSamples,
+                focusCurveTitle = event.title?.takeIf { it.isNotBlank() } ?: base.focusCurveTitle,
+            )
+        }
         is EkosEvent.NewGuideState -> {
             // Real status wins over the optimistic Start/Stop flag — catches guiding started by
             // the scheduler or the desktop, and lost-star/calibration-failure aborts.
@@ -1050,10 +1067,9 @@ class EkosRemoteController(
 
     /**
      * `focus_start`/`focus_stop` — empty request/response each (confirmed against the reference);
-     * progress arrives only via `new_focus_state` (already wired, `AppState.wireFocusStatus`).
-     * Doesn't attempt to string-match the real status text — no documented enum of values exists
-     * anywhere for it, only shown verbatim in the UI alongside [AppState.focusRunning]'s own
-     * optimistic button state. Distinct from `runAutofocusNow` below (FocusSheet's older one-shot
+     * progress arrives only via `new_focus_state` (`AppState.wireFocusStatus`, per-frame HFR in
+     * `AppState.focusSamples`); [AppState.focusRunning] is optimistic until that status lands,
+     * then follows it ([FOCUS_IDLE_STATES]). Distinct from `runAutofocusNow` below (FocusSheet's older one-shot
      * fixture-only button) — both now fire the same real command, kept as separate methods since
      * their fixture behaviors differ and neither call site should have to know about the other.
      */
@@ -1268,20 +1284,17 @@ class EkosRemoteController(
 
     /**
      * Goto, then plate-solve with the Align module's solver-action temporarily switched to
-     * `slewR` — confirmed live (`align_get_all_settings`): real Ekos exposes this as 3 mutually
-     * exclusive bools (`nothingR`/`slewR`/`syncR`, default `nothingR`), and setting `slewR` makes
-     * the server itself re-slew onto the solved position after `align_solve` — no client-side
-     * pointing-offset math needed, unlike a naive read of the reference alone would suggest.
+     * `slewR` — real Ekos exposes this as 3 mutually exclusive bools (`nothingR`/`slewR`/`syncR`,
+     * default `nothingR`); with `slewR` Ekos itself loops capture → solve → re-slew until the
+     * error is under `alignAccuracyThreshold` (or it gives up after its max iterations).
      * Restores whatever solver-action the user had before (from the last real
-     * `align_get_all_settings` snapshot), not just `nothingR`, so this doesn't silently change
-     * their normal Align-tab default.
+     * `align_get_all_settings` snapshot), not just `nothingR`.
      *
-     * **Known simplification, not yet live-tuned**: this app doesn't decode a real "slew
-     * finished" or "solve finished" signal (`new_mount_state`/`new_align_state`'s real status
-     * vocabularies aren't enumerated anywhere in this codebase yet), so the steps are separated by
-     * fixed heuristic delays rather than a real completion wait. Needs live testing to tune the
-     * delays (or replace them with a real status-string wait) before trusting this for anything
-     * time-sensitive — flagged, not silently assumed correct.
+     * Every step waits on real status, not a timer: the slew on `new_mount_state`, the centering
+     * loop on `new_align_state` reaching a terminal state ([ALIGN_DONE_STATES]). This used to wait
+     * a fixed 8 s + 15 s and then restore `nothingR` — but Ekos only re-solves after each re-slew
+     * while the action is still `slewR` (`align_goto.cpp`), so a loop that needed more than one
+     * pass stopped half-way and a second tap was needed to finish it.
      */
     override fun gotoAndCenter(targetId: String) {
         val target = _state.value.findTarget(targetId) ?: return
@@ -1290,14 +1303,22 @@ class EkosRemoteController(
         gotoJob = scope.launch {
             abortSlewIfMoving(target.realLookupName)
             client.sendCommand(Commands.MOUNT_GOTO_TARGET, buildJsonObject { put("target", target.realLookupName) })
-            delay(8_000) // heuristic slew-settle wait — see this function's own doc
+            awaitSlewFinished()
             client.sendCommand(Commands.ALIGN_SET_ALL_SETTINGS, buildJsonObject {
                 put("nothingR", false); put("slewR", true); put("syncR", false)
             })
+            val result: String?
             try {
                 delay(500)
                 client.sendCommand(Commands.ALIGN_SOLVE)
-                delay(15_000) // heuristic solve+reslew-settle wait
+                // First see the run start (the status may still read a previous run's "Complete"),
+                // then wait for it to end — however many solve/re-slew passes that takes.
+                val started = withTimeoutOrNull(ALIGN_START_TIMEOUT_MS) {
+                    _state.first { it.wireAlignStatus !in ALIGN_DONE_STATES }
+                }
+                result = if (started == null) "did not start" else withTimeoutOrNull(ALIGN_RUN_TIMEOUT_MS) {
+                    _state.first { it.wireAlignStatus in ALIGN_DONE_STATES }
+                }?.wireAlignStatus ?: "timed out"
             } finally {
                 // Also on cancel (a newer goto replaced this one): never leave slewR switched on.
                 client.sendCommand(Commands.ALIGN_SET_ALL_SETTINGS, buildJsonObject {
@@ -1306,8 +1327,25 @@ class EkosRemoteController(
                     put("syncR", original?.syncR ?: false)
                 })
             }
+            if (result == "Complete") {
+                val err = _state.value.wireAlignSolution?.targetDiff?.let { " (error %.0f\")".format(it) } ?: ""
+                pushLocalAlert("Centered on ${target.realLookupName}$err", source = 4, severity = 1)
+            } else {
+                pushLocalAlert("Centering on ${target.realLookupName} stopped: align $result", source = 4, severity = 2)
+            }
         }
         super.gotoAndCenter(targetId)
+    }
+
+    /**
+     * Waits for a just-sent goto to finish: first for the mount to report moving (the status
+     * push lags the command, and a very short slew may finish before "Slewing" is ever seen —
+     * hence the timeout), then for it to stop, then a short settle before imaging.
+     */
+    private suspend fun awaitSlewFinished() {
+        withTimeoutOrNull(SLEW_START_TIMEOUT_MS) { _state.first { it.wireMountStatus in MOUNT_MOVING_STATES } }
+        withTimeoutOrNull(SLEW_TIMEOUT_MS) { _state.first { it.wireMountStatus !in MOUNT_MOVING_STATES } }
+        delay(SLEW_SETTLE_MS)
     }
 
     /**
@@ -1874,6 +1912,10 @@ class EkosRemoteController(
     override fun setGuideAutoStar(enabled: Boolean) {
         sendGuideSetting("guideAutoStar", JsonPrimitive(enabled))
         super.setGuideAutoStar(enabled)
+    }
+    override fun setGuideBoxSize(px: String) {
+        sendGuideSetting("guideSquareSize", JsonPrimitive(px))
+        super.setGuideBoxSize(px)
     }
     override fun setGuideDitherSettle(sec: Int) {
         sendGuideSetting("kcfg_DitherSettle", JsonPrimitive(sec))
@@ -2660,6 +2702,16 @@ private fun AppState.withConnectionState(device: String, property: WireProperty)
 private const val CAMERA_FAN_PROP = "TC_FAN_SPEED" // ToupTek-family drivers (indi_toupbase)
 /** `new_mount_state.status` values while the mount is moving (ISD::Mount status text). */
 private val MOUNT_MOVING_STATES = setOf("Slewing", "Moving", "Parking")
+
+/** `new_align_state.status` values (`ekos.h` `alignStates`) that end an Align run. "Successful"
+ *  is not one: with `slewR` it's followed by a re-slew and another solve. */
+private val ALIGN_DONE_STATES = setOf("Idle", "Complete", "Failed", "Aborted")
+private const val SLEW_START_TIMEOUT_MS = 10_000L
+private const val SLEW_TIMEOUT_MS = 5 * 60_000L
+private const val SLEW_SETTLE_MS = 2_000L
+private const val ALIGN_START_TIMEOUT_MS = 30_000L
+// Ekos caps the loop at MAXIMUM_SOLVER_ITERATIONS (10) passes of exposure + solve + slew.
+private const val ALIGN_RUN_TIMEOUT_MS = 15 * 60_000L
 private const val RECENT_GOTO_MS = 5_000L
 private const val PREFERRED_PIER_SIDE = "Preferred Pier Side"
 private const val PIER_SIDE_EAST = "2" // lx200_OnStep.cpp: "1" West, "2" East, "3" Best
