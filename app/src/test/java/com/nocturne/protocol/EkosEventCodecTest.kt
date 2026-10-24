@@ -104,6 +104,25 @@ class EkosEventCodecTest {
     }
 
     @Test
+    fun `decodes get_drivers — DriverInfo toJson shape, family uses DeviceFamilyLabels`() {
+        // shape from kstars indi/driverinfo.h DriverInfo::toJson (fork 3.8.3)
+        val json = """{"payload":[
+            {"binary":"indi_lx200_OnStep","family":"Telescopes","label":"LX200 OnStep","manufacturer":"OnStep","name":"LX200 OnStep","skel":"","version":"1.26"},
+            {"binary":"indi_toupcam_ccd","family":"CCDs","label":"ToupTek","manufacturer":"ToupTek","name":"ToupTek","skel":"","version":"1.0"},
+            {"binary":"indi_asi_wheel","family":"Filter Wheels","label":"ZWO EFW","manufacturer":"","name":"ZWO EFW","skel":"","version":"1.0"}
+        ],"type":"get_drivers"}"""
+
+        val event = EkosEventCodec.decode(json)
+        assertTrue("expected Drivers, got $event", event is EkosEvent.Drivers)
+        event as EkosEvent.Drivers
+        assertEquals(3, event.drivers.size)
+        assertEquals("LX200 OnStep", event.drivers[0].label)
+        assertEquals("Telescopes", event.drivers[0].family)
+        assertEquals("indi_toupcam_ccd", event.drivers[1].binary)
+        assertEquals("", event.drivers[2].manufacturer)
+    }
+
+    @Test
     fun `decodes get_scopes — real Ekos auto-derives name from vendor+model+focal+fratio, not user input`() {
         // live capture. Confirms name != model — a scope's displayed `name` ("Skywatcher Esprit
         // 100ED 550@F/5.5") is server-generated from vendor/model/focal_length/aperture, not the

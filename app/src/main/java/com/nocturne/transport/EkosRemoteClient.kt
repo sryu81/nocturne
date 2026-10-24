@@ -162,6 +162,10 @@ class EkosRemoteClient(
         // short of starting Ekos first. Documented bootstrap order (README §4.1) always had this
         // eager — the actual sendCommand call had just drifted into the online-only block.
         sendCommand(Commands.GET_PROFILES)
+        // Full INDI driver catalog for the profile wizard's pickers — KStars' own list, also
+        // answered while Ekos is stopped. Without it the pickers only knew drivers already saved
+        // in some profile.
+        sendCommand(Commands.GET_DRIVERS)
     }
 
     private fun onEvent(event: EkosEvent) {

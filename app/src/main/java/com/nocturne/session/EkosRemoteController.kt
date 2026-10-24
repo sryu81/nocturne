@@ -495,6 +495,7 @@ class EkosRemoteController(
             s.copy(moduleTrainAssignments = resolveModuleTrainAssignments(s.moduleTrainAssignments, s.wireTrains))
         }
         is EkosEvent.Scopes -> s.copy(wireScopes = event.scopes.map { it.toScopeDef() })
+        is EkosEvent.Drivers -> s.copy(wireDriverCatalog = event.drivers)
         // Real Options::self() reply (M4.5 half B, docs/STATUS.md) — see AppState's own doc on
         // each field. Unconditionally overwrites (this reply only ever arrives once, the eager
         // fetch at connect, same no-optimistic-race reasoning as coolTarget/focPos's own seeds).

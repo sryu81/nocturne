@@ -392,6 +392,8 @@ data class AppState(
      * [realDeviceOptions]. Null until the first `get_profiles` reply.
      */
     val wireKnownDrivers: Map<String, List<String>>? = null,
+    /** Every INDI driver installed on the Pi (`get_drivers`); see [installedDriverOptions]. */
+    val wireDriverCatalog: List<com.nocturne.protocol.WireDriver>? = null,
     /**
      * `get_scopes` translated (M3.1) — real Ekos's Scopes catalog is a
      * separate dialog from Optical Trains entirely (`get_scopes`/`scope_add`/
@@ -955,6 +957,9 @@ val CATEGORY_TO_DRIVER_FAMILY = mapOf(
     "rotator" to "Rotators",
     "dome" to "Domes",
     "weather" to "Weather",
+    // INDI files power boxes (Pegasus UPB/PPB, Terrans, ...) under "Power" (checked on the rig's
+    // /usr/share/indi, 2026-10-24); before this the role fell into the invalid "Aux" family.
+    "powerbox" to "Power",
 )
 
 /**
@@ -963,11 +968,9 @@ val CATEGORY_TO_DRIVER_FAMILY = mapOf(
  * fixed fixture list whenever connected, same discipline as the Gear tab's
  * device list/Optical Train already following [wireDevices] over fixtures.
  *
- * There's no wire command to list installed-but-not-running drivers (only
- * `get_devices` — currently connected — and each profile's own saved
- * selections) — a real Profile Editor sources that from a local drivers.xml
- * this protocol never exposes. So the pool here is the union of two real
- * (not invented) sources: whatever's *currently connected* ([wireDevices],
+ * This is the "used before" list; the full installed catalog comes from
+ * `get_drivers` ([installedDriverOptions]). The pool here is the union of two
+ * real sources: whatever's *currently connected* ([wireDevices],
  * empty/absent until Ekos is actually running) and every driver label
  * *ever saved* across any profile on this Pi ([wireKnownDrivers], available
  * as soon as `get_profiles` replies — even before Ekos starts, which is
@@ -986,6 +989,20 @@ fun AppState.realDeviceOptions(key: String): List<String>? {
     val names = ((connected ?: emptyList()) + (everConfigured ?: emptyList())).distinct()
     val required = DEVICES.firstOrNull { it.key == key }?.req ?: false
     return if (required) names else (listOf("None") + names).distinct()
+}
+
+/**
+ * Every installed INDI driver for one rig-setup role, from the Pi's full catalog
+ * ([wireDriverCatalog], `get_drivers`) — the profile wizard's "all installed drivers" list, next
+ * to [realDeviceOptions]' "used before" list. One entry per label, sorted by manufacturer then
+ * label. Null until the catalog arrives (not connected, or an old KStars without the command).
+ */
+fun AppState.installedDriverOptions(key: String): List<com.nocturne.protocol.WireDriver>? {
+    val catalog = wireDriverCatalog ?: return null
+    val family = CATEGORY_TO_DRIVER_FAMILY[key] ?: return emptyList()
+    return catalog.filter { it.family == family && it.label.isNotBlank() }
+        .distinctBy { it.label }
+        .sortedWith(compareBy({ it.manufacturer.ifBlank { "~" }.lowercase() }, { it.label.lowercase() }))
 }
 
 /**

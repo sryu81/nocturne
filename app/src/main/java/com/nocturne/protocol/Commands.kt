@@ -12,6 +12,8 @@ object Commands {
     const val GET_STATES = "get_states"
     const val GET_DEVICES = "get_devices"
     const val GET_PROFILES = "get_profiles"
+    /** Every INDI driver KStars knows (its drivers.xml catalog), installed or not running. */
+    const val GET_DRIVERS = "get_drivers"
 
     // M3 — profiles.
     const val PROFILE_START = "profile_start"

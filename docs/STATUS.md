@@ -65,6 +65,13 @@ inevitably-drifting tracker — check `README.md` itself for what's current, thi
       Pi) sets East whenever any device reports otherwise; the app does the same while connected and
       raises a Mount alert. East in both hemispheres (OnStep picks the side by hour angle). Verified
       live: guard Best→East on install; app on connect and on a live change.
+- [x] Profile wizard shows every installed INDI driver (2026-10-24): stock `get_drivers` (KStars'
+      DriverManager catalog, answered with Ekos stopped) sent on connect; pickers get a search box,
+      "Used before" (profiles' saved drivers + connected devices) and "All installed drivers" grouped
+      by manufacturer (124 mount drivers on the rig). New profiles start with no driver chosen
+      (they held fixture names like "EQ6-R Pro", which Save would have sent) and Save needs mount +
+      camera; power box mapped to INDI's "Power" family (was the invalid "Aux"). Live: catalog and
+      search checked on the phone, nothing saved.
 - [x] Offline sky atlas (2026-10-24): Framing card renders from the DSS2 colour HiPS survey
       (`hips/Healpix.kt` + `hips/SkyAtlas.kt`; HEALPix nested math and in-tile orientation checked
       against CDS `hips2fits` in 4 sky zones, pinned by unit tests). Orders 0–4 (~211 MB) packed

@@ -850,7 +850,13 @@ abstract class AbstractLocalSessionController : SessionController {
     }
 
     override fun openSetup() = update { s ->
-        if (s.ekosRunning) s else s.copy(sheet = SheetType.SETUP, setupEditingName = null, profileName = "New profile")
+        // A new profile starts with nothing chosen: the selections otherwise held the fixture
+        // names (EQ6-R Pro, ...) or leftovers from a previous edit, and Save would send those.
+        if (s.ekosRunning) s else s.copy(
+            sheet = SheetType.SETUP, setupEditingName = null, profileName = "New profile",
+            selectedDeviceNames = DEVICES.associate { it.key to "None" },
+            devOff = DEVICES.map { it.key }.toSet(),
+        )
     }
     override fun setupBack() = update { it.copy(sheet = null) }
     override open fun finishSetup() = update { s ->

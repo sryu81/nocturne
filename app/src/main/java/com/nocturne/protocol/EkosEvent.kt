@@ -292,6 +292,10 @@ sealed interface EkosEvent {
     @Serializable
     data class Scopes(val scopes: List<WireScope>) : EkosEvent
 
+    /** `get_drivers` reply — bare array of [WireDriver], wrapped here (`Message::sendDrivers`). */
+    @Serializable
+    data class Drivers(val drivers: List<WireDriver>) : EkosEvent
+
     /**
      * `option_get` reply (M4.5 half B, docs/STATUS.md) — bare array, one entry per requested
      * option, in request order (`message.cpp:1456-1470`). Same reply `type` as the request
@@ -774,6 +778,23 @@ val MODULE_KEY_BY_TRAIN_SETTING: Map<String, String> = mapOf(
  * [name]. `focal_length`/`aperture` are wire doubles; Nocturne's own
  * [com.nocturne.session.ScopeDef] rounds them to Int mm for its UI.
  */
+/**
+ * One entry of KStars' INDI driver catalog (`get_drivers`, `DriverInfo::toJson`): every driver
+ * the Pi's installed INDI packages describe in their XML files under `/usr/share/indi`. [label] is what a profile
+ * stores under its `drivers[family]`; [family] uses the same labels (`DeviceFamilyLabels`:
+ * "Telescopes", "CCDs", "Filter Wheels", "Focusers", "Rotators", "Domes", "Weather",
+ * "Auxiliary", ...). [manufacturer] can be empty.
+ */
+@Serializable
+data class WireDriver(
+    val name: String = "",
+    val label: String = "",
+    val binary: String = "",
+    val version: String = "",
+    val manufacturer: String = "",
+    val family: String = "",
+)
+
 @Serializable
 data class WireScope(
     val id: String = "",

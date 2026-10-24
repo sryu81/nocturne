@@ -52,6 +52,7 @@ import com.nocturne.session.SkyAtlasStatus
 import com.nocturne.session.formatIndiNumber
 import com.nocturne.session.formatSiteTime
 import com.nocturne.session.sourceLabel
+import com.nocturne.session.installedDriverOptions
 import com.nocturne.session.realDeviceOptions
 import com.nocturne.session.realFilterNames
 import com.nocturne.session.realNightWindow
@@ -184,7 +185,7 @@ fun SheetHost(state: AppState, ctrl: SessionController, landscape: Boolean) {
                 live.name to (if (live.connected) "connected" else "not connected")
             } else {
                 val d = DEVICES.firstOrNull { it.key == state.deviceKey } ?: DEVICES[0]
-                (state.selectedDeviceNames[d.key] ?: d.name) to (if (d.req) "required for a session" else "optional")
+                (DEVICE_ROLE_LABELS[d.key] ?: d.name) to (if (d.req) "required for a session" else "optional")
             }
         }
     }
@@ -217,7 +218,7 @@ fun SheetHost(state: AppState, ctrl: SessionController, landscape: Boolean) {
             }
         },
         footer = if (sheet == SheetType.SETUP) {
-            { SetupFooter(ctrl) }
+            { SetupFooter(state, ctrl) }
         } else null,
     )
 }
@@ -435,6 +436,13 @@ private fun PrefsSheet(state: AppState, ctrl: SessionController) {
 
 // ── Setup ────────────────────────────────────────────────────────────────
 
+/** Rig-setup role names (wizard rows and picker titles), keyed like [DEVICES]. */
+private val DEVICE_ROLE_LABELS = mapOf(
+    "mount" to "Mount", "cam" to "Main camera", "guide" to "Guide camera", "efw" to "Filter wheel",
+    "focus" to "Focuser", "rotator" to "Rotator", "dome" to "Dome", "weather" to "Weather",
+    "powerbox" to "Power box",
+)
+
 private val DEVICE_ICONS: Map<String, ImageVector> = mapOf(
     "mount" to Phosphor.CompassTool,
     "cam" to Phosphor.Camera,
@@ -490,7 +498,11 @@ private fun SetupBody(state: AppState, ctrl: SessionController) {
             ) {
                 Phosphor.Icon(DEVICE_ICONS[d.key] ?: Phosphor.Plugs, size = 18.dp, tint = c.neutral500)
                 Spacer(Modifier.width(11.2.dp))
-                TextC(state.selectedDeviceNames[d.key] ?: d.name, style = t.Body13, color = c.text, modifier = Modifier.weight(1f))
+                val chosen = state.selectedDeviceNames[d.key]?.takeIf { selected && it != "None" }
+                Column(Modifier.weight(1f)) {
+                    TextC(DEVICE_ROLE_LABELS[d.key] ?: d.key, style = t.MonoMicro, color = c.textFaint)
+                    TextC(chosen ?: "Choose a driver…", style = t.Body13, color = if (chosen != null) c.text else c.textMuted)
+                }
                 TextC(
                     if (selected) "SELECTED" else if (d.req) "REQUIRED" else "OFF",
                     style = t.MonoMicro,
@@ -699,7 +711,8 @@ private fun ScopeEditorForm(initial: ScopeDef?, onSave: (name: String, focalMm: 
 }
 
 @Composable
-private fun SetupFooter(ctrl: SessionController) {
+private fun SetupFooter(state: AppState, ctrl: SessionController) {
+    val ready = listOf("mount", "cam").all { state.isSelected(it) && state.selectedDeviceNames[it] != "None" }
     Row(Modifier.fillMaxWidth()) {
         NocturneButton(
             text = "Cancel",
@@ -711,6 +724,7 @@ private fun SetupFooter(ctrl: SessionController) {
         NocturneButton(
             text = "Save profile",
             onClick = ctrl::finishSetup,
+            enabled = ready,
             style = com.nocturne.ui.components.BtnStyle.OUTLINE,
             modifier = Modifier.weight(1f).height(44.dp),
         )
@@ -2677,28 +2691,54 @@ private fun DevicePickerBody(state: AppState, ctrl: SessionController, d: Device
             }
         }
         Spacer(Modifier.height(11.2.dp))
-        TextC("AVAILABLE DEVICES", style = t.MicroLabel, color = c.textFaint)
-        Spacer(Modifier.height(5.dp))
-        val options = state.realDeviceOptions(d.key) ?: d.catalog
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .border(1.dp, c.divider, RoundedCornerShape(4.dp)),
-        ) {
-            options.forEachIndexed { i, name ->
-                val sel = name == current
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .background(if (sel) c.accent.copy(alpha = 0.14f) else Color.Transparent)
-                        .clickable { ctrl.selectDeviceName(d.key, name) }
-                        .padding(horizontal = 12.dp, vertical = 9.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    TextC(name, style = t.Body13, color = if (sel) c.accent400 else c.text, modifier = Modifier.weight(1f))
-                    if (sel) Phosphor.Icon(Phosphor.Check, size = 14.dp, tint = c.accent400)
-                }
-                if (i < options.lastIndex) HDivider()
+        val used = state.realDeviceOptions(d.key) ?: d.catalog
+        val installed = state.installedDriverOptions(d.key)
+        var query by remember(d.key) { mutableStateOf("") }
+        val q = query.trim().lowercase()
+        fun matches(vararg text: String) = q.isEmpty() || text.any { it.lowercase().contains(q) }
+
+        if (installed != null) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(44.dp)
+                    .background(c.bg, RoundedCornerShape(4.dp))
+                    .border(1.dp, c.divider, RoundedCornerShape(4.dp))
+                    .padding(horizontal = 12.dp),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                if (query.isEmpty()) TextC("Search ${installed.size} installed drivers…", style = t.Body13, color = c.textFaint)
+                BasicTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    singleLine = true,
+                    textStyle = t.Body13.copy(color = c.text),
+                    cursorBrush = SolidColor(c.accent),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            Spacer(Modifier.height(11.2.dp))
+        }
+
+        val usedShown = used.filter { matches(it) }
+        if (usedShown.isNotEmpty()) {
+            TextC(if (installed != null) "USED BEFORE" else "AVAILABLE DEVICES", style = t.MicroLabel, color = c.textFaint)
+            Spacer(Modifier.height(5.dp))
+            DeviceOptionList(usedShown.map { it to null }, current) { ctrl.selectDeviceName(d.key, it) }
+        }
+
+        if (installed != null) {
+            // everything else installed on the Pi, by manufacturer; "used before" entries aren't repeated
+            val rest = installed.filter { it.label !in used && matches(it.label, it.manufacturer) }
+            Spacer(Modifier.height(11.2.dp))
+            TextC("ALL INSTALLED DRIVERS · ${rest.size}", style = t.MicroLabel, color = c.textFaint)
+            Spacer(Modifier.height(5.dp))
+            if (rest.isEmpty()) {
+                TextC(if (q.isEmpty()) "Nothing else installed for this role." else "No driver matches \"$query\".", style = t.Caption, color = c.textMuted)
+            }
+            rest.groupBy { it.manufacturer.ifBlank { "Other" } }.forEach { (maker, drivers) ->
+                TextC(maker.uppercase(), style = t.MonoMini, color = c.accent400, modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
+                DeviceOptionList(drivers.map { it.label to it.binary.ifBlank { null } }, current) { ctrl.selectDeviceName(d.key, it) }
             }
         }
         Spacer(Modifier.height(11.2.dp))
@@ -2706,6 +2746,37 @@ private fun DevicePickerBody(state: AppState, ctrl: SessionController, d: Device
             "Connect and configure once Ekos is running for this profile.",
             style = t.Mono115, color = c.textMuted,
         )
+    }
+}
+
+/** Bordered list of selectable driver labels for [DevicePickerBody]; second of each pair is a dim detail (driver binary). */
+@Composable
+private fun DeviceOptionList(options: List<Pair<String, String?>>, current: String, onSelect: (String) -> Unit) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .border(1.dp, c.divider, RoundedCornerShape(4.dp)),
+    ) {
+        options.forEachIndexed { i, (name, detail) ->
+            val sel = name == current
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .background(if (sel) c.accent.copy(alpha = 0.14f) else Color.Transparent)
+                    .clickable { onSelect(name) }
+                    .padding(horizontal = 12.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    TextC(name, style = t.Body13, color = if (sel) c.accent400 else c.text)
+                    detail?.let { TextC(it, style = t.MonoMicro, color = c.textFaint) }
+                }
+                if (sel) Phosphor.Icon(Phosphor.Check, size = 14.dp, tint = c.accent400)
+            }
+            if (i < options.lastIndex) HDivider()
+        }
     }
 }
 
