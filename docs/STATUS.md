@@ -49,6 +49,12 @@ inevitably-drifting tracker — check `README.md` itself for what's current, thi
       (dither settle/timeout/iterations/fail-aborts, dark frame/subframe/auto star/lost-star timeout,
       calibration pulse/max move/two-axis/backlash/reset-after-slew/reverse DEC on pier change).
       NOT live-verified (Pi unreachable that day).
+- [x] Preferred Pier Side guard (2026-10-23): OnStep keeps it in RAM only (`:SX96` never hits NV,
+      power-on = compile-time `PIER_SIDE_PREFERRED_DEFAULT`, stock BEST) so every mount power cycle
+      undid the 10-18 flip fix. `pi-tools/pier-guard` (systemd INDI client, installed + enabled on the
+      Pi) sets East whenever any device reports otherwise; the app does the same while connected and
+      raises a Mount alert. East in both hemispheres (OnStep picks the side by hour angle). Verified
+      live: guard Best→East on install; app on connect and on a live change.
 - [x] Guide telemetry (2026-10-23, needs fork `4b199d984`): `new_guide_state` stats/RMS decoded into
       `AppState.guideSamples` (150 max, cleared on each new run) + `guideRmsRA/DE`; `GuideTelemetry`
       (RMS RA/DEC/total, RA solid / DEC dashed drift chart with scale, SNR/stars when > 0) in the Guide

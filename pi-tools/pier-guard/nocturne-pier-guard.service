@@ -1,0 +1,13 @@
+[Unit]
+Description=Nocturne pier guard (keeps OnStep Preferred Pier Side on East)
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/python3 /opt/nocturne-pier-guard/pier_guard.py
+Restart=always
+RestartSec=5
+# Plain INDI client on localhost:7624 — no privileges needed.
+User=__NOCTURNE_PIER_GUARD_USER__
+
+[Install]
+WantedBy=multi-user.target

@@ -112,6 +112,9 @@ class EkosRemoteController(
     // 2026-10-23: ~2k requests per device in 10 min).
     private val fullyFetchedDevices = mutableSetOf<String>()
 
+    // Last time (ms) we pushed Preferred Pier Side = East per device — see enforcePreferredPierSide.
+    private val pierSideFixSentAt = mutableMapOf<String, Long>()
+
     /** Name a standalone [ensureTargetRiseset] fetch is in flight for — see that function's doc. */
     private var pendingTargetRisesetName: String? = null
 
@@ -740,8 +743,14 @@ class EkosRemoteController(
                 fullyFetchedDevices.clear()
                 event.devices.forEach { device -> subscribeDevice(device) }
             }
-            is EkosEvent.DeviceProperty -> fetchFullDeviceIfNewlyConnected(event.property.device, event.property)
-            is EkosEvent.DeviceProperties -> event.properties.forEach { fetchFullDeviceIfNewlyConnected(event.device, it) }
+            is EkosEvent.DeviceProperty -> {
+                fetchFullDeviceIfNewlyConnected(event.property.device, event.property)
+                enforcePreferredPierSide(event.property.device, event.property)
+            }
+            is EkosEvent.DeviceProperties -> event.properties.forEach {
+                fetchFullDeviceIfNewlyConnected(event.device, it)
+                enforcePreferredPierSide(event.device, it)
+            }
             // astro_search_objects carries no free-text field — the query is applied here,
             // client-side, against the flat name list before resolving the (usually much
             // smaller) matching subset's coordinates/riseset.
@@ -839,6 +848,40 @@ class EkosRemoteController(
                 put("device", device.name)
                 putJsonArray("properties") { add("CONNECTION") }
             })
+        }
+    }
+
+    /**
+     * OnStep's "Preferred Pier Side" must be East for Ekos's meridian flip to re-slew (with Best
+     * the flip is a no-op — 2026-10-18 incident), but OnStep keeps it in RAM only and powers up
+     * on Best. The Pi's pier guard (pi-tools/pier-guard) fixes it on every connect; this is the
+     * app-side backstop: if a mount reports anything else, set East and raise a Mount alert.
+     * East in both hemispheres — OnStep picks the side by hour angle (see the pier-guard README).
+     */
+    private fun enforcePreferredPierSide(device: String, property: WireProperty) {
+        if (property !is WireProperty.Switch || property.name != PREFERRED_PIER_SIDE) return
+        if (property.switches.isEmpty() || property.state == 2) return
+        if (property.switches.any { it.name == PIER_SIDE_EAST && it.state == 1 }) return
+        val now = System.currentTimeMillis()
+        if (now - (pierSideFixSentAt[device] ?: 0L) < PIER_SIDE_RESEND_MS) return
+        pierSideFixSentAt[device] = now
+        client.sendCommand(Commands.DEVICE_PROPERTY_SET, buildJsonObject {
+            put("device", device)
+            put("property", PREFERRED_PIER_SIDE)
+            putJsonArray("elements") { addJsonObject { put("name", PIER_SIDE_EAST); put("state", 1) } }
+        })
+        // Live pushes are compact (no labels) — map OnStep's element names ourselves.
+        val was = property.switches.firstOrNull { it.state == 1 }
+            ?.let { mapOf("1" to "West", "3" to "Best")[it.name] ?: it.label ?: it.name } ?: "unset"
+        _state.update { s ->
+            val alert = Alert(
+                uuid = "pier-side-$device-$now",
+                message = "$device preferred pier side was $was — set to East (needed for meridian flip)",
+                time = s.formatSiteTime(java.time.Instant.now()),
+                source = 5, // Mount
+                severity = 2, // Warn
+            )
+            s.copy(wireNotifications = (listOf(alert) + s.wireNotifications).take(MAX_NOTIFICATIONS))
         }
     }
 
@@ -2556,6 +2599,10 @@ private fun AppState.withConnectionState(device: String, property: WireProperty)
  * going through the generic (lossy, single-element) [withProperty]/[indiProps] path.
  */
 /** See [AppState.wireGainRangeByDevice]. */
+private const val PREFERRED_PIER_SIDE = "Preferred Pier Side"
+private const val PIER_SIDE_EAST = "2" // lx200_OnStep.cpp: "1" West, "2" East, "3" Best
+private const val PIER_SIDE_RESEND_MS = 10_000L
+
 private fun AppState.withGainRange(device: String, property: WireProperty): AppState {
     if (property !is WireProperty.Number) return this
     val el = when (property.name) {
