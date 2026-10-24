@@ -11,8 +11,8 @@ import androidx.compose.ui.unit.sp
 import com.nocturne.R
 
 /**
- * Nocturne type scale — ported from `nocturne.css`. Inter variable font
- * (opsz,wght) drives the weights via FontVariation on API 26+.
+ * Nocturne type scale. The Inter variable font (opsz, wght) drives the weights via
+ * FontVariation on API 26+.
  */
 object NocturneType {
 
@@ -40,7 +40,7 @@ object NocturneType {
         ),
     )
 
-    /** Mono numerals for telemetry (css `.mono`). */
+    /** Mono numerals for telemetry. */
     val Mono: FontFamily = FontFamily.Monospace
 
     private fun heading(size: Int, letter: Float) = TextStyle(
@@ -119,16 +119,15 @@ object NocturneType {
     /** Telemetry tiny — 10.5px */
     val TelemetryTiny = TextStyle(fontFamily = Mono, fontSize = 10.5.sp)
 
-    /** Mono numeral sizes — `.mono` in the prototype. */
+    /** Mono numeral sizes. */
     private fun mono(size: Float, letter: Float = 0f) = TextStyle(
         fontFamily = Mono,
         fontSize = size.sp,
         letterSpacing = letter.sp,
     )
 
-    // Bumped from 9/9.5/10/11/11.5/12 — user feedback: sub-titles/section labels/mono captions
-    // app-wide read as too small. These are the highest-leverage edit for that: every screen
-    // consumes NocturneType as a singleton, so this one change propagates everywhere at once.
+    // Size-named styles here and below (Mono115, Caption10, Body13, ...) keep their original
+    // names; the values were enlarged for readability.
     val MonoMicro = mono(10.5f)
     val MonoMini = mono(10.5f)
     val MonoTiny = mono(11f)
@@ -146,7 +145,7 @@ object NocturneType {
     val Mono34 = mono(34f, -1.02f)      // elapsed integration, -.03em
     val Mono38 = mono(38f, -1.14f)      // arc integration, -.03em
 
-    /** Inter small sizes — extra body/label scales from the prototype. */
+    /** Inter small sizes for captions and labels. */
     private fun body(size: Float, weight: FontWeight = FontWeight.Normal, letter: Float = 0f) = TextStyle(
         fontFamily = Inter,
         fontWeight = weight,
@@ -155,7 +154,6 @@ object NocturneType {
         letterSpacing = letter.sp,
     )
 
-    // Same bump-for-readability pass as the Mono* tier above (was 9.5/9.5/10/10/11/11/13/13.5).
     /** plain meta (card captions) */
     val Micro = body(11f)
     /** letter-spaced uppercase — the "NIGHT ARC"/"SKY & SITE" section-kicker tier */

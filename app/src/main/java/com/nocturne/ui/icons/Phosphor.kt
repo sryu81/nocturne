@@ -17,9 +17,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
- * Phosphor icons (256 viewBox) embedded as ImageVectors. Path data sourced from
- * @phosphor-icons/web / phosphor-icons/core — matches the prototype's icon set
- * exactly. Two weights:
+ * Phosphor icons (256 viewBox) embedded as ImageVectors. Path data from
+ * @phosphor-icons/web / phosphor-icons/core. Two weights:
  *  - [Spec.stroke=false]: filled glyph paths (fill-weight icons like the tab
  *    active states, and the legacy outline geometry used by the first icons).
  *  - [Spec.stroke=true]: stroked paths (the current regular-weight icons, which

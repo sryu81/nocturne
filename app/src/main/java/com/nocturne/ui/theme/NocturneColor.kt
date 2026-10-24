@@ -2,7 +2,7 @@ package com.nocturne.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-/** Nocturne palette — ported from `project/nocturne.css` tokens. */
+/** Nocturne palette tokens. */
 object NocturnePalette {
     val Bg = Color(0xFF161826)
     val Surface = Color(0xFF232532)
@@ -56,9 +56,7 @@ object NocturnePalette {
     val Accent2_800 = Color(0xFF423E5D)
     val Accent2_900 = Color(0xFF2B293A)
 
-    /** Red mode — deep-red ramp + dim (the prototype applies a CSS
-     *  `grayscale sepia hue-rotate saturate brightness` filter; we remap
-     *  the palette at the theme root instead, per the plan). */
+    /** Red mode: deep-red ramp + dim, applied by remapping the palette at the theme root. */
     val RedBg = Color(0xFF1A1012)
     val RedSurface = Color(0xFF28171B)
     val RedSurfaceDeep = Color(0xFF1E1114)
@@ -110,7 +108,7 @@ data class NocturneColorScheme(
     val accent800: Color get() = accentRamp[7]
 }
 
-/** Default dark scheme — the app's only light theme; red mode replaces it. */
+/** Default dark scheme; red mode replaces it. */
 val NocturneDarkColors: NocturneColorScheme = NocturneColorScheme(
     bg = NocturnePalette.Bg,
     surface = NocturnePalette.Surface,

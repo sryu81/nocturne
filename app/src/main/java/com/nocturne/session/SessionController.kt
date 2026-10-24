@@ -3,10 +3,8 @@ package com.nocturne.session
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * The single interface the whole UI consumes (PLAN §4.3). [EkosRemoteController] is the only
- * implementation — the app is real-rig-only (the earlier [SimulatedController] demo driver was
- * removed 2026-08-22, see docs/simulator-removal-plan.md); [AbstractLocalSessionController]
- * remains as its base class for pure local UI-state mutation.
+ * The interface the whole UI consumes. [EkosRemoteController] is the only implementation;
+ * [AbstractLocalSessionController] is its base class for local UI-state mutation.
  */
 interface SessionController {
     val state: StateFlow<AppState>
@@ -19,9 +17,9 @@ interface SessionController {
     fun closeSubPreview()
     fun expandFrame(id: String)
     fun closeFrameExpand()
-    /** Frames tab top-level nav (M4.5 Part C) — null returns to the Preview/Plan picker. */
+    /** Frames tab top-level nav; null returns to the Preview/Plan picker. */
     fun selectFrameCategory(category: FrameCategory?)
-    /** Frames tab target drill-down within Plan (M4.5 Part C) — null returns to the target list. */
+    /** Frames tab target drill-down within Plan; null returns to the target list. */
     fun selectFrameTarget(target: String?)
     fun requestDeferFlip()
     fun requestFlipNow()
@@ -31,16 +29,16 @@ interface SessionController {
     fun addToSequence(targetId: String)
     /** Plain slew to a target's coordinates — no plate-solve correction. */
     fun gotoTarget(targetId: String)
-    /** Slew, then plate-solve and let the real Align module's own solver-action re-slew onto the solved position. */
+    /** Slew, then plate-solve and let Align's solver action re-slew onto the solved position. */
     fun gotoAndCenter(targetId: String)
     fun removeJob(jobId: String)
     fun openJob(jobId: String)
     fun closeJob()
-    /** Pushes this local job to Ekos's real Scheduler queue (`scheduler_add_jobs`) — does not start it. */
+    /** Pushes this local job to Ekos's Scheduler queue (`scheduler_add_jobs`); does not start it. */
     fun pushJob(jobId: String)
-    /** Toggles the real Scheduler as a whole on/off (`scheduler_start_job` — a real toggle, not per-job start/stop). */
+    /** Toggles the whole Scheduler on/off (`scheduler_start_job` is a toggle, not a per-job start). */
     fun toggleScheduler()
-    /** Removes a real Scheduler job that has no local counterpart (added directly in KStars, or left over). */
+    /** Removes a Scheduler job with no local counterpart (added in KStars, or left over). */
     fun removeUnmanagedJob(name: String)
     fun endSession()
     fun resumeSession()
@@ -50,18 +48,18 @@ interface SessionController {
     fun addBlock(jobId: String)
     fun removeBlock(jobId: String, blockId: String)
     fun moveBlock(jobId: String, blockId: String, toIndex: Int)
-    /** [names] to cycle through — real filter-wheel slot names when known ([AppState.realFilterNames]), else the fixture [FILTER_CYCLE]; the caller decides, this just advances through whatever it's given. */
+    /** Advances to the next of [names]; the caller picks the list (wheel slot names or [FILTER_CYCLE]). */
     fun cycleBlockFilter(jobId: String, blockId: String, names: List<String>)
     fun setBlockExposure(jobId: String, blockId: String, sec: Int)
     fun setBlockSubCount(jobId: String, blockId: String, count: Int)
     fun setBlockGain(jobId: String, blockId: String, gain: Int)
     fun setBlockOffset(jobId: String, blockId: String, offset: Int)
     fun setBlockBinning(jobId: String, blockId: String, bin: Int)
-    /** `null` turns dithering off for this block — see [Block.ditherEvery]'s own doc. */
+    /** `null` turns dithering off for this block; see [Block.ditherEvery]. */
     fun setBlockDither(jobId: String, blockId: String, n: Int?)
     fun toggleChip(index: Int)
-    /** Plan tab search's object type — a real `SkyObject::TYPE` from [SEARCH_TYPES], or null
-     *  for a plain name search across every catalog. */
+    /** Plan tab search's object type: a `SkyObject::TYPE` from [SEARCH_TYPES], or null for a
+     *  name search across every catalog. */
     fun setSearchType(skyType: Int?)
     /** Plan tab search's faintest magnitude, clamped to [SEARCH_MAG_RANGE]. */
     fun setSearchMaxMag(mag: Int)
@@ -75,15 +73,13 @@ interface SessionController {
     fun setQuery(text: String)
     fun clearQuery()
     fun selectTarget(id: String)
-    /** Fetch real per-target altitude data for the Plan tab's altitude chart, if not already cached. */
+    /** Fetches per-target altitude data for the Plan tab's chart, if not already cached. */
     fun ensureTargetRiseset(targetId: String)
-    /** Fetch a real DSS reference-image cutout for the Plan tab's Framing card, if not already
-     * cached for this target (M5, docs/STATUS.md — see AppState.referenceImageJpeg's own doc). */
+    /** Loads the reference image for the Plan tab's Framing card, if not already cached for
+     *  this target (see AppState.referenceImageJpeg). */
     fun ensureReferenceImage(targetId: String)
     fun toggleQuietHours()
-    /** Real `option_set` — `Options::self()`'s `ekosRemoteNotifications`/`ekosRemoteSound`
-     * (M4.5 half B, docs/STATUS.md). Replaced the old per-category `togglePref` fixture, which had
-     * no matching real settings and zero consumers anywhere in this app. */
+    /** `option_set` on `Options::self()`'s `ekosRemoteNotifications`/`ekosRemoteSound`. */
     fun setEkosRemoteNotifications(enabled: Boolean)
     fun setEkosRemoteSound(enabled: Boolean)
     fun toggleCut(id: String)
@@ -91,22 +87,16 @@ interface SessionController {
     fun selectDeviceName(key: String, name: String)
     fun setTrainRole(slot: TrainSlot, role: TrainRole, value: String)
     fun setTrainReducer(slot: TrainSlot, value: Double)
-    /** Assigns which real train (by name) one Ekos module uses — real `train_set` mechanism, see [AppState.moduleTrainAssignments]. */
+    /** Assigns which train (by name) one Ekos module uses (`train_set`); see [AppState.moduleTrainAssignments]. */
     fun setModuleTrain(module: String, trainName: String)
 
     fun snapMain()
     fun snapGuide()
     /**
-     * Real `focus_in`/`focus_out`, sent with `steps=0` deliberately — **not** a lazy default.
-     * Confirmed live (2026-09): the fork's manual-move handling always substitutes the Focus
-     * Mechanics "Initial Step Size" (`WireFocusSettings.focusTicks`) for whatever `steps` value
-     * arrives, regardless of its value — matches real Ekos's own manual focus-in/out buttons
-     * exactly (`focus.cpp`'s `handleFocusButtonEvent` hardcodes `ms=-1`, always triggering the
-     * same fallback). Sending an honest `0` instead of a computed delta that gets silently
-     * discarded anyway. Superseded the old fixed-amount jog row (`-1000..+1000`) and the typed-
-     * absolute-position control entirely — see docs/FORK-BACKLOG.md/memory for why neither could
-     * ever have worked once this was confirmed (every relative move this wire can send always
-     * lands on `focusTicks`, no exceptions found).
+     * `focus_in`/`focus_out` with `steps=0`. Ekos's manual move ignores `steps` and always uses
+     * the Focus Mechanics "Initial Step Size" (`WireFocusSettings.focusTicks`), same as its own
+     * in/out buttons (`focus.cpp`'s `handleFocusButtonEvent` passes `ms=-1`), so a computed
+     * delta would be discarded anyway.
      */
     fun focusStepIn()
     fun focusStepOut()
@@ -114,7 +104,7 @@ interface SessionController {
     fun setSlewDir(key: String)
     fun stopSlew()
     /** Edits the cooler set point locally; nothing is sent until [applyCoolTarget] (the Set
-     *  button) — typing used to push every keystroke (e.g. "2" then "20"). */
+     *  button), so partial keystrokes ("2" on the way to "20") never reach the camera. */
     fun setCoolTarget(value: Double)
     /** Set button: sends [AppState.coolTarget] to the camera (`CCD_TEMPERATURE`) and Capture's
      *  `cameraTemperatureN`, like Ekos's own Set button. Doesn't touch enforce. */
@@ -164,8 +154,8 @@ interface SessionController {
     fun toggleEkos()
     fun deleteProfile(name: String)
     fun editProfile(name: String)
-    /** Plan tab's `RotatorRow` slider — real `align_set_target_pa` in [EkosRemoteController]
-     * (M5, docs/STATUS.md); local-only mirror in [AbstractLocalSessionController]. */
+    /** Plan tab's `RotatorRow` slider: `align_set_target_pa` in [EkosRemoteController]; a local
+     *  mirror in [AbstractLocalSessionController]. */
     fun setRotatorAngle(deg: Double)
     fun setDomeOpen(open: Boolean)
 
@@ -183,10 +173,9 @@ interface SessionController {
     fun setProfileName(name: String)
 
     /**
-     * The Scopes catalog (M3.1) — real Ekos's own separate telescopes/lenses
-     * dialog (`get_scopes`/`scope_add`/`scope_update`/`scope_delete`), not
-     * bundled into the rig Profile or Optical Train editors. A train's Scope
-     * role picks one of these by name (see [setTrainRole]/[TrainRole.SCOPE]).
+     * The Scopes catalog: Ekos's separate telescopes/lenses list
+     * (`get_scopes`/`scope_add`/`scope_update`/`scope_delete`). A train's Scope role
+     * picks one of these by name (see [setTrainRole]/[TrainRole.SCOPE]).
      */
     fun addScope(name: String, vendor: String, type: String, focalMm: Int, apertureMm: Int)
     fun updateScope(id: String, name: String, vendor: String, type: String, focalMm: Int, apertureMm: Int)
@@ -196,11 +185,9 @@ interface SessionController {
     fun toggleEditScope(id: String)
 
     /**
-     * Sets the rig's companion reboot daemon port (same host as the EkosRemote connection, see
-     * `pi-tools/reboot-daemon/`) — a channel entirely separate from the EkosRemote wire, since
-     * that wire has no OS-level reboot command and can't be relied on anyway when it's a hung
-     * Ekos process that needs the reboot. Persisted and wired for real under
-     * [EkosRemoteController].
+     * Sets the port of the rig's reboot daemon (same host, see `pi-tools/reboot-daemon/`). It
+     * is separate from the EkosRemote wire, which has no OS-level reboot and is unusable when
+     * a hung Ekos is the reason to reboot.
      */
     fun setRigRebootPort(port: Int)
 
@@ -216,40 +203,30 @@ interface SessionController {
     fun cancelSkyAtlasCopy()
 
     /** Sets Ekos's capture frame to the main camera's whole sensor and saves it with the optical
-     *  train (`capture_set_all_settings` persists; Ekos's own Reset button doesn't, so a train
-     *  refresh brought the old crop back). See [AppState.primaryImageSize]. */
+     *  train (`capture_set_all_settings` persists; Ekos's Reset button doesn't, so a train
+     *  refresh would bring the old crop back). See [AppState.primaryImageSize]. */
     fun setCaptureFullFrame()
 
     /** Deletes the phone's copy of the sky atlas. */
     fun clearSkyAtlas()
 
     /**
-     * Sets the real Pi's OS system clock (`date -s`+`hwclock -w`, via the same reboot-daemon
-     * channel as [rebootRig] — no EkosRemote/INDI property controls this at all, it's the same
-     * class of OS-level gap as the reboot itself, see `pi-tools/reboot-daemon/`'s own doc).
-     * Reports progress/result in [AppState.piTimeSyncState]. Sends the phone's own
-     * current local wall-clock time — see [syncLocationToRig]'s doc for the same "co-located,
-     * same timezone" assumption this relies on.
+     * Sets the Pi's system clock to the phone's time (`date -s` + `hwclock -w` via the reboot
+     * daemon; no EkosRemote/INDI property does this). Result in [AppState.piTimeSyncState].
+     * Assumes phone and rig share a site and timezone, as in [syncLocationToRig].
      */
     fun syncTimeToRig()
 
     /**
-     * Sets KStars' own real geographic location (`GeoLocation`/`Options.Latitude/Longitude/
-     * Elevation`) via the new `kstars_set_location` wire command (2026-09) — a direct in-process
-     * call to `KStars::setGPSLocation`, real and immediately effective for every subsequent
-     * almanac/riseset/meridian-flip calculation this session. The existing `option_set`/generic
-     * `invoke_method` hatches can't reach this: `option_set` only writes the *persisted default*,
-     * effective on next restart, and `invoke_method`'s `findObject()` can't resolve the top-level
-     * `KStars` singleton itself (only named children) — see the new command's own comment in the
-     * fork's `message.cpp` for the full finding. [lat]/[lon] in degrees, [elevM] in meters — real
-     * values read from the phone's own GPS by the UI layer (`MaintenanceSheet`), passed in
-     * already-resolved since this interface stays platform-agnostic. Assumes phone and rig are
-     * physically co-located (same site, same timezone) — true for the normal "syncing before
-     * tonight's session" use case this exists for, not meant for remote/offsite control.
+     * Sets KStars' geographic location via `kstars_set_location` (`KStars::setGPSLocation`),
+     * effective immediately for almanac/riseset/meridian-flip math. `option_set` only writes
+     * the persisted default (applied on restart), and `invoke_method` can't resolve the
+     * `KStars` singleton. [lat]/[lon] in degrees, [elevM] in meters, from the phone's GPS.
+     * Assumes phone and rig are co-located.
      */
     fun syncLocationToRig(lat: Double, lon: Double, elevM: Double)
 
-    // ── M3.3: Mount settings (curated subset, see docs/M3.3-plan.md) ──────
+    // ── Mount settings (curated subset) ──────────────────────────────────
     fun setMountMeridianFlip(enabled: Boolean)
     fun setMountMeridianFlipOffset(deg: Double)
     fun setMountAltLimitEnabled(enabled: Boolean)
@@ -261,9 +238,9 @@ interface SessionController {
     fun setMountParkEveryDay(enabled: Boolean)
     fun setMountAutoParkTime(time: String)
 
-    // ── M3.3: Camera settings (curated subset, see docs/M3.3-plan.md) ─────
+    // ── Camera settings (curated subset) ─────────────────────────────────
     fun setCameraSaveDir(path: String)
-    /** See [com.nocturne.protocol.WireCaptureSettings.placeholderFormatT]'s own doc. */
+    /** See [com.nocturne.protocol.WireCaptureSettings.placeholderFormatT]. */
     fun setCameraPlaceholderFormat(format: String)
     fun setCameraGuideDeviationEnabled(enabled: Boolean)
     fun setCameraGuideDeviation(arcsec: Double)
@@ -271,40 +248,36 @@ interface SessionController {
     fun setCameraStartGuideDeviation(arcsec: Double)
     fun setCameraDitherPerJobEnabled(enabled: Boolean)
     fun setCameraDitherPerJobFrequency(everyN: Int)
-    /** Real "Refocus every:" trigger (2026-08-23, merged in from the old Autofocus-rules sheet) — see [com.nocturne.protocol.WireCaptureSettings.enforceRefocusEveryN]'s own doc. */
+    /** "Refocus every:" trigger; see [com.nocturne.protocol.WireCaptureSettings.enforceRefocusEveryN]. */
     fun setCameraRefocusEveryNEnabled(enabled: Boolean)
     fun setCameraRefocusEveryN(minutes: Int)
-    /** Real "Refocus if ΔT° >:" trigger — same real source as the pair above. */
+    /** "Refocus if ΔT° >:" trigger, same source as the pair above. */
     fun setCameraRefocusOnTemperatureEnabled(enabled: Boolean)
     fun setCameraMaxFocusTemperatureDelta(deltaC: Double)
-    /** See [com.nocturne.protocol.WireCaptureSettings.FilterPosCombo]'s own doc. */
+    /** See [com.nocturne.protocol.WireCaptureSettings.FilterPosCombo]. */
     fun setCameraFilter(filter: String)
 
-    // ── M3.3: Align settings (curated subset, see docs/M3.3-plan.md) ──────
+    // ── Align settings (curated subset) ──────────────────────────────────
     fun setAlignExposure(sec: Double)
     fun setAlignGain(gain: Double)
     fun setAlignFilter(filter: String)
-    /** Real `alignUseCurrentFilter` checkbox — see [com.nocturne.protocol.WireAlignSettings]'s own
-     * doc. When on, a solve never changes the filter (uses whatever's actually loaded); when off,
-     * [setAlignFilter]'s fixed choice force-switches the filter on every solve. */
+    /** `alignUseCurrentFilter`: when on, a solve uses whatever filter is loaded; when off,
+     *  [setAlignFilter]'s choice is switched in on every solve. */
     fun setAlignUseCurrentFilter(enabled: Boolean)
     fun setAlignBinning(binning: String)
     fun setAlignAccuracyThreshold(arcsec: Double)
-    /** `kcfg_AstrometryRotatorThreshold` (M5, docs/STATUS.md), arcminutes — see
-     * [com.nocturne.protocol.WireAlignSettings.kcfg_AstrometryRotatorThreshold]'s own doc for why
-     * this is a normal reflection field (real read+write) unlike `rotator_control`. */
+    /** `kcfg_AstrometryRotatorThreshold`, arcminutes; see
+     *  [com.nocturne.protocol.WireAlignSettings.kcfg_AstrometryRotatorThreshold]. */
     fun setAlignRotatorThreshold(arcmin: Double)
 
-    // ── M5: rotator angle-readback + auto-drive (docs/STATUS.md M5 steps 4/5) ──
-    /** `align_set_astrometry_settings`'s `rotator_control` bool — master gate for the whole
-     * rotator feature (real-hardware auto-drive, or the no-hardware manual-diff readback via
-     * [com.nocturne.session.AppState.wireRotatorCurrentPA]) — see [EkosRemoteController]'s own
-     * doc for why it's not just the auto-drive half. */
+    // ── Rotator angle readback + auto-drive ──────────────────────────────
+    /** `align_set_astrometry_settings`'s `rotator_control`: gates the whole rotator feature,
+     *  both hardware auto-drive and the manual readback via
+     *  [com.nocturne.session.AppState.wireRotatorCurrentPA]. */
     fun setRotatorAutoControl(enabled: Boolean)
 
-    // ── M3.3 phase 4: Guide settings (curated subset, see docs/M3.3-plan.md) ──
-    // Named setGuide* (not setGuidePreview*, see below) to avoid colliding with the
-    // pre-existing Bench "Snap guide" preview setters.
+    // ── Guide settings (curated subset) ──────────────────────────────────
+    // setGuide*, distinct from the Bench "Snap guide" setGuidePreview* setters below.
     fun setGuideAccuracyThreshold(arcsec: Double)
     fun setGuideDitherEnabled(enabled: Boolean)
     fun setGuideDitherPixels(px: Int)
@@ -326,7 +299,7 @@ interface SessionController {
     fun setGuideReverseDecOnFlip(enabled: Boolean)
     fun setGuideLostStarTimeout(sec: Int)
 
-    // ── M3.3 phase 6: Focus settings (curated subset, see docs/M3.3-plan.md) ──
+    // ── Focus settings (curated subset) ──────────────────────────────────
     fun setFocusExposure(sec: Double)
     fun setFocusGain(gain: Double)
     fun setFocusFilter(filter: String)
@@ -334,7 +307,7 @@ interface SessionController {
     fun setFocusAlgorithm(algorithm: String)
     fun setFocusTicks(ticks: Int)
     fun setFocusMaxTravel(ticks: Int)
-    // Mechanics + Process, practical subset (2026-09) — see WireFocusSettings' own field docs.
+    // Mechanics + Process subset; see WireFocusSettings' field docs.
     fun setFocusOutSteps(multiple: Double)
     fun setFocusNumSteps(steps: Int)
     fun setFocusWalk(walk: String)
@@ -359,14 +332,13 @@ interface SessionController {
     fun setGuidePreviewGain(gain: Double)
     fun setGuidePreviewBinning(binning: String)
 
-    // ── Scheduler settings (curated subset, see WireSchedulerSettings' own doc, M2026-08) ──
-    // Startup condition (mutually exclusive pair — selecting one clears the other, same
-    // shape as the Completion-condition/Aborted-job groups below)
+    // ── Scheduler settings (curated subset, see WireSchedulerSettings) ────
+    // Startup condition (mutually exclusive, like the Completion and Aborted-job groups)
     fun setSchedulerStartAsap()
     fun setSchedulerStartAtTime(iso: String)
     fun setSchedulerLeadTime(minutes: Double)
     fun setSchedulerPreDawnTime(minutes: Double)
-    // Constraints (+ per-job step defaults, same tab in real Ekos)
+    // Constraints (+ per-job step defaults, same tab in Ekos)
     fun setSchedulerAltitudeEnabled(enabled: Boolean)
     fun setSchedulerAltitudeValue(deg: Double)
     fun setSchedulerMoonSeparationEnabled(enabled: Boolean)
@@ -404,8 +376,8 @@ interface SessionController {
     fun setSchedulerAbortRestartQueue()
     fun setSchedulerAbortRescheduleErrors(enabled: Boolean)
     fun setSchedulerAbortDelay(minutes: Int)
-    /** See [com.nocturne.protocol.WireSchedulerSettings.kcfg_RememberJobProgress]'s own doc. */
+    /** See [com.nocturne.protocol.WireSchedulerSettings.kcfg_RememberJobProgress]. */
     fun setSchedulerRememberJobProgress(enabled: Boolean)
-    /** See [com.nocturne.protocol.WireSchedulerSettings.kcfg_ForceAlignmentBeforeJob]'s own doc. */
+    /** See [com.nocturne.protocol.WireSchedulerSettings.kcfg_ForceAlignmentBeforeJob]. */
     fun setSchedulerForceAlignmentBeforeJob(enabled: Boolean)
 }

@@ -115,9 +115,7 @@ private fun JobList(state: AppState, ctrl: SessionController) {
             )
             Spacer(Modifier.height(11.2.dp))
         }
-        // Real jobs Ekos's Scheduler holds that no local, pushed job claims — added directly in
-        // KStars, or left over from before this app ever touched them. The app never hides
-        // these: it reads Ekos's real state and shows it as-is (2026-08-23 redesign).
+        // Scheduler jobs no local job claims (added in KStars, or left over). Shown as-is, never hidden.
         if (unmanaged.isNotEmpty()) {
             TextC("ON EKOS, NOT MANAGED HERE", style = NocturneTheme.type.Caption, color = NocturneTheme.colors.textFaint)
             Spacer(Modifier.height(6.dp))
@@ -184,9 +182,8 @@ private fun JobCard(state: AppState, job: SequenceJob, onOpen: () -> Unit, onRem
 }
 
 /**
- * A real Scheduler job with no local counterpart — see [AppState.unmanagedWireJobs]. No
- * drill-down: there's no local block data for a job this app never wrote the `.esq` for. Same
- * check-status-first, no-confirm-dialog remove shape as `PushOrRemoveRow` — see its own doc.
+ * A Scheduler job with no local counterpart ([AppState.unmanagedWireJobs]). No drill-down: there
+ * is no block data for a job this app didn't write the `.esq` for. Remove works like [PushOrRemoveRow].
  */
 @Composable
 private fun UnmanagedJobCard(state: AppState, wireJob: WireSchedulerJob, onRemove: () -> Unit) {
@@ -299,11 +296,8 @@ private fun JobDetailHeader(state: AppState, job: SequenceJob, onBack: () -> Uni
 }
 
 /**
- * Same always-visible warning-banner style as ConnectScreen's "No authentication" notice
- * (2026-08-23, user feedback: the old plain gray caption text here was too easy to miss).
- * Factored out (2026-08-25) so [NightPlanBar] can show the same reminder at the top of the
- * Sequence tab, not just once a job's own detail screen is opened — a job stays locked the
- * moment it's pushed, so the warning shouldn't need drilling in to see.
+ * Warning that a pushed job is locked. Shown both in the job detail and atop the Sequence tab,
+ * since the lock applies as soon as a job is pushed.
  */
 @Composable
 private fun SyncedToEkosBanner() {
@@ -325,29 +319,12 @@ private fun SyncedToEkosBanner() {
 }
 
 /**
- * Header shows the real contract-job target name + total real session length (`plannedHM`,
- * 2026-08-25 — replaced the dusk→dawn night window, which said nothing about how long the actual
- * plan runs) and, once any job is pushed, [SyncedToEkosBanner].
+ * Sequence tab header: the contract job's target and total planned time (`plannedHM`), the
+ * Scheduler controls, and a bar of the job's blocks.
  *
- * **Segments/labels wired to real per-block data (2026-08-23, user report)** — the bar used to
- * show a fixed fixture split (`cal`/`Ha`/`flip`/`OIII`/`SII`) regardless of what was actually
- * queued (confirmed live: a real 1-block, 30s×1, `L`-filter job still showed the old `Ha`/`OIII`/
- * `SII` labels, no relation to it at all). Now [state.contractJob]'s own blocks drive both the
- * segment widths (proportional to each block's real `subCount × exposureSec`) and labels (each
- * block's real, possibly-real-wheel-sourced filter name — see `AppState.realFilterNames` — plus
- * its real shot count, added 2026-08-25). `cal` stays a small fixed fixture bookend, and `flip`
- * is dropped entirely rather than guessed a placement — neither has real per-block data to derive
- * from (no calibration-block concept, and flip timing depends on real mount position, not block
- * data); both explicitly deferred to a later pass, per the user's own call, rather than solved or
- * faked here. Falls back to the full original fixture bar if there's no contract job or its
- * blocks carry no real planned time yet (e.g. exposureSec/subCount still zero).
- *
- * **Real bug found live (2026-08-22, user report)**: with zero jobs queued (the "No targets
- * queued" card right below this one), the fixture bar+filter-labels rendered anyway —
- * illustrative fixture content with zero relation to anything real, right above an honest
- * "nothing queued" message, reading as a real plan that doesn't exist. Fixed: the bar+labels are
- * now only shown when there's actually a job to illustrate, same honesty norm as
- * `NightArcCard`/`FlipBanner` omitting fixture elements rather than fabricating them.
+ * Segment widths are each block's `subCount × exposureSec`; labels are filter × count. `cal` is a
+ * fixed placeholder bookend and `flip` is omitted, since neither can be derived from block data.
+ * The placeholder bar shows when blocks carry no planned time yet; nothing shows with no jobs.
  */
 @Composable
 private fun NightPlanBar(state: AppState, ctrl: SessionController) {
@@ -356,8 +333,7 @@ private fun NightPlanBar(state: AppState, ctrl: SessionController) {
     val contractJob = state.contractJob
     val contractTarget = contractJob?.let { state.findTarget(it.targetId)?.displayName ?: it.targetId }
     val showFixturePlan = state.jobs.isNotEmpty()
-    // subCount carried alongside for the segment labels below (2026-08-25, user request: show
-    // shot count, not just filter name, per segment).
+    // (filter, planned seconds, subCount)
     val realBlocks = contractJob?.blocks
         ?.map { Triple(it.filter, it.subCount.toLong() * it.exposureSec.toLong(), it.subCount) }
         ?.filter { it.second > 0 }
@@ -366,15 +342,9 @@ private fun NightPlanBar(state: AppState, ctrl: SessionController) {
     val planSegPalette = listOf(c.accent, c.accentMuted, c.accent800, c.warn.copy(alpha = 0.55f), Color(0xFF5D5294))
     Card {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            // Bumped from t.Caption/c.textFaint (2026-08-23, user feedback: too small and too
-            // low-contrast next to the big "Start Scheduler" button right below it) — this is the
-            // Sequence tab's own title, not a mere section divider like a sheet's internal
-            // "STARTUP CONDITION"-style labels, so it should read with more weight than those.
+            // Tab title, so heavier than a section label.
             TextC("NIGHT PLAN", style = t.Body135, color = c.text, modifier = Modifier.weight(1f))
-            // Changed 2026-08-25 (user request, live scheduler testing): total real session
-            // length (sum of exposureSec × subCount across the contract job's own blocks — same
-            // `plannedHM` the Session tab's "OF 3:20 INTEGRATED" already uses) instead of the
-            // dusk→dawn night window, which told you nothing about how long the actual plan runs.
+            // Total planned time, the same figure the Session tab shows.
             TextC(
                 contractJob?.let { "${it.plannedHM} planned" } ?: "—",
                 style = t.Mono13, color = c.textMuted,
@@ -385,16 +355,11 @@ private fun NightPlanBar(state: AppState, ctrl: SessionController) {
             TextC(contractTarget, style = t.Mono13, color = c.textFaint)
         }
         Spacer(Modifier.height(9.dp))
-        // Reminder surfaced here too (2026-08-25, user request), not just once a synced job's own
-        // detail screen is opened — the lock takes effect the moment any job is pushed.
         if (state.jobs.any { it.synced }) {
             SyncedToEkosBanner()
             Spacer(Modifier.height(9.dp))
         }
-        // Own full-width button, not an inline icon+label next to the title (2026-08-23, user
-        // feedback: still not visible enough even labeled) — same treatment as
-        // SchedulerToggleButton right below it, so both real Scheduler entry points read with
-        // equal weight instead of one being a small aside next to the header.
+        // Full-width, matching SchedulerToggleButton, so both Scheduler entry points read equally.
         Box(
             Modifier
                 .fillMaxWidth()
@@ -420,7 +385,7 @@ private fun NightPlanBar(state: AppState, ctrl: SessionController) {
                     .background(Color.Transparent, RoundedCornerShape(4.dp)),
             ) {
                 if (totalPlannedSec > 0) {
-                    PlanSeg(0.10f, Color(0xFF5D5294)) // "cal" — still a fixed fixture bookend, deferred
+                    PlanSeg(0.10f, Color(0xFF5D5294)) // "cal" placeholder
                     realBlocks.forEachIndexed { i, (_, sec) ->
                         PlanSeg(0.90f * (sec.toFloat() / totalPlannedSec), planSegPalette[i % planSegPalette.size])
                     }
@@ -436,11 +401,7 @@ private fun NightPlanBar(state: AppState, ctrl: SessionController) {
             Row(Modifier.fillMaxWidth()) {
                 if (totalPlannedSec > 0) {
                     TextC("cal", style = t.Mono13, color = c.textFaint, modifier = Modifier.weight(1f))
-                    // Shot count added alongside the filter name (2026-08-25, user request) — target
-                    // name isn't repeated per segment since every block here belongs to the same
-                    // contract job (shown once, above the bar); this stays correct if the bar ever
-                    // grows to span multiple queued jobs, since each segment's own filter+count is
-                    // already per-block, not assumed uniform.
+                    // Target name is shown once above; every block belongs to the contract job.
                     realBlocks.forEach { (filter, _, subCount) ->
                         TextC("$filter ×$subCount", style = t.Mono13, color = c.text, modifier = Modifier.weight(1f))
                     }
@@ -457,13 +418,8 @@ private fun NightPlanBar(state: AppState, ctrl: SessionController) {
 }
 
 /**
- * Global Scheduler start/stop (2026-08-23 push/start/stop split) — not tied to any one job, since
- * real Ekos only has a whole-queue start/stop, not a per-job one. A user report found the earlier
- * bare-icon version of this undiscoverable ("where is the start job button?") — a labeled
- * full-width button, matching this app's other primary-action buttons, replaces it. Label/icon
- * follow `state.schedulerRunning`, which is only ever set from the real `new_scheduler_state`
- * push (see that field's own doc) — no optimistic flip on tap, so the label only flips once the
- * real transition actually lands.
+ * Whole-queue Scheduler start/stop; Ekos has no per-job start. The label follows
+ * `state.schedulerRunning`, set only from `new_scheduler_state`, so it never flips optimistically.
  */
 @Composable
 private fun SchedulerToggleButton(state: AppState, ctrl: SessionController) {
@@ -498,11 +454,8 @@ private fun androidx.compose.foundation.layout.RowScope.PlanSeg(width: Float, co
 }
 
 /**
- * Drag-to-reorder list. No lazy-list here (the tab body itself already
- * scrolls), so reordering is done by hand: track the dragged block's id and
- * a running pixel offset, and swap it with a neighbor once the offset passes
- * that neighbor's measured height/2 — same feel as a lazy-list reorder
- * without pulling in a dependency for it.
+ * Drag-to-reorder list. The tab body already scrolls, so there is no lazy list: the dragged block
+ * swaps with a neighbor once its offset passes half that neighbor's measured height.
  */
 @Composable
 private fun BlocksList(state: AppState, ctrl: SessionController, job: SequenceJob) {
@@ -655,10 +608,8 @@ private fun BlockCard(
 }
 
 /**
- * `locked` (M3, `job.synced`) — once a job is synced to the real Scheduler
- * there's no live-edit-a-running-job wire primitive, so every mutating
- * control here becomes a no-op and dims; remove the job from Ekos to unlock
- * it again (`EkosRemoteController.removeJob` clears `synced`).
+ * `locked` (`job.synced`): Ekos can't edit a pushed job, so controls dim and do nothing until the
+ * job is removed from Ekos.
  */
 @Composable
 private fun BlockDetails(block: Block, ctrl: SessionController, jobId: String, locked: Boolean = false) {
@@ -700,14 +651,8 @@ private fun BlockDetails(block: Block, ctrl: SessionController, jobId: String, l
 }
 
 /**
- * Small boxed digits-only field — label above, value + suffix inline.
- *
- * Local `text` state, not a `value`-derived one — same clear-and-retype fix as `Sheets.kt`'s
- * `DegreeField`/`IntField`/`MmField`. The old version rendered `value.toString()` directly and
- * fell back to `0` on an unparseable (e.g. empty) string, so clearing the field to type a fresh
- * number instantly forced it to display "0" first, fighting the retype. Local text tracks
- * whatever's actually typed (including empty, mid-edit) independently of [value]; [onChange]
- * only fires once a full number parses.
+ * Small boxed digits-only field. Keeps its own `text` so the field can be cleared mid-edit
+ * without snapping to "0"; [onChange] fires only when the text parses.
  */
 @Composable
 private fun NumberField(label: String, value: Int, suffix: String, modifier: Modifier = Modifier, onChange: (Int) -> Unit) {
@@ -764,21 +709,11 @@ private fun <T> SegmentedRow(options: List<T>, selected: T, labelOf: (T) -> Stri
 }
 
 /**
- * Replaces the old combined `StartButton` (2026-08-23 push/start/stop split) — that button used
- * to say "Pause after this sub" while running, but the real stop path had no distinct pause
- * primitive at all: it stopped the real Scheduler *and removed the job entirely*, and separately
- * conflated "push to Ekos" with "start the whole Scheduler" in one tap (a raw toggle, not
- * idempotent — starting a second job while a first was already running silently stopped it,
- * confirmed live). Now split into the two real, independent actions: **Push to Ekos**
- * (non-destructive, plain tap, [SessionController.pushJob]) while not yet synced, and **Remove
- * from Ekos** once it is — starting/stopping the Scheduler itself is a separate global control
- * (see `NightPlanBar`'s `SchedulerToggleButton`).
+ * **Push to Ekos** until the job is synced, then **Remove from Ekos**. Starting/stopping the
+ * Scheduler is a separate whole-queue control ([SchedulerToggleButton]).
  *
- * **No confirm dialog on remove (2026-08-23, user feedback)** — first cut gated every remove tap
- * behind an "are you sure?" dialog regardless of whether removal was actually risky. Real Ekos
- * itself already refuses to remove an active job; [SessionController.removeJob] now checks that
- * client-side first and refuses instantly with [AppState.jobRemoveRefused] if so — a plain tap
- * removes immediately when it's actually safe, no dialog either way.
+ * Remove has no confirm dialog: Ekos refuses to remove an active job, and
+ * [SessionController.removeJob] checks that first and sets [AppState.jobRemoveRefused].
  */
 @Composable
 private fun PushOrRemoveRow(state: AppState, ctrl: SessionController, job: SequenceJob) {
@@ -793,10 +728,7 @@ private fun PushOrRemoveRow(state: AppState, ctrl: SessionController, job: Seque
     val targetName = state.targetNameFor(job)
     if (!job.synced) {
         val refused = state.jobPushRefused == targetName
-        // Predicts [SessionController.pushJob]'s own client-side refusal check (same condition,
-        // duplicated here rather than threaded back as a return value) so a tap that's actually
-        // going to be refused stays on this screen and shows the warning below, instead of
-        // navigating back and hiding it.
+        // Mirrors pushJob's refusal check so a refused tap stays here and shows the warning.
         val wouldRefuse = state.wireSchedulerJobs.orEmpty().any { it.name == targetName }
         Column {
             Box(
@@ -804,13 +736,8 @@ private fun PushOrRemoveRow(state: AppState, ctrl: SessionController, job: Seque
                     .fillMaxWidth()
                     .height(48.dp)
                     .border(1.dp, c.accent, RoundedCornerShape(10.dp))
-                    // Back to the Sequence tab's list (2026-08-25, user request, live testing) —
-                    // `synced` only flips true once a later `scheduler_get_jobs` confirms the add
-                    // (see pushJob's own doc), so staying on this screen would otherwise just sit
-                    // showing the same "Push to Ekos" button with no feedback until that arrives.
-                    // Navigating back optimistically matches the list's own JobCard, which already
-                    // reflects "pushed — awaiting Ekos" / real status via `wireJobFor` regardless
-                    // of which screen you're on.
+                    // Return to the list: `synced` flips only once scheduler_get_jobs confirms
+                    // the add, and the list's JobCard shows "pushed — awaiting Ekos" meanwhile.
                     .clickable {
                         ctrl.pushJob(job.id)
                         if (!wouldRefuse) ctrl.closeJob()

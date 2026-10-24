@@ -125,11 +125,8 @@ import com.nocturne.session.PAH_STAGE_SELECT_STAR
 private data class AlertStyle(val color: Color, val icon: ImageVector)
 
 /**
- * Styled by real severity (M4.5, docs/STATUS.md) — the old version keyed on invented
- * `AlertIcon` categories (FLIP/SCISSORS/CLOUD/CHECKS) with zero basis in the real wire, which only
- * ever carries `source`/`severity`. Only 2 severity-relevant Phosphor icons exist in this app
- * (`Warning`/`CheckCircle`) — real `KSNotification::EventType` (`ksnotification.h`): `Debug`/
- * `Info`/`Warn`/`Alert`.
+ * Styled by severity, the only classification the wire carries besides `source`.
+ * `KSNotification::EventType` (`ksnotification.h`): `Debug`/`Info`/`Warn`/`Alert`.
  */
 private fun alertStyle(a: com.nocturne.session.Alert): AlertStyle = when (a.severity) {
     3 -> AlertStyle(NocturnePalette.Danger, Phosphor.Warning) // Alert
@@ -147,9 +144,7 @@ fun SheetHost(state: AppState, ctrl: SessionController, landscape: Boolean) {
         SheetType.GUIDE -> "Guiding" to "RMS, drift + live frame"
         SheetType.FOCUS -> "Focus" to "status + live frame"
         SheetType.ALERTS -> "Alerts" to "tonight"
-        // Real dusk/dawn (same `state.realNightWindow` source as `NightArcCard`'s Session-tab
-        // fix, M2026-08) once it's arrived; falls back to the fixture literal before the fetch
-        // lands.
+        // Dusk → dawn once the almanac arrives; a placeholder before then.
         SheetType.SUMMARY -> "Session summary" to (
             state.realNightWindow?.let {
                 "${state.formatSiteTime(it.first)} → ${state.formatSiteTime(it.second)}"
@@ -167,19 +162,11 @@ fun SheetHost(state: AppState, ctrl: SessionController, landscape: Boolean) {
         SheetType.ALIGN_SETTINGS -> "Align settings" to "exposure, gain, filter, accuracy"
         SheetType.GUIDE_SETTINGS -> "Guide settings" to "dither, frame, calibration"
         SheetType.FOCUS_SETTINGS -> "Focus settings" to "exposure, gain, filter"
-        // Kept short like every other sheet's meta — NocturneSheet's title gets Modifier.weight(1f)
-        // but meta doesn't, so an unusually long meta string (the first cut named all 5 groups,
-        // ~60 chars) squeezes the title column down to almost nothing and wraps it letter-by-line
-        // (confirmed live). Every sibling sheet's meta is ~25-30 chars; matched that here instead.
+        // Keep meta short (~30 chars): it isn't weighted, so a long one squeezes the title.
         SheetType.SCHEDULER_SETTINGS -> "Scheduler settings" to "startup, constraints & more"
         SheetType.DEVICE -> {
-            // Real connection: state.deviceKey is the live device's own name (see
-            // RealDeviceList's onClick), not a fixture DEVICES[].key — must be looked up
-            // against state.wireDevices, same as DeviceSheet's body does, or every real
-            // device sheet falls through to DEVICES[0] ("mount") and shows whatever
-            // profile name is parked there for every device (confirmed live: always
-            // showed the mount's fixture display name, e.g. "EQ6-R Pro", regardless of
-            // which real device — LX200/ToupTek/ZWO — was actually tapped).
+            // When connected, deviceKey is the live device's name, not a DEVICES[].key, so it
+            // must be looked up in wireDevices first.
             val live = state.wireDevices?.firstOrNull { it.name == state.deviceKey }
             if (live != null) {
                 live.name to (if (live.connected) "connected" else "not connected")
@@ -227,7 +214,7 @@ fun SheetHost(state: AppState, ctrl: SessionController, landscape: Boolean) {
 
 /**
  * Guide camera frame + status, and live RMS/drift ([GuideTelemetry]) from the fork's guide-stats
- * push (docs/FORK-BACKLOG.md §1, 2026-10-23 — stock EkosRemote only ever sent `{status}`).
+ * push (stock EkosRemote only sends `{status}`).
  */
 @Composable
 private fun GuideSheet(state: AppState, landscape: Boolean) {
@@ -264,11 +251,7 @@ private fun GuideSheet(state: AppState, landscape: Boolean) {
             )
         }
     }
-    // Landscape (user's own report — "guiding need separate landscape display to show everything
-    // in one screen"): the real constraint turned out to be systemic (NocturneSheet's own panel
-    // width, fixed regardless of what's shown), fixed there; this side-by-side split is the other
-    // half — preview left, status/settings right, both visible with no scroll needed, instead of
-    // stacking both under the now-wider panel and just moving the same scroll further down.
+    // Landscape: preview left, status right, so everything fits without scrolling.
     if (landscape) {
         Row(Modifier.fillMaxWidth()) {
             Column(Modifier.weight(1f)) { preview() }
@@ -342,9 +325,7 @@ private fun AlertsSheet(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     Column {
-        // Real new_notification stream (M4.5, docs/STATUS.md) — was the static ALERTS fixture
-        // (invented meridian-flip/HFR-cut/cloud/autofocus scenarios) forever. Honest empty state
-        // instead of a fixture when nothing real has arrived yet this connection.
+        // The new_notification stream; empty state until one arrives this connection.
         if (state.wireNotifications.isEmpty()) {
             TextC("No alerts yet this session.", style = t.Body13, color = c.textMuted)
             Spacer(Modifier.height(11.2.dp))
@@ -381,14 +362,9 @@ private fun AlertsSheet(state: AppState, ctrl: SessionController) {
 // ── Prefs ────────────────────────────────────────────────────────────────
 
 /**
- * Real `option_get`/`option_set` toggles (M4.5 half B, docs/STATUS.md) — replaced the old
- * `PREF_DEFS` fixture (6 invented per-category notification toggles: "guide degraded"/"cloud"/
- * "disconnect"/"flip"/"frameCut"/"seqEnd"). Checked directly against `kstars.kcfg`: not one of
- * those has a matching real Ekos setting, and the old `prefs`/`togglePref` had zero consumers
- * anywhere in this app — a switch that flipped itself with no effect on anything. These 2 are what
- * actually exists: the master gate for the whole `new_notification` stream this app now reads
- * (`AlertsSheet`/`ModuleStatusRow`'s alert-driven pieces), and whether Ekos plays a sound on the
- * Pi's own speaker for one. Null (`—`) until the eager connect-time fetch replies.
+ * `option_get`/`option_set` toggles. Ekos has no per-category notification settings in
+ * `kstars.kcfg`; these two are what exists: the master gate for the `new_notification` stream,
+ * and whether Ekos plays a sound on the Pi. `—` until the connect-time fetch replies.
  */
 @Composable
 private fun PrefsSheet(state: AppState, ctrl: SessionController) {
@@ -419,8 +395,7 @@ private fun PrefsSheet(state: AppState, ctrl: SessionController) {
         Spacer(Modifier.height(16.dp))
         HDivider()
         Spacer(Modifier.height(16.dp))
-        // Quiet hours: local-only, no matching real Ekos setting either (this is app-side session
-        // scheduling, not a kcfg toggle) — kept as an honest local nicety, not claimed as real.
+        // Quiet hours are app-side only; Ekos has no matching setting.
         SwitchRow(
             label = "Quiet hours",
             sub = "mute non-critical push while imaging (local only, doesn't affect the Pi)",
@@ -456,9 +431,8 @@ private val DEVICE_ICONS: Map<String, ImageVector> = mapOf(
 )
 
 /**
- * Rig profile setup — name + device role picker, one screen, no steps.
- * Optical train (scope/guide scope) is a separate standalone entry reachable
- * from the Gear tab, same pattern as Bench check/Polar align.
+ * Rig profile setup: name + device role pickers on one screen. Optical trains are edited
+ * separately from the Gear tab.
  */
 @Composable
 private fun SetupBody(state: AppState, ctrl: SessionController) {
@@ -520,7 +494,7 @@ private fun SetupBody(state: AppState, ctrl: SessionController) {
     }
 }
 
-/** Scope/guide-scope entry — name + focal length + aperture, matching real Ekos's Scopes catalog fields (`scope_add`). */
+/** Scope entry: name + focal length + aperture, the Ekos Scopes catalog fields (`scope_add`). */
 @Composable
 private fun ScopeInputFields(
     label: String,
@@ -557,13 +531,8 @@ private fun ScopeInputFields(
 }
 
 /**
- * Small labeled digits-only mm field, used for scope focal length/aperture.
- *
- * Local `text` state, not a `value`-derived one — same clear-and-retype fix as [DegreeField]/
- * [IntField]: rendering `mm.toString()` directly and only calling [onChange] on a successful
- * parse meant clearing the field (empty string isn't a valid int) never called [onChange], so it
- * snapped back to the old value on the next recomposition. Local text tracks whatever's actually
- * typed (including empty, mid-edit); [onChange] only fires once a full number parses.
+ * Small labeled digits-only mm field for scope focal length/aperture. Keeps its own `text` so it
+ * can be cleared mid-edit; [onChange] fires only when the text parses.
  */
 @Composable
 private fun MmField(label: String, mm: Int, modifier: Modifier, onChange: (Int) -> Unit) {
@@ -600,14 +569,9 @@ private fun MmField(label: String, mm: Int, modifier: Modifier, onChange: (Int) 
 }
 
 /**
- * Standalone entry point (from Gear tab, prior to Optical Train) — real
- * Ekos's own Scopes catalog dialog (`get_scopes`/`scope_add`/`scope_update`/
- * `scope_delete`, `EkosRemote-Command-Reference.md` §4): a flat add/edit/
- * remove list of telescopes/lenses, entirely separate from both the rig
- * Profile and the Optical Train's per-slot role pickers — a train's
- * Scope/Lens role just picks one of these by name (`OpticalTrainSheet`'s
- * `TrainForm`, unchanged, already a generic picker over whatever
- * `trainRolePool(SCOPE)` returns).
+ * Ekos's Scopes catalog (`get_scopes`/`scope_add`/`scope_update`/`scope_delete`, see
+ * docs/PROTOCOL.md): a flat list of telescopes/lenses, separate from the profile. A train's
+ * Scope role picks one of these by name.
  */
 @Composable
 private fun ScopesSheet(state: AppState, ctrl: SessionController) {
@@ -673,7 +637,7 @@ private fun ScopesSheet(state: AppState, ctrl: SessionController) {
     }
 }
 
-/** Inline add/edit form for one [ScopeDef] — reuses [ScopeInputFields] for the name/focal/aperture fields. */
+/** Inline add/edit form for one [ScopeDef]. */
 @Composable
 private fun ScopeEditorForm(initial: ScopeDef?, onSave: (name: String, focalMm: Int, apertureMm: Int) -> Unit, onCancel: () -> Unit) {
     var name by remember(initial?.id) { mutableStateOf(initial?.name ?: "") }
@@ -731,15 +695,11 @@ private fun SetupFooter(state: AppState, ctrl: SessionController) {
     }
 }
 
-// ── Mount settings (M3.3, curated subset) ───────────────────────────────────
+// ── Mount settings (curated subset) ─────────────────────────────────────────
 
 /**
- * Curated subset of real Ekos's Mount tab (10 of 17 real fields — see
- * docs/M3.3-plan.md) — meridian flip, altitude/HA slew limits, auto-park.
- * Real-rig only: [AppState.wireMountSettings] is null under
- * [SimulatedController] (there's no fixture equivalent — matches
- * [ModuleAssignmentsSheet]'s own real-only gating) and briefly null on a
- * real rig too, until the first `mount_get_all_settings` reply lands.
+ * Curated subset of Ekos's Mount tab: meridian flip, altitude/HA slew limits, auto-park.
+ * [AppState.wireMountSettings] is null until the first `mount_get_all_settings` reply.
  */
 @Composable
 private fun MountSettingsSheet(state: AppState, ctrl: SessionController) {
@@ -852,15 +812,8 @@ private fun MountSettingsSheet(state: AppState, ctrl: SessionController) {
 }
 
 /**
- * Numeric field row shared by [MountSettingsSheet]'s degree/hour-angle inputs.
- *
- * Local `text` state, not a `value`-derived one: the old version rendered `"%.1f".format(value)`
- * directly and only called [onChange] when the typed text fully parsed as a `Double` — clearing
- * the field to type a fresh number never called [onChange] (an empty string isn't a valid
- * double), so the field snapped back to the old formatted value on the very next recomposition,
- * making it impossible to clear and retype. Local text tracks whatever's actually been typed
- * (including empty, `"-"`, a trailing `"."`, mid-edit) independently of [value]; [onChange] only
- * fires once a full number parses, same external contract as before.
+ * Numeric field row for degree/hour-angle inputs. Keeps its own `text` so partial input (empty,
+ * `"-"`, a trailing `"."`) survives recomposition; [onChange] fires only when the text parses.
  */
 @Composable
 private fun DegreeField(value: Double, unit: String, onChange: (Double) -> Unit) {
@@ -892,19 +845,12 @@ private fun DegreeField(value: Double, unit: String, onChange: (Double) -> Unit)
     }
 }
 
-// ── Camera settings (M3.3 phase 5, curated subset) ──────────────────────────
+// ── Camera file settings ────────────────────────────────────────────────────
 
 /**
- * File-location settings only, as of 2026-09 (user request) — save path + placeholder/filename
- * template, real Capture-module fields (`fileDirectoryT`/`placeholderFormatT`). Originally also
- * held guide-deviation/drift/refocus guards and per-job dither; both moved out since (guards →
- * `SchedulerSettingsSheet`'s "Guide & Focus Limits", 2026-08-23; dither → the same sheet's own
- * "Dither" section, 2026-09) as neither was really about file locations, this sheet's own actual
- * theme. Opened from Frames tab now (`FramesScreen`'s "File settings" card), not Controls tab —
- * Controls tab's own Camera settings card was removed entirely, nothing else was left to show
- * there. Real-rig only: [AppState.wireCaptureSettings] is null under [SimulatedController] (no
- * fixture equivalent, same real-only gating as [MountSettingsSheet]) and briefly null on a real
- * rig too, until the first `capture_get_all_settings` reply lands.
+ * Capture-module file settings: save path and filename template (`fileDirectoryT`/
+ * `placeholderFormatT`). Opened from the Frames tab. [AppState.wireCaptureSettings] is null until
+ * the first `capture_get_all_settings` reply.
  */
 @Composable
 private fun CameraSettingsSheet(state: AppState, ctrl: SessionController) {
@@ -963,7 +909,7 @@ private fun CameraSettingsSheet(state: AppState, ctrl: SessionController) {
     }
 }
 
-/** Integer field row — same shape as [DegreeField] (same local-text-state fix, same reasoning) but for whole-number settings like [CameraSettingsSheet]'s dither frequency. */
+/** Integer counterpart of [DegreeField], with the same local text buffer. */
 @Composable
 private fun IntField(value: Int, onChange: (Int) -> Unit) {
     val c = NocturneTheme.colors
@@ -993,18 +939,14 @@ private fun IntField(value: Int, onChange: (Int) -> Unit) {
     }
 }
 
-// ── Align settings (M3.3 phase 3, curated subset) ───────────────────────────
+// ── Align settings (curated subset) ─────────────────────────────────────────
 
-/** Real Ekos's alignBinning combo options — confirmed live (`"1x1"` was the observed value, not a number). */
+/** Ekos's alignBinning combo options; the wire value is a string like `"1x1"`, not a number. */
 private val ALIGN_BINNING_OPTIONS = listOf("1x1", "2x2", "3x3", "4x4")
 
 /**
- * Curated subset of real Ekos's Align tab (5 of 98 real fields — see
- * docs/M3.3-plan.md) — exposure, gain, filter, binning, solver accuracy
- * threshold. Real-rig only: [AppState.wireAlignSettings] is null under
- * [SimulatedController] (no fixture equivalent, same real-only gating as
- * [MountSettingsSheet]/[CameraSettingsSheet]) and briefly null on a real
- * rig too, until the first `align_get_all_settings` reply lands.
+ * Curated subset of Ekos's Align tab: exposure, gain, filter, binning, solver accuracy.
+ * [AppState.wireAlignSettings] is null until the first `align_get_all_settings` reply.
  */
 @Composable
 private fun AlignSettingsSheet(state: AppState, ctrl: SessionController) {
@@ -1027,11 +969,8 @@ private fun AlignSettingsSheet(state: AppState, ctrl: SessionController) {
         HDivider()
         Spacer(Modifier.height(16.dp))
 
-        // Real alignUseCurrentFilter checkbox (align.ui:739) — confirmed against
-        // align_devices.cpp's Align::checkFilter: checked means a solve never changes the
-        // filter (uses whatever's actually loaded), unchecked means alignFilter below is a fixed
-        // choice a solve force-switches to every time, even mid-sequence. Was entirely missing
-        // before — the Filter chip always behaved like the unchecked/fixed case regardless.
+        // alignUseCurrentFilter (align.ui, Align::checkFilter): on, a solve never changes the
+        // filter; off, a solve switches to alignFilter every time, even mid-sequence.
         SwitchRow(
             label = "Use current filter",
             sub = "Off: solving force-switches to the filter below, even mid-sequence",
@@ -1039,13 +978,8 @@ private fun AlignSettingsSheet(state: AppState, ctrl: SessionController) {
             onToggle = { ctrl.setAlignUseCurrentFilter(!a.alignUseCurrentFilter) },
         )
         Spacer(Modifier.height(8.4.dp))
-        // Filter/Binning share a row (user request) — same tap-to-cycle idiom as the Sequence
-        // tab's own filter chip (cycleBlockFilter), reusing the same real filter-wheel position
-        // list. Filter's chip is replaced by a read-only display of the real current filter
-        // (Capture module's own FilterPosCombo — same physical wheel) while "Use current filter"
-        // is on, matching the real widget's own disabled state (Align::checkFilter sets
-        // alignFilter->setEnabled(false) in that branch) rather than letting a tap silently do
-        // nothing.
+        // With "Use current filter" on, the filter chip shows Capture's loaded filter read-only,
+        // as Ekos disables alignFilter in that case.
         Row(Modifier.fillMaxWidth()) {
             Column(Modifier.weight(1f)) {
                 FieldLabel("Filter")
@@ -1053,12 +987,7 @@ private fun AlignSettingsSheet(state: AppState, ctrl: SessionController) {
                 if (a.alignUseCurrentFilter) {
                     CycleChip(state.wireCaptureSettings?.FilterPosCombo?.ifBlank { "—" } ?: "—", enabled = false) {}
                 } else {
-                    // Real bug, found live: this used to cycle the fixture FILTER_CYCLE
-                    // unconditionally, same as every other filter-cycle chip in the app used to
-                    // before switching to realFilterNames — cycling past this rig's real last
-                    // slot wrapped into a fixture name ("Ha") that doesn't exist on the real
-                    // wheel, silently rejected server-side, then snapped back once a later
-                    // debounced align_get_all_settings reply corrected the optimistic local guess.
+                    // Cycle the wheel's own slot names; Ekos silently rejects a name it doesn't have.
                     val filterNames = state.realFilterNames ?: FILTER_CYCLE
                     CycleChip(a.alignFilter) { ctrl.setAlignFilter(filterNames[(filterNames.indexOf(a.alignFilter) + 1).mod(filterNames.size)]) }
                 }
@@ -1078,22 +1007,15 @@ private fun AlignSettingsSheet(state: AppState, ctrl: SessionController) {
         Spacer(Modifier.height(5.dp))
         DegreeField(a.alignAccuracyThreshold, "\"", ctrl::setAlignAccuracyThreshold)
         Spacer(Modifier.height(8.4.dp))
-        // M5 (docs/STATUS.md) — found sitting at 0 on the real rig (SSH-checked kstarsrc,
-        // 2026-08-29), which makes the Controls-tab rotator readback's "within threshold" check
-        // practically never true. Distinct arcmin unit from the solver accuracy field above
-        // (arcsec) — see WireAlignSettings.kcfg_AstrometryRotatorThreshold's own doc.
+        // Arcminutes, unlike the arcsec accuracy above. At 0 the rotator readback is never
+        // "within threshold".
         FieldLabel("Rotator threshold")
         Spacer(Modifier.height(5.dp))
         DegreeField(a.kcfg_AstrometryRotatorThreshold, "'", ctrl::setAlignRotatorThreshold)
     }
 }
 
-/**
- * Tap-to-cycle chip shared by [AlignSettingsSheet]'s filter/binning fields. [enabled] false (the
- * "use current filter" branch — real `Align::checkFilter` disables `alignFilter` the same way)
- * drops the clickable modifier and dims the text, rather than leaving a tap that silently does
- * nothing on an otherwise-normal-looking chip.
- */
+/** Tap-to-cycle chip; with [enabled] false it is dimmed and not clickable. */
 @Composable
 private fun CycleChip(value: String, enabled: Boolean = true, onTap: () -> Unit) {
     val c = NocturneTheme.colors
@@ -1111,15 +1033,12 @@ private fun CycleChip(value: String, enabled: Boolean = true, onTap: () -> Unit)
     }
 }
 
-// ── Guide settings (M3.3 phase 4, curated subset) ───────────────────────────
+// ── Guide settings (curated subset) ─────────────────────────────────────────
 
 /**
- * Curated subset of real Ekos's Guide tab (22 of 84 real fields — see
- * docs/M3.3-plan.md and [WireGuideSettings]'s own doc for the live-probe history) —
- * exposure/gain/binning live on the Controls tab's guide preview row; this sheet holds accuracy
- * threshold, dither, frame (dark/subframe/auto star/lost star) and calibration options.
- * Real-rig only: [AppState.wireGuideSettings] is null under [SimulatedController] and briefly null on a real rig too, until the first
- * `guide_get_all_settings` reply lands — same gating shape as [AlignSettingsSheet].
+ * Curated subset of Ekos's Guide tab: accuracy threshold, dither, frame (dark/subframe/auto
+ * star/lost star) and calibration. Exposure/gain/binning are on the Controls tab's guide preview.
+ * [AppState.wireGuideSettings] is null until the first `guide_get_all_settings` reply.
  */
 @Composable
 private fun GuideSettingsSheet(state: AppState, ctrl: SessionController) {
@@ -1250,36 +1169,27 @@ private fun GuideSwitch(label: String, sub: String, checked: Boolean, onToggle: 
     )
 }
 
-// ── Focus settings (M3.3 phase 6 + 2026-09 Mechanics/Process expansion) ─────
+// ── Focus settings (curated subset) ─────────────────────────────────────────
 
-/** Real `opsfocusmechanics.ui` combo (`focusWalk`) — Linear-only "Classic" included since the
- *  combo itself offers it regardless of which algorithm is active; the field is free either way. */
+/** `opsfocusmechanics.ui` combo (`focusWalk`). "Classic" is Linear-only but the combo always offers it. */
 private val FOCUS_WALK_CYCLE = listOf("Classic", "Fixed Steps", "CFZ Shuffle")
 
-/** Real `opsfocusprocess.ui` combo (`focusDetection`). */
+/** `opsfocusprocess.ui` combo (`focusDetection`). */
 private val FOCUS_DETECTION_CYCLE = listOf("Gradient", "Centroid", "Threshold", "SEP", "Bahtinov")
 
-/** Real `opsfocusprocess.ui` combo (`focusCurveFit`). */
+/** `opsfocusprocess.ui` combo (`focusCurveFit`). */
 private val FOCUS_CURVE_FIT_CYCLE = listOf("Quadratic", "Hyperbola", "Parabola", "Gaussian")
 
-/** Real `opsfocusprocess.ui` combo (`focusStarMeasure`). */
+/** `opsfocusprocess.ui` combo (`focusStarMeasure`). */
 private val FOCUS_STAR_MEASURE_CYCLE =
     listOf("HFR", "HFR Adj", "FWHM", "# Stars", "Fourier", "StdDev", "Sobel", "Laplassian", "Canny")
 
 /**
- * Real Ekos Focus tab settings, 2 groups matching Ekos's own layout: **Mechanics**
- * (`opsfocusmechanics.ui`), **Process** (`opsfocusprocess.ui`) — 18 of ~84 real fields shown here
- * (see [WireFocusSettings]'s own per-field docs for the live-probe history), a practical subset
- * rather than a full 1:1 mirror (2026-09, user's own call: skip mosaic/masking/adaptive/CFZ-
- * calculator/donut/multi-row/gaussian-denoise internals — expert-tuning fields, not the everyday
- * set). Exposure/gain/filter/binning (4 more curated fields) deliberately live on Controls tab's
- * Focuser card instead, not here — see that card's own doc. `absTicksSpin` (used elsewhere to
- * seed [AppState.focPos]) isn't shown anywhere — no real fork command sets an absolute position
- * directly (confirmed 2026-09, see [SessionController.focusStepIn]'s doc for the full finding);
- * Focus In/Out on Controls tab's Focuser card is the real move control now. Real-rig only:
- * [AppState.wireFocusSettings] is null under [SimulatedController] and briefly null on a real rig
- * too, until the first `focus_get_all_settings` reply lands — same gating shape as
- * [GuideSettingsSheet].
+ * Everyday subset of Ekos's Focus settings, grouped as in Ekos: **Mechanics**
+ * (`opsfocusmechanics.ui`) and **Process** (`opsfocusprocess.ui`). Expert tuning (mosaic, masking,
+ * adaptive, CFZ calculator, donut…) is left out. Exposure/gain/filter/binning are on the Controls
+ * tab's Focuser card. `absTicksSpin` isn't shown: no command sets an absolute position.
+ * [AppState.wireFocusSettings] is null until the first `focus_get_all_settings` reply.
  */
 @Composable
 private fun FocusSettingsSheet(state: AppState, ctrl: SessionController) {
@@ -1293,19 +1203,11 @@ private fun FocusSettingsSheet(state: AppState, ctrl: SessionController) {
     }
 
     Column {
-        // Exposure/gain/filter/binning deliberately NOT here (2026-09) — moved to Controls tab's
-        // Focuser card instead, alongside the manual Focus In/Out buttons that actually use them,
-        // matching Primary Camera/Guide's own preview-row placement. This sheet is Mechanics +
-        // Process only now — real Ekos's own two Focus-tab settings groups, nothing else.
-
         // ── Mechanics (opsfocusmechanics.ui) ────────────────────────────────
         TextC("MECHANICS", style = t.MicroLabel, color = c.textMuted)
         Spacer(Modifier.height(10.dp))
 
-        // Real kcfg fields (`focusTicks`/`focusMaxTravel`) — `focusTicks` doubles as the real
-        // default step `jogFocus` falls back to (see FocuserCard's own doc for the real bug this
-        // caused: the fork currently substitutes this for *every* jog, ignoring the requested
-        // amount entirely, not just as an ms<=0 fallback as the code first suggested).
+        // `focusTicks` is also the step the app's Focus In/Out buttons use (they send steps=0).
         FieldLabel("Initial step size (ticks)")
         Spacer(Modifier.height(5.dp))
         IntField(f.focusTicks, ctrl::setFocusTicks)
@@ -1326,8 +1228,7 @@ private fun FocusSettingsSheet(state: AppState, ctrl: SessionController) {
         Spacer(Modifier.height(5.dp))
         IntField(f.focusBacklash, ctrl::setFocusBacklash)
         Spacer(Modifier.height(8.4.dp))
-        // Confirmed live this session: the mechanism behind FocuserCard's own documented overscan
-        // bug — added to every outward Focus-module move, then auto-corrected back.
+        // Added to every outward Focus-module move, then corrected back.
         FieldLabel("AF overscan (ticks)")
         Spacer(Modifier.height(5.dp))
         IntField(f.focusAFOverscan, ctrl::setFocusAFOverscan)
@@ -1348,10 +1249,8 @@ private fun FocusSettingsSheet(state: AppState, ctrl: SessionController) {
         Spacer(Modifier.height(5.dp))
         DegreeField(f.focusSettleTime, "s", ctrl::setFocusSettleTime)
         Spacer(Modifier.height(8.4.dp))
-        // Relabeled from a plain "Max travel" — real user report, live-tested: this reads like a
-        // hardware safety bound (and the real overscan bug above made that confusion actively
-        // dangerous) but it's genuinely just a per-autofocus-run search-distance cap (`focus.cpp`'s
-        // `searchMin`/`searchMax`), not a device limit at all.
+        // `focusMaxTravel` ("Max travel" in Ekos) is a per-run search cap (`focus.cpp`
+        // searchMin/searchMax), not a device limit, hence the label.
         FieldLabel("Autofocus search range (ticks)")
         Spacer(Modifier.height(5.dp))
         IntField(f.focusMaxTravel, ctrl::setFocusMaxTravel)
@@ -1360,9 +1259,8 @@ private fun FocusSettingsSheet(state: AppState, ctrl: SessionController) {
             style = t.MonoMicro, color = c.textFaint,
         )
         Spacer(Modifier.height(8.4.dp))
-        // The real hardware limit — ABS_FOCUS_POSITION's own min/max, read-only (driver-reported,
-        // nothing in Ekos or this app sets it). Shown here so "max position" has one unambiguous,
-        // real answer next to the policy field above instead of the two being conflated.
+        // The hardware limit: ABS_FOCUS_POSITION min/max, driver-reported and read-only. Shown
+        // next to the search range so the two aren't confused.
         val range = state.focRange
         FieldLabel("Real hardware range")
         Spacer(Modifier.height(5.dp))
@@ -1383,10 +1281,7 @@ private fun FocusSettingsSheet(state: AppState, ctrl: SessionController) {
         CycleChip(f.focusDetection) { ctrl.setFocusDetection(FOCUS_DETECTION_CYCLE[(FOCUS_DETECTION_CYCLE.indexOf(f.focusDetection) + 1).mod(FOCUS_DETECTION_CYCLE.size)]) }
         Spacer(Modifier.height(8.4.dp))
 
-        // Free-text, not a cycle chip: unlike the combos above, real Ekos's algorithm list isn't
-        // enumerated anywhere probed so far (confirmed live value: "Linear 1 Pass") — inventing a
-        // guessed option list here would be exactly the kind of wire-shape guess this project
-        // avoids elsewhere. Same free-text shape as CameraSettingsSheet's "Save path" field.
+        // Free text: the algorithm list (e.g. "Linear 1 Pass") isn't enumerated on the wire.
         FieldLabel("Autofocus algorithm")
         Spacer(Modifier.height(5.dp))
         Box(
@@ -1428,20 +1323,13 @@ private fun FocusSettingsSheet(state: AppState, ctrl: SessionController) {
     }
 }
 
-// ── Scheduler settings (curated subset, see WireSchedulerSettings' own doc, M2026-08) ───────
+// ── Scheduler settings (curated subset, see WireSchedulerSettings) ─────────
 
 /**
- * Scheduler-wide *policy* settings — Startup condition, Constraints (+ per-job step defaults),
- * Completion condition, Observatory startup/shutdown procedure, Aborted-job handling — matching
- * real Ekos's own Scheduler tab layout. See [WireSchedulerSettings]'s own doc for exactly which
- * ~30 of ~70 real fields are curated here and why. Real-rig only: [AppState.wireSchedulerSettings]
- * is null under [SimulatedController] (no fixture equivalent, same real-only gating as
- * [MountSettingsSheet]) and briefly null on a real rig too, until the first
- * `scheduler_get_all_settings` reply lands.
- *
- * [OptionRow] reuses [SwitchRow]'s own look for a mutually-exclusive selection (a radio, not a
- * toggle) — clicking an already-selected option is a no-op in practice (the setter just
- * re-selects itself), no separate widget built for this one pass.
+ * Scheduler-wide policy, laid out like Ekos's Scheduler tab: startup condition, constraints and
+ * per-job step defaults, completion condition, observatory startup/shutdown, aborted-job handling,
+ * guide & focus limits, dither. [AppState.wireSchedulerSettings] is null until the first
+ * `scheduler_get_all_settings` reply.
  */
 @Composable
 private fun SchedulerSettingsSheet(state: AppState, ctrl: SessionController) {
@@ -1690,8 +1578,7 @@ private fun SchedulerSettingsSheet(state: AppState, ctrl: SessionController) {
         HDivider()
         Spacer(Modifier.height(16.dp))
 
-        // Un-excluded 2026-08-23 — the real root cause behind this app's own "Ekos auto-resumes
-        // a stale queued job on its own restart" investigation. See its own doc for why.
+        // With this on, Ekos can resume a stale queued job on its own restart.
         SwitchRow(
             label = "Remember job progress", sub = "Ekos can auto-resume a queued job on its own, even before this app reconnects",
             checked = sc.kcfg_RememberJobProgress,
@@ -1699,17 +1586,10 @@ private fun SchedulerSettingsSheet(state: AppState, ctrl: SessionController) {
             modifier = Modifier.fillMaxWidth().background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 11.2.dp),
         )
 
-        // ── Guide & Focus Limits (2026-08-23, user's own call) ──────────────────────
-        // Real Ekos itself groups these fields (guide-deviation abort, start-of-job drift,
-        // refocus triggers) in one dialog literally titled "Guide & Focus Limits" (limits.ui) —
-        // moved here from Camera settings, which was the wrong conceptual home even though it's
-        // the same real capture_set_all_settings wire command (Capture module owns the dialog,
-        // Nocturne's own sheet split is a UI-only grouping, not a wire-protocol one; each row
-        // below still calls the same real setCameraXxx→sendCaptureSetting path it always did).
-        // Dither moved here too as of 2026-09 (see its own section below) — no longer "stays in
-        // Camera settings" as this comment used to say; that card was removed from Controls tab
-        // entirely, and Dither's own real per-block sibling (`Block.ditherEvery`) already lives in
-        // this same Sequence tab, making this the right conceptual home now, not a leftover.
+        // ── Guide & Focus Limits ────────────────────────────────────────────────────
+        // Ekos's "Guide & Focus Limits" dialog (limits.ui): guide-deviation abort, start-of-job
+        // drift, refocus triggers. These and Dither are Capture-module fields, written with
+        // capture_set_all_settings; they sit here because they govern an imaging session.
         val cam = state.wireCaptureSettings
         if (cam == null) {
             Spacer(Modifier.height(16.dp))
@@ -1791,13 +1671,8 @@ private fun SchedulerSettingsSheet(state: AppState, ctrl: SessionController) {
             HDivider()
             Spacer(Modifier.height(16.dp))
 
-            // Moved here from Controls tab's own Camera settings card (2026-09, user request:
-            // "this is setting for multiple image shots, suitable for image session") — same
-            // real Capture-module global default `enableDitherPerJob`/`guideDitherPerJobFrequency`
-            // as before, just relocated next to its own natural siblings: the *per-block* override
-            // of this exact same real setting already lives in Sequence tab's own block editor
-            // (`Block.ditherEvery`, "Dither every" row, `SequenceScreen.kt`) — this is the global
-            // default that applies when a block doesn't override it.
+            // Capture's global dither default (`enableDitherPerJob`/`guideDitherPerJobFrequency`);
+            // a block's "Dither every" (`Block.ditherEvery`) overrides it.
             TextC("DITHER (GLOBAL DEFAULT)", style = t.MicroUppercase, color = c.textFaint)
             Spacer(Modifier.height(8.4.dp))
             SwitchRow(
@@ -1817,7 +1692,7 @@ private fun SchedulerSettingsSheet(state: AppState, ctrl: SessionController) {
     }
 }
 
-/** Mutually-exclusive selection row — reuses [SwitchRow]'s own look, see [SchedulerSettingsSheet]'s doc. */
+/** Radio-style selection row with [SwitchRow]'s look; tapping the selected option re-selects it. */
 @Composable
 private fun OptionRow(label: String, selected: Boolean, onSelect: () -> Unit) {
     SwitchRow(
@@ -1852,17 +1727,9 @@ private fun TextFieldBox(value: String, onChange: (String) -> Unit) {
 // ── Rig maintenance ─────────────────────────────────────────────────────────
 
 /**
- * Plain `LocationManager` last-known fix (2026-09) — no Play Services/`FusedLocationProviderClient`
- * dependency added for this, a cached last-known reading is good enough for site
- * location/almanac math (no meter-level precision need, and no fresh GPS lock wait either).
- * Checks both `GPS_PROVIDER` and `NETWORK_PROVIDER`, returns whichever is more recent; either can
- * legitimately be absent (no last-known fix cached yet, e.g. a fresh install that's never opened
- * Maps) — null in that case, not a fabricated 0,0. Re-checks the permission itself (defensive,
- * even though every call site already gates on it) since `getLastKnownLocation` requires it.
- * Elevation defaults to 0.0 when a provider doesn't report altitude (common for NETWORK_PROVIDER)
- * — real coordinates always take priority in `KStars::setGPSLocation`'s own math, elevation only
- * affects atmospheric refraction correction, a small effect worth an honest default over blocking
- * the whole sync on it.
+ * Most recent last-known fix from the GPS or network provider, or null if neither has one. A
+ * cached fix is precise enough for site/almanac math, so there's no Play Services dependency or
+ * wait for a fresh lock. Elevation defaults to 0.0 when missing; it only affects refraction.
  */
 private fun requestLastKnownLocation(context: android.content.Context): Triple<Double, Double, Double>? {
     if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
@@ -1878,11 +1745,8 @@ private fun requestLastKnownLocation(context: android.content.Context): Triple<D
 }
 
 /**
- * Rig-level recovery, not an Ekos concept — the EkosRemote wire has no
- * OS-level reboot command (and couldn't rely on one anyway: a hung/crashed
- * Ekos process is exactly the case a reboot needs to recover from). Talks
- * instead to a small companion daemon on the Pi over its own HTTP
- * channel (`pi-tools/reboot-daemon/`, [RigRebootClient]).
+ * Rig-level recovery. The wire has no reboot command, and a hung Ekos couldn't serve one anyway,
+ * so this talks to a companion daemon on the Pi over HTTP (`pi-tools/reboot-daemon/`, [RigRebootClient]).
  */
 @Composable
 private fun MaintenanceSheet(state: AppState, ctrl: SessionController) {
@@ -1892,10 +1756,7 @@ private fun MaintenanceSheet(state: AppState, ctrl: SessionController) {
     var portText by remember { mutableStateOf(state.rigRebootPort.toString()) }
     var showConfirm by remember { mutableStateOf(false) }
 
-    // GPS sync (2026-09) — real Android LocationManager (no Play Services dependency added, a
-    // plain last-known fix is good enough for site location, no fresh-lock precision needed),
-    // separate from the reboot daemon entirely (this goes over the real EkosRemote wire, not the
-    // daemon's HTTP channel — see SessionController.syncLocationToRig's own doc).
+    // Location sync goes over the EkosRemote wire, not the daemon.
     val context = LocalContext.current
     var locationError by remember { mutableStateOf<String?>(null) }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -1987,10 +1848,8 @@ private fun MaintenanceSheet(state: AppState, ctrl: SessionController) {
         HDivider()
         Spacer(Modifier.height(24.dp))
 
-        // GPS/time sync (2026-09, user request) — location goes over the real EkosRemote wire
-        // (kstars_set_location, always available once connected, no daemon needed); time syncs
-        // BOTH the real Pi OS clock (daemon) AND KStars' own live clock
-        // (wire, works either way) — see SessionController's own docs for the split reasoning.
+        // Location goes over the wire (kstars_set_location). Time sets both the Pi OS clock
+        // (daemon) and KStars' clock (wire).
         TextC("GPS / TIME SYNC", style = t.MicroUppercase, color = c.textMuted)
         Spacer(Modifier.height(10.dp))
         NocturneButton(
@@ -2127,20 +1986,10 @@ private fun SkyAtlasSection(atlas: SkyAtlasStatus, ctrl: SessionController) {
 }
 
 /**
- * Standalone entry point (from Gear tab) — the real Optical Trains dialog's
- * per-train role editor: Primary/Secondary (fixed, no add/remove — matches
- * the design brief, not the desktop dialog's +/− train list), each with the
- * same 10 roles as `train_get_all` (message.cpp:236,
- * `OpticalTrainManager::getOpticalTrains()`): Mount/Camera/Rotator/Guide via/
- * Dust cap/Scope/Filter wheel/Focuser/Reducer/Light box. Every dropdown's
- * pool is whatever's currently selected in the rig profile's device/scope
- * categories — Reducer is the one field that isn't a device pick, just a
- * per-train multiplier. Scope/Lens itself is a plain picker over the Scopes
- * catalog (`ScopesSheet`, reachable from its own Gear-tab card) — real Ekos
- * keeps that catalog in its own dialog too, entirely separate from Optical
- * Trains (M3.1). *Which Ekos module uses which train* is a separate concern
- * — see `ModuleAssignmentsSheet` (split out, user feedback: the two were
- * cluttering one long scroll and reading as unrelated to each other).
+ * Optical train role editor: a fixed Primary and Secondary train (no add/remove), each with the
+ * 10 roles of `train_get_all` (Mount/Camera/Rotator/Guide via/Dust cap/Scope/Filter wheel/Focuser/
+ * Reducer/Light box). Pools come from the profile's devices and the Scopes catalog; Reducer is a
+ * multiplier. Which module uses which train is [ModuleAssignmentsSheet].
  */
 @Composable
 private fun OpticalTrainSheet(state: AppState, ctrl: SessionController) {
@@ -2167,14 +2016,8 @@ private fun OpticalTrainSheet(state: AppState, ctrl: SessionController) {
 }
 
 /**
- * Standalone entry point (from Gear tab, next to Optical Train) — *which*
- * Ekos module (real tab: Camera/Focus/Mount/Guide/Align/Dark Library) uses
- * *which* named train, the real per-active-profile `ProfileSettings`
- * mechanism (`train_set`/`train_get_profiles`, confirmed against
- * `profilesettings.cpp`/`opticaltrainmanager.cpp`) — only meaningful once
- * real trains exist, no fixture equivalent (`SimulatedController` never sets
- * `wireTrains`), so [com.nocturne.ui.gear.GearScreen] simply omits this
- * card's entry point rather than showing a decorative stand-in.
+ * Which train each Ekos module (Camera/Focus/Mount/Guide/Align/Dark Library) uses, stored
+ * per active profile (`train_set`/`train_get_profiles`). Gear hides the entry until trains exist.
  */
 @Composable
 private fun ModuleAssignmentsSheet(state: AppState, ctrl: SessionController) {
@@ -2193,24 +2036,12 @@ private fun ModuleAssignmentsSheet(state: AppState, ctrl: SessionController) {
 }
 
 /**
- * Real `train_set` module keys + display labels — the 6 Ekos modules that
- * each independently pick a train (confirmed against real KStars source,
- * `focus.cpp`/`mount.cpp`/`align_settings.cpp`/`guide.cpp`/`camera_config.cpp`/
- * `darklibrary.cpp`, each with its own real, working Optical Train combo box
- * — no module here is a decorative stand-in). Label is "Camera", not
- * "Capture" — the wire's own module string stays `"capture"` (that's what
- * `train_set` actually accepts, `EkosRemote-Command-Reference.md`
- * §"train_set"), but the real Ekos tab a user sees this control on is called
- * Camera. Setup/Scheduler/Analyze/Observatory have no per-module train of
- * their own (Setup predates trains existing at all; Scheduler's train picker
- * is per-*job*, not a persisted profile setting; Analyze/Observatory have no
- * Optical Train concept) — deliberately absent from this list, not missed.
+ * `train_set` module keys + labels: the 6 Ekos modules with their own Optical Train combo. The
+ * wire key is `"capture"` but Ekos labels the tab Camera. Scheduler picks trains per job, and
+ * Setup/Analyze/Observatory have none, so they're absent.
  *
- * **Dark Library** (`darklibrary.cpp`): manages dark-frame/defect-map
- * calibration — captures or loads a matching master dark for whichever
- * camera its assigned train points at. Genuinely independent of Capture's
- * train (e.g. building a dark library for the guide camera while Capture
- * images through the main one).
+ * Dark Library builds master darks for whichever camera its train points at, independently of
+ * Capture's train (e.g. darks for the guide camera).
  */
 private val MODULE_ASSIGNMENT_LABELS = listOf(
     "capture" to "Camera",
@@ -2254,12 +2085,7 @@ private fun TrainForm(state: AppState, ctrl: SessionController, slot: TrainSlot)
     }
 }
 
-/**
- * One role's picker — horizontally-scrolling chip row, since a pool can be
- * 1-3 wide. Label/options sized up from the original 9.5px/11px + faint/muted
- * (user feedback: too small and dim to read comfortably) to 11px/13px +
- * dim/text — [c.accent400] for the selected chip is unchanged, already legible.
- */
+/** One role's picker: a horizontally scrolling chip row. */
 @Composable
 private fun RoleRow(label: String, options: List<String>, selected: String, onSelect: (String) -> Unit) {
     val c = NocturneTheme.colors
@@ -2320,9 +2146,9 @@ private fun ReducerField(value: Double, onChange: (Double) -> Unit) {
 
 
 /**
- * Real Polar Alignment Assistant, driven by `new_polar_state`. Pushes are independent partial
+ * Polar Alignment Assistant, driven by `new_polar_state`. Pushes are independent partial
  * shapes (`{"stage"}`, `{"message"}`, `{"vector"}`, `{"enabled"}`, updated errors), merged in
- * [AppState]. Stage strings are the real `PAHStages` table (see [PAH_MEASURE_IMAGE]), so the
+ * [AppState]. Stage strings are the `PAHStages` table (see [PAH_MEASURE_IMAGE]), so the
  * sheet branches on them: image progress while measuring, Done rotating (manual slew), Select
  * Star → Start adjusting, Refreshing → Done. Settings are the assistant's own widgets via
  * `align_set_all_settings`, editable only when the desktop enables them.
@@ -2366,7 +2192,7 @@ private fun PaRealSheet(state: AppState, ctrl: SessionController) {
             state.wirePolarMessage ?: "Put the mount either in the home position pointed toward the celestial pole, or pointed anywhere near the meridian, then tap Start.",
             style = t.Body13, color = c.textMuted,
         )
-        // Real align frame (M4.2). Once PAH has a result, Ekos sends "+A" updated frames
+        // Align frame. Once PAH has a result, Ekos sends "+A" updated frames
         // (Media::sendUpdatedFrame) cropped from AlignView's display pixmap, which already has
         // Ekos's own correction triangle / plate-solve arrows painted in (FITSView::updateFrame
         // → AlignView::drawOverlay) — so nothing is drawn client-side, it would only duplicate.
@@ -2377,7 +2203,7 @@ private fun PaRealSheet(state: AppState, ctrl: SessionController) {
             TextC("Tap a bright star to place the correction triangle.", style = t.Caption, color = c.accent400)
         }
         // updatedError/Az/Alt arrive during refresh (setUpdatedErrors); vector.* with the
-        // measurement (setPolarResults). Degrees; -1 is the real "not computed yet" sentinel.
+        // measurement (setPolarResults). Degrees; -1 means "not computed yet".
         val azErr = (state.wirePolarUpdatedAzError ?: state.wirePolarVector?.azError)?.takeIf { it >= 0 }
         val altErr = (state.wirePolarUpdatedAltError ?: state.wirePolarVector?.altError)?.takeIf { it >= 0 }
         val totalErr = (state.wirePolarUpdatedError ?: state.wirePolarVector?.error)?.takeIf { it >= 0 }
@@ -2614,12 +2440,7 @@ private fun DeviceSheet(state: AppState, ctrl: SessionController) {
     }
 }
 
-/**
- * Real-connection device sheet (M3) — `state.wireDevices` present means a
- * real EkosRemote link, so this shows the actual device's connect toggle +
- * live INDI property panel instead of the fixture [Device] catalog's
- * static `cfg` rows.
- */
+/** Connected device sheet: connect toggle and the device's live INDI property panel. */
 @Composable
 private fun RealDeviceSheetBody(state: AppState, ctrl: SessionController, d: LiveDevice) {
     val c = NocturneTheme.colors
@@ -2652,11 +2473,7 @@ private fun RealDeviceSheetBody(state: AppState, ctrl: SessionController, d: Liv
     }
 }
 
-/**
- * Device sheet body shown before Ekos is running (rig setup / profile edit) —
- * nothing is actually connected yet, so this is just a selection toggle, not
- * live connect/configure controls.
- */
+/** Device sheet before Ekos is running (profile setup): only a selection toggle, nothing to configure yet. */
 @Composable
 private fun DevicePickerBody(state: AppState, ctrl: SessionController, d: Device) {
     val c = NocturneTheme.colors
@@ -2781,10 +2598,8 @@ private fun DeviceOptionList(options: List<Pair<String, String?>>, current: Stri
 }
 
 /**
- * Generic INDI control panel — one card per property vector, rendered purely
- * from its [IndiProperty] shape so any device (real or simulated) works the
- * same way: switches as segmented pickers, numbers as steppers, text as an
- * editable field, lights as read-only status dots.
+ * Generic INDI control panel, one card per property vector rendered from its [IndiProperty]
+ * shape: switches as segmented pickers, numbers as steppers, text as fields, lights as dots.
  */
 @Composable
 private fun IndiPropertyPanel(deviceKey: String, props: List<IndiProperty>, ctrl: SessionController) {
@@ -2838,10 +2653,7 @@ private fun IndiPropertyPanel(deviceKey: String, props: List<IndiProperty>, ctrl
                         onClick = { ctrl.setIndiNumber(deviceKey, prop.name, prop.value + prop.step) },
                     )
                 }
-                // One row per element (2026-08-23) — a text vector can hold several at once
-                // (e.g. FILTER_NAME, one per filter-wheel slot); this renders identically to the
-                // old single-field layout for every other, genuinely single-element text
-                // property, so nothing else changes shape.
+                // One row per element: a text vector can hold several (e.g. FILTER_NAME per slot).
                 is IndiProperty.TextProp -> Column {
                     prop.elements.forEachIndexed { i, (elementName, value) ->
                         if (i > 0) Spacer(Modifier.height(6.dp))
@@ -2873,14 +2685,8 @@ private fun IndiPropertyPanel(deviceKey: String, props: List<IndiProperty>, ctrl
 }
 
 /**
- * Local `text` state, not a `value`-derived one — same clear-and-retype fix `NumberField`/
- * `Sheets.kt`'s own `DegreeField`/`IntField`/`MmField` already use, needed here for a different
- * real reason (2026-08-23, user report typing multiple characters wasn't registering): a real
- * INDI text vector doesn't necessarily echo the new value back instantly (the driver may not
- * apply/re-push it until later, or at all until some other trigger) — binding the field straight
- * to the live prop value meant every recomposition in between could snap the field back to the
- * stale server value mid-keystroke, fighting typing one character at a time. Local text is
- * keyed by [index] so each row in a multi-element vector keeps its own independent buffer.
+ * Keeps its own `text` because a driver may not echo a text vector back promptly; binding to the
+ * live value would snap the field back mid-typing. Keyed by [index] so each element has its own buffer.
  */
 @Composable
 private fun IndiTextElementRow(index: Int, showIndex: Boolean, value: String, onChange: (String) -> Unit) {
@@ -2918,8 +2724,7 @@ private fun SummarySheet(state: AppState, ctrl: SessionController) {
     val job = state.endedJob
     val barColors = listOf(Color(0xFF9184D9), Color(0xFF796CBF), Color(0xFF5D5294), c.accentMuted, c.accent800)
     Column {
-        // Real, Room-backed (M4.3 for the frame table, M4.6 for actually reading it here —
-        // state.keepCount/rejectCount/medHfr existed since M4.3 but nothing consumed them until now).
+        // From the Room-backed frame table.
         Row(Modifier.fillMaxWidth()) {
             SumStat("KEPT", state.keepCount.toString(), Modifier.weight(1f))
             Spacer(Modifier.width(8.4.dp))
@@ -2945,9 +2750,7 @@ private fun SummarySheet(state: AppState, ctrl: SessionController) {
             }
         }
         Spacer(Modifier.height(11.2.dp))
-        // Was a hardcoded fictional narrative ("Lost 20m — cloud 01:04–01:18...") shown
-        // unconditionally regardless of what actually happened, then an honest placeholder
-        // pending real notification wiring — now real (M4.5 half A, docs/STATUS.md).
+        // Built from this session's notifications.
         TextC("SESSION EVENTS", style = t.MicroLabel, color = c.textMuted)
         Spacer(Modifier.height(6.dp))
         if (state.wireNotifications.isEmpty()) {
@@ -3064,7 +2867,7 @@ private fun SumStat(label: String, value: String, modifier: Modifier = Modifier,
     }
 }
 
-/** Shared field-label style (Optical Train's Reducer, Scope editor's Name, Setup's Profile name, ...) — bumped from 10px/textMuted (user feedback: too small/dim) to 11px medium/textDim. */
+/** Shared field-label style for sheet forms. */
 @Composable
 private fun FieldLabel(text: String) {
     val c = NocturneTheme.colors

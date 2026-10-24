@@ -27,15 +27,14 @@ import kotlin.coroutines.coroutineContext
  * 0..[MAX_ORDER]. Orders 0..4 ship inside the APK (assets `hips/DSSColor/`, packed at build time
  * from the laptop mirror, see app/build.gradle.kts); order 5 lives in app storage, loaded by
  * `tools/push_sky_atlas.sh` over USB or copied from the rig ([copyFromRig], reboot daemon
- * `/hips/`). A tile in app storage wins over a packaged one. Unlike a per-target cutout, the
- * tiles don't depend on the scope or camera: any field of view, any target, is rendered from
- * them ([render]), so framing works with no internet at all.
+ * `/hips/`). A tile in app storage wins over a packaged one. The tiles don't depend on scope or
+ * camera: any field of view and target is rendered from them ([render]), with no internet.
  */
 class SkyAtlas(context: Context) {
 
     companion object {
         /** Order 5 = 12.9″/tile pixel: sharp for the 600 px framing image up to ~600 mm focal
-         *  length. 16,380 tiles, ~970 MB (measured 2026-10-24: tiles grow from ~44 KB at order 3 to ~62 KB at order 5). */
+         *  length. 16,380 tiles, ~970 MB (tiles grow from ~44 KB at order 3 to ~62 KB at order 5). */
         const val MAX_ORDER = 5
         val TOTAL_TILES: Int = (0..MAX_ORDER).sumOf { Healpix.tileCount(it) }
         private const val PARALLEL = 4
@@ -140,8 +139,8 @@ class SkyAtlas(context: Context) {
     }
 
     /**
-     * Square [sizePx] JPEG of [fovDeg] around ([raDeg], [decDeg]), same framing as the
-     * `hips2fits` cutout it replaces (TAN, north up, east left). Uses the coarsest order whose
+     * Square [sizePx] JPEG of [fovDeg] around ([raDeg], [decDeg]), same framing as a
+     * `hips2fits` cutout (TAN, north up, east left). Uses the coarsest order whose
      * pixels are at least as fine as the output's, capped at [maxOrder] (the deepest order
      * fully on the phone). Null if a needed tile is missing.
      */

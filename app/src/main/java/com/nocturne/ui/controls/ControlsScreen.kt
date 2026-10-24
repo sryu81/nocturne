@@ -77,17 +77,8 @@ private val BIN_OPTIONS = listOf(1, 2, 3, 4)
 private val GUIDE_BIN_OPTIONS = listOf("1x1", "2x2", "3x3", "4x4")
 
 /**
- * Per-module operational settings + live control — Camera/Guide/Mount/Align, split out of Gear
- * (which stays rig topology/setup: profile, devices, scopes, trains) once Gear started
- * accumulating both concerns. Consolidates what Bench check's live controls already did with
- * what Mount/Camera settings (M3.3) already do, plus Align (this tab) — Guide settings/control
- * land in a later phase. See docs/M3.3-plan.md's Addendum.
- *
- * Always visible, same as every other tab — individual cards inside gate themselves. The
- * Bench-derived live-control cards (Snap/Cooler/Focuser/Mount jog/Align solve) stay ungated:
- * they already work under the simulator via existing fixture fields, unchanged from how they
- * behaved inside the old Bench sheet. The curated `*_get_all_settings` cards (Mount/Camera/Align
- * settings) stay real-rig-only gated, same as they were on Gear — no fixture equivalent exists.
+ * Live control and per-module settings for Camera, Focus, Align, Mount, Guide and polar alignment.
+ * Rig topology (profile, devices, scopes, trains) lives in Gear. Each card gates itself.
  */
 @Composable
 fun ControlsScreen(
@@ -106,31 +97,20 @@ fun ControlsScreen(
                     val real = state.wireDevices != null
                     val cam = state.wireCaptureSettings
                     val progress = if (real) state.captureProgress(state.primaryTrain.camera, cam?.captureExposureN ?: 2.0) else null
-                    // Filter added to both the tag and previewControls (2026-08-23, user report:
-                    // no filter test feature here at all, and the placeholder didn't show the
-                    // current filter next to exposure/bin) — real FilterPosCombo, confirmed live
-                    // (`"FilterPosCombo":"L"` in a real capture_get_all_settings reply), same
-                    // "Capture module's own currently-loaded value" shape as exposure/gain/bin.
+                    // FilterPosCombo is the Capture module's loaded filter, like exposure/gain/bin.
                     SnapPanel(
                         tag = if (cam != null) "${"%.0f".format(cam.captureExposureN)} s · bin ${cam.captureBinHN} · ${cam.FilterPosCombo}" else "2 s · bin 2",
                         label = benchSnapLabel(real, state.snappedMain, state.wireCaptureStatus, "★ 1 482 · HFR 2.31 · ADU 1 093"),
-                        // "Preview Main Cam"/"Preview Guide Cam" (2026-08-23, user's own naming
-                        // call) — "Preview" matches real Ekos's own button label for this exact
-                        // action (camera.ui's previewB, tooltip "Capture a Preview...").
+                        // "Preview" matches Ekos's own label for this action (camera.ui previewB).
                         snapLabel = "Preview Main Cam",
                         onSnap = ctrl::snapMain,
                         progress = progress,
                         onStop = { ctrl.setIndiSwitch(state.primaryTrain.camera, "CCD_ABORT_EXPOSURE", 0) },
                         pendingNote = if (real) capturePendingNote(state) else null,
                         onCancelPending = ctrl::cancelPendingCapture,
-                        // Real capture frame (M4.2) — a focus run's own frames land in
-                        // latestFocusFrame instead, shown here too since they're the same physical
-                        // camera and there's only one preview box on this card.
+                        // Focus frames come from the same camera, so they show here too.
                         frame = state.latestCaptureFrame ?: state.latestFocusFrame,
-                        // All four in one row (2026-08-23, user report) rather than exposure/gain
-                        // on their own row above a second bin/filter row — BIN/FILTER get a
-                        // matching label above the chip so all four line up at the same box
-                        // height as EXP/GAIN's own labeled fields.
+                        // One row; BIN/FILTER get labels so all four boxes line up.
                         previewControls = cam?.let {
                             {
                                 val cc = NocturneTheme.colors
@@ -156,13 +136,8 @@ fun ControlsScreen(
                                 ImageSizeLine(state, ctrl::setCaptureFullFrame)
                             }
                         },
-                        // M5 (docs/STATUS.md) — real camera FOV reticle, rotated to the real
-                        // CURRENT camera angle, NOT the target-angle slider — same fix/reasoning
-                        // as Plan tab's FramingCard (PlanScreen.kt), user correction: the box
-                        // shows where the camera actually is, not where it's meant to go. Prefers
-                        // wireAlignSolution.PA (every successful solve, unconditional) over
-                        // wireRotatorCurrentPA (only arrives when rotator_control is on) — see
-                        // FramingCard's own doc for the same fallback reasoning.
+                        // FOV reticle at the current camera angle (not the target angle); same
+                        // PA source preference as the Plan tab's FramingCard.
                         overlay = {
                             val fovDeg = state.framingFovDeg
                             FovOverlayBox(
@@ -178,15 +153,7 @@ fun ControlsScreen(
             add(TabItem(full = true) { CoolerCard(state, ctrl) })
             add(TabItem(full = true) { FocuserCard(state, ctrl) })
             add(TabItem { FocusSettingsCard(state, ctrl) })
-            // Camera settings card removed entirely (2026-09, user request) — its 2 real fields
-            // (save path, placeholder format) moved to Frames tab ("these are about file
-            // locations"), and dither moved to Sequence tab's Scheduler settings ("suitable for
-            // image session") — nothing was left that belonged in Controls.
-            // Plate solving (align_solve) folds into this section rather than getting its own —
-            // user asked for "primary camera + focuser (manual, auto) + plate solving" as one
-            // grouping. Inline sub-label (same MicroLabel/textMuted style already used inside
-            // card headers like "COOLER"/"FOCUSER · MANUAL") signals the seam without a second
-            // full SectionHeader weight.
+            // Plate solving is grouped under the primary camera, marked by a sub-label.
             add(TabItem(full = true) { SectionHeader("PLATE SOLVE", sub = true) })
             add(TabItem(full = true) { AlignSolveCard(state, ctrl) })
             add(TabItem(full = true) { AlignAccuracyCard(state) })
@@ -212,9 +179,7 @@ fun ControlsScreen(
                         progress = progress,
                         onStop = guideCam?.let { cam -> { ctrl.setIndiSwitch(cam, "CCD_ABORT_EXPOSURE", 0) } },
                         frame = state.latestGuideFrame,
-                        // Same one-row treatment as Primary camera's own preview row (2026-08-23,
-                        // user's own call to match) — no filter chip here, guide cameras have no
-                        // FilterPosCombo equivalent, so it's EXP/GAIN/BIN, three not four.
+                        // No filter chip: Guide settings have no FilterPosCombo equivalent.
                         previewControls = guide?.let {
                             {
                                 val cc = NocturneTheme.colors
@@ -249,30 +214,17 @@ private fun SectionHeader(text: String, sub: Boolean = false) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     if (sub) {
-        // Inline sub-label for grouping within a section (e.g. "PLATE SOLVE" inside PRIMARY
-        // CAMERA) — same MicroLabel/textMuted style already used inside card headers like
-        // "COOLER"/"FOCUSER · MANUAL", deliberately one weight below the bold section header
-        // below so it reads as a seam, not a new top-level section.
+        // Sub-label within a section, styled like card headers so it doesn't read as a new section.
         TextC(text, style = t.MicroLabel, color = c.textMuted, modifier = Modifier.padding(top = 8.dp))
         return
     }
-    // Bumped from MicroLabel/textFaint (9.5sp, dim) — was unreadable at a glance against the
-    // cards below it, per user feedback ("must be larger and visible/brighter").
     TextC(text, style = t.Body135, color = c.text, modifier = Modifier.padding(top = 4.dp))
 }
 
 /**
- * Real connection (`real` = [AppState.wireDevices] non-null): `capture_preview`/`guide_capture`
- * (M3.2) really do trigger a capture on the Pi; the resulting image now arrives over the Media
- * channel too (M4.2 — `SnapPanel`'s own `frame` param) — no real HFR/ADU number exists on the
- * wire for this label though (confirmed against source), so the status line stays the real
- * capture/guide status push, not a fabricated readout. `SimulatedController` keeps the canned
- * fixture text, unchanged.
- */
-/**
  * Capture states in which a requested capture is held before exposing (`ekos.h` captureStates).
  * "Setting Temperature" is the common one: with enforce temperature on, a preview waits until the
- * sensor reaches the set point — indefinitely if the cooler can't get there (2026-10-23).
+ * sensor reaches the set point, indefinitely if the cooler can't get there.
  */
 private fun capturePendingNote(state: AppState): String? {
     val status = state.wireCaptureStatus ?: return null
@@ -288,6 +240,10 @@ private fun capturePendingNote(state: AppState): String? {
     }
 }
 
+/**
+ * Status line under a preview. The wire carries no HFR/ADU for a preview, so a connected rig
+ * shows the capture/guide status push instead of a readout.
+ */
 private fun benchSnapLabel(real: Boolean, snapped: Boolean, status: String?, fixtureText: String): String = when {
     !real -> if (snapped) fixtureText else "no test frame yet"
     status != null -> "status: $status"
@@ -295,14 +251,11 @@ private fun benchSnapLabel(real: Boolean, snapped: Boolean, status: String?, fix
 }
 
 /**
- * `previewControls`: real-rig-only exposure/gain/binning editors for the specific camera this
- * panel snaps — null under the simulator or before the relevant `*_get_all_settings` reply has
- * arrived (matches every other curated-settings gating this session). Real `capture_preview`/
- * `guide_capture` take no parameters of their own (confirmed against the protocol reference —
- * message.cpp:467, 670-680, both "Request: none"); real Ekos fires them using whatever the
- * module's own currently-loaded exposure/gain/bin already are, so these controls edit exactly
- * those real fields via `capture_set_all_settings`/`guide_set_all_settings` before Snap is ever
- * tapped — see [com.nocturne.session.EkosRemoteController.setCapturePreviewExposure] etc.
+ * Preview frame, status and Snap/Stop for one camera.
+ *
+ * `previewControls`: `capture_preview`/`guide_capture` take no parameters; Ekos uses the module's
+ * loaded exposure/gain/bin, so these controls edit those via `*_set_all_settings`. Null until the
+ * module's `*_get_all_settings` reply arrives.
  */
 @Composable
 private fun SnapPanel(
@@ -311,18 +264,16 @@ private fun SnapPanel(
     snapLabel: String,
     onSnap: () -> Unit,
     previewControls: (@Composable () -> Unit)? = null,
-    /** Real live exposure countdown/busy state — see [com.nocturne.session.captureProgress]. Null under
-     * the simulator or before the camera's own property has arrived. */
+    /** Exposure countdown/busy state ([com.nocturne.session.captureProgress]); null until the camera's property arrives. */
     progress: CaptureProgress? = null,
-    /** Real `CCD_ABORT_EXPOSURE` write (see call sites) — null when there's no camera to target yet. */
+    /** Writes `CCD_ABORT_EXPOSURE`; null when there's no camera to target yet. */
     onStop: (() -> Unit)? = null,
-    /** Real `/media/ekos` frame for this camera (M4.2) — null renders the hatch placeholder, same as before. */
+    /** `/media/ekos` frame for this camera; null renders the hatch placeholder. */
     frame: com.nocturne.protocol.MediaFrame? = null,
-    /** M5 (docs/STATUS.md) — optional extra content drawn over the preview image, e.g.
-     * [FovOverlayBox]. Only the Primary Camera call site passes one; Guide's stays null. */
+    /** Drawn over the preview image, e.g. [FovOverlayBox]. */
     overlay: (@Composable BoxScope.() -> Unit)? = null,
-    /** Non-null while a capture was requested but hasn't started exposing yet (e.g. waiting for
-     *  temperature) — shown with [onCancelPending] so a late exposure is never a surprise. */
+    /** Non-null while a requested capture hasn't started exposing (e.g. waiting for temperature),
+     *  shown with [onCancelPending] so a late exposure is never a surprise. */
     pendingNote: String? = null,
     onCancelPending: (() -> Unit)? = null,
 ) {
@@ -334,29 +285,21 @@ private fun SnapPanel(
             Modifier
                 .fillMaxWidth()
                 .aspectRatio(4f / 3f)
-                // In landscape this card spans the full 2-column grid width (TabItem(full=true)),
-                // so 4:3 against that width alone produced an ~1750px-tall box — confirmed live,
-                // took 3 full-screen swipes to reach the Snap button below it. Capping the height
-                // doesn't cost any real content: a real frame (M4.2) fits inside via
-                // ContentScale.Fit same as the hatch placeholder did; it just stops growing past a
-                // sane size once the box is wider than a phone's portrait width would ever make it.
+                // Capped: in landscape the card spans the full grid width, and 4:3 alone would make
+                // the box several screens tall. The frame is fitted inside either way.
                 .heightIn(max = 260.dp)
                 .background(c.surfaceDeep, RoundedCornerShape(4.dp)),
         ) {
             MediaFramePreview(frame, Modifier.fillMaxSize(), hatchColor = c.surfaceRaised)
             overlay?.invoke(this)
-            // Bumped from MonoMicro/MonoMini (9-9.5sp, dim neutral500) — per user feedback these
-            // were too small/dim to read at a glance, same complaint as SectionHeader above.
             TextC(
                 tag, style = t.Mono115, color = c.accent400,
                 modifier = Modifier.align(Alignment.TopStart).padding(top = 5.dp, start = 6.dp),
             )
         }
         TextC(label, style = t.MonoSmall, color = c.text, modifier = Modifier.padding(top = 5.dp))
-        // Real exposure countdown (M3.4) — read straight from the camera's own CCD_EXPOSURE
-        // vector, see captureProgress's own doc for why (guide_capture emits no status push at
-        // all, confirmed live). Only shown while actually busy; remainingSec can briefly be null
-        // right as a capture starts (property hasn't pushed its first value yet).
+        // Countdown from the camera's CCD_EXPOSURE (guide_capture emits no status push).
+        // remainingSec can be null briefly as a capture starts.
         if (busy) {
             val remaining = progress?.remainingSec
             TextC(
@@ -408,13 +351,8 @@ private fun SnapPanel(
 }
 
 /**
- * Local `text` state, not a `value`-derived one — same clear-and-retype fix as `DegreeField`/
- * `IntField` in `Sheets.kt`: the old version rendered `"%.1f".format(value)` directly and only
- * called [onChange] when the typed text fully parsed, so clearing the field (empty string isn't
- * a valid double) never called [onChange], and the field snapped back to the old value on the
- * next recomposition — impossible to clear and retype. Local text tracks whatever's actually
- * been typed (including empty, `"-"`, a trailing `"."`) independently of [value]; [onChange]
- * only fires once a full number parses, same external contract as before.
+ * Small labeled decimal field. Keeps its own `text` so partial input (empty, `"-"`, a trailing
+ * `"."`) survives recomposition; [onChange] fires only when the text parses.
  */
 @Composable
 private fun MiniField(label: String, value: Double, unit: String, modifier: Modifier, onChange: (Double) -> Unit) {
@@ -451,11 +389,8 @@ private fun MiniField(label: String, value: Double, unit: String, modifier: Modi
 }
 
 /**
- * Tap-to-cycle binning chip shared by [SnapPanel]'s primary (`Int`, e.g. `1`/`2`/`3`/`4`) and
- * guide (`String`, e.g. `"1x1"`) binning fields — real wire shapes differ (confirmed live), this
- * stays generic over both. [modifier] defaults to empty (natural content width, existing
- * call sites' behavior unchanged) — pass `Modifier.fillMaxWidth()` when this needs to stretch to
- * match a sibling's own full-width field, e.g. inside a `weight(1f)` column next to a `MiniField`.
+ * Tap-to-cycle binning chip. Generic because Capture sends binning as `Int` (`2`) and
+ * Guide/Focus as `String` (`"2x2"`).
  */
 @Composable
 private fun <T> BinCycleChip(value: T, options: List<T>, labelOf: (T) -> String, modifier: Modifier = Modifier, onSelect: (T) -> Unit) {
@@ -475,12 +410,9 @@ private fun <T> BinCycleChip(value: T, options: List<T>, labelOf: (T) -> String,
 }
 
 /**
- * Tap-to-cycle filter chip for the Primary camera's own bench test (2026-08-23, user report: no
- * filter test feature here at all) — cycles through [names] (real filter-wheel slot names when
- * connected, same [com.nocturne.session.realFilterNames] the Sequence tab's block editor already
- * uses, else the fixture [FILTER_CYCLE]) and writes the real `FilterPosCombo` field directly, not
- * a Sequence-block concept — this is what a bare `capture_preview`/"Snap main" actually shoots
- * with, independent of anything queued.
+ * Tap-to-cycle filter chip over [names] (filter-wheel slot names when known, else [FILTER_CYCLE]).
+ * Sets the module's own filter, which is what a preview or autofocus run uses, independent of
+ * any queued sequence.
  */
 @Composable
 private fun FilterCycleChip(value: String, names: List<String>, modifier: Modifier = Modifier, onSelect: (String) -> Unit) {
@@ -501,24 +433,9 @@ private fun FilterCycleChip(value: String, names: List<String>, modifier: Modifi
 }
 
 /**
- * Real connection: the imaging camera's actual `CCD_TEMPERATURE`/`CCD_COOLER_POWER`
- * properties (confirmed live against a real ToupTek ATR2600M — see
- * [com.nocturne.session.EkosRemoteController]'s doc comment on `setCoolTarget`), read via
- * the same [indiNumber] helper the generic device sheets already use. `coolTarget` is seeded
- * from the real Capture module's own setpoint (`cameraTemperatureN`) the moment the eager
- * `capture_get_all_settings` reply lands (`EkosRemoteController.applyEvent`'s `CaptureSettings`
- * arm) — previously it was a pure client-side value stuck at a fixture default until the user's
- * own taps changed it, never matching real Ekos's actual setpoint at the start of a session.
- * Set point is now a direct typed field (2026-09, was +/-1° buttons before, user request). Falls
- * back to [SimulatedController]'s fixture `coolNow`/`coolPowerPct`
- * when no real camera is connected (including under `SimulatedController`, which never
- * populates `wireDevices`/`wireCaptureSettings`).
- */
-/**
- * The main camera's real output size under the preview controls: Ekos's capture frame (what it
- * applies to CCD_FRAME before each exposure) against the full sensor, plus the last captured
- * frame's own size. A crop shows in the warning colour — a new optical train once silently
- * inherited the CCD Simulator's 1280×1024 frame (2026-10-24); Ekos's Capture "Reset" fixes it.
+ * The main camera's output size: Ekos's capture frame (applied to CCD_FRAME before each exposure)
+ * against the full sensor, plus the last frame's size. A crop shows in the warning colour, since
+ * a new optical train can inherit another camera's frame.
  */
 @Composable
 private fun ImageSizeLine(state: AppState, onFullFrame: () -> Unit) {
@@ -549,6 +466,10 @@ private fun ImageSizeLine(state: AppState, onFullFrame: () -> Unit) {
     }
 }
 
+/**
+ * Cooler from the camera's `CCD_TEMPERATURE`/`CCD_COOLER_POWER`. `coolTarget` is seeded from the
+ * Capture module's setpoint (`cameraTemperatureN`) and sent on Set, not per keystroke.
+ */
 @Composable
 private fun CoolerCard(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
@@ -560,8 +481,7 @@ private fun CoolerCard(state: AppState, ctrl: SessionController) {
     val sensorNow = liveTemp ?: state.coolNow
     val powerPct = livePowerPct?.roundToInt() ?: state.coolPowerPct
     val atSet = if (liveTemp != null) abs(liveTemp - state.coolTarget) < 0.5 else state.coolAtSetPoint
-    // Real CCD_COOLER / fan switches (2026-10-23, user request: cooler + fan on/off, enforce and
-    // Set temperature together here, like Ekos's Capture tab). Null = property not seen yet.
+    // CCD_COOLER / fan switches; null = property not seen yet.
     val coolerOn = if (cameraConnected) state.indiSwitchElement(camera, "CCD_COOLER")?.let { it == "COOLER_ON" } else null
     val fanElements = if (cameraConnected) state.indiSwitchElements(camera, CAMERA_FAN_PROP) else emptyList()
     val fanNow = if (cameraConnected) state.indiSwitchElement(camera, CAMERA_FAN_PROP) else null
@@ -657,22 +577,17 @@ private fun fanLabel(element: String?): String = when {
 }
 
 /**
- * Focus In/Out (plain, no amount — see [SessionController.focusStepIn]'s doc for why the old
- * fixed-amount jog row and typed-absolute-goto were both removed 2026-09) + real Autofocus
- * start/stop. `focus_start`/`focus_stop` have no meaningful params or reply —
- * [AppState.focusRunning] drives the button's label: optimistic on tap, then follows the real
- * status ([com.nocturne.session.FOCUS_IDLE_STATES]), which is also shown verbatim. The V-curve ([FocusCurve]) shows each measured frame.
+ * Focus In/Out, focus-camera settings, and autofocus start/stop. [AppState.focusRunning] is
+ * optimistic on tap, then follows the focus status ([com.nocturne.session.FOCUS_IDLE_STATES]).
+ * The V-curve ([FocusCurve]) shows each measured frame.
  */
 @Composable
 private fun FocuserCard(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val pos = state.benchFocPos
-    // Real hard end-stop range (ABS_FOCUS_POSITION's own min/max) — null until the property has
-    // arrived, never fabricated. Confirmed live (2026-09): the fork always moves by the Mechanics
-    // "Initial Step Size" regardless of what's requested — real Ekos's own `focusIn`/`focusOut`
-    // already refuse to move past `currentPosition == absMotionMin/Max` server-side, but Focus
-    // In/Out below are ALSO disabled at this same range client-side, a second independent guard.
+    // Hard end-stops (ABS_FOCUS_POSITION min/max); null until the property arrives. Ekos refuses
+    // moves past them too, but Focus In/Out are also disabled here as a second guard.
     val range = state.focRange
     Column(
         Modifier
@@ -692,14 +607,8 @@ private fun FocuserCard(state: AppState, ctrl: SessionController) {
             Spacer(Modifier.height(6.dp))
             FocuserRangeBar(pos, range)
         }
-        // Real focus-camera exposure/gain/binning/filter (2026-09, user request: "parameters
-        // needed for autofocusing... should be exposed in the focus card") — same 4-field row
-        // idiom as Primary Camera/Guide's own preview rows above (`MiniField`/`BinCycleChip`/
-        // `FilterCycleChip`, all already generic), bound to the Focus module's own real settings
-        // (`WireFocusSettings`) instead of a second copy of Capture's. These are exactly what a
-        // real autofocus run actually uses (`focus_start` takes no params of its own — Ekos fires
-        // it with whatever the Focus module's own currently-loaded exposure/gain/filter/bin are,
-        // same "no direct parameter" shape as `capture_preview`/`guide_capture`).
+        // The Focus module's own exposure/gain/bin/filter: `focus_start` takes no parameters, so
+        // autofocus uses whatever these are set to.
         state.wireFocusSettings?.let { fs ->
             Spacer(Modifier.height(9.dp))
             Row(Modifier.fillMaxWidth()) {
@@ -721,13 +630,8 @@ private fun FocuserCard(state: AppState, ctrl: SessionController) {
                 }
             }
         }
-        // Plain Focus In/Out — no chosen amount, deliberately. Confirmed live (2026-09): the fork
-        // always moves by the Mechanics "Initial Step Size" (`focusTicks`) regardless of any
-        // requested amount — same as real Ekos's own manual buttons — so a row of different-sized
-        // jog buttons (the old `-1000..+1000`) was offering a choice that was never actually
-        // honored. Step size shown on the buttons themselves, sourced from the real setting
-        // (Mechanics sheet), not invented; disabled at the real hard end-stop, same guard as
-        // before (`focus.cpp`'s own "at minimum/maximum" check backing this up server-side too).
+        // No amount choice: the buttons send steps=0, so Ekos moves by the Mechanics "Initial Step
+        // Size" (`focusTicks`), shown on the buttons.
         Spacer(Modifier.height(9.dp))
         val step = state.wireFocusSettings?.focusTicks
         Row(Modifier.fillMaxWidth()) {
@@ -772,8 +676,7 @@ private fun FocuserCard(state: AppState, ctrl: SessionController) {
     }
 }
 
-/** Current position's real proximity to each hard end-stop — the actual safety signal this
- *  whole card exists to surface (see [FocuserCard]'s own doc for the bug that made it matter). */
+/** Position within the focuser's hard end-stops. */
 @Composable
 private fun FocuserRangeBar(pos: Int, range: IntRange) {
     val c = NocturneTheme.colors
@@ -795,36 +698,17 @@ private fun FocuserRangeBar(pos: Int, range: IntRange) {
 }
 
 /**
- * Split from the old Bench `MountCard`: this keeps D-pad/rate chips/alt-az/park/tracking only —
- * "Plate solve here" moved to [AlignSolveCard] since `align_solve` is literally the Align
- * module's own action, not Mount's.
+ * D-pad, slew rates, alt/az, Park/Unpark and tracking (Ekos mount commands), plus Home. Ekos has
+ * no home command, so Home writes the INDI `TELESCOPE_HOME` switch directly; it no-ops on
+ * drivers without that property. (OnStep's `HomePause` is unrelated: it pauses at a meridian flip.)
  *
- * The old single "Unpark / home" button conflated two unrelated real actions (confirmed against
- * the protocol reference — real Ekos's Mount module has no "home" command at all, only
- * `mount_park`/`mount_unpark`/`mount_abort`/`mount_set_tracking`). Split into 4 real controls:
- * **Park** / **Unpark** (`mount_park`/`mount_unpark`, universal Ekos commands), **Tracking on/off**
- * (`mount_set_tracking`, also universal), and **Home** — which, unlike the other three, has no
- * Ekos-level command at all; it's wired via the generic raw-INDI-property mechanism
- * (`ctrl.setIndiSwitch`, already used by the device sheets) against the mount's own
- * `TELESCOPE_HOME` property (confirmed live: standard INDI telescope-interface property,
- * `Set`/`Go` elements — **not every mount driver implements this**, so it silently no-ops if the
- * property isn't present, same safe-guard `setIndiSwitch` already has for any device/property).
- * Was briefly confused with the LX200 OnStep driver's own `HomePause` property during
- * investigation — that one's about *pausing during a meridian flip*, an unrelated concept;
- * `TELESCOPE_HOME` is the actual "slew to home position" action.
- *
- * Known limitation carried over unchanged from the old Bench sheet (not a regression): leaving
- * this tab mid-slew does not auto-stop the mount — `stopSlew()` reads `state.slewDir` only when
- * explicitly tapped. A full tab makes "navigate away" a more casual action than dismissing a
- * sheet was, so this is worth a UX follow-up, but out of scope here.
+ * Leaving this tab mid-slew does not stop the mount; only STOP does.
  */
 @Composable
 private fun MountControlCard(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
-    // Real mount's own rate list/labels when available (see AppState.realSlewRateProp doc for
-    // why this can't just be the fixed 5-option RATES fixture) — falls back to RATES/state.rate
-    // for the simulator or before the real property has arrived.
+    // The driver's own rate list (counts and labels vary by driver); RATES until it arrives.
     val realRates = state.realSlewRateProp
     val rateLabels = realRates?.options ?: RATES
     val selectedRateIndex = realRates?.selected ?: state.rate
@@ -857,9 +741,7 @@ private fun MountControlCard(state: AppState, ctrl: SessionController) {
             DPad(state, ctrl)
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
-                // Scrollable, fixed-width chips (not weight(1f)) so this holds up whether it's
-                // the fixture's 5 options or a real driver's own count (10 for this LX200
-                // OnStep, confirmed live — other drivers report different counts/labels again).
+                // Scrollable fixed-width chips: the number of slew rates varies by driver.
                 Row(
                     Modifier
                         .fillMaxWidth()
@@ -966,10 +848,9 @@ private fun DPad(state: AppState, ctrl: SessionController) {
 }
 
 /**
- * Real Guide start/stop — `guide_start`/`guide_stop` (`guide_stop` = server-side `abort()`, not a
- * graceful pause, see [com.nocturne.session.EkosRemoteController.startGuiding]'s doc), plus
- * `guide_loop`/`guide_clear`. [AppState.guiding] is optimistic on tap, then overridden by the real
- * `new_guide_state` status (busy unless in [com.nocturne.session.GUIDE_IDLE_STATES]).
+ * Guide start/stop (`guide_stop` is Ekos's `abort()`, not a pause), loop and clear calibration.
+ * [AppState.guiding] is optimistic on tap, then follows `new_guide_state`
+ * (busy unless in [com.nocturne.session.GUIDE_IDLE_STATES]).
  */
 @Composable
 private fun GuideControlCard(state: AppState, ctrl: SessionController) {
@@ -995,8 +876,7 @@ private fun GuideControlCard(state: AppState, ctrl: SessionController) {
                 modifier = Modifier.height(34.dp),
             )
         }
-        // Ekos's own Loop / Clear calibration buttons — both only while the module is idle,
-        // same as the desktop (Stop above ends a loop too: `guide_stop` = `abort()`).
+        // Idle-only, as on the desktop. Stop above also ends a loop.
         Spacer(Modifier.height(8.dp))
         Row {
             NocturneButton(
@@ -1028,11 +908,8 @@ private fun GuideControlCard(state: AppState, ctrl: SessionController) {
 }
 
 /**
- * Extracted from the old Bench `MountCard` — `align_solve` is the Align module's own action, not
- * Mount's. No controller change, same [ctrl.plateSolveHere] call as before. Real solving status
- * (`wireAlignStatus`, M5 docs/STATUS.md) added below the button — was decoded since M2 but never
- * displayed anywhere in the app until this pass; real vocabulary (`ekos.h`): Idle/Complete/Failed/
- * Aborted/In Progress/Successful/Syncing/Slewing/Rotating/Suspended.
+ * Plate solve here, with the align status below it (`ekos.h` vocabulary: Idle/Complete/Failed/
+ * Aborted/In Progress/Successful/Syncing/Slewing/Rotating/Suspended).
  */
 @Composable
 private fun AlignSolveCard(state: AppState, ctrl: SessionController) {
@@ -1053,12 +930,8 @@ private fun AlignSolveCard(state: AppState, ctrl: SessionController) {
 }
 
 /**
- * Real per-solve pointing-accuracy trend — user's own "target accuracy status plot" ask, follow-up
- * to M5 (docs/STATUS.md). Real data, from Align's own `solution.targetDiff` (confirmed real, every
- * successful solve, unconditional — see [WireAlignSolution]'s own doc), **not** from Guide — fresh
- * re-check confirmed (again) no RMS/drift data of any kind exists for Guide on this wire, matches
- * `GuideSheet`'s own existing honest disclosure. Hidden entirely until at least one real solve has
- * landed this connection — an empty trend chart would just be noise.
+ * Per-solve pointing-accuracy trend from Align's `solution.targetDiff` ([WireAlignSolution]),
+ * sent on every successful solve. Hidden until the first solve of this connection.
  */
 @Composable
 private fun AlignAccuracyCard(state: AppState) {
@@ -1092,17 +965,11 @@ private fun AlignAccuracyCard(state: AppState) {
 }
 
 /**
- * M5 (docs/STATUS.md) — rotator target-PA readback + master control gate, moved here from the
- * Plan tab (was `ManualRotatorSection`) since it's naturally adjacent to [AlignSolveCard]: a solve
- * is what actually refreshes the readback below (`align_solve`, no separate "take image" command
- * exists — confirmed the real ManualRotator dialog's own button calls the identical
- * `captureAndSolve()`). Not mandatory — same principle as the Plan tab's framing card, nothing
- * downstream gates on this switch being on.
+ * Rotator control and current → target PA readback, refreshed by each solve (Ekos's manual
+ * rotator dialog also just calls `captureAndSolve()`). Optional; nothing gates on it.
  *
- * [SessionController.setRotatorAutoControl] (`rotator_control`) is the **master gate** for the
- * whole feature, real rotator or not — confirmed against the real fork source
- * (`align_goto.cpp`'s `checkIfRotationRequired()`): off, and neither a real rotator gets driven nor
- * does the no-hardware readback below ever populate.
+ * `rotator_control` gates the whole feature (`align_goto.cpp` `checkIfRotationRequired()`): when
+ * off, no rotator is driven and the no-hardware readback never populates.
  */
 @Composable
 private fun RotatorControlCard(state: AppState, ctrl: SessionController) {
@@ -1146,13 +1013,9 @@ private fun RotatorControlCard(state: AppState, ctrl: SessionController) {
                 TextC("waiting for a solve…", style = t.Caption, color = c.textFaint, modifier = Modifier.padding(top = 4.dp, bottom = 4.dp))
             }
         }
-        // Real pause/resume stand-in (docs/STATUS.md) — a genuinely graceful Scheduler pause
-        // exists in real Ekos (Scheduler::pause()) but isn't reachable on this wire protocol at
-        // all yet (confirmed: zero references in message.cpp/commands.h, and not reachable via
-        // the generic invoke_method escape hatch either since pause() isn't Q_INVOKABLE) — logged
-        // as a follow-on fork task, not built this pass. Stop/Start Scheduler is real and already
-        // wired: Stop marks the active job ABORTED (not removed), Start re-evaluates and resumes
-        // progress if kcfg_RememberJobProgress is on (confirmed true on this rig previously).
+        // Scheduler::pause() isn't reachable over the wire (not in message.cpp, not Q_INVOKABLE),
+        // so Stop/Start stands in: Stop marks the job ABORTED, Start resumes its progress when
+        // kcfg_RememberJobProgress is on.
         if (state.schedulerRunning) {
             Spacer(Modifier.height(4.dp))
             TextC(
@@ -1164,11 +1027,7 @@ private fun RotatorControlCard(state: AppState, ctrl: SessionController) {
     }
 }
 
-/**
- * Curated Align settings (M3.3 phase 3, see docs/M3.3-plan.md) — real-rig only, same gating as
- * [MountSettingsCard]. Distinct from [AlignSolveCard]'s live solve action:
- * this is configuration (exposure, gain, filter, binning, solver accuracy), not live control.
- */
+/** Opens the Align settings sheet (exposure, gain, filter, binning, solver accuracy). */
 @Composable
 private fun AlignSettingsCard(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
@@ -1192,12 +1051,7 @@ private fun AlignSettingsCard(state: AppState, ctrl: SessionController) {
     }
 }
 
-/**
- * Curated Guide settings (M3.3 phase 4, see docs/M3.3-plan.md) — real-rig only, same gating as
- * [AlignSettingsCard]/[MountSettingsCard]. Distinct from [GuideControlCard]'s start/stop and the
- * Guide `SnapPanel`'s preview exposure/gain/bin (both already live): this covers solver accuracy
- * threshold, dither, and reuse-calibration — closes out M3.3 phase 4.
- */
+/** Opens the Guide settings sheet (accuracy threshold, dither, reuse calibration). */
 @Composable
 private fun GuideSettingsCard(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
@@ -1221,13 +1075,7 @@ private fun GuideSettingsCard(state: AppState, ctrl: SessionController) {
     }
 }
 
-/**
- * Curated Focus settings (M3.3 phase 6, see docs/M3.3-plan.md) — real-rig only, same gating as
- * [GuideSettingsCard]/[AlignSettingsCard]. Distinct from [FocuserCard]'s manual jog/autofocus
- * start-stop: this covers exposure, gain, filter, backlash, and autofocus algorithm — closes
- * out M3.3's module-settings effort (only Observatory, which has no settings surface at all,
- * remains).
- */
+/** Opens the Focus settings sheet (exposure, gain, filter, backlash, autofocus algorithm). */
 @Composable
 private fun FocusSettingsCard(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
@@ -1251,13 +1099,7 @@ private fun FocusSettingsCard(state: AppState, ctrl: SessionController) {
     }
 }
 
-/**
- * Curated Mount settings (M3.3, see docs/M3.3-plan.md) — real-rig only, same
- * gating as Gear tab's ModuleAssignmentsCard. Distinct from [MountControlCard]'s
- * mount jog/slew controls: this is configuration (meridian flip, limits,
- * auto-park), not live control. Moved here from Gear tab — this is exactly
- * what the Controls tab is for.
- */
+/** Opens the Mount settings sheet (meridian flip, limits, auto-park). */
 @Composable
 private fun MountSettingsCard(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
@@ -1286,15 +1128,7 @@ private fun MountSettingsCard(state: AppState, ctrl: SessionController) {
 }
 
 
-/**
- * Real: `state.wirePolarStage`/`polarRunning` — [PaSheet][com.nocturne.ui.session] has a
- * dedicated real-mode branch (raw stage/message passthrough, `polar_start`/`polar_stop`), the
- * existing fixture 3-step wizard is unchanged for the simulator. Moved here from Gear tab, same
- * "this is exactly what Controls is for" reasoning as Mount/Camera settings above — Polar Align
- * previously lived on Gear as a 100%-fixture wizard with no real wiring at all; both the move and
- * the real wiring land together since there's no clean "wire in place" step for a feature whose
- * only existing home is the fixture-only wizard being replaced.
- */
+/** Opens the polar alignment sheet; shows Ekos's current polar-align stage. */
 @Composable
 private fun PaCard(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors

@@ -29,14 +29,9 @@ import kotlin.math.min
 private const val SETTINGS_RETRY_MS = 2_000L
 
 /**
- * Owns the Message + Media channels and their shared reconnect state
- * machine. Client owns 100% of reconnect/backoff — the server "just accepts
- * whatever connects to the two paths" (EkosRemote-Client-Guide.md §"Practical
- * notes"). Media channel opens/closes/reconnects in lockstep with Message
- * (both attempts fire from the same [connect]/[scheduleReconnect] call sites)
- * — an independent Media-only drop (Message stays healthy) won't trigger its
- * own reconnect; accepted gap for M4.1, same class as the missing app-level
- * staleness timer noted below.
+ * Owns the Message and Media channels and their shared reconnect logic. The server only accepts
+ * connections, so reconnect/backoff is entirely client-side. Media reconnects in lockstep with
+ * Message; a Media-only drop while Message stays healthy is not detected.
  */
 class EkosRemoteClient(
     val host: String,
@@ -44,10 +39,8 @@ class EkosRemoteClient(
     private val scope: CoroutineScope,
 ) {
     private val okHttpClient = OkHttpClient.Builder()
-        // The server doesn't speak WS ping/pong — don't add traffic it won't
-        // answer. Dead-socket detection relies solely on OkHttp's own
-        // onFailure/onClosed callbacks; no app-level staleness timer in M2
-        // (accepted gap, see README §8).
+        // The server doesn't answer WS pings. Dead sockets are detected only through OkHttp's
+        // onFailure/onClosed; there is no app-level staleness timer.
         .pingInterval(Duration.ZERO)
         .build()
 
@@ -65,26 +58,21 @@ class EkosRemoteClient(
 
     private var reconnectJob: Job? = null
     private var backoffAttempt = 0
-    // Set only by an explicit disconnect() — onClosed/onFailure fire identically whether the
-    // client requested the close or the connection just dropped, so without this the very
-    // close() call disconnect() makes to tear the socket down was itself re-triggering
-    // scheduleReconnect() a moment later (real bug: disconnect appeared to work, then silently
-    // reconnected). Cleared by connect(), the only other place that should ever reconnect.
+    // Set by disconnect(), cleared by connect(). onClosed/onFailure look the same for a requested
+    // close and a dropped connection, so without this disconnect()'s own close() would schedule
+    // a reconnect.
     private var userDisconnected = false
 
     /**
-     * Module `*_get_all_settings` requests whose reply hasn't arrived yet this online session,
-     * keyed by command, value = last send time (ms). The eager fetch on `online` races module
-     * creation: a module that isn't up yet makes the server drop the request ("Ignoring command
-     * ... as guide module is not available", seen live on a fresh profile start), and nothing
-     * asks again. Each module's state push (sent when the module becomes ready) re-requests
-     * until the reply lands — see [retryPendingSettings].
+     * Module `*_get_all_settings` requests still awaiting a reply this online session, command →
+     * last send time (ms). The fetch on `online` races module creation: the server drops requests
+     * for a module that isn't up yet ("Ignoring command ... as guide module is not available")
+     * and never answers. [retryPendingSettings] re-requests on that module's state pushes.
      */
     private val pendingSettings = mutableMapOf<String, Long>()
 
     init {
-        // Persistent collectors for the lifetime of this client — reconnects
-        // just reopen the same channels, no need to relaunch these.
+        // Collectors live as long as the client; reconnects reopen the same channels.
         scope.launch {
             messageChannel.socketEvents.collect { event ->
                 when (event) {
@@ -99,9 +87,7 @@ class EkosRemoteClient(
         }
         scope.launch {
             mediaChannel.socketEvents.collect { event ->
-                // set_blobs does NOT persist across a reconnect (confirmed against source, see
-                // docs/M4-plan.md) — re-send it explicitly every time this socket opens, rather
-                // than relying on the server's own "blobs enabled by default" behavior.
+                // set_blobs does not persist across a reconnect; re-send it on every open.
                 if (event is MediaChannel.SocketEvent.Open) {
                     mediaChannel.send(EkosEventCodec.encode(Commands.SET_BLOBS, JsonPrimitive(true)))
                 }
@@ -133,13 +119,8 @@ class EkosRemoteClient(
     }
 
     private fun onSocketOpen() {
-        // Guards a real race: disconnect() cancels reconnectJob and closes both channels, but
-        // an attempt already past its suspension point (an in-flight connect()/reconnect open()
-        // whose Job.cancel() lost the race, or a handshake that was already committed before
-        // close() ran) can still call this after userDisconnected flipped true. Without this,
-        // that late onOpen silently re-armed the session — looked exactly like an automatic
-        // reconnect right after a deliberate disconnect. Shut the socket right back down instead
-        // of treating it as live.
+        // An open already in flight when disconnect() ran can still land here. Close it rather
+        // than revive the session.
         if (userDisconnected) {
             messageChannel.close()
             mediaChannel.close()
@@ -149,22 +130,10 @@ class EkosRemoteClient(
         _connectionStatus.update { it.copy(state = ConnectionState.SOCKET_OPEN, lastError = null) }
         sendCommand(Commands.SET_CLIENT_STATE, buildJsonObject { put("state", true) })
         sendCommand(Commands.GET_CONNECTION)
-        // Scopes catalog — separate from Optical Trains (message.cpp:204), answered even while
-        // Ekos itself is stopped (confirmed live) — sent eagerly here, not gated behind `online`
-        // like GET_DEVICES/TRAIN_GET_ALL below, so the Scopes card shows real data before the
-        // user ever taps Start Ekos.
+        // Scopes, profiles and the driver catalog are answered while Ekos is stopped, so fetch
+        // them on socket open: the profile picker and wizard need them before Start Ekos.
         sendCommand(Commands.GET_SCOPES)
-        // Rig profiles — same pre-online availability as GET_SCOPES above (this is exactly what
-        // the Gear tab's profile picker needs before Start Ekos is even tappable). Previously
-        // this was only sent inside the `online` branch below, so a fresh connect to a Pi with
-        // Ekos not yet running left AppState.profiles at its AppState() default (DEFAULT_PROFILES
-        // fixture — "Field · 550 mm" etc., never overwritten) with no way to trigger a real fetch
-        // short of starting Ekos first. Documented bootstrap order (README §4.1) always had this
-        // eager — the actual sendCommand call had just drifted into the online-only block.
         sendCommand(Commands.GET_PROFILES)
-        // Full INDI driver catalog for the profile wizard's pickers — KStars' own list, also
-        // answered while Ekos is stopped. Without it the pickers only knew drivers already saved
-        // in some profile.
         sendCommand(Commands.GET_DRIVERS)
     }
 
@@ -183,54 +152,24 @@ class EkosRemoteClient(
                 ).forEach { pendingSettings[it] = now }
                 sendCommand(Commands.GET_STATES)
                 sendCommand(Commands.GET_DEVICES)
-                // OpticalTrainManager is a real Ekos module — only meaningful once Ekos has
-                // actually started, unlike profiles/scopes which the server happily reports
-                // pre-online too (both now requested eagerly in onSocketOpen). Gated the same
-                // way GET_DEVICES is.
+                // Module-backed data only exists once Ekos has started. Fetched eagerly so cards
+                // show a summary before their sheets are opened.
                 sendCommand(Commands.TRAIN_GET_ALL)
-                // Per-active-profile module→train assignment (ProfileSettings) — needs the
-                // trains above to resolve IDs to names, but no ordering dependency in sending;
-                // the reply is applied once both have arrived (see EkosRemoteController).
+                // Module→train assignment; resolved against the trains once both replies arrive.
                 sendCommand(Commands.TRAIN_GET_PROFILES)
-                // Mount module settings (M3.3, curated subset) — same online-only gating as
-                // TRAIN_GET_ALL above (the Mount module instance is null pre-start server-side).
-                // Sent eagerly (not lazily on sheet-open) so the Gear-tab card can show a real
-                // summary before the user ever opens the settings sheet.
                 sendCommand(Commands.MOUNT_GET_ALL_SETTINGS)
-                // Camera module settings (M3.3, curated subset) — same eager-on-online shape as
-                // MOUNT_GET_ALL_SETTINGS above.
                 sendCommand(Commands.CAPTURE_GET_ALL_SETTINGS)
-                // Align module settings (M3.3 phase 3, curated subset) — same eager-on-online shape.
                 sendCommand(Commands.ALIGN_GET_ALL_SETTINGS)
-                // Guide module settings (partial — see WireGuideSettings doc) — same eager-on-online shape.
                 sendCommand(Commands.GUIDE_GET_ALL_SETTINGS)
-                // Focus module settings (partial — see WireFocusSettings doc) — same eager-on-online shape.
                 sendCommand(Commands.FOCUS_GET_ALL_SETTINGS)
-                // Real dusk/dawn + site timezone (Session tab's real night-arc) — same
-                // eager-on-online shape; stable for the whole night so one fetch suffices.
+                // Dusk/dawn and site timezone; stable for the night, so fetched once.
                 sendCommand(Commands.ASTRO_GET_ALMANAC)
                 sendCommand(Commands.ASTRO_GET_LOCATION)
-                // Real Scheduler's current job queue — previously never fetched at all, so the
-                // app had no way to even see whatever real Ekos already had queued. Purely
-                // read+mirror (2026-08-23 push/start/stop redesign) — this reply just populates
-                // AppState.wireSchedulerJobs for display; nothing here forces or clears anything
-                // on the real Scheduler.
+                // Read-only mirror of the Scheduler queue; nothing here changes the Scheduler.
                 sendCommand(Commands.SCHEDULER_GET_JOBS)
-                // Scheduler-wide policy settings (Startup/Constraints/Completion/Observatory
-                // startup-shutdown/Aborted-job handling, curated subset) — same eager-on-online
-                // shape as MOUNT_GET_ALL_SETTINGS etc above. Previously never fetched at all, so
-                // the app had zero visibility into real config it's silently subject to every
-                // time it runs a job (see WireSchedulerSettings' own doc — this is where
-                // schedulerTwilight, the real root cause behind the twilight-shutdown incident,
-                // actually lives).
                 sendCommand(Commands.SCHEDULER_GET_ALL_SETTINGS)
-                // Real Options::self() properties (M4.5 half B, docs/STATUS.md) — same
-                // eager-on-online shape as everything above. Batched into one request (option_get
-                // accepts an array): the notification-stream master gate/sound toggle (PrefsSheet,
-                // replaced its old all-local fixture), plus astrometryUseRotator — the real
-                // ground truth for AppState.rotatorAutoControl this generic mechanism finally
-                // reaches directly, closing the M5 rotator-control read gap an earlier pass could
-                // only work around.
+                // option_get takes an array: the notification gate/sound prefs, and
+                // astrometryUseRotator, the source of truth for rotator auto-control.
                 sendCommand(Commands.OPTION_GET, buildJsonObject {
                     putJsonArray("options") {
                         addJsonObject { put("name", "ekosRemoteNotifications") }
@@ -278,15 +217,12 @@ class EkosRemoteClient(
 
     private fun scheduleReconnect() {
         reconnectJob?.cancel()
-        // 1s, 2s, 4s, 8s, 16s, capped at 30s — doesn't reset backoffAttempt
-        // itself; only a fresh connect() or a successful open does that.
+        // 1s, 2s, 4s, 8s, 16s, capped at 30s. Only connect() or a successful open resets it.
         val delayMs = min(30_000L, 1_000L * (1L shl backoffAttempt.coerceAtMost(5)))
         backoffAttempt++
         reconnectJob = scope.launch {
             delay(delayMs)
-            // cancel() on a Job that already resumed past delay() doesn't stop it — recheck the
-            // flag explicitly rather than trust cancellation alone (same race onSocketOpen now
-            // guards against too).
+            // cancel() can lose the race with delay() resuming, so recheck the flag.
             if (userDisconnected) return@launch
             messageChannel.open()
             mediaChannel.open()

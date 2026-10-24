@@ -14,12 +14,8 @@ import kotlinx.serialization.json.jsonPrimitive
 object EkosEventCodec {
 
     /**
-     * Parses one inbound text frame into a typed [EkosEvent]. Never throws —
-     * an unrecognized `type`, or a recognized `type` whose payload doesn't
-     * match the expected shape, both fall back to [EkosEvent.Raw] rather than
-     * crashing the socket's read loop. The wire has no formal error envelope
-     * to lean on (EkosRemote-Command-Reference.md §5), so decode failures
-     * must degrade gracefully, not propagate.
+     * Parses one inbound text frame into a typed [EkosEvent]. Never throws: an unknown `type` or a
+     * payload that doesn't match its model becomes [EkosEvent.Raw] instead of killing the read loop.
      */
     fun decode(text: String): EkosEvent {
         val envelope = try {
@@ -83,10 +79,8 @@ object EkosEventCodec {
     }
 
     /**
-     * Sniffs which INDI vector shape a property JSON object is — Switch/
-     * Number/Text/Light are distinguished by which key is present, not a
-     * discriminator field (`EkosRemote-Command-Reference.md` §14). Returns
-     * `null` (falls back to [EkosEvent.Raw] at the call site) if none match.
+     * Picks the INDI vector kind by which element key is present (there is no discriminator).
+     * Null if none match.
      */
     private fun decodeWireProperty(obj: JsonObject): WireProperty? = when {
         "switches" in obj -> protocolJson.decodeFromJsonElement<WireProperty.Switch>(obj)

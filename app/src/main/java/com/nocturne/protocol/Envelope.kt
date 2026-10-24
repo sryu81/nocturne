@@ -5,19 +5,14 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 
 /**
- * Wire envelope, both directions — `{"type": "<command>", "payload": {...}}`
- * (EkosRemote-Client-Guide.md §"Envelope"). `payload` stays a raw [JsonElement]
- * since its shape varies per command (object/array/string/bool) — decode it
- * against a type-specific shape only after dispatching on [type].
+ * Wire envelope, both directions: `{"type": "<command>", "payload": ...}` (docs/PROTOCOL.md).
+ * `payload` stays a raw [JsonElement] because its shape varies per command
+ * (object/array/string/bool); decode it after dispatching on [type].
  */
 @Serializable
 data class Envelope(val type: String, val payload: JsonElement)
 
-/**
- * Shared codec instance. `ignoreUnknownKeys` is essential — M2 only models a
- * handful of the ~230 real commands/pushes, and every push carries fields
- * this app doesn't read yet.
- */
+/** Shared codec. `ignoreUnknownKeys` is required: models are curated subsets of what Ekos sends. */
 val protocolJson = Json {
     ignoreUnknownKeys = true
     isLenient = true

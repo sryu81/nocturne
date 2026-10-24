@@ -6,7 +6,7 @@ import org.junit.Test
 
 class RigBeaconTest {
 
-    // Verbatim packet captured from the real rig (astro-beacon, 2026-10-18).
+    // Verbatim packet captured from the rig's astro-beacon.
     private val real = """{"magic": "rpi5_astro", "hostname": "astros2", "ips": {"wlan0": "10.0.0.184"}, "uptime": 4337, "throttled": "0x50000"}"""
 
     @Test fun parsesRealBeacon() {

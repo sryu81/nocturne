@@ -81,13 +81,11 @@ fun GearScreen(
         items = buildList {
             add(TabItem(full = true) { ReadyBanner(state) })
             add(TabItem(full = true) { RigProfileCard(state, ctrl) })
-            // Right below the profile it belongs to, not buried at the bottom of the tab.
+            // Right below the profile it belongs to.
             add(TabItem(full = true) { DeviceList(state, ctrl) })
             add(TabItem { ScopesCard(state, ctrl) })
             add(TabItem { OpticalTrainCard(state, ctrl) })
-            // Which Ekos module uses which train (ProfileSettings) — only meaningful once real
-            // trains exist server-side, so the card itself is simply absent until then, not a
-            // decorative stand-in.
+            // Which Ekos module uses which train; absent until the rig reports its trains.
             if (state.wireTrains != null) add(TabItem { ModuleAssignmentsCard(state, ctrl) })
             add(TabItem { MaintenanceCard(state, ctrl) })
             add(TabItem(full = true) { PowerDew(state) })
@@ -143,10 +141,7 @@ private fun ReadyBanner(state: AppState) {
                 Spacer(Modifier.width(6.dp))
                 RigChip("● camera", if (state.isOn("cam")) c.ok else c.danger)
                 Spacer(Modifier.width(6.dp))
-                // paTotal/paAlt/paAz are pure fixture fields the real controller never writes
-                // (confirmed — no EkosRemoteController override for openPa/paNext/setPaRate
-                // exists) — showing them here would be a fabricated number, Polar Align has real
-                // wiring elsewhere (Controls tab). Real wirePolarStage instead.
+                // wirePolarStage, not paTotal/paAlt/paAz, which nothing on the wire updates.
                 RigChip("● polar ${state.wirePolarStage ?: "not run"}", if (state.wirePolarStage != null) c.ok else c.textFaint)
             }
         }
@@ -279,12 +274,8 @@ private fun OpticalTrainCard(state: AppState, ctrl: SessionController) {
 }
 
 /**
- * Which Ekos module (Camera/Focus/Mount/Guide/Align/Dark Library) uses which
- * named train — split out from the Optical Train card/sheet on user
- * feedback (the two were one long scroll, reading as unrelated concerns).
- * Only shown when [AppState.wireTrains] is non-null (see [GearScreen]) —
- * there's no fixture equivalent, [ctrl]'s [AppState.moduleTrainAssignments]
- * summary is simply meaningless under `SimulatedController`.
+ * Which Ekos module (Camera/Focus/Mount/Guide/Align/Dark Library) uses which named train.
+ * Only shown when [AppState.wireTrains] is non-null (see [GearScreen]).
  */
 @Composable
 private fun ModuleAssignmentsCard(state: AppState, ctrl: SessionController) {
@@ -307,10 +298,9 @@ private fun ModuleAssignmentsCard(state: AppState, ctrl: SessionController) {
 }
 
 /**
- * Scopes catalog card (M3.1) — real Ekos manages telescopes/lenses in their
- * own dialog, entirely separate from Optical Trains (`get_scopes`/`scope_add`
- * — see [ScopeDef]); placed right before Optical Train since a scope must
- * exist here before a train can reference it.
+ * Scopes catalog card. Ekos keeps telescopes/lenses separate from Optical Trains
+ * (`get_scopes`/`scope_add`, see [ScopeDef]); placed before Optical Train since a train
+ * references a scope from here.
  */
 @Composable
 private fun ScopesCard(state: AppState, ctrl: SessionController) {
@@ -336,10 +326,8 @@ private fun ScopesCard(state: AppState, ctrl: SessionController) {
 }
 
 /**
- * Real gap found while removing the simulator (2026-08-22, see docs/simulator-removal-plan.md):
- * the old `SimulatorExitCard` was the *only* UI path to [SessionViewModel.disconnect] anywhere in
- * the app — deleting it alongside the simulator left literally no way back to ConnectScreen to
- * switch rigs or reconnect from scratch. This replaces it, real-rig-only wording, always visible.
+ * The way back to ConnectScreen ([SessionViewModel.disconnect]) to switch rigs or reconnect
+ * from scratch. Always visible.
  */
 @Composable
 private fun DisconnectCard(onDisconnect: () -> Unit) {
@@ -443,7 +431,7 @@ private fun DeviceList(state: AppState, ctrl: SessionController) {
     }
 }
 
-/** Real `get_devices` list (M3) — bucketed by [DeviceRole] icon instead of the fixed 9-category catalog. */
+/** Icon per [DeviceRole] for the `get_devices` list. */
 private val ROLE_ICONS: Map<DeviceRole, ImageVector> = mapOf(
     DeviceRole.TELESCOPE to Phosphor.CompassTool,
     DeviceRole.CCD to Phosphor.Camera,
@@ -580,13 +568,8 @@ private fun DewRow(label: String, frac: Float, enabled: Boolean) {
 }
 
 /**
- * Only shown when a Dome is selected in the rig profile. Always disabled — confirmed live
- * (2026-08-22 simulator-removal inventory) there is no `setDomeOpen` wire command anywhere in
- * `EkosRemote-Command-Reference.md`; this used to look like a real hardware control under the
- * simulator's "this is fake, don't worry" framing, and needs to say so honestly now that framing
- * is gone. Also matches the user's own standing call (see project notes) that real dome hardware
- * is out of scope indefinitely — not wired for real because there's genuinely nothing to test
- * against, not an oversight.
+ * Only shown when a Dome is selected in the rig profile. Always disabled: the wire has no dome
+ * open/close command (see docs/PROTOCOL.md), and dome hardware is out of scope.
  */
 @Composable
 private fun CloseRoofButton(state: AppState, ctrl: SessionController) {

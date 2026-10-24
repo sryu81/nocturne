@@ -17,7 +17,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.nocturne.ui.theme.NocturneTheme
 
-/** M0 placeholder — replaced by the full tab UI in M1. */
+/** Centered title + hint for a tab with no content. */
 @Composable
 fun TabPlaceholder(
     title: String,

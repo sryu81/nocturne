@@ -11,24 +11,18 @@ import java.io.IOException
 import kotlin.coroutines.resume
 
 /**
- * Fetches a real DSS sky-survey cutout centered on a target's own RA/Dec, for the Plan tab's
- * Framing card (M5, docs/STATUS.md). Uses CDS Strasbourg's public `hips2fits` service — no API
- * key, real astronomical imagery (DSS2 color survey), returns a plain JPEG.
- *
- * **This is the first direct internet call this app makes that isn't to the Pi itself** — every
- * other network path in Nocturne talks only to `ws://<pi>:9000` or the reboot daemon on the same
- * host. Worth remembering next time the network/trust-model section of docs/STATUS.md is
- * revisited: this one depends on the *phone's own* internet access, separate from the rig LAN, and
- * fails independently of whether the Pi connection is healthy.
+ * Fetches a DSS2 color cutout centered on a target's RA/Dec for the Framing card, from CDS
+ * Strasbourg's public `hips2fits` service (no API key, plain JPEG). Unlike every other network
+ * path in the app, this goes to the internet rather than the Pi, so it depends on the phone's own
+ * connectivity (see [RigNetwork]).
  */
 class ReferenceImageClient {
 
     private val http = OkHttpClient()
 
-    /** [fovDeg] is the desired field of view in degrees for the cutout's larger dimension — the
-     *  call site should pass some real padding over the camera's own actual FOV so the box drawn
-     *  on top doesn't sit flush against the image edge. Returns null on any failure
-     *  (offline, no route, non-2xx, decode issue is left to the caller) — never throws. */
+    /** [fovDeg] is the cutout's field of view in degrees; pad it over the camera FOV so the
+     *  overlay box doesn't touch the edge. Returns null on network failure or non-2xx; never
+     *  throws. Decoding is left to the caller. */
     suspend fun fetchCutout(raDeg: Double, decDeg: Double, fovDeg: Double): ByteArray? =
         suspendCancellableCoroutine { cont ->
             val url = "https://alasky.u-strasbg.fr/hips-image-services/hips2fits".toHttpUrl().newBuilder()

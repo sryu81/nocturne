@@ -5,22 +5,16 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 
 /**
- * Typed inbound pushes understood so far, decoded from an [Envelope]'s
- * `payload` once dispatched on `type` by [EkosEventCodec]. Not a polymorphic
- * hierarchy (no `@Serializable` on the sealed interface itself) — dispatch is
- * manual, keyed by the wire's `type` string, since the wire has no
- * discriminator field of its own.
+ * Typed inbound pushes, decoded from an [Envelope]'s `payload` by [EkosEventCodec]. Dispatch is
+ * manual on the envelope's `type` string because the wire has no discriminator of its own.
  *
- * M3 confirms (against `EkosRemote-Command-Reference.md`, itself verified
- * against the real `message.cpp` source) that request/reply commands reuse
- * the *request's own type string* as the reply's `type` — e.g. `get_profiles`
- * replies are themselves typed `"get_profiles"`, `profile_add` triggers an
- * auto-reply also typed `"get_profiles"`. Only the M2 status-push family
- * below (`new_*_state`) uses a distinct push-side name.
+ * Request/reply commands reuse the request's type string for the reply (`get_profiles` replies
+ * are typed `"get_profiles"`; `profile_add` auto-replies with `"get_profiles"`). Only the status
+ * pushes (`new_*_state`) use a distinct name. Anything unmodeled falls through to [Raw].
  *
- * Anything still unmodeled — `capture_get_sequences`, align settings
- * payloads, the full ~230-command set — falls through to [Raw] rather than
- * being over-modeled before it's needed.
+ * Many pushes share one `type` across several independent payload shapes, so their fields
+ * default to null and the controller merges the non-null ones. A required field there makes
+ * every other shape fail to decode and silently degrade to [Raw].
  */
 sealed interface EkosEvent {
     @Serializable
@@ -30,14 +24,9 @@ sealed interface EkosEvent {
     data class NewCaptureState(val status: String) : EkosEvent
 
     /**
-     * `new_mount_state` push. Real pushes come in (at least) two disjoint shapes, confirmed live:
-     * the documented `{status, target, slewRate, pierSide}` one (fires on an actual mount status
-     * transition — slew start/complete, park/unpark, tracking change) and an undocumented,
-     * far more frequent (~1/sec) coordinate-telemetry one (`{at, az, de, de0, ha, ra, ra0}`,
-     * ignored here — out of scope for what Session tab needs). All 4 fields need defaults for the
-     * same reason as [NewPolarState]: without them, every coordinate-shaped push (the common case)
-     * fails to decode (missing required fields) and silently degrades to [Raw], meaning
-     * `wireMountPierSide` would in practice almost never actually update on a real rig.
+     * `new_mount_state` push. Two disjoint shapes: `{status, target, slewRate, pierSide}` on a
+     * mount status transition, and a ~1/s coordinate telemetry shape (`{at, az, de, de0, ha, ra,
+     * ra0}`, ignored here). Fields default so the telemetry shape still decodes.
      */
     @Serializable
     data class NewMountState(
@@ -48,14 +37,12 @@ sealed interface EkosEvent {
     ) : EkosEvent
 
     /**
-     * `new_focus_state` push — several independent shapes share this name (stock
-     * `Manager::updateCurrentHFR`/`setTitle`/`newLog`, `Message::sendStates`), so every field is
-     * optional and the controller merges non-null ones:
-     * - `{status}` — module state text (`ekos.h` `focusStates`).
+     * `new_focus_state` push. Several senders share this name (`Manager::updateCurrentHFR`/
+     * `setTitle`/`newLog`, `Message::sendStates`):
+     * - `{status}`: module state text (`ekos.h` `focusStates`).
      * - per measured focus frame: `hfr` + `pos` (absolute focuser position, -1 on a relative
-     *   focuser) — HFR even when Autofocus is set to another star measure.
-     * - `title` — the V-curve plot title (curve fit / R² / scan progress text).
-     * Was `{status}`-only: every HFR/title push failed to decode and was dropped.
+     *   focuser). HFR is sent even when Autofocus uses another star measure.
+     * - `title`: the V-curve plot title (curve fit / R² / scan progress).
      */
     @Serializable
     data class NewFocusState(
@@ -66,13 +53,12 @@ sealed interface EkosEvent {
     ) : EkosEvent
 
     /**
-     * `new_guide_state` push — 3 independent real shapes share this name (fork
-     * `Message::updateGuideStatus`/`sendGuideStats`/`sendGuideSigma`, docs/FORK-BACKLOG.md §1),
-     * so every field is optional and the controller merges non-null ones:
-     * - `{status}` — module state text.
+     * `new_guide_state` push. Three senders share this name (fork `Message::updateGuideStatus`/
+     * `sendGuideStats`/`sendGuideSigma`):
+     * - `{status}`: module state text.
      * - per guide frame: `raError`/`decError` (arcsec), `raPulse`/`decPulse` (ms, signed),
-     *   `snr`/`skyBg`/`numStars` — the last 3 are 0 with the plain SEP/Smart detectors
-     *   (live-verified 2026-10-23), only meaningful when > 0.
+     *   `snr`/`skyBg`/`numStars`. The last three are 0 with the plain SEP/Smart detectors and are
+     *   only meaningful when > 0.
      * - running RMS: `rmsRA`/`rmsDE` (arcsec).
      */
     @Serializable
@@ -90,15 +76,9 @@ sealed interface EkosEvent {
     ) : EkosEvent
 
     /**
-     * `new_align_state` push — **a 4th occurrence of this repo's own standing decode lesson**
-     * (see [NewMountState]/[NewPolarState]/[NewManualRotatorStatus]'s own docs). Confirmed against
-     * the real fork source (`message.cpp:942-969`): `Message::setAlignStatus` (`{"status"}`) and
-     * `Message::setAlignSolution` (`{"solution"}`) are **two entirely independent senders sharing
-     * this one event name** — never combined. The old model here required `status`, so every real
-     * `{"solution"}`-only push (fires on **every successful solve**, unconditionally — not gated
-     * on `rotator_control` the way [com.nocturne.session.AppState.wireRotatorCurrentPA] is) failed
-     * to decode and silently degraded to [Raw]. The real solved PA/RA/Dec/pointing-error data was
-     * being discarded outright, not merely unused.
+     * `new_align_state` push. `Message::setAlignStatus` sends `{status}` and
+     * `Message::setAlignSolution` sends `{solution}` (`message.cpp:942-969`), never combined.
+     * The solution arrives on every successful solve, regardless of `rotator_control`.
      */
     @Serializable
     data class NewAlignState(
@@ -107,13 +87,8 @@ sealed interface EkosEvent {
     ) : EkosEvent
 
     /**
-     * `align_manual_rotator_status` push (M5, docs/STATUS.md) — **server push only**, no request
-     * handler (`Message::sendManualRotatorStatus`, message.cpp:2731): `{currentPA, targetPA,
-     * threshold}`, all 3 always sent together per the one real call site. Still defaulted/merged
-     * non-null rather than required, matching this repo's standing defensive-decode norm for any
-     * new event type (the same required-field mistake has silently degraded pushes to [Raw] 3
-     * times already — see [NewMountState]/[NewPolarState]'s own docs) even though no partial
-     * shape has actually been observed live yet for this one.
+     * `align_manual_rotator_status` push (`Message::sendManualRotatorStatus`, message.cpp:2731),
+     * no request handler. The sender always includes all three fields; they default anyway.
      */
     @Serializable
     data class NewManualRotatorStatus(
@@ -123,20 +98,10 @@ sealed interface EkosEvent {
     ) : EkosEvent
 
     /**
-     * `new_polar_state` push. Real pushes arrive as independent **partial** shapes, confirmed
-     * against the 5 real sender functions in `message.cpp` (`Message::setPAHStage`/
-     * `setPAHMessage`/`setPolarResults`/`setUpdatedErrors`/`setPAHEnabled`) — `{"stage"}` alone,
-     * `{"message"}` alone, `{"vector": {...}}` alone, `{"updatedError","updatedAZError",
-     * "updatedALTError"}` alone (top-level, NOT nested under `vector`), `{"enabled"}` alone,
-     * never combined. Every field needs a default for that reason — without one, every partial
-     * real payload fails to decode (missing required field) and silently degrades to [Raw].
-     * [vector]'s own fields (`setPolarResults`, `message.cpp:1222-1243`) describe the real
-     * correction-vector line Ekos itself overlays on the align image: `center_x`/`center_y` are
-     * the vector's midpoint in the *native* align-frame's own pixel space (matches
-     * [MediaHeader.resolution], not the on-screen scaled size), `mag`/`pa` its length/angle
-     * (`QLineF::length()`/`QLineF::angle()` — Qt's own rotation convention here isn't confirmed
-     * against a live solve, so no directional arrow is drawn from this yet, only the numeric
-     * error fields — see [com.nocturne.session.AppState] doc).
+     * `new_polar_state` push. Five senders in `message.cpp` (`Message::setPAHStage`/
+     * `setPAHMessage`/`setPolarResults`/`setUpdatedErrors`/`setPAHEnabled`) each send one shape
+     * alone: `{stage}`, `{message}`, `{vector: {...}}`, `{updatedError, updatedAZError,
+     * updatedALTError}` (top-level, not under `vector`), or `{enabled}`.
      */
     @Serializable
     data class NewPolarState(
@@ -150,49 +115,37 @@ sealed interface EkosEvent {
     ) : EkosEvent
 
     /**
-     * `new_scheduler_state` push — same "independent partial shapes" pattern as [NewPolarState]:
-     * confirmed live (2026-08-23) it fires with **either** `{"status": Int}` (the real
-     * `Ekos::SchedulerState` enum — `0`=IDLE, `1`=STARTUP, `2`=RUNNING, `3`=PAUSED, `4`=SHUTDOWN,
-     * `5`=ABORTED, `6`=LOADING, confirmed against the real KStars source
-     * `kstars/ekos/ekos.h`, not guessed) **or** `{"log": String}` (the Scheduler's own running
-     * log history, re-pushed on every new log line, unrelated to status and not modeled here —
-     * only [status] is read). Fires on ANY real transition, not just ones this app's own
-     * `scheduler_start_job` toggle caused — confirmed live it also fires from the real Ekos
-     * Scheduler evaluating on its own with an empty queue. This is what [EkosRemoteController]'s
-     * `schedulerRunning` was missing before this — an in-memory optimistic bool with no real
-     * feedback loop, confirmed live to go stale and send `scheduler_start_job` in the *wrong*
-     * direction (re-starting an already-stopped real Scheduler) once reality diverged from it.
+     * `new_scheduler_state` push: either `{status: Int}` (`Ekos::SchedulerState`, `ekos.h`:
+     * 0=IDLE, 1=STARTUP, 2=RUNNING, 3=PAUSED, 4=SHUTDOWN, 5=ABORTED, 6=LOADING) or `{log: String}`
+     * (the full Scheduler log, re-sent on every new line). Fires on every Scheduler transition,
+     * including ones Ekos makes on its own, so it is the source of truth for whether the
+     * Scheduler is running.
      */
     @Serializable
     data class NewSchedulerState(val status: Int? = null, val log: String? = null) : EkosEvent
 
-    // ── M3: profiles ────────────────────────────────────────────────────
+    // ── Profiles ─────────────────────────────────────────────────────────
 
     /** `get_profiles` reply — also the auto-reply after `profile_add`/`update`/`delete`. */
     @Serializable
     data class Profiles(val selectedProfile: String? = null, val profiles: List<WireProfile> = emptyList()) : EkosEvent
 
-    // ── M3: devices / raw INDI properties ───────────────────────────────
+    // ── Devices / INDI properties ────────────────────────────────────────
 
     /** `get_devices` reply — bare array on the wire, wrapped here. */
     @Serializable
     data class Devices(val devices: List<WireDevice>) : EkosEvent
 
-    /**
-     * `device_get` reply — `{"device", "properties": [<property JSON>,...]}`,
-     * one whole device's property vectors at once. Used to seed [DeviceRole]
-     * property sheets right after connect.
-     */
+    /** `device_get` reply — `{"device", "properties": [<property JSON>,...]}`, a whole device at once. */
     data class DeviceProperties(val device: String, val properties: List<WireProperty>) : EkosEvent
 
     /**
-     * `device_property_get` reply, **and** the same-tagged push
-     * `device_property_subscribe` triggers per changed vector
-     * (`sendPendingProperties`, always compact) — one property vector.
+     * `device_property_get` reply, and the same-tagged push `device_property_subscribe` sends per
+     * changed vector (`sendPendingProperties`, always compact).
      */
     data class DeviceProperty(val property: WireProperty) : EkosEvent
 
-    // ── M3: astro lookups ────────────────────────────────────────────────
+    // ── Astro lookups ────────────────────────────────────────────────────
 
     /** `astro_search_objects` reply — flat array of object name strings. */
     @Serializable
@@ -203,9 +156,9 @@ sealed interface EkosEvent {
     data class AstroNames(val names: List<String>) : EkosEvent
 
     /**
-     * `astro_get_object_info` reply — single fuzzy name lookup across every catalog/type
-     * (`SkyMapComposite::findByName`). [obj] is null when the server's `"object": false`
-     * (no match); its `name` is then the resolved catalog name, not what was typed.
+     * `astro_get_object_info` reply — fuzzy name lookup across every catalog
+     * (`SkyMapComposite::findByName`). [obj] is null when the server sends `"object": false`;
+     * otherwise its `name` is the resolved catalog name, not what was typed.
      */
     data class AstroObjectInfo(val obj: WireAstroObject?) : EkosEvent
 
@@ -218,55 +171,42 @@ sealed interface EkosEvent {
     data class AstroObjectsRiseset(val entries: List<WireRiseset>) : EkosEvent
 
     /**
-     * `astro_get_almanac` reply — "computed for local midnight today at the configured geo
-     * location" per the reference. Curated to the 2 fields Session tab's real night-arc needs
-     * (dawn/dusk), not the full Sun/Moon field set. Confirmed live: **not** clock times —
-     * fraction-of-day *offsets from local midnight*, signed (e.g. `dusk: -0.0896` = 2h9m
-     * *before* tonight's midnight; `dawn: 0.1938` = 4h39m *after* it), unlike `SunRise`/`SunSet`
-     * (unsigned fraction-of-day-since-previous-midnight, not modeled here — not needed). Real key
-     * names are capitalized (`"Dusk"`/`"Dawn"`), hence the `@SerialName`s.
+     * `astro_get_almanac` reply, computed for local midnight at the configured location.
+     * `Dusk`/`Dawn` are signed fraction-of-day offsets from local midnight, not clock times
+     * (`dusk: -0.0896` is 2h9m before midnight). Keys are capitalized on the wire.
      */
     @Serializable
     data class AstroAlmanac(
         @SerialName("Dusk") val dusk: Double = 0.0,
         @SerialName("Dawn") val dawn: Double = 0.0,
-        /** Real Moon illuminated fraction, `[0.0, 1.0]` (`KSAlmanac::getMoonIllum()`, confirmed
-         * against source — same reply this app already fetches for Dusk/Dawn, this field was just
-         * never decoded before; `MoonPhase` (`[0, 180]` degrees, the Sun-Moon elongation angle —
-         * *not* a full 0-360 waxing/waning-distinguishing angle) exists in the same reply too but
-         * isn't modeled here, since illuminated fraction alone is the unambiguous, directly
-         * displayable real number — user's own "lunar phase" ask. */
+        /** Moon illuminated fraction, `[0.0, 1.0]` (`KSAlmanac::getMoonIllum()`). The reply's
+         *  `MoonPhase` is only the 0-180° elongation and can't tell waxing from waning. */
         @SerialName("MoonIllum") val moonIllum: Double? = null,
     ) : EkosEvent
 
     /**
-     * `astro_get_location` reply — curated to [tz] alone (real signed hour offset from UTC,
-     * confirmed live e.g. `-7` for PDT), the one field [AstroAlmanac]'s offsets need to resolve
-     * into an absolute real-world instant. `latitude`/`longitude`/`elevation`/`name`/`tz0` exist
-     * on the real reply too but aren't needed for this.
+     * `astro_get_location` reply, curated to [tz]: signed hours from UTC (e.g. `-7` for PDT),
+     * needed to turn [AstroAlmanac]'s offsets into instants.
      */
     @Serializable
     data class AstroLocation(val tz: Double = 0.0) : EkosEvent
 
-    // ── M3: scheduler ────────────────────────────────────────────────────
+    // ── Scheduler ────────────────────────────────────────────────────────
 
     /** `scheduler_get_jobs` reply. */
     @Serializable
     data class SchedulerJobs(val jobs: List<WireSchedulerJob>) : EkosEvent
 
     /**
-     * `scheduler_save_sequence_file` reply. [path] is the input `path` **resolved** to an
-     * absolute filesystem path server-side (home-relative input, confirmed live: sending
-     * `"foo.esq"` echoes back `"/home/<user>/foo.esq"`) — this differs from `sequenceEdit`'s own
-     * resolution in `scheduler_set_all_settings`, where a bare relative filename produces a
-     * broken unresolved `file:foo.esq` URI, not a home-relative one (confirmed live the hard
-     * way). [EkosRemoteController.toggleJobRun] must wait for this reply and reuse [path]
-     * verbatim as `sequenceEdit`, never guess a home directory client-side.
+     * `scheduler_save_sequence_file` reply. [path] is the input resolved server-side to an
+     * absolute path (`"foo.esq"` → `"/home/<user>/foo.esq"`). `scheduler_set_all_settings`'s
+     * `sequenceEdit` does not resolve a bare filename (it becomes `file:foo.esq`), so callers
+     * must reuse this [path] verbatim rather than guess a home directory.
      */
     @Serializable
     data class SchedulerSaveSequenceFile(val result: Boolean = false, val path: String = "") : EkosEvent
 
-    // ── M3: optical trains ───────────────────────────────────────────────
+    // ── Optical trains ───────────────────────────────────────────────────
 
     /** `train_get_all` reply — bare array on the wire, wrapped here. Also the
      *  auto-push after every `train_add`/`update`/`delete`/`reset`. */
@@ -274,19 +214,14 @@ sealed interface EkosEvent {
     data class Trains(val trains: List<WireTrain>) : EkosEvent
 
     /**
-     * `train_get_profiles` reply — `ProfileSettings::getSettings()`, the real
-     * per-*active-profile* mapping of which train each Ekos module currently
-     * uses (confirmed against `profilesettings.cpp`/`opticaltrainmanager.cpp`
-     * — not guessed). Bare flat object on the wire, keyed by the *stringified
-     * ordinal* of `ProfileSettings::Settings` (`profilesettings.h`) — `"0"`
-     * Primary, `"1"` Capture, `"2"` Focus, `"3"` Mount, `"4"` Guide, `"5"`
-     * Align, `"6"` DarkLibrary — valued by a train **ID** (resolve against
-     * [WireTrain.id] to get a name; this reply carries IDs, not names).
+     * `train_get_profiles` reply (`ProfileSettings::getSettings()`): which train each module uses
+     * in the active profile. Keyed by the stringified [ProfileTrainSetting] ordinal, valued by a
+     * train ID (resolve against [WireTrain.id]).
      */
     @Serializable
     data class TrainProfiles(val assignments: Map<String, Int>) : EkosEvent
 
-    // ── M3.1: Scopes catalog ─────────────────────────────────────────────
+    // ── Scopes, drivers, options ─────────────────────────────────────────
 
     /** `get_scopes` reply — bare array, wrapped here. Also the auto-push after every `scope_add`/`update`/`delete`. */
     @Serializable
@@ -297,113 +232,61 @@ sealed interface EkosEvent {
     data class Drivers(val drivers: List<WireDriver>) : EkosEvent
 
     /**
-     * `option_get` reply (M4.5 half B, docs/STATUS.md) — bare array, one entry per requested
-     * option, in request order (`message.cpp:1456-1470`). Same reply `type` as the request
-     * (`OPTION_GET`, not a distinct push name) — matches this repo's own established
-     * request/reply-reuse-the-same-type-string norm (see this file's own top doc).
+     * `option_get` reply — bare array, one entry per requested option in request order
+     * (`message.cpp:1456-1470`). Typed `option_get`, like the request.
      */
     @Serializable
     data class OptionValues(val options: List<WireOption>) : EkosEvent
 
-    // ── M3.3: per-module settings (curated subset, see docs/M3.3-plan.md) ─
+    // ── Per-module settings (curated subsets) ────────────────────────────
+    // Each `*_get_all_settings` reply is a QVariantMap of the module's settings widgets keyed by
+    // `objectName()`. Only the fields the app uses are modeled; `ignoreUnknownKeys` drops the rest.
 
-    /**
-     * `mount_get_all_settings` reply — real Ekos's Mount module reports 17
-     * fields (`Mount::getAllSettings`, a QVariantMap dump of the whole
-     * settings dialog); [WireMountSettings] models only the 10 curated as
-     * session-relevant (meridian flip, altitude/HA limits, auto-park).
-     * `ignoreUnknownKeys` (see `protocolJson`) drops the other 7 rather than
-     * failing to decode.
-     */
+    /** `mount_get_all_settings` reply (`Mount::getAllSettings`, 17 fields). */
     @Serializable
     data class MountSettings(val settings: WireMountSettings) : EkosEvent
 
-    /**
-     * `capture_get_all_settings` reply — real Ekos's Camera module reports 59 fields
-     * (`Camera::getAllSettings`, reflects over every settings-dialog widget by `objectName()`);
-     * [WireCaptureSettings] models only the 7 curated as session-relevant (save path, guide-
-     * deviation abort guard, start-of-job guide-drift guard, per-job dither) — exposure/bin/
-     * gain/offset are already live via the Sequence block editor, cooler temp already live via
-     * Bench (see docs/M3.3-plan.md). `ignoreUnknownKeys` drops the other 52.
-     */
+    /** `capture_get_all_settings` reply (`Camera::getAllSettings`, 59 fields). */
     @Serializable
     data class CaptureSettings(val settings: WireCaptureSettings) : EkosEvent
 
-    /**
-     * `align_get_all_settings` reply — real Ekos's Align module reports 98 fields
-     * (`Align::getAllSettings`, reflects over every settings-dialog widget by `objectName()`);
-     * [WireAlignSettings] models only the 5 curated as session-relevant (exposure, gain,
-     * filter, binning, solver accuracy threshold) — the ~50 astrometry index-file booleans and
-     * PAH-star/solver internals are one-time-calibrate-and-forget, not per-session (see
-     * docs/M3.3-plan.md). `ignoreUnknownKeys` drops the other 93.
-     */
+    /** `align_get_all_settings` reply (`Align::getAllSettings`, 98 fields). */
     @Serializable
     data class AlignSettings(val settings: WireAlignSettings) : EkosEvent
 
-    /**
-     * `guide_get_all_settings` reply — real Ekos's Guide module reports 84 fields;
-     * [WireGuideSettings] models 8 curated (exposure/gain/binning for Bench "Snap guide", plus
-     * accuracy threshold/dither for the Guide settings sheet, M3.3 phase 4) — see that class's
-     * own doc. `ignoreUnknownKeys` drops the other 76.
-     */
+    /** `guide_get_all_settings` reply (84 fields). */
     @Serializable
     data class GuideSettings(val settings: WireGuideSettings) : EkosEvent
 
-    /**
-     * `focus_get_all_settings` reply — real Ekos's Focus module reports 84 fields;
-     * [WireFocusSettings] models 8 curated (`absTicksSpin` for the Focuser-position seed, plus
-     * exposure/gain/filter/backlash/algorithm for the Focus settings sheet, M3.3 phase 6, plus
-     * `focusTicks`/`focusMaxTravel` added later) — see that class's own doc. `ignoreUnknownKeys`
-     * drops the other 76.
-     */
+    /** `focus_get_all_settings` reply (84 fields). */
     @Serializable
     data class FocusSettings(val settings: WireFocusSettings) : EkosEvent
 
     /**
-     * `scheduler_get_all_settings` reply — real Ekos's Scheduler reports ~70 fields (same
-     * reflection pattern as Mount/Camera/Align/Guide/Focus above); [WireSchedulerSettings] models
-     * the ~30 curated as the Scheduler's own *global policy* — Startup condition, Constraints
-     * (+ per-job step toggles, same tab in real Ekos), Completion condition, Observatory
-     * startup/shutdown procedure, Aborted-job handling — matching real Ekos's own Scheduler tab
-     * layout (docs M2026-08). Explicitly excluded: per-job/job-creation-form fields already sent
-     * elsewhere by [EkosRemoteController] (`nameEdit`/`sequenceEdit`/`raBox`/`decBox`/
-     * `opticalTrainCombo`/`startupTimeConditionR` — bug #19's `toggleJobRun` chain), Weather-tied
-     * fields (`kcfg_SchedulerWeather*`, `kcfg_SchedulerSafetyMonitorConnectionString` — same scope
-     * as the deferred Sky & Site weather pass), deeper Options-page align-recovery/greedy-
-     * scheduling toggles (`kcfg_AlignCheck*`, `kcfg_*ResetMountModel*`,
-     * `kcfg_RealignAfterCalibrationFailure`, `kcfg_GreedyScheduling`),
-     * and `executionSequenceLimit`/`schedulerProfileCombo`/`epochCB`/`positionAngleSpin`/`groupEdit`/
-     * `fitsEdit`/`leadFollowerSelectionCB` (job-form or unclear-purpose, not scheduler policy).
-     * `ignoreUnknownKeys` drops all of the above. **`kcfg_RememberJobProgress` was un-excluded
-     * 2026-08-23** — see [WireSchedulerSettings.kcfg_RememberJobProgress]'s own doc for why.
-     * **`kcfg_ForceAlignmentBeforeJob` was un-excluded 2026-08-23 too** — see that field's own doc.
+     * `scheduler_get_all_settings` reply (~70 fields), curated to Scheduler-wide policy. Excluded:
+     * per-job form fields the controller sends elsewhere (`nameEdit`/`sequenceEdit`/`raBox`/
+     * `decBox`/`opticalTrainCombo`/...), weather fields (`kcfg_SchedulerWeather*`,
+     * `kcfg_SchedulerSafetyMonitorConnectionString`), align-recovery/greedy toggles
+     * (`kcfg_AlignCheck*`, `kcfg_*ResetMountModel*`, `kcfg_RealignAfterCalibrationFailure`,
+     * `kcfg_GreedyScheduling`) and `executionSequenceLimit`/`schedulerProfileCombo`/`epochCB`/
+     * `positionAngleSpin`/`groupEdit`/`fitsEdit`/`leadFollowerSelectionCB`.
      */
     @Serializable
     data class SchedulerSettings(val settings: WireSchedulerSettings) : EkosEvent
 
     /**
-     * `new_camera_state` push (`Message::sendTemperature`, `message.cpp:438-449`) — real per-device
-     * temperature telemetry. **Not** `new_temperature`: that command name is declared in
-     * `commands.h` but never actually sent anywhere in `message.cpp` — confirmed dead, same class
-     * as the already-known `mount_clear`/`device_restart`/`device_blob_get` dead entries (README §8).
+     * `new_camera_state` push (`Message::sendTemperature`, `message.cpp:438-449`): per-device
+     * temperature. `new_temperature` is declared in `commands.h` but never sent.
      */
     @Serializable
     data class NewCameraState(val name: String, val temperature: Double) : EkosEvent
 
     /**
-     * `new_notification` push (M4.5 half A, docs/STATUS.md) — **server push only**, no request
-     * handler (`Message::sendEvent`, `message.cpp:2721-2735`). Confirmed against the real fork
-     * source this is a genuinely comprehensive stream: `KSNotification::event()`
-     * (`ksnotification.cpp:98-113`) is the single generic entry point essentially every notable
-     * real event anywhere in KStars already goes through (mount faults, capture/focus/guide/align
-     * failures, scheduler transitions, INDI server messages...) — routed via
-     * `Manager::announceEvent` → this push, gated only by the real `Options::ekosRemoteNotifications()`
-     * (kcfg default `true`). `source`/`severity` are the raw real `KSNotification::EventSource`/
-     * `EventType` enum ints (`ksnotification.h`): source `0`=General `1`=INDI `2`=Capture
-     * `3`=Focus `4`=Align `5`=Mount `6`=Guide `7`=Observatory `8`=Scheduler; severity `0`=Debug
-     * `1`=Info `2`=Warn `3`=Alert. All 4 fields still defaulted per this repo's standing decode
-     * norm even though the real sender constructs one literal `QJsonObject` with all 4 together
-     * (no independently-partial shape confirmed for this one specifically).
+     * `new_notification` push (`Message::sendEvent`, `message.cpp:2721-2735`), no request handler.
+     * Carries every `KSNotification::event()` in KStars (mount faults, module failures, scheduler
+     * transitions, INDI messages), gated by `Options::ekosRemoteNotifications()` (default true).
+     * Enum ints from `ksnotification.h`: source 0=General 1=INDI 2=Capture 3=Focus 4=Align
+     * 5=Mount 6=Guide 7=Observatory 8=Scheduler; severity 0=Debug 1=Info 2=Warn 3=Alert.
      */
     @Serializable
     data class NewNotification(
@@ -418,10 +301,10 @@ sealed interface EkosEvent {
 }
 
 /**
- * `new_polar_state`'s `vector` field (`Message::setPolarResults`, `message.cpp:1222-1243`) — the
- * real correction-vector line Ekos overlays on its own align image. All fields nullable/defaulted
- * since [EkosEvent.NewPolarState] itself models 5 independently-partial real payload shapes and
- * this one is never combined with the others.
+ * `new_polar_state`'s `vector` (`Message::setPolarResults`, `message.cpp:1222-1243`): the
+ * correction line Ekos overlays on the align image. `center_x`/`center_y` are its midpoint in
+ * native align-frame pixels (matches [MediaHeader.resolution], not the on-screen size);
+ * `mag`/`pa` are `QLineF::length()`/`angle()`, whose rotation convention is unverified.
  */
 @Serializable
 data class WirePolarVector(
@@ -435,16 +318,9 @@ data class WirePolarVector(
 )
 
 /**
- * `new_align_state`'s `solution` field (M5, docs/STATUS.md — `Message::setAlignSolution`,
- * `align_solver.cpp:875-891`) — the real result of every successful solve, unconditional (unlike
- * [com.nocturne.session.AppState.wireRotatorCurrentPA], which only arrives when `rotator_control`
- * is on). [pa] is the real solved position angle — the correct primary source for the Framing
- * card's/Controls tab's "current camera angle" FOV box, confirmed against
- * [EkosEvent.NewAlignState]'s own doc. [targetDiff] is the real total pointing error (arcsec) the
- * solve's own goto/sync accuracy is judged against (`alignAccuracyThreshold`). All fields
- * nullable/defaulted per this repo's standing decode norm, even though the real sender constructs
- * every field together in one `QJsonObject` literal (no independently-partial shape confirmed for
- * this one specifically) — cheap insurance, matches every sibling model.
+ * `new_align_state`'s `solution` (`Message::setAlignSolution`, `align_solver.cpp:875-891`), sent
+ * on every successful solve. [PA] is the solved position angle; [targetDiff] is the total
+ * pointing error (arcsec) compared against `alignAccuracyThreshold`.
  */
 @Serializable
 data class WireAlignSolution(
@@ -464,11 +340,8 @@ data class WireAlignSolution(
 )
 
 /**
- * `ProfileInfo::toJson()` (`profileinfo.cpp:135`) — trimmed to the fields M3
- * actually reads/writes; the legacy per-role convenience fields
- * (`mount`/`ccd`/`guider`/...) and `remote`/`driver_source` are dropped
- * (`ignoreUnknownKeys` on decode, simply omitted on encode — profile_add/
- * update don't require them).
+ * `ProfileInfo::toJson()` (`profileinfo.cpp:135`), trimmed. The legacy per-role fields
+ * (`mount`/`ccd`/...) and `remote`/`driver_source` are ignored on decode and omitted on encode.
  */
 @Serializable
 data class WireProfile(
@@ -485,14 +358,9 @@ data class WireProfile(
     val drivers: Map<String, List<String>> = emptyMap(),
     val scripts: String? = null,
     /**
-     * Legacy per-role convenience field — real Ekos has no separate
-     * "Guiders" driver family; a guide camera is just a second entry in
-     * `drivers["CCDs"]`, disambiguated from the main imaging camera only by
-     * this field (confirmed live: a real profile's `drivers["CCDs"]` held
-     * both `["Sony DSLR","ZWO CCD"]` with `guider: "ZWO CCD"` naming which
-     * one). Kept even though the rest of the legacy per-role fields
-     * (`mount`/`ccd`/`focuser`/...) are dropped — there's no other way to
-     * resolve which CCD is the guider.
+     * The one legacy per-role field kept: a guide camera is just another entry in
+     * `drivers["CCDs"]` (e.g. `["Sony DSLR","ZWO CCD"]`), and this is the only way to tell which
+     * one is the guider.
      */
     val guider: String = "",
 )
@@ -507,8 +375,7 @@ data class WireDevice(
 )
 
 /**
- * INDI `DRIVER_INTERFACE` bitmask values, confirmed against
- * `~/cc/repo/indi/libs/indidevice/basedevice.h`. A device ORs several
+ * INDI `DRIVER_INTERFACE` bitmask values (`libs/indidevice/basedevice.h`). A device ORs several
  * together (e.g. a guide camera is `CCD or GUIDER`).
  */
 enum class DeviceRole(val bit: Int) {
@@ -521,12 +388,9 @@ enum class DeviceRole(val bit: Int) {
 fun bitmaskToRoles(mask: Int): Set<DeviceRole> = DeviceRole.entries.filterTo(mutableSetOf()) { mask and it.bit != 0 }
 
 /**
- * Shared INDI property-vector shape — `device_get`'s `properties[]` and
- * `device_property_get`'s reply/push both use this (`EkosRemote-Command-
- * Reference.md` §14 "Property JSON shapes"). Not a `@Serializable` sealed
- * hierarchy (Switch/Number/Text/Light shapes are distinguished by which key
- * is present, not a discriminator) — [EkosEventCodec] sniffs the JSON object
- * and decodes into the matching concrete class directly.
+ * INDI property vector, shared by `device_get`'s `properties[]` and `device_property_get`'s
+ * reply/push (see docs/PROTOCOL.md). The kind is identified by which element key is present,
+ * not a discriminator, so [EkosEventCodec] sniffs the object and decodes the matching class.
  */
 sealed interface WireProperty {
     val device: String
@@ -617,9 +481,8 @@ data class WireRiseset(
 )
 
 /**
- * `SchedulerJob::toJson()`. `state`/`stage` are the raw enum ints —
- * [SchedulerJobStatus]/[SchedulerJobStage] below name the values M3's UI
- * actually branches on (confirmed against `schedulertypes.h`).
+ * `SchedulerJob::toJson()`. `state`/`stage` are raw enum ints; see [SchedulerJobStatus] and
+ * [SchedulerJobStage].
  */
 @Serializable
 data class WireSchedulerJob(
@@ -647,7 +510,7 @@ data class WireSchedulerJob(
     val sequence: String = "",
 )
 
-/** `SchedulerJob::JOBStatus` (`schedulertypes.h`) — only the values M3's UI branches on. */
+/** `SchedulerJob::JOBStatus` (`schedulertypes.h`). */
 object SchedulerJobStatus {
     const val IDLE = 0
     const val EVALUATION = 1
@@ -660,21 +523,14 @@ object SchedulerJobStatus {
 }
 
 /**
- * Real states meaning "Ekos has committed to this job" — evaluating it, scheduled for a future
- * window, or actually running it. Moved here (was a private file-scope val in
- * `EkosRemoteController.kt`) once `AppState.contractJob` needed it too, not just the controller's
- * own reconcile logic. See `EkosRemoteController`'s `reconcileSyncedJobStatus`/`contractJob`'s doc
- * for the live-confirmed history of why `EVALUATION`/`SCHEDULED` count as "active" alongside `BUSY`.
+ * States meaning Ekos has committed to a job: evaluating it, scheduled for a later window, or
+ * running it. `EVALUATION`/`SCHEDULED` count as active, not just `BUSY`.
  */
 val ACTIVE_SCHEDULER_STATES = setOf(SchedulerJobStatus.EVALUATION, SchedulerJobStatus.SCHEDULED, SchedulerJobStatus.BUSY)
 
 /**
- * Raw `state` int → short UI label. Same "named only where confirmed, honest fallback otherwise"
- * shape as `AppState.mountPierSideLabel` — every value here is directly enumerated in
- * [SchedulerJobStatus] against the real `schedulertypes.h` source, so `"raw $state"` should never
- * actually be reachable, but stays as a non-inventing fallback rather than an unchecked `!!`/crash
- * if a future Ekos version ever adds a 9th value. `BUSY` deliberately reuses "Imaging" — the exact
- * word `NocturneApp.kt`'s header already uses for the same real condition.
+ * Raw `state` int → short UI label. Every known value is listed; `"raw $state"` covers a value a
+ * future Ekos might add. `BUSY` reads "Imaging", matching the app header.
  */
 val WireSchedulerJob.jobStatusLabel: String get() = when (state) {
     SchedulerJobStatus.IDLE -> "Idle"
@@ -689,9 +545,8 @@ val WireSchedulerJob.jobStatusLabel: String get() = when (state) {
 }
 
 /**
- * `SchedulerJob::JOBStage` (`schedulertypes.h`) — full 15-value enum (there's
- * no separate ERROR/ABORTED stage; those live on [SchedulerJobStatus]
- * instead). M3's UI only branches on [IDLE]/[CAPTURING]/[COMPLETE].
+ * `SchedulerJob::JOBStage` (`schedulertypes.h`), all 15 values. There is no error/aborted stage;
+ * those live on [SchedulerJobStatus].
  */
 object SchedulerJobStage {
     const val IDLE = 0
@@ -712,16 +567,9 @@ object SchedulerJobStage {
 }
 
 /**
- * `OpticalTrainManager::getOpticalTrains()` entry (`train_get_all`). Field
- * *names* were verified live-test output; *types* are now confirmed against
- * a real live capture too (a real Pi's reply held `"profile":5, "reducer":1,
- * "adaptiveoptics":null` — `profile`/`reducer` are numbers, not strings, and
- * `adaptiveoptics` can be an explicit JSON `null`, not just an absent/blank
- * string like the other unassigned-role fields). Getting these wrong isn't
- * cosmetic: a type mismatch throws during `decodeFromJsonElement`, which
- * [EkosEventCodec] catches and silently downgrades to [EkosEvent.Raw] — the
- * Optical Train tab would get no live data at all on real rigs, every time,
- * with no visible error.
+ * `OpticalTrainManager::getOpticalTrains()` entry (`train_get_all`). `profile` and `reducer` are
+ * numbers on the wire, and `adaptiveoptics` can be an explicit `null`. A type mismatch here makes
+ * every reply fall back to [EkosEvent.Raw] with no visible error.
  */
 @Serializable
 data class WireTrain(
@@ -742,12 +590,10 @@ data class WireTrain(
 )
 
 /**
- * `ProfileSettings::Settings` enum ordinals (`profilesettings.h`) — keys of a
- * [EkosEvent.TrainProfiles] reply. `PRIMARY` isn't a real assignable module
- * (there's no `train_set {module: "primary"}` — confirmed against
- * `message.cpp`'s `processTrainCommands`, only capture/focus/mount/guide/
- * align/darklibrary are accepted), it's just the fallback ID new trains
- * default everything else to (`opticaltrainmanager.cpp`).
+ * `ProfileSettings::Settings` ordinals (`profilesettings.h`), the keys of a
+ * [EkosEvent.TrainProfiles] reply. `PRIMARY` is not assignable via `train_set`
+ * (`processTrainCommands` accepts only capture/focus/mount/guide/align/darklibrary); it is the
+ * fallback new trains default the other modules to.
  */
 object ProfileTrainSetting {
     const val PRIMARY = "0"
@@ -759,7 +605,7 @@ object ProfileTrainSetting {
     const val DARK_LIBRARY = "6"
 }
 
-/** The real `train_set` module strings (`message.cpp`'s `processTrainCommands`) each [ProfileTrainSetting] ordinal maps to — `PRIMARY` has none. */
+/** The `train_set` module string (`message.cpp`'s `processTrainCommands`) for each [ProfileTrainSetting] — `PRIMARY` has none. */
 val MODULE_KEY_BY_TRAIN_SETTING: Map<String, String> = mapOf(
     ProfileTrainSetting.CAPTURE to "capture",
     ProfileTrainSetting.FOCUS to "focus",
@@ -770,20 +616,10 @@ val MODULE_KEY_BY_TRAIN_SETTING: Map<String, String> = mapOf(
 )
 
 /**
- * `OAL::Scope::toJson()` (`get_scopes`/`scope_add`/`scope_update`/
- * `scope_delete` — `EkosRemote-Command-Reference.md` §4, message.cpp:204/
- * 1469/1474/1479): `{id, model, vendor, type, name, focal_length, aperture}`.
- * Real Ekos's Scopes catalog is entirely separate from Optical Trains — a
- * train's `scope` field (on [WireTrain]) just references one of these by
- * [name]. `focal_length`/`aperture` are wire doubles; Nocturne's own
- * [com.nocturne.session.ScopeDef] rounds them to Int mm for its UI.
- */
-/**
  * One entry of KStars' INDI driver catalog (`get_drivers`, `DriverInfo::toJson`): every driver
- * the Pi's installed INDI packages describe in their XML files under `/usr/share/indi`. [label] is what a profile
- * stores under its `drivers[family]`; [family] uses the same labels (`DeviceFamilyLabels`:
- * "Telescopes", "CCDs", "Filter Wheels", "Focusers", "Rotators", "Domes", "Weather",
- * "Auxiliary", ...). [manufacturer] can be empty.
+ * described by the XML files under `/usr/share/indi`. [label] is what a profile stores under
+ * `drivers[family]`; [family] uses the same labels ("Telescopes", "CCDs", "Filter Wheels",
+ * "Focusers", ...). [manufacturer] can be empty.
  */
 @Serializable
 data class WireDriver(
@@ -795,6 +631,11 @@ data class WireDriver(
     val family: String = "",
 )
 
+/**
+ * `OAL::Scope::toJson()` (`get_scopes`/`scope_add`/`scope_update`/`scope_delete`). The Scopes
+ * catalog is separate from optical trains; a train's `scope` references one by [name].
+ * `focal_length`/`aperture` are doubles on the wire.
+ */
 @Serializable
 data class WireScope(
     val id: String = "",
@@ -807,23 +648,16 @@ data class WireScope(
 )
 
 /**
- * `option_get`'s per-entry reply shape (M4.5 half B, docs/STATUS.md — `message.cpp:1464-1467`):
- * `{"name": string, "value": <any QVariant>}`. [value] stays a raw [JsonElement] since real
- * `Options::self()` properties span every Qt type (bool/int/double/string/...) — callers decode
- * whichever shape they actually requested (this app only ever requests real `Bool`-typed kcfg
- * entries so far, see [EkosRemoteController.ensurePrefsLoaded]).
+ * One `option_get` entry (`message.cpp:1464-1467`): `{"name", "value": <any QVariant>}`. [value]
+ * stays raw because `Options` properties span every Qt type; callers decode the type they asked for.
  */
 @Serializable
 data class WireOption(val name: String, val value: JsonElement)
 
 /**
- * Curated subset of `mount_get_all_settings`'s real 17 fields (see
- * docs/M3.3-plan.md) — meridian flip, altitude/HA slew limits, auto-park.
- * Field names match the wire verbatim (`Mount::getAllSettings`'s Qt widget
- * object names), confirmed live against the real rig rather than guessed
- * from docs. Excluded: `locationSource`/`timeSource`/`useGeographicUpdate`/
- * `useTimeUpdate`/`leftRightCheckObject`/`upDownCheckObject` — KStars
- * desktop-only conveniences, meaningless from a remote client.
+ * Curated `mount_get_all_settings` fields: meridian flip, altitude/HA limits, auto-park. Names
+ * are the wire keys. Excluded: `locationSource`/`timeSource`/`useGeographicUpdate`/
+ * `useTimeUpdate`/`leftRightCheckObject`/`upDownCheckObject` (desktop-only conveniences).
  */
 @Serializable
 data class WireMountSettings(
@@ -840,53 +674,22 @@ data class WireMountSettings(
 )
 
 /**
- * Curated subset (~30 of ~70 real fields) of real Ekos's Scheduler-wide *policy* settings — see
- * [EkosEvent.SchedulerSettings]'s doc for exactly what's excluded and why. Field names match the
- * wire verbatim (`Scheduler::getAllSettings`'s Qt widget object names), confirmed live against
- * the real rig (real values seen 2026-08-22: `asapConditionR true`, `schedulerTwilight true`,
- * `schedulerAltitude true` / `schedulerAltitudeValue -15`, `kcfg_DawnOffset 0` /
- * `kcfg_DuskOffset 0`, `schedulerPostStartupScript
- * "/usr/share/kstars/taskqueue/collections/observatory_startup.json"`,
- * `schedulerPreShutdownScript ".../observatory_shutdown.json"` — a real, already-active
- * observatory automation this app had never shown or let the user manage).
+ * Curated Scheduler-wide policy settings (see [EkosEvent.SchedulerSettings] for exclusions).
+ * Names are the wire keys (`Scheduler::getAllSettings` widget object names). Radio buttons are
+ * reflected as one bool each, exactly one `true` per group.
  *
- * **`schedulerTwilight true` here is the real root config behind the twilight-shutdown incident**
- * (see project notes) — this app had zero visibility into it before now; this sheet is the first
- * place it's ever surfaced client-side.
- *
- * Startup condition + timing:
- * - [asapConditionR] / [startupTimeConditionR] — mutually exclusive radio pair; real Ekos
- *   reflects each radio button as its own bool (confirmed live: exactly one is `true` at a time),
- *   **not** the single-int shape `EkosRemoteController.toggleJobRun`'s existing
- *   `put("startupTimeConditionR", 0)` send assumes for a brand-new job (that pre-existing,
- *   already-shipped, already-live-verified send is left as-is — Qt evidently coerces the int 0
- *   into this bool field on write without erroring; not touched here, out of scope for this pass).
- * - [startupTimeEdit] — ISO datetime string, only meaningful when [startupTimeConditionR] is set.
- * - [kcfg_LeadTime]/[kcfg_PreDawnTime] — minutes; how early to prep before a job's start time, and
- *   how close to dawn a job is allowed to still be running.
- *
- * Constraints (+ real Ekos's own per-job step toggles, same tab in the real Scheduler UI):
- * - [schedulerAltitude]/[schedulerAltitudeValue], [schedulerMoonSeparation]/[schedulerMoonSeparationValue],
- *   [schedulerMoonAltitude]/[schedulerMoonAltitudeMaxValue], [schedulerTwilight], [schedulerHorizon].
- * - [kcfg_DawnOffset]/[kcfg_DuskOffset] — signed hours padding on top of the real astronomical
- *   dawn/dusk instant (same source `AppState.realNightWindow` reads) before twilight constraints
- *   engage.
- * - [schedulerTrackStep]/[schedulerFocusStep]/[schedulerAlignStep]/[schedulerGuideStep] — per-job
- *   step defaults (Track/Focus/Align/Guide), same Constraints tab in real Ekos.
- *
- * Completion condition (mutually exclusive group, same shape as Startup condition above):
- * [schedulerCompleteSequences], [schedulerRepeatSequences]/[schedulerRepeatSequencesLimit],
- * [schedulerRepeatEverything], [schedulerUntilTerminated], [schedulerUntil]/[schedulerUntilValue].
- *
- * Observatory startup/shutdown procedure:
- * [schedulerStartupEnabled]/[schedulerPreStartupScript]/[schedulerPostStartupScript],
- * [schedulerShutdownEnabled]/[schedulerPreShutdownScript]/[schedulerPostShutdownScript],
- * [kcfg_PreemptiveShutdown]/[kcfg_PreemptiveShutdownTime], [kcfg_StopEkosAfterShutdown],
- * [kcfg_ShutdownScriptTerminatesINDI].
- *
- * Aborted-job handling: [errorHandlingDontRestartButton]/[errorHandlingRestartImmediatelyButton]/
- * [errorHandlingRestartQueueButton] (mutually exclusive), [errorHandlingRescheduleErrorsCB],
- * [errorHandlingStrategyDelay] (minutes).
+ * - Startup: [asapConditionR]/[startupTimeConditionR] (radio pair), [startupTimeEdit] (ISO
+ *   datetime, used with [startupTimeConditionR]), [kcfg_LeadTime]/[kcfg_PreDawnTime] (minutes).
+ * - Constraints: altitude, moon separation/altitude, [schedulerTwilight], [schedulerHorizon];
+ *   [kcfg_DawnOffset]/[kcfg_DuskOffset] are signed hours added to astronomical dawn/dusk;
+ *   [schedulerTrackStep]/[schedulerFocusStep]/[schedulerAlignStep]/[schedulerGuideStep] are
+ *   step defaults for newly created jobs only — existing jobs keep their own pipeline.
+ * - Completion (radio group): [schedulerCompleteSequences], [schedulerRepeatSequences]/
+ *   [schedulerRepeatSequencesLimit], [schedulerRepeatEverything], [schedulerUntilTerminated],
+ *   [schedulerUntil]/[schedulerUntilValue].
+ * - Observatory startup/shutdown scripts and preemptive shutdown.
+ * - Aborted jobs: the `errorHandling*Button` radio group, [errorHandlingRescheduleErrorsCB],
+ *   [errorHandlingStrategyDelay] (minutes).
  */
 @Serializable
 data class WireSchedulerSettings(
@@ -912,16 +715,9 @@ data class WireSchedulerSettings(
     val schedulerAlignStep: Boolean = true,
     val schedulerGuideStep: Boolean = true,
     /**
-     * `Options::forceAlignmentBeforeJob()` (real default `false`, `kstars.kcfg:3365-3368`) —
-     * "force alignment before starting or restarting each job." **Confirmed against source
-     * (`schedulerprocess.cpp:306,364,417`): this is still gated by `SchedulerJob::USE_ALIGN`**
-     * (`getStepPipeline() & USE_ALIGN && forceAlignmentBeforeJob()`) — it does NOT override a job
-     * whose Align step is genuinely off; it only adds *extra* align-before-(re)start moments for
-     * a job that already has Align enabled. Not the fix for "I unchecked Align but it keeps
-     * aligning" (that's almost certainly the *other* real mechanic: [schedulerAlignStep] here is
-     * only the **default for a newly-created job** — editing it after a job already exists on the
-     * real Scheduler doesn't retroactively change that job's own already-baked-in step pipeline).
-     * Surfaced anyway since it's a real, previously-invisible-to-this-app toggle in its own right.
+     * `Options::forceAlignmentBeforeJob()` (default false): align before starting or restarting
+     * each job. Still gated by the job's own Align step (`schedulerprocess.cpp:306,364,417`); it
+     * never adds alignment to a job without one.
      */
     val kcfg_ForceAlignmentBeforeJob: Boolean = false,
     // Completion condition
@@ -950,60 +746,28 @@ data class WireSchedulerSettings(
     val errorHandlingRescheduleErrorsCB: Boolean = false,
     val errorHandlingStrategyDelay: Int = 0,
     /**
-     * Added 2026-08-23, previously on the exclusion list above — real root cause behind this
-     * app's own "Ekos auto-resumes a stale queued job on its own restart" investigation (see
-     * `docs/app-side-feature-backlog.md`/project notes): confirmed `true` on this rig via a
-     * one-off wire probe well before this field had any UI at all. Surfaced now for real
-     * visibility given how central it turned out to be to that whole incident.
+     * When true, Ekos resumes a partly completed queued job after its own restart. This is why a
+     * stale job can start again on its own.
      */
     val kcfg_RememberJobProgress: Boolean = true,
 )
 
 /**
- * Curated subset (13 of 59 real fields, docs/M3.3-plan.md) of real Ekos's Camera module
- * settings — save path (+ its separate placeholder-format template, added 2026-08-23),
- * guide-deviation abort guard, start-of-job guide-drift guard, per-job
- * dither, plus the live preview capture parameters and cooler setpoint (see below). Field names
- * match the wire verbatim (`Camera::getAllSettings`'s Qt widget object names), confirmed live
- * against the real rig (real values seen: `fileDirectoryT "/home/soo/Pictures"`,
- * `guideDeviation 2`, `startGuideDeviation 2`, `guideDitherPerJobFrequency 0`,
- * `captureExposureN 1`, `captureGainN 99`, `captureBinHN/VN 1`, `cameraTemperatureN -1`).
+ * Curated `capture_get_all_settings` fields. Names are the wire keys (`Camera::getAllSettings`
+ * widget object names).
  *
- * **`captureExposureN`/`captureGainN`/`captureBinHN`/`captureBinVN` were originally excluded**
- * as "already live via the Sequence block editor" — that was wrong: the Sequence block editor's
- * `Block.exposureSec`/`gain`/`binning` only take effect once that block's *job* actually runs
- * through the scheduler. A bare `capture_preview` (Bench check's "Snap main") has no exposure/
- * gain/bin parameter of its own — real Ekos fires it using whatever the Capture module's *own*
- * currently-loaded values are, i.e. exactly these four fields. Included now so Bench's Snap
- * main can actually configure what a preview shoots, not just fire blind.
- *
- * **`cameraTemperatureN` was also wrongly excluded** as "already live via Bench's cooler card" —
- * only the *live sensor reading* was live there (`CCD_TEMPERATURE`, read directly), never the
- * *setpoint*: `state.coolTarget` was a plain client-side value, seeded from a fixture default
- * and never reconciled against this real field on connect. Included now so `coolTarget` can be
- * seeded from the real Capture module's actual setpoint the moment this reply arrives (see
- * `EkosRemoteController.applyEvent`'s `CaptureSettings` arm) — fixes cooler setpoint not
- * matching real Ekos at the start of a session.
- *
- * Still excluded: capture count/offset/frame/format fields (Sequence-job concepts, not a
- * preview's), HFR-deviation/meridian-flip refocus triggers and calibration/script fields
- * (deeper, deferred). **`enforceRefocusEveryN`/`refocusEveryN`/`enforceAutofocusOnTemperature`/
- * `maxFocusTemperatureDelta` were added 2026-08-23** — see their own doc below; no longer
- * "one-time setup, not per-session" once the app actually needed real autofocus-trigger
- * settings.
+ * `capture_preview` has no exposure/gain/bin/filter parameters: it shoots with whatever the
+ * Capture module currently has loaded, i.e. `captureExposureN`/`captureGainN`/`captureBinHN`/
+ * `captureBinVN`/[FilterPosCombo]. Sequence blocks only apply their own values when their job
+ * runs. Likewise [cameraTemperatureN] is the cooler setpoint, distinct from the live
+ * `CCD_TEMPERATURE` reading.
  */
 @Serializable
 data class WireCaptureSettings(
     val fileDirectoryT: String = "",
     /**
-     * The real save-path *template* applied on top of [fileDirectoryT] — confirmed against
-     * source (`camera_config.cpp:1076`: `m_format = fileDirectoryT->text() +
-     * placeholderFormatT->text() + ...`) that these are two genuinely separate real fields
-     * concatenated, not one. Real default something like `/%t/%T/%F/%t_%T_%F_...`
-     * (`Options::placeholderFormat()`/`PlaceholderPath::defaultFormat()`) — `%t`=target name,
-     * `%T`=frame type (Light/Dark/Flat/...), `%F`=filter. Added 2026-08-23 — previously this app
-     * only exposed [fileDirectoryT], leaving the actual on-disk subfolder structure real
-     * captures land in completely invisible/uneditable.
+     * Save-path template appended to [fileDirectoryT] (`camera_config.cpp:1076`), e.g.
+     * `/%t/%T/%F/%t_%T_%F_...` where `%t`=target, `%T`=frame type, `%F`=filter.
      */
     val placeholderFormatT: String = "",
     val enforceGuideDeviation: Boolean = false,
@@ -1017,8 +781,8 @@ data class WireCaptureSettings(
     val captureBinHN: Int = 1,
     val captureBinVN: Int = 1,
     /** Ekos's capture frame (subframe) in unbinned sensor pixels, applied to the camera's
-     *  CCD_FRAME before every exposure. Null when absent. A new optical train once inherited the
-     *  CCD Simulator's 1280×1024 here and silently cropped the ATR2600M (2026-10-24). */
+     *  CCD_FRAME before every exposure. Null when absent. A new optical train can inherit another
+     *  camera's frame here (e.g. the CCD Simulator's 1280×1024) and silently crop every capture. */
     val captureFrameXN: Int? = null,
     val captureFrameYN: Int? = null,
     val captureFrameWN: Int? = null,
@@ -1029,86 +793,28 @@ data class WireCaptureSettings(
      *  [cameraTemperatureN] — a set point the cooler can't reach holds previews indefinitely. */
     val cameraTemperatureS: Boolean = false,
     /**
-     * Real "Refocus every:" trigger (2026-08-23) — confirmed against real KStars source
-     * (`limits.ui`: `enforceRefocusEveryN` checkbox + `refocusEveryN` spinbox,
-     * `sequencequeue.cpp:245`: `Options::enforceRefocusEveryN()`). Previously excluded from
-     * this curated subset as "one-time setup, not per-session" — revisited once the app's own
-     * `Block`-level "force AF at block start" idea turned out to have no real backing at all;
-     * this pair is the genuine, real, always-global equivalent (`capture_set_all_settings`, no
-     * job index — confirmed `message.cpp:542,546`). Merged into Camera settings rather than a
-     * separate sheet since it's the exact same wire command already used there.
+     * "Refocus every N minutes" (`limits.ui`, `sequencequeue.cpp:245`). Global, not per job:
+     * set through `capture_set_all_settings` with no job index (`message.cpp:542,546`).
      */
     val enforceRefocusEveryN: Boolean = true,
     val refocusEveryN: Int = 60,
-    /** Real "Refocus if ΔT° >:" trigger — same real source/command as [enforceRefocusEveryN] above. */
+    /** "Refocus if ΔT° >" trigger, same mechanism as [enforceRefocusEveryN]. */
     val enforceAutofocusOnTemperature: Boolean = false,
     val maxFocusTemperatureDelta: Double = 1.0,
     /**
-     * The Capture tab's own current filter selection (real `camera.ui`'s `FilterPosCombo`
-     * `QComboBox`, confirmed live 2026-08-23 — real reply carried `"FilterPosCombo":"L"` for
-     * this rig) — what a bare `capture_preview`/Bench "Snap main" actually shoots with, same
-     * "whatever the Capture module's own currently-loaded values are" shape as
-     * [captureExposureN]/[captureGainN]/[captureBinHN]/[captureBinVN] above. Kept as the exact
-     * wire key verbatim (capital-leading, unlike every other field here) rather than renamed to
-     * a lowerCamelCase Kotlin-style name — same precedent as the `kcfg_`-prefixed Scheduler
-     * fields keeping their own unusual real casing, so the property name stays a direct,
-     * grep-able match to the wire.
+     * The Capture tab's current filter (`camera.ui` `FilterPosCombo`, e.g. `"L"`). Named exactly
+     * like the wire key, capital included, so it stays greppable.
      */
     val FilterPosCombo: String = "",
 )
 
 /**
- * Curated subset (5 of 98 real fields, docs/M3.3-plan.md) of real Ekos's Align module
- * settings — exposure, gain, filter, binning, solver accuracy threshold. Field names match the
- * wire verbatim (`Align::getAllSettings`'s Qt widget object names), confirmed live against the
- * real rig (real values seen: `alignExposure 3`, `alignGain 99`, `alignFilter "L"`,
- * `alignBinning "1x1"`, `alignAccuracyThreshold 30`). **`alignBinning` is a string** (a combo-box
- * selection like `"1x1"`/`"2x2"`, not a number) — confirmed live, don't assume it matches
- * `Block.binning`'s `Int` shape in the Sequence block editor, a completely separate field.
- * Excluded: astrometry index-file booleans (~50 `index_*`/`kcfg_Astrometry*` fields) and
- * PAH-star/solver internals — one-time calibration, not per-session.
- */
-/**
- * Curated subset of real Ekos's Guide module settings (8 of 84 real fields — see
- * docs/M3.3-plan.md) — the 3 preview-capture fields Bench check's "Snap guide" needs (same
- * reasoning as `WireCaptureSettings.captureExposureN` etc — `guide_capture` has no parameter of
- * its own, real Ekos fires it using whatever the Guide module's own currently-loaded values are)
- * plus the 5 M3.3 phase 4 fields (solver accuracy threshold, dither). Field names match the wire
- * verbatim, confirmed live against the real rig (real values seen: `guideExposure 3.5`,
- * `guideGain 99`, `guideBinning "1x1"`, `guiderAccuracyThreshold 2`, `kcfg_DitherEnabled false`,
- * `kcfg_DitherPixels 2`, `kcfg_DitherThreshold 1`, `kcfg_ReuseGuideCalibration true`).
- * **`guideBinning` is a string**, same as `WireAlignSettings.alignBinning` — confirmed live, not
- * a number. **Corrects `docs/M3.3-plan.md`'s own field list**, which was flagged unverified
- * (`EkosRemote-Command-Reference.md` explicitly says Guide's field list is "not live-verified,
- * unlike Capture/Focus") and turned out to name 3 of its 5 dither/calibration fields incorrectly
- * relative to what the reference doc's own static analysis had found — this probe confirms the
- * plan's `kcfg_`-prefixed names are correct as-is (all 5 present verbatim in the live reply,
- * including `kcfg_ReuseGuideCalibration` under `guide_get_all_settings` itself, not needing the
- * separate `guide_set_calibration_settings` command as briefly suspected before probing).
- */
-/**
- * Curated subset of real Ekos's Focus module settings — currently just `absTicksSpin`, the
- * Focus tab's own tracked absolute-position widget. **This is a real, different number from the
- * focuser's raw INDI `ABS_FOCUS_POSITION` property** (confirmed live: `absTicksSpin` read 29535
- * while the same focuser's raw INDI position read 29465, a real ~70-step gap, not a rounding
- * artifact) — Bench check's Focuser card was reading the raw INDI value, which live-updates
- * correctly on every jog but never matched what real Ekos's own Focus tab actually displays,
- * since Ekos's Focus tab shows *this* field, not the raw hardware property. Fixed by seeding
- * `AppState.focPos` from this value the moment it arrives (see
- * `EkosRemoteController.applyEvent`'s `FocusSettings` arm) rather than switching the display
- * over to this field permanently — `focPos` already live-tracks moves via local optimistic
- * increment (`focusStepIn`/`focusStepOut`), so seeding it once here gets both properties right:
- * matches Ekos's own number at connect, keeps live-updating afterward exactly like it already did.
+ * Curated `focus_get_all_settings` fields. Names are the wire keys.
  *
- * Extended for M3.3 phase 6 (Focus settings sheet) with exposure/gain/filter/backlash/algorithm
- * — field names match the wire verbatim, confirmed live against the real rig (real values seen:
- * `focusExposure 2`, `focusGain 99`, `focusFilter "L"`, `focusBacklash 0`,
- * `focusAlgorithm "Linear 1 Pass"`). Unlike Guide's field-name history, this list carries no
- * risk: `EkosRemote-Command-Reference.md` flags Focus's field list "Live-captured" (the same
- * trusted bucket as Capture/Align, not Guide's "not live-verified" flag), and all 5 names
- * appeared verbatim in that list before this probe — this confirms types only, not names.
- * **`focusAlgorithm` is a string** (an algorithm-name combo selection like `"Linear 1 Pass"`),
- * not an enum index — same shape as `alignBinning`/`guideBinning`, don't assume otherwise.
+ * [absTicksSpin] is the position the Focus tab shows, and can differ from the focuser's raw INDI
+ * `ABS_FOCUS_POSITION` (by ~70 steps on the rig). The app seeds its focuser position from it on
+ * connect so it matches Ekos. `focusAlgorithm` and the combo-box fields are strings (combo text),
+ * not enum indices.
  */
 @Serializable
 data class WireFocusSettings(
@@ -1119,86 +825,63 @@ data class WireFocusSettings(
     val focusBacklash: Int = 0,
     val focusAlgorithm: String = "Linear 1 Pass",
     /**
-     * Relative move step size (ticks), Ekos's own "Initial Step Size" — real `QSpinBox`
-     * (`focus.ui`'s `m_OpsFocusMechanics->focusTicks`), confirmed in the reference doc's own
-     * live-verified field list. **Confirmed live (2026-09): this is the ONLY amount any manual
-     * `focus_in`/`focus_out` ever actually moves by, unconditionally** — the fork substitutes
-     * this value for whatever `steps` a caller sends, every time, matching real Ekos's own manual
-     * focus-in/out buttons (`focus.cpp`'s `handleFocusButtonEvent` hardcodes `ms=-1`, always
-     * hitting the same fallback). `SessionController.focusStepIn`/`focusStepOut` send `steps=0`
-     * deliberately for this reason, not as a lazy default — see that doc for the full finding.
+     * "Initial Step Size" (`focusTicks`). `focus_in`/`focus_out` move by `steps`, or by this
+     * amount when `steps <= 0`; the app sends `steps=0` so a tap moves like Ekos's own buttons.
      */
     val focusTicks: Int = 200,
     /**
-     * Max travel (ticks) — real `QSpinBox` (`focus.ui`'s `m_OpsFocusMechanics->focusMaxTravel`),
-     * same live-verified list. Clamps how far a single autofocus run's linear search is allowed
-     * to travel from its start position (`focus.cpp`'s `searchMin`/`searchMax`) — not a hard
-     * device limit (that's the focuser's own `ABS_FOCUS_POSITION` min/max), a policy limit on one
-     * autofocus pass.
+     * Max travel (ticks) of one autofocus run's search from its start position (`focus.cpp`
+     * `searchMin`/`searchMax`). A policy limit, not the focuser's hardware range.
      */
     val focusMaxTravel: Int = 20000,
     /**
-     * Real `QDoubleSpinBox` (`opsfocusmechanics.ui`'s `focusOutSteps`, "Out Step Multiple") —
-     * multiplies [focusTicks] for the Linear/Linear-1-Pass "Classic" walk's opening outward move
-     * (`focus.cpp`'s `setupLinearFocuser` passes both into `FocusParams` together). Not used by
-     * the Fixed-Steps/CFZ-Shuffle walks — see [focusNumSteps] instead.
+     * "Out Step Multiple": multiplies [focusTicks] for the Classic walk's opening outward move
+     * (`setupLinearFocuser`). Unused by Fixed Steps/CFZ Shuffle; see [focusNumSteps].
      */
     val focusOutSteps: Double = 5.0,
-    /** Real `QSpinBox` (`opsfocusmechanics.ui`'s `focusNumSteps`, "Number Steps") — total sample
-     *  count for the Fixed-Steps/CFZ-Shuffle walks (see [focusWalk]); a different shape from
-     *  [focusOutSteps], not a multiple of [focusTicks]. */
+    /** "Number Steps": total sample count for the Fixed Steps/CFZ Shuffle walks (see [focusWalk]). */
     val focusNumSteps: Int = 11,
-    /** Real `QComboBox` (`opsfocusmechanics.ui`'s `focusWalk`) — one of `"Classic"` (Linear only),
-     *  `"Fixed Steps"`, `"CFZ Shuffle"` (confirmed live: `"Fixed Steps"` on this rig). */
+    /** `"Classic"` (Linear only), `"Fixed Steps"` or `"CFZ Shuffle"`. */
     val focusWalk: String = "Fixed Steps",
     /**
-     * Real `QSpinBox` (`opsfocusmechanics.ui`'s `focusAFOverscan`, "AF Overscan") — backlash-
-     * elimination ticks added to **every** outward move the Focus module issues, autofocus or
-     * manual jog alike, then auto-corrected back afterward (`focus.cpp`'s `adjustLinearPosition`/
-     * `autoFocusProcessPositionChange`) — confirmed live, this is what turned a requested
-     * `focus_out` jog into a real out-then-partial-back-in double move. Default 100 (stock kcfg).
+     * "AF Overscan": backlash ticks added to every outward move the Focus module makes, autofocus
+     * or manual jog, then corrected back (`adjustLinearPosition`/`autoFocusProcessPositionChange`).
+     * This turns a `focus_out` jog into an out-then-back-in double move. Stock default 100.
      */
     val focusAFOverscan: Int = 100,
-    /** Real `QDoubleSpinBox` (`opsfocusmechanics.ui`'s `focusOverscanDelay`) — seconds between
-     *  [focusAFOverscan]'s outward extension and its own auto-correction move back in. */
+    /** Seconds between [focusAFOverscan]'s outward extension and its correction move back in. */
     val focusOverscanDelay: Double = 0.0,
-    /** Real `QSpinBox` (`opsfocusmechanics.ui`'s `focusMotionTimeout`) — seconds to wait for the
-     *  focuser to report motion-complete before declaring it stuck. */
+    /** Seconds to wait for the focuser to report motion complete before declaring it stuck. */
     val focusMotionTimeout: Int = 30,
-    /** Real `QSpinBox` (`opsfocusmechanics.ui`'s `focusCaptureTimeout`) — seconds to wait for a
-     *  focus-frame capture before declaring a timeout. */
+    /** Seconds to wait for a focus-frame capture before timing out. */
     val focusCaptureTimeout: Int = 30,
-    /** Real `QDoubleSpinBox` (`opsfocusmechanics.ui`'s `focusSettleTime`) — seconds to wait after
-     *  a focuser move before capturing the next frame during autofocus. */
+    /** Seconds to wait after a focuser move before the next autofocus frame. */
     val focusSettleTime: Double = 1.0,
-    /** Real `QComboBox` (`opsfocusprocess.ui`'s `focusDetection`) — one of `"Gradient"`,
-     *  `"Centroid"`, `"Threshold"`, `"SEP"`, `"Bahtinov"` (confirmed live: `"SEP"`). */
+    /** `"Gradient"`, `"Centroid"`, `"Threshold"`, `"SEP"` or `"Bahtinov"`. */
     val focusDetection: String = "SEP",
-    /** Real `QComboBox` (`opsfocusprocess.ui`'s `focusCurveFit`) — one of `"Quadratic"`,
-     *  `"Hyperbola"`, `"Parabola"`, `"Gaussian"` (confirmed live: `"Hyperbola"`). */
+    /** `"Quadratic"`, `"Hyperbola"`, `"Parabola"` or `"Gaussian"`. */
     val focusCurveFit: String = "Hyperbola",
-    /** Real `QComboBox` (`opsfocusprocess.ui`'s `focusStarMeasure`) — one of `"HFR"`,
-     *  `"HFR Adj"`, `"FWHM"`, `"# Stars"`, `"Fourier"`, `"StdDev"`, `"Sobel"`, `"Laplassian"`,
-     *  `"Canny"` (confirmed live: `"HFR"`). */
+    /** `"HFR"`, `"HFR Adj"`, `"FWHM"`, `"# Stars"`, `"Fourier"`, `"StdDev"`, `"Sobel"`,
+     *  `"Laplassian"` or `"Canny"`. */
     val focusStarMeasure: String = "HFR",
-    /** Real `QDoubleSpinBox` (`opsfocusprocess.ui`'s `focusTolerance`) — percent change in the
-     *  star measure considered "in tolerance" once a fit is found. */
+    /** Percent change in the star measure considered in tolerance once a fit is found. */
     val focusTolerance: Double = 1.0,
-    /** Real `QDoubleSpinBox` (`opsfocusprocess.ui`'s `focusR2Limit`) — minimum curve-fit R² to
-     *  accept a Linear-1-Pass result instead of aborting/retrying. */
+    /** Minimum curve-fit R² to accept a Linear 1 Pass result instead of aborting/retrying. */
     val focusR2Limit: Double = 0.8,
-    /** Real `QSpinBox` (`opsfocusprocess.ui`'s `focusFramesCount`) — frames captured and averaged
-     *  per focus measurement point. */
+    /** Frames captured and averaged per focus measurement point. */
     val focusFramesCount: Int = 1,
-    /** Real focus-camera binning, same string shape as `guideBinning`/`alignBinning` (confirmed
-     *  live: `"1x1"`) — not previously exposed anywhere in the app; Controls tab's Focuser card
-     *  gets it alongside exposure/gain/filter, same as Primary Camera/Guide's own preview rows. */
+    /** Focus-camera binning, a string like `guideBinning`/`alignBinning` (e.g. `"1x1"`). */
     val focusBinning: String = "1x1",
 )
 
 /** `guide.ui` `guideSquareSize` combo items (px); Ekos sets the combo by text. */
 val GUIDE_BOX_SIZES = listOf("8", "16", "32", "64", "128")
 
+/**
+ * Curated `guide_get_all_settings` fields. Names are the wire keys; defaults from `kstars.kcfg`.
+ * Like `capture_preview`, `guide_capture` has no parameters and shoots with the Guide module's
+ * loaded exposure/gain/binning. `guideBinning` is a string (`"1x1"`).
+ */
 @Serializable
 data class WireGuideSettings(
     val guideExposure: Double = 1.0,
@@ -1209,8 +892,7 @@ data class WireGuideSettings(
     val kcfg_DitherPixels: Int = 2,
     val kcfg_DitherThreshold: Double = 1.0,
     val kcfg_ReuseGuideCalibration: Boolean = true,
-    // 2026-10 expansion, all real `guide_get_all_settings` keys (widget objectNames, defaults
-    // from kstars.kcfg). guide.ui checkboxes:
+    // guide.ui checkboxes:
     val guideDarkFrame: Boolean = false,
     val guideSubframe: Boolean = false,
     val guideAutoStar: Boolean = false,
@@ -1232,6 +914,11 @@ data class WireGuideSettings(
     val kcfg_GuideLostStarTimeout: Int = 60,
 )
 
+/**
+ * Curated `align_get_all_settings` fields. Names are the wire keys. `alignBinning` is a combo
+ * string (`"1x1"`), not an Int like a sequence block's binning. Astrometry index-file and solver
+ * internals are excluded.
+ */
 @Serializable
 data class WireAlignSettings(
     val alignExposure: Double = 3.0,
@@ -1240,49 +927,34 @@ data class WireAlignSettings(
     val alignBinning: String = "1x1",
     val alignAccuracyThreshold: Double = 30.0,
     /**
-     * Real `QCheckBox` (`align.ui:739`) — confirmed against `align_devices.cpp:583/590`
-     * (`Align::checkFilter`): when checked, `alignFilter`'s combo is **disabled** and forced to
-     * whatever the filter wheel is actually on (`m_FilterManager->getFilterPosition()`) — a solve
-     * never changes the filter. When unchecked, `alignFilter` is a fixed user choice that a solve
-     * *does* force-switch to every time, even mid-sequence. Was missing from this model entirely
-     * — Nocturne's own Filter chip always behaved like the unchecked/fixed case, silently forcing
-     * a filter switch on every solve regardless of what was actually loaded.
+     * `align.ui:739`, see `Align::checkFilter` (`align_devices.cpp:583/590`). When true, solves use
+     * whatever filter the wheel is on and `alignFilter` is ignored. When false, every solve
+     * switches to `alignFilter`, even mid-sequence.
      */
     val alignUseCurrentFilter: Boolean = false,
     /**
-     * The Align module's solver-action radio group — what real Ekos does automatically after a
-     * successful `align_solve`, confirmed live: `nothingR` (report only, the real default),
-     * `slewR` (re-slew onto the solved position for real — this is what a real "goto & center"
-     * needs, no client-side offset math required), `syncR` (sync the mount's internal model
-     * instead of moving it). Mutually exclusive on the real side; curated in here (rather than a
-     * one-off raw read) so [EkosRemoteController.gotoAndCenter] can save the user's normal
-     * setting and restore it afterward instead of silently leaving `slewR` on.
+     * Solver-action radio group, what Ekos does after a successful `align_solve`: `nothingR`
+     * (report only, default), `slewR` (re-slew onto the solved position, i.e. goto & center),
+     * `syncR` (sync the mount model). Modeled so goto-and-center can restore the user's choice.
      */
     val nothingR: Boolean = true,
     val slewR: Boolean = false,
     val syncR: Boolean = false,
     /**
-     * M5 (docs/STATUS.md) — real `kcfg_AstrometryRotatorThreshold`, arcminutes (confirmed against
-     * `kstars.kcfg`: `<default>30</default>`, "Threshold between measured and FITS position
-     * angles in arcminutes to consider the load and slew operation successful"). Unlike
-     * `rotator_control` (a `QGroupBox` in `opsalign.ui`, not covered by the reflection this
-     * command's GET/SET share), this one's a normal `QDoubleSpinBox` — same reflection path as
-     * every other field here, real read *and* write, no special-cased command needed. Distinct
-     * unit from [com.nocturne.session.AppState.wireRotatorThreshold] (that one's pushed already
-     * converted to **degrees** — confirmed `align_goto.cpp`: `Options::astrometryRotatorThreshold()
-     * / 60.0` — for direct diff-vs-currentPA/targetPA comparison; this field stays raw arcminutes,
-     * matching the settings-sheet control the user edits it through).
+     * `kcfg_AstrometryRotatorThreshold`, arcminutes (`kstars.kcfg` default 30). Readable and
+     * writable through this command, unlike `rotator_control` (a `QGroupBox` the reflection
+     * misses). The rotator push sends the same threshold already converted to degrees
+     * (`align_goto.cpp`: `/ 60.0`).
      */
     val kcfg_AstrometryRotatorThreshold: Double = 30.0,
     /**
-     * Polar Alignment Assistant settings — widgets of `polaralignmentassistant.ui`, a child
-     * widget of Align (`new PolarAlignmentAssistant(this, ...)`), so the same `findChildren`
-     * reflection covers them. Nullable: absent until a reply that actually carries them lands.
-     * [pAHDirection] "West"/"East"; [pAHRotation] QSpinBox 15..60 step 15; [pAHMountSpeed] one of
-     * the mount's own `TELESCOPE_SLEW_RATE` labels; [pAHExposure] refresh-phase exposure, 1..30 s;
-     * [pAHRefreshAlgorithm] "Plate Solve"/"Move Star"/"Move Star & Calc Error" (combos are set
-     * by text). Set via this path, not `polar_set_algorithm` — that handler looks up a stale
-     * widget name (`PAHRefreshAlgorithmCombo`) and silently does nothing.
+     * Polar Alignment Assistant settings (`polaralignmentassistant.ui`, a child widget of Align, so
+     * the same reflection covers them). Null until a reply carries them. [pAHDirection]
+     * "West"/"East"; [pAHRotation] 15..60 step 15; [pAHMountSpeed] one of the mount's
+     * `TELESCOPE_SLEW_RATE` labels; [pAHExposure] refresh exposure, 1..30 s; [pAHRefreshAlgorithm]
+     * "Plate Solve"/"Move Star"/"Move Star & Calc Error" (combos are set by text). Set them here,
+     * not via `polar_set_algorithm`: that handler looks up a stale widget name
+     * (`PAHRefreshAlgorithmCombo`) and does nothing.
      */
     val pAHDirection: String? = null,
     val pAHRotation: Int? = null,

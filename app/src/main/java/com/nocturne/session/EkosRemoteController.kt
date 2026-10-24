@@ -47,36 +47,23 @@ import kotlinx.serialization.json.putJsonObject
 import kotlin.math.roundToInt
 
 /**
- * M3 session driver for a real EkosRemote connection. Runs no ticker — `t`
- * and every simulator-only field stay frozen at [AppState]'s defaults;
- * real telemetry arrives instead as [EkosEvent] pushes on [client], applied
- * here to the wire-mirror fields (`wireCaptureStatus`, `wireDevices`, ...).
- * The pure local-UI methods (sheet nav, block editing, prefs, ...) inherited
- * unchanged from [AbstractLocalSessionController] stay optimistic-local-only
- * — only the dozen or so methods overridden below actually send a wire
- * command, each following the same optimistic-then-reconcile pattern: fire
- * the command, then apply the same local `_state.update` the simulator would
- * have made, so the UI moves immediately rather than waiting on a push
- * round-trip; the later push (or refreshed `get_*` reply) reconciles it.
+ * Session driver for an EkosRemote connection. Telemetry arrives as [EkosEvent] pushes on
+ * [client] and is applied to the wire-mirror fields (`wireCaptureStatus`, `wireDevices`, ...).
+ * Methods that send a wire command also update local state optimistically so the UI moves
+ * immediately; the later push or `get_*` reply reconciles it. Local-UI methods inherited from
+ * [AbstractLocalSessionController] stay local-only.
  */
 class EkosRemoteController(
     private val client: EkosRemoteClient,
     private val scope: CoroutineScope,
-    /** For persisting/loading the rig's reboot-daemon config (host/port already live on
-     *  [client]; only the daemon's own port is stored here) — see
-     *  [setRigRebootPort]/[rebootRig]. Optional: pass null and reboot config just won't
-     *  survive process death (used by tests that don't need it). */
+    /** Persists the reboot daemon's port (see [setRigRebootPort]/[rebootRig]). Null in tests. */
     private val connectionRepo: ConnectionRepository? = null,
-    /** Persists the app's own local job queue across process death (M3.4) — see
-     *  [SequenceSnapshot]'s own doc for why the app's list, not real Ekos's Scheduler, is the
-     *  source of truth. Optional: pass null and the queue just won't survive process death (used
-     *  by tests that don't need it). */
+    /** Persists the app's local job queue — see [SequenceSnapshot] for why the app's list, not
+     *  Ekos's Scheduler, is the source of truth. Null in tests. */
     private val sequenceRepo: SequenceRepository? = null,
-    /** Persists real capture frames for the Frames grid (M4.3) — see [FrameEntity]'s own doc.
-     *  Optional: pass null and the grid just stays empty for the session (used by tests). */
+    /** Persists capture frames for the Frames grid (see [FrameEntity]). Null in tests. */
     private val frameRepo: FrameRepository? = null,
-    /** Persists the Plan tab's user catalogue ("My targets") — see [UserCatalogSnapshot].
-     *  Optional: pass null and hand-entered targets just won't survive process death. */
+    /** Persists the Plan tab's user catalogue ("My targets"). Null = not persisted. */
     private val targetRepo: TargetRepository? = null,
     /** Offline sky atlas for framing, copied from the rig. Optional: null = online cutouts only. */
     private val skyAtlas: SkyAtlas? = null,
@@ -88,18 +75,14 @@ class EkosRemoteController(
     /** Name a `profile_delete` was just sent for — checked against the next [EkosEvent.Profiles]. */
     private var pendingProfileDelete: String? = null
 
-    /** M5 (docs/STATUS.md) — plain internet fetch, not wire-protocol-dependent at all; see
-     * [ensureReferenceImage]/[ReferenceImageClient]'s own docs. */
+    /** Plain internet fetch for reference images; independent of the wire protocol. */
     private val referenceImageClient = ReferenceImageClient()
     private var skyAtlasCopyJob: Job? = null
 
-    // Plan tab search bookkeeping (M3 §4) — astro_get_objects_info/riseset can reply in
-    // either order, so the latest of each is kept here and merged into wireSearchResults
-    // whichever arrives; see buildSearchResults(). The typed query is something
-    // astro_search_objects itself has no field for (it only filters by type/alt/mag/FOV) — the
-    // reply's flat name list (lastSearchNames) is client-side substring-filtered against
-    // AppState.query before resolving, and re-filtered locally on each keystroke rather than
-    // re-running the whole server-side search.
+    // Plan tab search. astro_get_objects_info and riseset replies can arrive in either order, so
+    // the latest of each is kept and merged by buildSearchResults(). astro_search_objects has no
+    // name filter (only type/alt/mag/FOV), so its flat name list (lastSearchNames) is
+    // substring-filtered locally against AppState.query, and re-filtered on each keystroke.
     private var lastAstroObjects: List<WireAstroObject> = emptyList()
     private var lastRiseset: List<WireRiseset> = emptyList()
     private var lastSearchNames: List<String>? = null
@@ -107,19 +90,17 @@ class EkosRemoteController(
     // connection on first need and filtered locally like lastSearchNames.
     private var allNames: List<String>? = null
     private var allNamesRequested = false
-    // Typed-name lookup (astro_get_object_info) — catches what the type search can't: a name of
-    // another type, below the altitude cutoff, or with no catalogued magnitude at all. One
-    // request in flight at a time; replies carry the *resolved* name, not the typed one, so
-    // they can't be matched to a query — instead a query typed while one is in flight is queued
+    // Typed-name lookup (astro_get_object_info): finds names the type search misses (other type,
+    // below the altitude cutoff, no catalogued magnitude). One request in flight at a time;
+    // replies carry the resolved name, not the typed one, so a query typed mid-flight is queued
     // and the in-flight reply discarded. lastLookupObject is the current query's match, if any.
     private var lastLookupObject: WireAstroObject? = null
     private var lookupInFlight = false
     private var queuedLookupQuery: String? = null
 
     // Devices whose full property set has been requested (DEVICE_GET + full subscribe). The
-    // DEVICE_GET reply itself carries CONNECTION=connected, so without this every reply
-    // re-triggered fetchFullDeviceIfNewlyConnected → another DEVICE_GET, forever (seen live
-    // 2026-10-23: ~2k requests per device in 10 min).
+    // DEVICE_GET reply itself carries CONNECTION=connected, so without this set every reply
+    // would trigger another DEVICE_GET indefinitely.
     private val fullyFetchedDevices = mutableSetOf<String>()
 
     // Last time (ms) we pushed Preferred Pier Side = East per device — see enforcePreferredPierSide.
@@ -138,40 +119,27 @@ class EkosRemoteController(
     private val pendingModuleTrainAssignments = mutableMapOf<String, String>()
 
     /**
-     * Job/target name a `scheduler_add_jobs` sync was just sent for (M3 §5)
-     * — matched against the next `scheduler_get_jobs` reply's `name` field
-     * (the same string sent as `nameEdit`) to capture the new job's real
-     * `wireIndex` and flip `synced`. There's no other correlation available
-     * — `scheduler_add_jobs` has no direct reply of its own.
+     * Name a `scheduler_add_jobs` was just sent for, matched against the next
+     * `scheduler_get_jobs` reply's `name` (the `nameEdit` sent) to capture the job's
+     * `wireIndex` and mark it synced. `scheduler_add_jobs` has no reply of its own.
      */
     private var pendingSyncJobId: String? = null
     private var pendingSyncName: String? = null
 
     /**
-     * A job/target name a `scheduler_start_job` should follow once the pending sync above
-     * actually lands (matched by name against the next `scheduler_get_jobs` reply) — set right
-     * alongside [pendingSyncJobId]/[pendingSyncName] but consumed separately in
-     * [sendFollowUpCommands], since [applySchedulerJobs] already clears those two on match before
-     * [sendFollowUpCommands] runs.
-     *
-     * **Redesigned 2026-08-23 (push/start/stop split)**: this used to fire unconditionally
-     * whenever *any* confirmed add landed — a real, live-confirmed bug, since a second job's add
-     * confirming while the Scheduler was already running (from a first job's own start) sent the
-     * toggle again and silently **stopped** it, aborting the first job's genuinely in-progress
-     * run. Now [alsoStart] is only ever `true` for [pushRealJob] calls from [resumeSession]/
-     * [startNextJob] — deliberate "push and start together" lifecycle actions — and even then only
-     * sends the toggle if `!schedulerRunning`. A plain [pushJob] never sets it, so pushing a
-     * second job while the first is running can no longer touch the Scheduler toggle at all.
+     * Name a `scheduler_start_job` should follow once the pending sync lands. Consumed in
+     * [sendFollowUpCommands] separately from [pendingSyncName], which [applySchedulerJobs] clears
+     * first. [alsoStart] is true only for [pushRealJob] calls from [resumeSession]/[startNextJob],
+     * and the toggle is sent only if `!schedulerRunning`: the start action is a toggle, so sending
+     * it while running would stop an in-progress job. A plain [pushJob] never starts anything.
      */
     private data class PendingSchedulerStart(val name: String, val alsoStart: Boolean)
     private var pendingSchedulerStart: PendingSchedulerStart? = null
 
     /**
-     * [pushRealJob]'s save→settings→add→get→(start) chain is split at this point because
-     * `sequenceEdit` needs the *server-resolved* absolute path from the save reply, not a
-     * client-guessed one — see [EkosEvent.SchedulerSaveSequenceFile]'s doc. Holds everything the
-     * rest of the chain needs once that reply lands. [alsoStart] carries through to
-     * [pendingSchedulerStart] — see its doc for why only [resumeSession]/[startNextJob] set it.
+     * State for the rest of [pushRealJob]'s save→settings→add→get→(start) chain, held until the
+     * save reply lands: `sequenceEdit` needs the server-resolved absolute path from that reply
+     * (see [EkosEvent.SchedulerSaveSequenceFile]).
      */
     private data class PendingJobStart(val jobId: String, val targetName: String, val raDec: Pair<String, String>?, val trainName: String?, val alsoStart: Boolean = false)
     private var pendingJobStart: PendingJobStart? = null
@@ -179,26 +147,15 @@ class EkosRemoteController(
     /** In-memory mirror of the reboot daemon's port, for [rebootRig]/[syncTimeToRig]. */
     private var rigRebootPort: Int = 9001
 
-    /**
-     * Last-applied wall-clock time per (device, property), keyed for [shouldThrottleNumberPush]
-     * (M3.4) — see that function's own doc for why this exists.
-     */
+    /** Last-applied time per (device, property) for [shouldThrottleNumberPush]. */
     private val lastAppliedNumberPushMs = mutableMapOf<Pair<String, String>, Long>()
 
     /**
-     * Real `CCD_EXPOSURE` (M3.4, see [AppState.captureProgress]) pushes several times a second
-     * while an exposure is actively counting down — confirmed live. Every device-property push
-     * mutates the *same* shared `AppState` object every composable on screen is called with
-     * (`ControlsScreen(state, ...)` takes it as one parameter), so an unthrottled high-frequency
-     * source forces a full-screen recompose — including several genuinely expensive cards
-     * (`MountControlCard` etc) — at that same frequency. Confirmed live: tapping Snap main
-     * produced multi-second frame times ("Skipped N frames") and real ANR risk, and rotating the
-     * device mid-exposure (which rebuilds the whole Compose tree from scratch, an even heavier
-     * recompose) could lose the race against a short exposure finishing, making Stop appear to
-     * vanish. Throttles only the numeric *decay itself* — a vector-state transition (e.g. Busy ->
-     * Idle/Ok, an exposure finishing or being aborted) always applies immediately, at any
-     * property's very first push, and for anything that isn't currently Busy, so nothing real is
-     * ever delayed or dropped, only the redundant mid-exposure churn.
+     * `CCD_EXPOSURE` pushes several times a second during an exposure, and each push recomposes
+     * every screen reading the shared [AppState] (including expensive cards like
+     * `MountControlCard`), enough to drop frames and risk ANR. Throttles only Busy→Busy number
+     * updates to one per 400 ms; state transitions, first pushes and non-Busy updates always
+     * apply immediately.
      */
     private fun shouldThrottleNumberPush(device: String, property: WireProperty, current: AppState): Boolean {
         if (property !is WireProperty.Number) return false
@@ -214,12 +171,8 @@ class EkosRemoteController(
 
     init {
         if (skyAtlas != null) scope.launch { rescanSkyAtlas() }
-        // AppState.jobs/activeJobId/lastActiveJobId/openBlockId default to DEFAULT_JOBS — one
-        // job pre-marked running = true, a SimulatedController demo convenience. A real
-        // connection has no session queued until the user actually adds one (Plan tab "Add to
-        // sequence") — or until sequenceRepo's own load below restores whatever was queued last,
-        // see that block's doc for why an unconditional empty-list reset here was itself a real
-        // bug (the app forgot its own queue on every relaunch, independent of real Ekos).
+        // AppState defaults jobs to DEFAULT_JOBS (one pre-marked running). Start empty until
+        // sequenceRepo restores the saved queue below or the user adds one.
         _state.update {
             it.copy(
                 jobs = emptyList(), activeJobId = null, jobSeq = 1, lastActiveJobId = null, openBlockId = null,
@@ -231,10 +184,9 @@ class EkosRemoteController(
                 sendFollowUpCommands(event)
             }
         }
-        // M4.1 — real `/media/ekos` binary frames, routed by their header's own uuid tag into
-        // the matching AppState field. No history buffer here for non-capture types — this is
-        // deliberately "latest frame per device only." Capture frames additionally persist to
-        // Room (M4.3, frameRepo) — that's the actual history the Frames grid reads.
+        // `/media/ekos` binary frames, routed by header uuid to the matching AppState field
+        // (latest frame per type only). Capture frames also persist to Room via frameRepo, which
+        // backs the Frames grid history.
         scope.launch {
             client.mediaFrames.collect { frame ->
                 if (frame.header.frameType == MediaFrameType.CAPTURE) {
@@ -256,8 +208,8 @@ class EkosRemoteController(
                 }
             }
         }
-        // M4.3 — Room is the real source of truth for the Frames grid; this just mirrors its
-        // own live Flow into AppState so the UI never reads the database directly.
+        // Room is the source of truth for the Frames grid; mirror it into AppState so the UI
+        // never reads the database directly.
         frameRepo?.let { repo ->
             scope.launch {
                 repo.observeAll().collect { rows -> _state.update { it.copy(frameRows = rows) } }
@@ -274,12 +226,8 @@ class EkosRemoteController(
         }
 
         sequenceRepo?.let { repo ->
-            // Restore whatever was queued last — purely local session continuity, fully decoupled
-            // from whatever real Ekos's Scheduler currently holds (push/start/stop split,
-            // 2026-08-23): the app no longer force-syncs anything on connect, so there's no race
-            // to land ahead of here, just the ordinary "don't flash an empty list before this
-            // loads" concern. Loading is a single suspend read (DataStore's own in-memory cache
-            // after first launch), effectively immediate.
+            // Restore the last queue. Purely local: nothing is synced to Ekos's Scheduler on
+            // connect. A single suspend read, effectively immediate.
             scope.launch {
                 val saved = repo.current()
                 if (saved.jobs.isNotEmpty() || saved.lastActiveJobId != null) {
@@ -288,9 +236,7 @@ class EkosRemoteController(
                     }
                 }
             }
-            // Persists on every subsequent change, from any source (addToSequence, pushJob,
-            // removeJob, endSession, finishNight, ...) — one place instead of threading a save()
-            // call through every mutator.
+            // Persist every later change from any source, in one place rather than in each mutator.
             scope.launch {
                 _state.map { SequenceSnapshot(it.jobs, it.jobSeq, it.lastActiveJobId) }
                     .distinctUntilChanged()
@@ -316,22 +262,16 @@ class EkosRemoteController(
     }
 
     private fun applyEvent(s: AppState, event: EkosEvent): AppState = when (event) {
-        // Socket/dial progress itself is consumed straight from client.connectionStatus by
-        // the connect screen / reconnect banner — not funneled through AppState. But `online`
-        // specifically doubles as AppState.ekosRunning (Gear tab's Start/Stop Ekos, ReadyBanner,
-        // etc. all read that) — AppState defaults ekosRunning = true (M1 fixture default, a
-        // profile already running), which is wrong the moment a real socket opens and Ekos
-        // hasn't started yet (see NocturneApp — the shell is now reachable at that point
-        // specifically so Start Ekos is tappable). activeProfile mirrors whatever get_profiles
-        // already told us is selected, only while actually online.
+        // `online` also drives AppState.ekosRunning (Start/Stop Ekos, ReadyBanner). AppState
+        // defaults it to true, which is wrong while the socket is open but Ekos isn't started.
+        // activeProfile mirrors get_profiles' selection only while online.
         is EkosEvent.NewConnectionState -> s.copy(
             ekosRunning = event.online,
             activeProfile = if (event.online) s.selectedProfile else null,
         )
         is EkosEvent.NewCaptureState -> s.copy(wireCaptureStatus = event.status)
-        // Merges non-null fields rather than overwriting — see NewMountState's own doc: the
-        // far-more-frequent coordinate-shaped push carries none of these 4 fields, and must not
-        // null out a previously-known status/pierSide when it lands.
+        // Merge non-null fields: the frequent coordinate-shaped push carries none of these and
+        // must not clear a known status/pierSide.
         is EkosEvent.NewMountState -> s.copy(
             wireMountStatus = event.status ?: s.wireMountStatus,
             wireMountTarget = event.target ?: s.wireMountTarget,
@@ -339,8 +279,8 @@ class EkosRemoteController(
             wireMountPierSide = event.pierSide ?: s.wireMountPierSide,
         )
         is EkosEvent.NewFocusState -> {
-            // Real status wins over the optimistic Start/Stop flag (scheduler/desktop-started runs,
-            // runs that finish or fail on their own) — same shape as NewGuideState below.
+            // Wire status wins over the optimistic Start/Stop flag (scheduler/desktop-started
+            // runs, runs that finish or fail on their own) — same as NewGuideState below.
             val running = event.status?.let { it !in FOCUS_IDLE_STATES } ?: s.focusRunning
             // A new autofocus run (idle → busy) starts a fresh V-curve, like Ekos's own plot.
             // Not keyed off `focusinitHFRPlot`: Ekos re-sends that mid-run whenever it redraws.
@@ -357,8 +297,8 @@ class EkosRemoteController(
             )
         }
         is EkosEvent.NewGuideState -> {
-            // Real status wins over the optimistic Start/Stop flag — catches guiding started by
-            // the scheduler or the desktop, and lost-star/calibration-failure aborts.
+            // Wire status wins over the optimistic Start/Stop flag — catches guiding started by
+            // the scheduler or desktop, and lost-star/calibration-failure aborts.
             val guiding = event.status?.let { it !in GUIDE_IDLE_STATES } ?: s.guiding
             // A new run (wire status idle → busy) starts a fresh trace, like Ekos's own graph.
             val newRun = event.status != null && guiding &&
@@ -377,32 +317,28 @@ class EkosRemoteController(
                 guideStarCount = if (sample != null) event.numStars?.takeIf { it > 0 } else s.guideStarCount,
             )
         }
-        // Merges non-null fields rather than overwriting — see NewAlignState's own doc: status
-        // and solution are two entirely independent real senders sharing this one push name.
+        // Merge non-null fields: status and solution come from independent senders sharing
+        // one push name.
         is EkosEvent.NewAlignState -> s.copy(
             wireAlignStatus = event.status ?: s.wireAlignStatus,
             wireAlignSolution = event.solution ?: s.wireAlignSolution,
-            // Real per-solve pointing-accuracy trend (follow-up to M5, docs/STATUS.md) — appends
-            // targetDiff (real total pointing error, arcsec) on every solve that reports one,
-            // bounded so a long session doesn't grow this unbounded.
+            // Per-solve pointing error (targetDiff, arcsec), bounded.
             alignAccuracyHistory = event.solution?.targetDiff?.let {
                 (s.alignAccuracyHistory + it).takeLast(MAX_ACCURACY_HISTORY)
             } ?: s.alignAccuracyHistory,
         )
-        // Merges non-null fields rather than overwriting — see NewManualRotatorStatus's own doc
-        // for why, even though no partial shape has actually been observed live for this one yet.
+        // Merge non-null fields, as for the other partial-shape pushes.
         is EkosEvent.NewManualRotatorStatus -> s.copy(
             wireRotatorCurrentPA = event.currentPA ?: s.wireRotatorCurrentPA,
             wireRotatorTargetPA = event.targetPA ?: s.wireRotatorTargetPA,
             wireRotatorThreshold = event.threshold ?: s.wireRotatorThreshold,
         )
-        // Merges non-null fields rather than overwriting — real pushes are partial (see
-        // NewPolarState's own doc), so a message-only or vector-only frame must not null out a
-        // previously-known stage (or vice versa).
+        // Merge non-null fields: pushes are partial, so a message-only or vector-only frame must
+        // not clear a known stage (or vice versa).
         is EkosEvent.NewPolarState -> s.copy(
             wirePolarStage = event.stage ?: s.wirePolarStage,
-            // Real stage wins over the optimistic Start/Stop flag — also catches a run that
-            // finished, failed or was started/stopped from the Ekos desktop.
+            // Wire stage wins over the optimistic Start/Stop flag — also catches runs that
+            // finish, fail, or are started/stopped from the Ekos desktop.
             polarRunning = event.stage?.let { it != PAH_STAGE_IDLE } ?: s.polarRunning,
             wirePolarEnabled = event.enabled ?: s.wirePolarEnabled,
             wirePolarMessage = event.message ?: s.wirePolarMessage,
@@ -411,15 +347,12 @@ class EkosRemoteController(
             wirePolarUpdatedAzError = event.updatedAZError ?: s.wirePolarUpdatedAzError,
             wirePolarUpdatedAltError = event.updatedALTError ?: s.wirePolarUpdatedAltError,
         )
-        // CoolerCard already reads the real, more precise CCD_TEMPERATURE INDI number directly
-        // (subscribed live, decimal precision) — this push is a coarser echo of the same sensor,
-        // confirmed real (not the dead `new_temperature`) but with nothing new for the UI to read
-        // that isn't already shown. Decoded so it doesn't silently fall through to Raw; no-op here.
+        // A coarser echo of CCD_TEMPERATURE, which CoolerCard already reads directly. Decoded so
+        // it doesn't fall through to Raw; nothing to apply.
         is EkosEvent.NewCameraState -> s
 
-        // Real new_notification stream (M4.5 half A, docs/STATUS.md) — see EkosEvent.NewNotification's
-        // own doc for why this is a genuinely comprehensive event stream, not a narrow one.
-        // Prepended newest-first, deduplicated by the real uuid, capped at MAX_NOTIFICATIONS.
+        // new_notification stream (see EkosEvent.NewNotification): newest first, deduplicated by
+        // uuid, capped at MAX_NOTIFICATIONS.
         is EkosEvent.NewNotification -> {
             val message = event.message
             if (message == null) s else {
@@ -437,10 +370,9 @@ class EkosRemoteController(
             }
         }
 
-        // Real ground truth for AppState.schedulerRunning (see that field's own doc) — the
-        // `log`-shaped pushes carry no status and are ignored here; only a `status`-shaped push
-        // updates it. Real `Ekos::SchedulerState`: IDLE=0/STARTUP=1/RUNNING=2/PAUSED=3/
-        // SHUTDOWN=4/ABORTED=5/LOADING=6 — true for everything except IDLE/ABORTED.
+        // Source of AppState.schedulerRunning. `log`-shaped pushes carry no status and are
+        // ignored. Ekos::SchedulerState: IDLE=0/STARTUP=1/RUNNING=2/PAUSED=3/SHUTDOWN=4/
+        // ABORTED=5/LOADING=6 — running for everything except IDLE/ABORTED.
         is EkosEvent.NewSchedulerState ->
             event.status?.let { s.copy(schedulerRunning = it != 0 && it != 5) } ?: s
 
@@ -457,9 +389,8 @@ class EkosRemoteController(
             .withGainRange(event.property.device, event.property)
             .withValidBlockFilters()
 
-        // `state.profiles` is directly overwritten, not additive — get_profiles is always
-        // the authoritative full list (plan §3). Diffed against the *old* s.profiles (still
-        // pre-delete at this point) to catch profile_delete's documented silent refusal.
+        // get_profiles is always the full list, so profiles is overwritten. Diffed against the
+        // old s.profiles (still pre-delete here) to detect profile_delete's silent refusal.
         is EkosEvent.Profiles -> {
             val attemptedDelete = pendingProfileDelete
             pendingProfileDelete = null
@@ -468,40 +399,34 @@ class EkosRemoteController(
                 profiles = event.profiles.map { it.toRigProfile() },
                 selectedProfile = event.selectedProfile ?: s.selectedProfile,
                 profileDeleteRefused = if (refused) attemptedDelete else null,
-                // Every driver label ever saved across any profile on this Pi, unioned — see
-                // AppState.realDeviceOptions. Available pre-online, unlike wireDevices.
+                // Every driver label saved in any profile on this Pi, unioned — see
+                // AppState.realDeviceOptions. Available before Ekos is online, unlike wireDevices.
                 wireKnownDrivers = event.profiles
                     .flatMap { it.drivers.entries }
                     .groupBy({ it.key }, { it.value })
                     .mapValues { (_, lists) -> lists.flatten().distinct() },
             )
         }
-        // Nocturne's UI only ever models 2 train slots (Primary/Secondary) — a real rig can
-        // have any number of named trains under a real name (not "Primary"/"Secondary"), so
-        // this maps position 0/1 in the reply onto those two slots, best-effort. A rig with
-        // only 1 real train leaves secondaryTrain at its fixture default, same as a rig with
-        // more than 2 leaves the 3rd+ train invisible — known limitation, not silently wrong.
+        // The UI models only two train slots (Primary/Secondary); trains 0 and 1 of the reply
+        // map onto them. With one train, secondaryTrain keeps its default; a 3rd+ train is not
+        // shown.
         is EkosEvent.Trains -> s.copy(
             wireTrains = event.trains,
             primaryTrain = event.trains.getOrNull(0)?.toTrainAssignment() ?: s.primaryTrain,
             secondaryTrain = event.trains.getOrNull(1)?.toTrainAssignment() ?: s.secondaryTrain,
             moduleTrainAssignments = resolveModuleTrainAssignments(s.moduleTrainAssignments, event.trains),
         )
-        // train_get_profiles carries train IDs, not names — and can arrive before or after
-        // train_get_all — so the raw ordinal→ID map is kept separately and re-resolved to
-        // names against whichever wireTrains is current whichever reply lands second.
+        // train_get_profiles carries train IDs, not names, and can arrive before or after
+        // train_get_all, so the raw ordinal→ID map is kept and re-resolved by whichever lands
+        // second.
         is EkosEvent.TrainProfiles -> {
             lastTrainProfileAssignments = event.assignments
             s.copy(moduleTrainAssignments = resolveModuleTrainAssignments(s.moduleTrainAssignments, s.wireTrains))
         }
         is EkosEvent.Scopes -> s.copy(wireScopes = event.scopes.map { it.toScopeDef() })
         is EkosEvent.Drivers -> s.copy(wireDriverCatalog = event.drivers)
-        // Real Options::self() reply (M4.5 half B, docs/STATUS.md) — see AppState's own doc on
-        // each field. Unconditionally overwrites (this reply only ever arrives once, the eager
-        // fetch at connect, same no-optimistic-race reasoning as coolTarget/focPos's own seeds).
-        // rotatorAutoControl is re-seeded from the real value here too, superseding whatever this
-        // session's own local guess/reapply had it at — the whole point of finally having a real
-        // read for it.
+        // Options::self() values, fetched once at connect, so overwriting can't race an
+        // optimistic edit. rotatorAutoControl is re-seeded from astrometryUseRotator here.
         is EkosEvent.OptionValues -> {
             fun boolOf(name: String) = event.options.firstOrNull { it.name == name }
                 ?.value?.let { (it as? JsonPrimitive)?.booleanOrNull }
@@ -515,20 +440,13 @@ class EkosRemoteController(
         }
 
         is EkosEvent.MountSettings -> s.copy(wireMountSettings = event.settings)
-        // coolTarget seeded from the real Capture module's own setpoint the moment this reply
-        // arrives — fixes cooler setpoint not matching real Ekos at the start of a session (see
-        // WireCaptureSettings.cameraTemperatureN's doc for why this was missing). Safe to just
-        // overwrite unconditionally: this reply only ever arrives once (the eager fetch at
-        // connect, no reconcile-after-write per the established fire-and-forget norm), so there's
-        // no risk of it stomping a later optimistic coolUp/coolDown edit.
+        // Seed coolTarget from the Capture module's setpoint. This reply arrives only once (the
+        // eager fetch at connect), so it can't overwrite a later optimistic coolUp/coolDown.
         is EkosEvent.CaptureSettings -> s.copy(wireCaptureSettings = event.settings, coolTarget = event.settings.cameraTemperatureN)
         is EkosEvent.AlignSettings -> s.copy(wireAlignSettings = event.settings)
         is EkosEvent.GuideSettings -> s.copy(wireGuideSettings = event.settings)
-        // focPos seeded from Ekos's own tracked position (absTicksSpin) the moment this reply
-        // arrives — fixes Bench Focuser showing a real but different number than Ekos's own
-        // Focus tab (see WireFocusSettings's doc). Safe unconditionally, same reasoning as the
-        // coolTarget seed above: this reply only ever arrives once, before any optimistic
-        // focusStepIn/Out edit could race against it.
+        // Seed focPos from Ekos's tracked position (absTicksSpin; see WireFocusSettings). Arrives
+        // only once at connect, same as the coolTarget seed above.
         is EkosEvent.FocusSettings -> s.copy(wireFocusSettings = event.settings, focPos = event.settings.absTicksSpin)
         is EkosEvent.SchedulerSettings -> s.copy(wireSchedulerSettings = event.settings)
         is EkosEvent.AstroAlmanac -> s.copy(
@@ -538,14 +456,13 @@ class EkosRemoteController(
         is EkosEvent.AstroLocation -> s.copy(wireSiteTz = event.tz)
 
         is EkosEvent.SchedulerJobs -> applySchedulerJobs(s, event)
-        // No state of its own — purely a trigger for sendFollowUpCommands to continue the
-        // pushRealJob chain once the resolved absolute path is known (see the event's own doc).
+        // No state of its own; sendFollowUpCommands continues the pushRealJob chain once the
+        // resolved absolute path is known.
         is EkosEvent.SchedulerSaveSequenceFile -> s
 
-        // A fresh astro_search_objects reply clears prior results (loading state) — the
-        // follow-up astro_get_objects_info/riseset calls (sendFollowUpCommands below)
-        // repopulate wireSearchResults once they land, merged via lastAstroObjects/lastRiseset
-        // since the two replies can arrive in either order.
+        // A fresh astro_search_objects reply clears prior results; the follow-up
+        // astro_get_objects_info/riseset replies (sendFollowUpCommands) repopulate them, merged
+        // via lastAstroObjects/lastRiseset since they can arrive in either order.
         is EkosEvent.AstroSearchResult -> {
             lastSearchNames = event.names
             resetSearchResults(s)
@@ -566,30 +483,19 @@ class EkosRemoteController(
             s.copy(wireSearchResults = buildSearchResults())
         }
         is EkosEvent.AstroObjectsRiseset -> {
-            // Real bug found live (2026-08-22, user report): this reply shape serves two
-            // independent consumers sharing one cache — the full search-results merge (below)
-            // and ensureTargetRiseset's own one-off, single-name fetch for whatever target the
-            // Plan tab currently has framed. A plain `lastRiseset = event.entries` replace meant
-            // every time a target got selected/framed, its scoped 1-entry reply wholesale
-            // clobbered the full list's cached riseset data — every *other* row in the results
-            // list immediately lost its real "X° max" (fell back to "—"), only the just-framed
-            // one kept it. Upserting instead — replace entries that reappear, keep everything
-            // else — fixes both consumers: a fresh search's `AstroSearchResult` arm already
-            // resets this to empty first, so a genuinely fresh full-list reply still populates
-            // cleanly from empty; a later single-target fetch just adds/updates its own entry.
+            // This reply serves several consumers sharing one cache: the search-results merge and
+            // ensureTargetRiseset's single-name fetch for the framed target. Upsert rather than
+            // replace, so a 1-entry reply doesn't wipe the other rows' riseset data. A fresh
+            // search resets the cache first (AstroSearchResult arm).
             val incomingNames = event.entries.map { it.name }.toSet()
             lastRiseset = lastRiseset.filterNot { it.name in incomingNames } + event.entries
-            // Same reply shape serves two independent consumers: search results (above) and a
-            // one-off riseset fetch for whatever target the Plan tab currently has framed (see
-            // ensureTargetRiseset's doc) — only claim it for the latter if the pending name is
-            // actually in this reply, so an unrelated in-flight search doesn't wrongly clear it.
+            // Only claim this reply for ensureTargetRiseset if the pending name is in it, so an
+            // unrelated search reply doesn't clear the pending fetch.
             val pending = pendingTargetRisesetName
             val matched = pending?.let { name -> event.entries.firstOrNull { it.name == name } }
             if (matched != null) pendingTargetRisesetName = null
-            // Real Moon altitude curve (user request) — a 3rd independent consumer of this same
-            // reply shape, alongside the search-results merge and the framed-target match above.
-            // "Moon" rides along on ensureTargetRiseset's own request (see that function's doc);
-            // kept once captured, never cleared, since it doesn't depend on which target is framed.
+            // "Moon" rides along on ensureTargetRiseset's request for the Moon altitude curve.
+            // Kept once captured; it doesn't depend on which target is framed.
             val moonEntry = event.entries.firstOrNull { it.name == "Moon" }
             s.copy(
                 wireSearchResults = buildSearchResults(),
@@ -633,28 +539,15 @@ class EkosRemoteController(
 
     /**
      * Resolves the raw ordinal→trainID map against [trains] into module-key→train-name, merged
-     * onto [previous] rather than replacing it wholesale.
+     * onto [previous] rather than replacing it.
      *
-     * Confirmed live against a real rig: `train_get_profiles` can carry a *stale* train ID for a
-     * module — left over from before its optical trains were recreated/renamed — that doesn't
-     * match any entry in the current `train_get_all` list (e.g. Focus/Mount/Align pointing at a
-     * long-gone id `8` while the real trains are now `11`/`12`). A wholesale replace would drop
-     * that module from the map entirely (no selection ever shows, looks unselectable), *and* would
-     * clobber a just-made optimistic pick from [setModuleTrain] the instant the next (still-stale,
-     * since real Ekos's own persistence for that module may not have caught up yet)
-     * `train_get_profiles` reply lands. Merging means: a module that resolves updates normally: one
-     * that doesn't resolve simply keeps whatever [previous] already had — the optimistic value if
-     * the user just picked one, or absent (shows as unselected, honestly — it isn't pointing at
-     * either currently known train) if they haven't touched it yet.
+     * `train_get_profiles` can carry a stale train ID left over from before the trains were
+     * recreated, matching nothing in `train_get_all`. Such a module keeps whatever [previous]
+     * had (an optimistic pick, or absent = shown unselected) instead of being dropped.
      *
-     * A resolved module isn't always fresher than that, though: since real Ekos's own persistence
-     * for a module can still be catching up when *this very* `train_get_profiles` reply lands (see
-     * [setModuleTrain]), `resolved` can carry a snapshot that's stale but still points at a real,
-     * currently-known train — which isn't caught by the orphaned-ID case above, and would silently
-     * overwrite the optimistic pick with the pre-edit one (looks like the tap "didn't take"/"snapped
-     * back"). So a module with an outstanding pick in [pendingModuleTrainAssignments] keeps
-     * that pick pinned over whatever `resolved` says, until `resolved` actually agrees with it —
-     * at which point it's confirmed and cleared.
+     * Ekos's persistence may also lag a [setModuleTrain] pick, so a reply can resolve to the
+     * pre-edit train. A module with an outstanding pick in [pendingModuleTrainAssignments] keeps
+     * that pick until `resolved` agrees with it, at which point it's cleared.
      */
     private fun resolveModuleTrainAssignments(previous: Map<String, String>?, trains: List<WireTrain>?): Map<String, String>? {
         val raw = lastTrainProfileAssignments ?: return previous
@@ -669,19 +562,13 @@ class EkosRemoteController(
     }
 
     /**
-     * `scheduler_get_jobs` reply — always stored as-is (this alone is the whole "read Ekos's real
-     * state and mirror it" contract now — no wipe, no force-sync, ever, per the push/start/stop
-     * redesign 2026-08-23), plus two derived effects:
-     * 1. If a sync is pending ([pendingSyncJobId]), and the just-pushed name is actually present,
-     *    flip that job's `synced = true`. No index capture anymore — [AppState.wireJobFor]
-     *    resolves a job's real counterpart fresh, by name, whenever anything needs it, since
-     *    `WireSchedulerJob` has no server-assigned id and a cached index goes stale the instant
-     *    anything else on the real queue is added/removed (confirmed live: this exact staleness
-     *    is what let a duplicate-name push latch onto a different job's slot).
-     * 2. Whichever synced job is currently `SCHEDJOB_BUSY` gets its blocks' `doneCount`
-     *    approximated from the wire job's `completedCount` — a per-job total, not per-block, so
-     *    it's waterfall-filled across blocks in order (real per-block progress needs
-     *    `capture_get_sequences`, undocumented shape, deferred past M3 — see plan §"Protocol facts").
+     * Stores the `scheduler_get_jobs` reply as-is, plus two derived effects:
+     * 1. If a sync is pending and the pushed name is present, mark that job `synced`. No index
+     *    is cached: `WireSchedulerJob` has no server-assigned id and indices shift whenever the
+     *    queue changes, so [AppState.wireJobFor] resolves the counterpart by name on demand.
+     * 2. The synced job that is `SCHEDJOB_BUSY` gets its blocks' `doneCount` approximated from
+     *    `completedCount`, a per-job total waterfall-filled across blocks in order (per-block
+     *    progress would need `capture_get_sequences`).
      */
     private fun applySchedulerJobs(s: AppState, event: EkosEvent.SchedulerJobs): AppState {
         var next = s.copy(wireSchedulerJobs = event.jobs)
@@ -705,28 +592,12 @@ class EkosRemoteController(
     }
 
     /**
-     * Real bug found live (2026-08-23, user reports #4/#6): `synced` only ever moved forward —
-     * set once by [pushRealJob]'s own add chain — with nothing to notice if reality then
-     * diverged: a real stop/removal from Ekos's own UI directly, a real error/abort, or the job
-     * finishing naturally all left the local job stuck claiming synced indefinitely, no live
-     * feedback loop at all. Called on every `scheduler_get_jobs` reply now that one arrives
-     * continuously (see the `NewSchedulerState` arm in [sendFollowUpCommands] above), not just
-     * right after this app's own add.
+     * Marks a synced job unsynced once its name disappears from the Scheduler's list (stopped
+     * or removed from the Ekos UI, etc.). Runs on every `scheduler_get_jobs` reply, which is
+     * re-fetched on every scheduler state change (see [sendFollowUpCommands]).
      *
-     * Only ever touches a job that's already `synced == true`, matched by name (see
-     * [AppState.targetNameFor]/[AppState.wireJobFor]) — safe by construction: a job this app
-     * never itself marked `synced` is never touched here at all.
-     *
-     * **Simplified 2026-08-23 (push/start/stop split)**: used to also flip back to unsynced the
-     * moment a real job's *state* left [ACTIVE_SCHEDULER_STATES] (e.g. the instant it went
-     * `COMPLETE`/`ERROR`/`ABORTED`) — now it only reacts to the name *disappearing* from
-     * [realJobs] entirely. A job that finished with an error, say, stays `synced` and keeps
-     * showing that real terminal status (via [AppState.wireJobFor]'s own live lookup, block editor
-     * still locked) rather than silently reverting to "not pushed" — more honest, since Ekos
-     * itself still lists it. The old `skipJobId` guard (for a job [applySchedulerJobs] had *just*
-     * synced in the very same call, before it had a chance to reach an active state) is gone too
-     * — presence-by-name can't race that way: a name that just matched in this exact
-     * `realJobs` list is, by construction, still in it a few lines later.
+     * Only touches jobs already `synced`, matched by name ([AppState.targetNameFor]). A job that
+     * ended in error stays `synced` and shows its terminal status, since Ekos still lists it.
      */
     private fun reconcileSyncedJobStatus(s: AppState, realJobs: List<WireSchedulerJob>): AppState {
         var next = s
@@ -750,21 +621,14 @@ class EkosRemoteController(
     }
 
     /**
-     * Side effects that follow a push rather than mutate [AppState] directly
-     * — right after `get_devices` arrives, fetch each connected device's full
-     * property set once ([Commands.DEVICE_GET], non-compact by default, so
-     * slider bounds come along) and subscribe to live updates
-     * ([Commands.DEVICE_PROPERTY_SUBSCRIBE]) so [AppState.indiProps] stays
-     * live from then on.
+     * Side effects that follow a push rather than mutate [AppState]. After `get_devices`, each
+     * connected device's full property set is fetched once ([Commands.DEVICE_GET], non-compact
+     * so slider bounds come along) and subscribed to ([Commands.DEVICE_PROPERTY_SUBSCRIBE]) so
+     * [AppState.indiProps] stays live.
      *
-     * A device that `get_devices` snapshotted as not-yet-connected still gets a narrow
-     * CONNECTION-only subscribe here — Start Ekos brings INDI drivers up over real wall-clock
-     * time, so `get_devices` (sent the instant Ekos itself goes online, see EkosRemoteClient)
-     * can catch some devices before they've finished connecting, and nothing else ever
-     * re-fetches the full list afterward. Without this, such a device stayed permanently stuck
-     * showing "not connected" in the Gear tab even once it was alive in real Ekos. Once that
-     * CONNECTION push reports connected (below, mirroring the branch above), the full
-     * DEVICE_GET + subscribe fires for real.
+     * Devices not yet connected get a CONNECTION-only subscribe: `get_devices` is sent the
+     * moment Ekos goes online and can catch drivers still starting, and nothing re-fetches the
+     * list later. Once CONNECTION reports connected, the full fetch + subscribe fires.
      */
     private fun sendFollowUpCommands(event: EkosEvent) {
         when (event) {
@@ -780,9 +644,8 @@ class EkosRemoteController(
                 fetchFullDeviceIfNewlyConnected(event.device, it)
                 enforcePreferredPierSide(event.device, it)
             }
-            // astro_search_objects carries no free-text field — the query is applied here,
-            // client-side, against the flat name list before resolving the (usually much
-            // smaller) matching subset's coordinates/riseset.
+            // astro_search_objects has no free-text field, so the query is applied here against
+            // the flat name list before resolving the matching subset's coordinates/riseset.
             is EkosEvent.AstroSearchResult -> if (_state.value.searchType != null) sendSearchResolve()
             is EkosEvent.AstroNames -> if (_state.value.searchType == null) sendSearchResolve()
             is EkosEvent.AstroObjectInfo -> {
@@ -798,13 +661,12 @@ class EkosRemoteController(
                     })
                 }
             }
-            // First automatic search, so the Plan tab has real results without the user having
-            // to type or tap a chip first. The almanac reply rides the online burst
-            // (EkosRemoteClient) and needs the same geo/clock the search does, so it's a safe
-            // "astro_* is answering now" signal; it's only fetched once per connection.
+            // First automatic search, so the Plan tab has results without user input. The almanac
+            // reply rides the online burst (EkosRemoteClient) and needs the same geo/clock as the
+            // search, so it signals astro_* is answering; it's fetched once per connection.
             is EkosEvent.AstroAlmanac -> if (lastSearchNames == null) runSearch()
-            // Continues pushRealJob's chain — see PendingJobStart's doc for why this waits for
-            // the resolved absolute path rather than sending sequenceEdit right after the save.
+            // Continues pushRealJob's chain once the save reply carries the resolved path (see
+            // PendingJobStart).
             is EkosEvent.SchedulerSaveSequenceFile -> {
                 val pending = pendingJobStart
                 if (pending != null && event.result) {
@@ -824,13 +686,9 @@ class EkosRemoteController(
                     client.sendCommand(Commands.SCHEDULER_GET_JOBS) // confirms the add landed, see applySchedulerJobs
                 }
             }
-            // Only toggle the real Scheduler on once the add above is confirmed to have actually
-            // taken (matched by name) — never blindly, in case it silently failed again — and even
-            // then only if `alsoStart` was requested (see PendingSchedulerStart's doc for why a
-            // plain pushJob never reaches this) and the Scheduler isn't already running (the
-            // guard that fixes the live-confirmed "second job's start silently stopped the
-            // first" bug — SCHEDULER_START_JOB is a raw toggle, sending it while already running
-            // stops it).
+            // Toggle the Scheduler on only once the add is confirmed by name, only if `alsoStart`
+            // was requested (see PendingSchedulerStart), and only if not already running:
+            // SCHEDULER_START_JOB is a toggle, so sending it while running stops it.
             is EkosEvent.SchedulerJobs -> {
                 val waiting = pendingSchedulerStart
                 if (waiting != null && event.jobs.any { it.name == waiting.name }) {
@@ -840,26 +698,19 @@ class EkosRemoteController(
                     }
                 }
             }
-            // Real gap found live (2026-08-23, user reports #4/#6): before this, the app only
-            // ever re-fetched scheduler_get_jobs right after its own add/start chain — a job
-            // stopped or removed from real Ekos's own UI directly (not through this app) left
-            // the local job stuck showing synced forever, with no live feedback loop at all.
-            // new_scheduler_state fires on any real transition regardless of who caused it (see
-            // that event's own doc) — re-fetching the job list on every one keeps
-            // applySchedulerJobs's per-job reconciliation (see reconcileSyncedJobStatus) current
-            // without needing to inspect this push's own status value here.
+            // new_scheduler_state fires on any transition, whoever caused it. Re-fetching the job
+            // list on each keeps reconcileSyncedJobStatus current, including for jobs stopped or
+            // removed from the Ekos UI.
             is EkosEvent.NewSchedulerState -> client.sendCommand(Commands.SCHEDULER_GET_JOBS)
             else -> {}
         }
     }
 
     /**
-     * Parses the "HHhMMmSSs ±DD°MM′SS″" coords string — the exact shape both the fixture
-     * `TARGETS` catalog and real astro-search results share (`formatRaHours`/`formatDecDegrees`
-     * above generate it literally) — into `raBox`/`decBox`'s own wire format. Confirmed live:
-     * colon-separated `"HH:MM:SS"` input round-trips correctly through `scheduler_add_jobs`.
-     * Returns null for anything that doesn't match (e.g. a free-text custom target) rather than
-     * guessing — [pushRealJob] simply omits `raBox`/`decBox` in that case.
+     * Parses the "HHhMMmSSs ±DD°MM′SS″" coords string (shared by the `TARGETS` catalog and
+     * astro-search results; see `formatRaHours`/`formatDecDegrees`) into `raBox`/`decBox`'s
+     * colon-separated `"HH:MM:SS"` wire format. Returns null for anything else (e.g. a
+     * free-text custom target), and [pushRealJob] then omits `raBox`/`decBox`.
      */
     private fun parseCoordsToRaDecBox(coords: String): Pair<String, String>? {
         val m = COORDS_REGEX.find(coords) ?: return null
@@ -882,10 +733,10 @@ class EkosRemoteController(
 
     /**
      * OnStep's "Preferred Pier Side" must be East for Ekos's meridian flip to re-slew (with Best
-     * the flip is a no-op — 2026-10-18 incident), but OnStep keeps it in RAM only and powers up
-     * on Best. The Pi's pier guard (pi-tools/pier-guard) fixes it on every connect; this is the
-     * app-side backstop: if a mount reports anything else, set East and raise a Mount alert.
-     * East in both hemispheres — OnStep picks the side by hour angle (see the pier-guard README).
+     * the flip is a no-op), but OnStep keeps it in RAM only and powers up on Best. The Pi's pier
+     * guard (pi-tools/pier-guard) fixes it on every connect; this is the app-side backstop: if a
+     * mount reports anything else, set East and raise a Mount alert. East in both hemispheres —
+     * OnStep picks the side by hour angle (see the pier-guard README).
      */
     private fun enforcePreferredPierSide(device: String, property: WireProperty) {
         if (property !is WireProperty.Switch || property.name != PREFERRED_PIER_SIDE) return
@@ -905,10 +756,8 @@ class EkosRemoteController(
         pushLocalAlert("$device preferred pier side was $was — set to East (needed for meridian flip)", source = 5, severity = 2)
     }
 
-    /** See [sendFollowUpCommands]'s doc — a device that arrived not-yet-connected only gets a
-     *  narrow CONNECTION subscribe up front; once that reports it's actually connected, fetch
-     *  its full property set + subscribe to everything, same as an already-connected device got
-     *  from the initial `get_devices` snapshot. */
+    /** A device that arrived not yet connected has only a CONNECTION subscribe (see
+     *  [sendFollowUpCommands]); once it reports connected, fetch and subscribe in full. */
     private fun fetchFullDeviceIfNewlyConnected(device: String, property: WireProperty) {
         if (property !is WireProperty.Switch || property.name != "CONNECTION") return
         if (property.switches.none { it.name == "CONNECT" && it.state == 1 }) {
@@ -921,7 +770,7 @@ class EkosRemoteController(
         client.sendCommand(Commands.DEVICE_PROPERTY_SUBSCRIBE, buildJsonObject { put("device", device) })
     }
 
-    // ── Devices / property sheets (M3 §2) ───────────────────────────────
+    // ── Devices / property sheets ───────────────────────────────────────
 
     override fun toggleDevice(key: String) {
         val device = _state.value.wireDevices?.firstOrNull { it.name == key }
@@ -985,50 +834,33 @@ class EkosRemoteController(
         (_state.value.indiProps[deviceKey] ?: DRIVER_INDI_PROPS[deviceKey] ?: emptyList())
             .firstOrNull { it.name == propName } as? T
 
-    // ── Bench check (M3.2) ──────────────────────────────────────────────
+    // ── Bench check ─────────────────────────────────────────────────────
     //
-    // capture_preview/guide_capture/focus_in/out/mount_set_motion all have no direct reply
-    // (plan §"Protocol facts" pattern repeats here) — status arrives via the new_capture_state/
-    // new_guide_state pushes (already wired, M2) or the cooler/focuser's own subscribed
-    // property pushes; none of it needs a bespoke reconciliation path. Cooler itself reuses
-    // the existing generic setIndiNumber/indiNumber machinery (M3 §2) rather than a new one —
-    // CCD_TEMPERATURE is just another Number property, confirmed live against a real
-    // ToupTek ATR2600M: {"CCD_TEMPERATURE": [{"name":"CCD_TEMPERATURE_VALUE", perm RW}],
-    // "CCD_COOLER_POWER": [{"name":"COOLER_POWER", perm RO}]} — writing CCD_TEMPERATURE_VALUE
-    // is the real "set point" (most INDI CCD drivers auto-engage the cooler to chase it).
+    // capture_preview/guide_capture/focus_in/out/mount_set_motion have no direct reply; status
+    // arrives via new_capture_state/new_guide_state or the devices' subscribed property pushes.
+    // The cooler uses the generic setIndiNumber path: CCD_TEMPERATURE_VALUE (RW) is the set
+    // point, which most INDI CCD drivers chase automatically; CCD_COOLER_POWER is read-only.
 
-    /** No image data arrives on this channel — real preview bytes need the Media channel (M4, not built). Status still updates via new_capture_state. */
+    /** Image bytes arrive on the media channel; status via new_capture_state. */
     override fun snapMain() {
         client.sendCommand(Commands.CAPTURE_PREVIEW)
         super.snapMain()
     }
 
-    /** Same limitation as [snapMain] — real guide-frame bytes need the Media channel (M4). Status via new_guide_state. */
+    /** Image bytes arrive on the media channel; status via new_guide_state. */
     override fun snapGuide() {
         client.sendCommand(Commands.GUIDE_CAPTURE)
         super.snapGuide()
     }
 
     /**
-     * The real `CCD_TEMPERATURE` vector has no separate "target" element (confirmed live —
-     * only `CCD_TEMPERATURE_VALUE`, the current reading, is exposed) — `super.setCoolTarget()`
-     * still owns [AppState.coolTarget] as Nocturne's own client-side "last commanded" bookkeeping
-     * (same field/semantics as [SimulatedController]'s fixture), it just now also pushes that
-     * number to the real camera afterward. `CoolerCard` reads the live sensor value separately,
-     * via [com.nocturne.session.indiNumber]. Typed directly (2026-09) — was +/-1° buttons before,
-     * user asked to type the value instead; the 2 real writes below are unchanged either way.
+     * `CCD_TEMPERATURE` has no separate target element (only the current reading), so
+     * [AppState.coolTarget] is the app's own last-commanded value; `CoolerCard` reads the sensor
+     * separately via [com.nocturne.session.indiNumber].
      *
-     * Two *separate* real things need writing, confirmed live (user report: "setpoint in Ekos
-     * wasn't synced" — it wasn't, this was the gap): the raw INDI `CCD_TEMPERATURE` device
-     * property (what actually drives the cooler hardware — [setIndiNumber] below), and the
-     * Capture module's own "Set Temperature" widget (`cameraTemperatureN`/`cameraTemperatureS`,
-     * `capture_get/set_all_settings` — what the Ekos *desktop UI* actually displays as the
-     * target). Writing only the device property, as the first cut of this did, changes the
-     * hardware for real but leaves the number shown on the real Ekos screen stale at whatever
-     * it was before — confirmed live: `cameraTemperatureN` sat at `0` even after the driver
-     * itself had already reached -9.3°C from a direct property write. `cameraTemperatureS` is
-     * the "enforce/use this" checkbox — set true unconditionally here since actively dialing a
-     * target via Nocturne's cooler card only makes sense with it enabled.
+     * Two writes are needed: the INDI `CCD_TEMPERATURE` property drives the hardware, while the
+     * Capture module's `cameraTemperatureN` is what the Ekos desktop shows as the target and
+     * otherwise stays stale.
      */
     override fun applyCoolTarget() {
         val target = _state.value.coolTarget
@@ -1075,12 +907,10 @@ class EkosRemoteController(
     }
 
     /**
-     * `focus_start`/`focus_stop` — empty request/response each (confirmed against the reference);
-     * progress arrives only via `new_focus_state` (`AppState.wireFocusStatus`, per-frame HFR in
-     * `AppState.focusSamples`); [AppState.focusRunning] is optimistic until that status lands,
-     * then follows it ([FOCUS_IDLE_STATES]). Distinct from `runAutofocusNow` below (FocusSheet's older one-shot
-     * fixture-only button) — both now fire the same real command, kept as separate methods since
-     * their fixture behaviors differ and neither call site should have to know about the other.
+     * `focus_start`/`focus_stop` have empty request/response; progress arrives only via
+     * `new_focus_state` (`AppState.wireFocusStatus`, per-frame HFR in `AppState.focusSamples`).
+     * [AppState.focusRunning] is optimistic until that status lands, then follows it
+     * ([FOCUS_IDLE_STATES]).
      */
     override fun startAutofocus() {
         client.sendCommand(Commands.FOCUS_START)
@@ -1091,11 +921,8 @@ class EkosRemoteController(
         super.stopAutofocus()
     }
     /**
-     * FocusSheet's older, separate "Run autofocus now" button (dedicated Focus tab, not
-     * Controls) had no real override at all before this — real rigs silently got
-     * `AbstractLocalSessionController`'s fixture HFR-tick. Fixed for free here: same underlying
-     * `focus_start` command as [startAutofocus] above, since real Ekos has no distinct "run once"
-     * vs "start" concept — `focus_start` is the only real entry point either way.
+     * FocusSheet's "Run autofocus now" button. Ekos has no separate "run once" command, so this
+     * sends `focus_start` like [startAutofocus].
      */
     override fun runAutofocusNow() {
         client.sendCommand(Commands.FOCUS_START)
@@ -1108,10 +935,8 @@ class EkosRemoteController(
     }
 
     /**
-     * Real keep/cut write-through (M4.3) — writes to Room, not just the in-memory `frameRows`
-     * super.toggleCut optimistically flips. Room's own Flow (collected in `init` above)
-     * re-emits right after and supersedes the optimistic local copy either way, same pattern as
-     * every other real override in this class.
+     * Keep/cut writes through to Room; Room's Flow (collected in `init`) then re-emits and
+     * supersedes the optimistic local flip.
      */
     override fun toggleCut(id: String) {
         val idLong = id.toLongOrNull() ?: return super.toggleCut(id)
@@ -1122,13 +947,13 @@ class EkosRemoteController(
         super.toggleCut(id)
     }
 
-    /** DPad's own key strings are already "N"/"S"/"E"/"W" — exactly mount_set_motion's `direction` values, no translation needed. */
+    /** DPad keys "N"/"S"/"E"/"W" are mount_set_motion's `direction` values as-is. */
     override fun setSlewDir(key: String) {
         client.sendCommand(Commands.MOUNT_SET_MOTION, buildJsonObject { put("direction", key); put("action", true) })
         super.setSlewDir(key)
     }
 
-    /** Must read the in-flight direction *before* super.stopSlew() clears it — mount_set_motion stops one axis at a time, matching the DPad's one-direction-at-a-time model. */
+    /** Reads the in-flight direction before super.stopSlew() clears it; mount_set_motion stops one axis at a time. */
     override fun stopSlew() {
         _state.value.slewDir?.let { dir ->
             client.sendCommand(Commands.MOUNT_SET_MOTION, buildJsonObject { put("direction", dir); put("action", false) })
@@ -1136,28 +961,26 @@ class EkosRemoteController(
         super.stopSlew()
     }
 
-    /** `mount_unpark` — no direct reply, watch new_mount_state (already wired, M2). */
+    /** `mount_unpark` — no direct reply; watch new_mount_state. */
     override fun unparkMount() {
         client.sendCommand(Commands.MOUNT_UNPARK)
         super.unparkMount()
     }
-    /** `mount_park` — no direct reply, watch new_mount_state (already wired, M2). */
+    /** `mount_park` — no direct reply; watch new_mount_state. */
     override fun parkMount() {
         client.sendCommand(Commands.MOUNT_PARK)
         super.parkMount()
     }
     /**
-     * `mount_set_tracking` — the universal Ekos-level command (works for any mount driver),
-     * not a raw INDI property write. Real on/off state for display is read separately via
-     * [AppState.mountTrackingOn] (the mount's own `TELESCOPE_TRACK_STATE`), same read/write
-     * split as [parkMount]/[unparkMount] vs [AppState.mountParkedReal].
+     * `mount_set_tracking` is the Ekos-level command (works for any mount driver), not a raw INDI
+     * write. Display state comes from [AppState.mountTrackingOn] (`TELESCOPE_TRACK_STATE`).
      */
     override fun setMountTracking(enabled: Boolean) {
         client.sendCommand(Commands.MOUNT_SET_TRACKING, buildJsonObject { put("enabled", enabled) })
         super.setMountTracking(enabled)
     }
 
-    /** `align_solve` (`captureAndSolve()`) — no direct reply, watch new_align_state (already wired, M2). */
+    /** `align_solve` (`captureAndSolve()`) — no direct reply; watch new_align_state. */
     override fun plateSolveHere() {
         client.sendCommand(Commands.ALIGN_SOLVE)
         super.plateSolveHere()
@@ -1170,39 +993,25 @@ class EkosRemoteController(
     }
 
     /**
-     * Real per-target altitude data for the Plan tab's altitude chart — `astro_get_objects_riseset`
-     * resolves any KStars-known name directly (confirmed against the reference: no dependency on a
-     * prior `astro_search_objects` call), so this works for the fixture `TARGETS` catalog and
-     * custom targets too, not just live search results (which already got a *different* riseset
-     * wired in, years earlier, via `Target.max`/`peak` — see [WireAstroObject.toTarget]). Skips the
-     * fetch entirely if already cached or already in flight for this exact name — cheap to call on
-     * every [selectTarget], no dedup needed at the call site.
+     * Altitude data for the Plan tab's chart. `astro_get_objects_riseset` resolves any
+     * KStars-known name directly, with no prior `astro_search_objects` needed, so this covers
+     * catalog and custom targets too. Skips the fetch if cached or in flight for this name, so
+     * it's cheap to call on every [selectTarget].
      */
     override fun ensureTargetRiseset(targetId: String) {
         val target = _state.value.findTarget(targetId) ?: return
         val name = target.realLookupName
-        // Real Moon altitude curve (user request) rides along on this same request — bundled as a
-        // second name rather than a separate fetch/dedup path, since astro_get_objects_riseset
-        // already returns one entry per requested name in a single round trip. Still forces a
-        // fetch even when this exact target was already cached, as long as Moon hasn't been
-        // captured yet this connection (wireMoonRiseset == null) — covers the case where a target
-        // never actually changes after the very first fetch.
+        // The Moon's curve rides along as a second name in the same request. A cached target
+        // still refetches until the Moon has been captured this connection.
         if ((pendingTargetRisesetName == name || _state.value.wireTargetRiseset?.name == name) &&
             _state.value.wireMoonRiseset != null
         ) return
         pendingTargetRisesetName = name
-        // "exact": true (real bug, found live — user report: M 64's peak time/max altitude were
-        // wrong). Confirmed against message.cpp:2295: `todayInfo["name"] = exact ? name :
-        // oneObject->name()` — without it, the reply echoes KStars' own internal preferred name
-        // for the resolved object, not necessarily the exact string we sent (M64's own catalog
-        // entry is one case where they diverge). The match below (`event.entries.firstOrNull {
-        // it.name == name }`) then silently fails, leaving wireTargetRiseset on whatever target
-        // was framed *previously* — the chart looked plausible (a real curve, just the wrong
-        // one) rather than obviously broken, which is why this went unnoticed until reported.
-        // Safe to force exact: the name here is already a real catalog-sourced identifier
-        // (fixture id or a live search result's own name), not free-typed text guessing at a
-        // name — `findByName`'s own `exact` only widens the *lookup* to a fuzzier fallback when
-        // the exact form doesn't resolve at all, confirmed in `catalogscomponent.cpp:334-338`.
+        // "exact": true makes the reply echo the name we sent (message.cpp:2295); otherwise it
+        // carries KStars' preferred name (e.g. for M 64), the match below fails, and the chart
+        // silently keeps the previous target. Safe: the name is catalog-sourced, and findByName
+        // still falls back to a fuzzy lookup if the exact form doesn't resolve
+        // (catalogscomponent.cpp:334-338).
         client.sendCommand(Commands.ASTRO_GET_OBJECTS_RISESET, buildJsonObject {
             putJsonArray("names") { add(name); add("Moon") }
             put("exact", true)
@@ -1210,14 +1019,10 @@ class EkosRemoteController(
     }
 
     /**
-     * Real DSS reference-image cutout (M5, docs/STATUS.md) — direct internet fetch, not a wire
-     * command at all (see [ReferenceImageClient]'s own doc: the first non-Pi network call in this
-     * app). Padding factor (1.4×) over the camera's own real FOV ([AppState.framingFovDeg]) so the
-     * drawn FOV box doesn't sit flush against the cutout's edge; falls back to a plausible
-     * placeholder FOV pre-connection (matches [FramingCard]'s own literal readout default) rather
-     * than skipping the fetch outright, so the reference image is still useful before Ekos/CCD_INFO
-     * ever arrives. Skips entirely if this exact target is already cached — same dedup shape as
-     * [ensureTargetRiseset], cheap to call on every [selectTarget].
+     * Reference image for framing: the offline sky atlas if available, else an online cutout
+     * (see [ReferenceImageClient]). FOV is 1.4× the camera's ([AppState.framingFovDeg]) so the
+     * drawn FOV box doesn't sit on the edge, with a placeholder before CCD_INFO arrives. Skips
+     * if this target is already cached.
      */
     override fun ensureReferenceImage(targetId: String) {
         val s = _state.value
@@ -1231,9 +1036,8 @@ class EkosRemoteController(
             val offline = skyAtlas?.render(raDeg, decDeg, fovDeg, _state.value.skyAtlas.completeOrder)
             val online = offline == null && allowOptionalInternet()
             val jpeg = offline ?: if (online) referenceImageClient.fetchCutout(raDeg, decDeg, fovDeg) else null
-            // Only apply if the framed target hasn't changed again while this was in flight —
-            // a fast double-tap through search results shouldn't let a slow first fetch land on
-            // top of a since-selected second target.
+            // Apply only if the framed target hasn't changed meanwhile, so a slow fetch doesn't
+            // land on a since-selected target.
             if (_state.value.referenceImageForTargetId == targetId) {
                 _state.update {
                     it.copy(referenceImageJpeg = jpeg, referenceImageOffline = offline != null, referenceImageOnlineSkipped = offline == null && !online)
@@ -1243,12 +1047,9 @@ class EkosRemoteController(
     }
 
     /**
-     * Real `mount_goto_target` — resolved server-side via KStars' own fuzzy object-name lookup
-     * (`findByName`), the same resolution the Scheduler's `nameEdit` gets for free (unlike
-     * `scheduler_add_jobs`, which needs `raBox`/`decBox` set directly — see `pushJob`'s own
-     * doc for that near-miss; this command is documented to do its own name→coordinate
-     * resolution). Not-found is a silent no-op server-side, no error surfaces back. No direct
-     * reply — watch `new_mount_state`.
+     * `mount_goto_target` resolves the name server-side via KStars' `findByName` (unlike
+     * `scheduler_add_jobs`, which needs `raBox`/`decBox`). Not-found is a silent no-op; no
+     * direct reply — watch `new_mount_state`.
      */
     override fun gotoTarget(targetId: String) {
         val target = _state.value.findTarget(targetId) ?: return
@@ -1266,8 +1067,8 @@ class EkosRemoteController(
 
     /**
      * OnStep refuses a goto while another slew is running ("Goto in progress") and aborts the
-     * first one too, leaving the mount stopped between targets (live-verified 2026-10-23). So a
-     * goto issued mid-slew first aborts the slew, waits (≤10 s) for the mount to stop, then goes.
+     * first one too, leaving the mount stopped. So a goto issued mid-slew first aborts the slew,
+     * waits (≤10 s) for the mount to stop, then goes.
      */
     private suspend fun abortSlewIfMoving(nextTarget: String) {
         // The status push lags the command by a moment, so a goto sent in the last few seconds
@@ -1297,18 +1098,15 @@ class EkosRemoteController(
     }
 
     /**
-     * Goto, then plate-solve with the Align module's solver-action temporarily switched to
-     * `slewR` — real Ekos exposes this as 3 mutually exclusive bools (`nothingR`/`slewR`/`syncR`,
-     * default `nothingR`); with `slewR` Ekos itself loops capture → solve → re-slew until the
-     * error is under `alignAccuracyThreshold` (or it gives up after its max iterations).
-     * Restores whatever solver-action the user had before (from the last real
-     * `align_get_all_settings` snapshot), not just `nothingR`.
+     * Goto, then plate-solve with the Align solver action temporarily set to `slewR` (one of
+     * three exclusive bools `nothingR`/`slewR`/`syncR`). With `slewR`, Ekos loops capture → solve
+     * → re-slew until the error is under `alignAccuracyThreshold` or it gives up. The previous
+     * action (from the last `align_get_all_settings`) is restored afterwards.
      *
-     * Every step waits on real status, not a timer: the slew on `new_mount_state`, the centering
-     * loop on `new_align_state` reaching a terminal state ([ALIGN_DONE_STATES]). This used to wait
-     * a fixed 8 s + 15 s and then restore `nothingR` — but Ekos only re-solves after each re-slew
-     * while the action is still `slewR` (`align_goto.cpp`), so a loop that needed more than one
-     * pass stopped half-way and a second tap was needed to finish it.
+     * Each step waits on status, not a timer: the slew on `new_mount_state`, the centering loop
+     * on `new_align_state` reaching [ALIGN_DONE_STATES]. Ekos only re-solves after a re-slew
+     * while the action is still `slewR` (`align_goto.cpp`), so it must stay set until the loop
+     * ends.
      */
     override fun gotoAndCenter(targetId: String) {
         val target = _state.value.findTarget(targetId) ?: return
@@ -1363,11 +1161,9 @@ class EkosRemoteController(
     }
 
     /**
-     * `guide_start`/`guide_stop` — empty request/response each. `guide_stop` maps server-side to
-     * `abort()` (confirmed against the reference) — a hard abort, not a distinct graceful-stop
-     * concept, worth remembering before anyone expects a gentler pause here. Progress via
-     * `new_guide_state` (already wired, `AppState.wireGuideStatus`), shown raw in the UI —
-     * same no-string-matching approach as [startAutofocus].
+     * `guide_start`/`guide_stop` have empty request/response. `guide_stop` maps server-side to
+     * `abort()` — a hard abort, not a graceful stop. Progress via `new_guide_state`
+     * (`AppState.wireGuideStatus`).
      */
     override fun startGuiding() {
         client.sendCommand(Commands.GUIDE_START)
@@ -1386,10 +1182,9 @@ class EkosRemoteController(
     }
 
     /**
-     * `polar_start`/`polar_stop` — no direct reply, watch `new_polar_state` (M2, hardened for
-     * partial payloads — see [EkosEvent.NewPolarState]'s doc). Real PAH drives its own multi-slew
-     * capture/solve/rotate sequence server-side once started — Stop must be assumed to interrupt
-     * it mid-motion, there's no documented graceful-completion signal to wait for instead.
+     * `polar_start`/`polar_stop` — no direct reply; watch `new_polar_state` (partial payloads,
+     * see [EkosEvent.NewPolarState]). PAH runs its own multi-slew sequence server-side, so Stop
+     * may interrupt it mid-motion.
      */
     override fun startPolarAlign() {
         client.sendCommand(Commands.POLAR_START)
@@ -1438,11 +1233,11 @@ class EkosRemoteController(
         super.setPahRefreshAlgorithm(algorithm)
     }
 
-    // ── Profiles / Optical Train (M3 §3) ────────────────────────────────
+    // ── Profiles / Optical Train ────────────────────────────────────────
 
     override fun startProfile(name: String) {
         client.sendCommand(Commands.PROFILE_START, buildJsonObject { put("name", name) })
-        super.startProfile(name) // optimistic; new_connection_state.online is the real confirmation
+        super.startProfile(name) // optimistic; new_connection_state.online confirms
     }
 
     override fun stopProfile() {
@@ -1453,19 +1248,13 @@ class EkosRemoteController(
     override fun deleteProfile(name: String) {
         pendingProfileDelete = name
         client.sendCommand(Commands.PROFILE_DELETE, buildJsonObject { put("name", name) })
-        // No optimistic local removal — get_profiles (always authoritative, see applyEvent)
-        // arrives moments later and is the only source of truth here either way.
+        // No optimistic removal: the get_profiles reply that follows is authoritative.
     }
 
     /**
-     * The base implementation only opens the sheet + copies the profile
-     * name — it never touches `selectedDeviceNames`/`devOff`, so the wizard
-     * would otherwise show whatever picker state happened to be left over
-     * from a previous edit, not this profile's real driver selections.
-     * Reverses `RigProfile.drivers` (family → labels) back into Nocturne's
-     * category keys via [CATEGORY_TO_DRIVER_FAMILY] so the picker actually
-     * reflects the real profile before [finishSetup] can send an update
-     * that's just this same reversal run forward again.
+     * The base implementation doesn't touch `selectedDeviceNames`/`devOff`, so the wizard would
+     * show leftover picker state. Maps `RigProfile.drivers` (family → labels) back to category
+     * keys via [CATEGORY_TO_DRIVER_FAMILY]; [finishSetup] runs the same mapping forward.
      */
     override fun editProfile(name: String) {
         super.editProfile(name)
@@ -1473,8 +1262,8 @@ class EkosRemoteController(
         update { s ->
             if (s.setupEditingName != name) return@update s // base declined (Ekos running) — nothing to seed
             val selected = DEVICES.associate { d ->
-                // "guide" has no real family of its own — it's a second entry in drivers["CCDs"],
-                // named only by the legacy `guider` field (see CATEGORY_TO_DRIVER_FAMILY's doc).
+                // "guide" has no family of its own — it's a second entry in drivers["CCDs"],
+                // named only by the legacy `guider` field (see CATEGORY_TO_DRIVER_FAMILY).
                 val label = if (d.key == "guide") p.guider.ifBlank { null }
                 else CATEGORY_TO_DRIVER_FAMILY[d.key]?.let { family -> p.drivers[family]?.firstOrNull() }
                 d.key to (label ?: "None")
@@ -1488,12 +1277,9 @@ class EkosRemoteController(
 
     override fun finishSetup() {
         val s = _state.value
-        // "guide" shares the "CCDs" family with "cam" (see CATEGORY_TO_DRIVER_FAMILY) — a guide
-        // camera is a second entry in drivers["CCDs"], with the explicit "guider" field as the
-        // only real signal for which entry that is. Confirmed via a live round-trip against the
-        // "Simulators" profile: sending "guider" alongside "drivers" in the same profile_update
-        // persisted both correctly — the docs' "legacy fields only consulted if drivers absent"
-        // caveat does not apply to this field.
+        // "guide" shares the "CCDs" family with "cam"; the explicit "guider" field is the only
+        // signal for which entry is the guide camera. profile_update persists "guider" alongside
+        // "drivers", despite the docs saying legacy fields are only read when drivers is absent.
         val drivers: Map<String, List<String>> = DEVICES.filter { it.key !in s.devOff }
             .groupBy({ CATEGORY_TO_DRIVER_FAMILY[it.key] ?: "Aux" }, { s.selectedDeviceNames[it.key] ?: it.name })
         val guiderLabel = s.selectedDeviceNames["guide"]?.takeIf { "guide" !in s.devOff }
@@ -1508,11 +1294,9 @@ class EkosRemoteController(
             if (guiderLabel != null) put("guider", guiderLabel)
         }
         client.sendCommand(if (s.setupEditingName != null) Commands.PROFILE_UPDATE else Commands.PROFILE_ADD, payload)
-        // Deliberately not super.finishSetup() — its ekosRunning = true/activeProfile = ... is
-        // SimulatedController fiction ("saving a profile starts a session"). This only ever sent
-        // profile_add/update, never profile_start, so claiming Ekos is now running would be a
-        // false optimistic update, not an accurate one. Just close the sheet; the real
-        // profiles/selectedProfile list reconciles from the auto get_profiles reply moments later.
+        // Not super.finishSetup(): that marks Ekos running, but this only sends
+        // profile_add/update, never profile_start. Close the sheet; the following get_profiles
+        // reply reconciles the profile list.
         update { it.copy(sheet = null, setupEditingName = null) }
     }
 
@@ -1527,12 +1311,9 @@ class EkosRemoteController(
     }
 
     /**
-     * The real per-module assignment mechanism (`train_set`, confirmed
-     * against `message.cpp`'s `processTrainCommands` — each module's own
-     * `setOpticalTrain(name)` persists it to `ProfileSettings` for whichever
-     * profile is currently active). No direct reply, so `train_get_profiles`
-     * is re-sent to confirm — same fire-and-refresh pattern as everywhere
-     * else on this wire.
+     * `train_set` (`processTrainCommands` in `message.cpp`): each module's `setOpticalTrain(name)`
+     * persists to the active profile's `ProfileSettings`. No direct reply, so
+     * `train_get_profiles` is re-sent to confirm.
      */
     override fun setModuleTrain(module: String, trainName: String) {
         pendingModuleTrainAssignments[module] = trainName
@@ -1549,11 +1330,9 @@ class EkosRemoteController(
     }
 
     /**
-     * Fires the reboot request over the daemon's separate HTTP channel (not the EkosRemote
-     * wire — see [RigRebootClient]). A successful POST only means the Pi *accepted* the
-     * request; the socket dropping shortly after is expected, and [EkosRemoteClient]'s own
-     * backoff/reconnect (already fires on any close) picks the session back up once the Pi's
-     * back — no separate "app restart" step needed on this end.
+     * Sends the reboot request over the daemon's HTTP channel (see [RigRebootClient]), not the
+     * EkosRemote wire. Success only means the Pi accepted it; the socket then drops and
+     * [EkosRemoteClient]'s reconnect picks the session back up.
      */
     override fun rebootRig() {
         _state.update { it.copy(rigRebootState = RigRebootState.SENDING, rigRebootError = null) }
@@ -1629,15 +1408,13 @@ class EkosRemoteController(
     }
 
     /**
-     * Real Pi OS clock, via the same reboot daemon as [rebootRig] — `POST /set-time`. See [RigRebootClient.setTime]'s own doc for the exact local-time-string shape
-     * and why `date -s`/`hwclock -w` need root. Sends the phone's own current wall-clock date/time
-     * (`java.time.LocalDateTime.now()`, no timezone conversion — same "co-located, same
-     * timezone" assumption [syncLocationToRig] documents).
+     * Sets the KStars clock over the wire and the Pi OS clock via the reboot daemon's
+     * `POST /set-time` (see [RigRebootClient.setTime]). Sends the phone's local wall-clock time
+     * with no timezone conversion, assuming phone and rig are co-located.
      */
     override fun syncTimeToRig() {
-        // KStars' own live internal clock, over the real EkosRemote wire — always sent,
-        // independent of the daemon below (works even without the reboot daemon installed
-        // at all). See KSTARS_SET_TIME's own doc (Commands.kt) for why this needed a new command.
+        // KStars' internal clock over the EkosRemote wire; works without the reboot daemon.
+        // See KSTARS_SET_TIME (Commands.kt).
         val now = java.time.LocalDateTime.now()
         client.sendCommand(
             Commands.KSTARS_SET_TIME,
@@ -1647,7 +1424,7 @@ class EkosRemoteController(
             },
         )
 
-        // Real Pi OS clock — best-effort, needs the reboot daemon running on the Pi.
+        // Pi OS clock — best-effort, needs the reboot daemon running on the Pi.
         _state.update { it.copy(piTimeSyncState = RigRebootState.SENDING, piTimeSyncError = null) }
         val iso = now.withNano(0).toString()
         scope.launch {
@@ -1662,12 +1439,10 @@ class EkosRemoteController(
     }
 
     /**
-     * Real KStars geographic location, via the new `kstars_set_location` wire command — see
-     * [SessionController.syncLocationToRig]'s own doc for the full finding (why the existing
-     * `option_set`/`invoke_method` hatches can't reach `KStars::setGPSLocation`). [tz] is only a
-     * fallback KStars uses if it can't match the coordinates to a known city in its own database
-     * (`nearestLocation()`) — computed from the phone's own standard-time UTC offset
-     * (`TimeZone.getDefault().rawOffset`), same co-located assumption as [syncTimeToRig].
+     * `kstars_set_location` (see [SessionController.syncLocationToRig] for why
+     * `option_set`/`invoke_method` can't reach `KStars::setGPSLocation`). [tz] is only used if
+     * KStars can't match the coordinates to a known city (`nearestLocation()`); it's the phone's
+     * standard-time UTC offset, assuming phone and rig are co-located.
      */
     override fun syncLocationToRig(lat: Double, lon: Double, elevM: Double) {
         val tzHours = java.util.TimeZone.getDefault().rawOffset / 3_600_000.0
@@ -1679,23 +1454,13 @@ class EkosRemoteController(
     }
 
     /**
-     * Mount settings (M3.3, curated subset — see docs/M3.3-plan.md). Each setter sends
-     * `mount_set_all_settings` with just the one changed field (server applies only keys
-     * present in the map — confirmed against `Mount::setAllSettings` in the real source, so
-     * this can't clobber the other 16 real fields Nocturne doesn't model) and applies the same
-     * local update the simulator would via `super` — fire-and-forget, **no** immediate
-     * `mount_get_all_settings` re-fetch, matching [applyCoolTarget]'s own precedent.
+     * Mount settings (curated subset). Each setter sends `mount_set_all_settings` with only the
+     * changed field — `Mount::setAllSettings` applies only keys present, so unmodelled fields are
+     * untouched — and applies the local update via `super`.
      *
-     * Confirmed live this *needs* to be fire-and-forget, not optimistic-then-reconcile like
-     * [setModuleTrain]: sending the get immediately after the set raced on the app's real
-     * (busy — other pushes interleaving) connection and lost a write — a toggle-off was
-     * silently reverted back to on by the very re-fetch meant to confirm it, confirmed by an
-     * independent probe showing the real value never actually changed. The identical
-     * set-then-get pair worked instantly over an isolated low-traffic connection, so this is a
-     * server-side command-ordering race under load, not a Nocturne logic bug — avoided
-     * entirely by not re-fetching. The one-time `mount_get_all_settings` sent at connect
-     * (`EkosRemoteClient`'s online burst) is the only fetch; these setters trust their own
-     * optimistic write.
+     * Fire-and-forget, with no `mount_get_all_settings` re-fetch: on a busy connection a get sent
+     * right after the set can be processed first and revert the optimistic value. The one fetch
+     * is in `EkosRemoteClient`'s online burst at connect.
      */
     private fun sendMountSetting(field: String, value: JsonElement) {
         client.sendCommand(Commands.MOUNT_SET_ALL_SETTINGS, buildJsonObject { put(field, value) })
@@ -1743,11 +1508,8 @@ class EkosRemoteController(
     }
 
     /**
-     * Camera settings (M3.3, curated subset). Same fire-and-forget shape as [sendMountSetting]
-     * — `capture_set_all_settings` only touches the keys present in the map (confirmed against
-     * `Camera::setAllSettings` in the real source, same partial-write safety already relied on
-     * for the cooler-setpoint fix), and no immediate `capture_get_all_settings` re-fetch, per
-     * the same command-ordering-race lesson documented on [sendMountSetting].
+     * Camera settings (curated subset). Same fire-and-forget shape as [sendMountSetting]:
+     * `capture_set_all_settings` (`Camera::setAllSettings`) touches only the keys present.
      */
     private fun sendCaptureSetting(field: String, value: JsonElement) {
         client.sendCommand(Commands.CAPTURE_SET_ALL_SETTINGS, buildJsonObject { put(field, value) })
@@ -1823,10 +1585,8 @@ class EkosRemoteController(
     }
 
     /**
-     * Align settings (M3.3 phase 3, curated subset). Same fire-and-forget shape as
-     * [sendMountSetting]/[sendCaptureSetting] — `align_set_all_settings` only touches the keys
-     * present in the map, and no immediate `align_get_all_settings` re-fetch, per the same
-     * command-ordering-race lesson documented on [sendMountSetting].
+     * Align settings (curated subset). Same fire-and-forget shape as [sendMountSetting]:
+     * `align_set_all_settings` touches only the keys present.
      */
     private fun sendAlignSetting(field: String, value: JsonElement) {
         client.sendCommand(Commands.ALIGN_SET_ALL_SETTINGS, buildJsonObject { put(field, value) })
@@ -1857,12 +1617,9 @@ class EkosRemoteController(
         super.setAlignAccuracyThreshold(arcsec)
     }
     /**
-     * `kcfg_AstrometryRotatorThreshold`, arcminutes — real GET+SET via the normal
-     * `align_get_all_settings`/`align_set_all_settings` reflection (confirmed live-verified field
-     * list, EkosRemote-Command-Reference.md), same shape as [setAlignAccuracyThreshold] above.
-     * Added because the live rig was found sitting at `0` (SSH-checked `~/.config/kstarsrc`,
-     * 2026-08-29) — at `0`, [AppState.wireRotatorThreshold]'s "within threshold" check
-     * (`diff <= threshold`) can practically never be true, so the readback showed a Δ forever.
+     * `kcfg_AstrometryRotatorThreshold`, arcminutes, via `align_set_all_settings`. At `0`,
+     * [AppState.wireRotatorThreshold]'s `diff <= threshold` check is practically never true, so
+     * the readback would never show "within threshold".
      */
     override fun setAlignRotatorThreshold(arcmin: Double) {
         sendAlignSetting("kcfg_AstrometryRotatorThreshold", JsonPrimitive(arcmin))
@@ -1870,16 +1627,11 @@ class EkosRemoteController(
     }
 
     /**
-     * `align_set_target_pa` (M5, docs/STATUS.md) — real request `{"angle": double}`, not
-     * documented in EkosRemote-Command-Reference.md at all (found by reading the fork source
-     * directly, `message.cpp:928-935`/`commands.h:161,418` — doc updated same pass). Sets
-     * `Align::m_TargetPositionAngle` directly, same field a real Load & Slew would set from a
-     * reference file's own solved PA — this is the raw-angle equivalent, no reference image
-     * needed. **Required** before [setRotatorAutoControl]'s readback/auto-drive do anything at
-     * all: `Align::checkIfRotationRequired()` only emits `manualRotatorChanged`/drives a real
-     * rotator once this is non-NaN. Repurposes the step-2 slider ([RotatorRow]) that used to be
-     * local-only (no wire command was known to exist for it at the time) — now the real target-PA
-     * control, per the user's own read of the M5 plan.
+     * `align_set_target_pa`, request `{"angle": double}` (`message.cpp:928-935`). Sets
+     * `Align::m_TargetPositionAngle`, as Load & Slew would from a reference image's solved PA.
+     * Required before [setRotatorAutoControl]'s readback/auto-drive do anything:
+     * `Align::checkIfRotationRequired()` only emits `manualRotatorChanged` or drives a rotator
+     * once this is non-NaN.
      */
     override fun setRotatorAngle(deg: Double) {
         client.sendCommand(Commands.ALIGN_SET_TARGET_PA, buildJsonObject { put("angle", deg) })
@@ -1887,27 +1639,22 @@ class EkosRemoteController(
     }
 
     /**
-     * `align_set_astrometry_settings`'s `rotator_control` bool (M5) — writes straight to
-     * `Options::setAstrometryUseRotator` (message.cpp:890), a separate reflection path from
-     * [sendAlignSetting]'s `align_set_all_settings`, not a field on
-     * [com.nocturne.protocol.WireAlignSettings]. **This is the master gate for the whole rotator
-     * feature, not just real-hardware auto-drive** — confirmed against the fork source
-     * (`align_goto.cpp:535` `checkIfRotationRequired()`): with this off, no diff-check ever runs
-     * at all, so neither a real rotator gets auto-driven *nor* does the no-hardware manual-diff
-     * readback (`align_manual_rotator_status` push) ever fire. Must be on regardless of whether
-     * [com.nocturne.session.AppState.primaryTrain]`.rotator` is a real device or "None" — which
-     * branch runs server-side depends on that, but this switch itself doesn't.
+     * `align_set_astrometry_settings`'s `rotator_control` bool, written to
+     * `Options::setAstrometryUseRotator` (message.cpp:890) — a separate path from
+     * `align_set_all_settings`. This gates the whole rotator feature: with it off,
+     * `checkIfRotationRequired()` (`align_goto.cpp:535`) never runs, so neither rotator
+     * auto-drive nor the manual-diff readback (`align_manual_rotator_status`) happens. Needed
+     * whether or not [com.nocturne.session.AppState.primaryTrain]`.rotator` is a device.
      *
-     * (`align_manual_rotator_toggle`, an earlier pass's separate wire call, was dropped entirely —
-     * confirmed it only shows/hides Ekos's own dialog on the Pi's own physical screen,
-     * `align_components.cpp:146`, no effect on this readback at all.)
+     * `align_manual_rotator_toggle` is not used: it only shows/hides Ekos's dialog on the Pi's
+     * own screen (`align_components.cpp:146`).
      */
     override fun setRotatorAutoControl(enabled: Boolean) {
         client.sendCommand(Commands.ALIGN_SET_ASTROMETRY_SETTINGS, buildJsonObject { put("rotator_control", enabled) })
         super.setRotatorAutoControl(enabled)
     }
 
-    /** `option_set` — real `Options::self()` reflection (M4.5 half B, docs/STATUS.md). */
+    /** `option_set` — `Options::self()` reflection. */
     private fun sendOption(name: String, value: Boolean) {
         client.sendCommand(Commands.OPTION_SET, buildJsonObject {
             putJsonArray("options") { addJsonObject { put("name", name); put("value", value) } }
@@ -1923,11 +1670,9 @@ class EkosRemoteController(
     }
 
     /**
-     * Primary camera's live preview capture parameters — `capture_preview` (Bench "Snap main")
-     * takes no parameters of its own; real Ekos fires it using whatever the Capture module's own
-     * `captureExposureN`/`captureGainN`/`captureBinHN`/`captureBinVN` are currently set to (see
-     * [com.nocturne.protocol.WireCaptureSettings]'s doc). Same fire-and-forget shape as every
-     * other module setting this session.
+     * Main camera preview parameters. `capture_preview` (Bench "Snap main") takes no parameters;
+     * Ekos uses the Capture module's `captureExposureN`/`captureGainN`/`captureBinHN`/
+     * `captureBinVN` (see [com.nocturne.protocol.WireCaptureSettings]).
      */
     override fun setCapturePreviewExposure(sec: Double) {
         sendCaptureSetting("captureExposureN", JsonPrimitive(sec))
@@ -1938,17 +1683,15 @@ class EkosRemoteController(
         super.setCapturePreviewGain(gain)
     }
     override fun setCapturePreviewBinning(bin: Int) {
-        // Both H and V in one shot — Nocturne only ever exposes a single square-binning control,
-        // matching the Sequence block editor's own Binning row (one Int, not H/V separately).
+        // H and V together: the UI has a single square-binning control.
         sendCaptureSetting("captureBinHN", JsonPrimitive(bin))
         sendCaptureSetting("captureBinVN", JsonPrimitive(bin))
         super.setCapturePreviewBinning(bin)
     }
 
     /**
-     * Guide camera's live preview capture parameters — same reasoning as
-     * [setCapturePreviewExposure] above, but for `guide_capture` (Bench "Snap guide") and the
-     * Guide module's own `guideExposure`/`guideGain`/`guideBinning`.
+     * Guide camera preview parameters — as [setCapturePreviewExposure], but for `guide_capture`
+     * and the Guide module's `guideExposure`/`guideGain`/`guideBinning`.
      */
     private fun sendGuideSetting(field: String, value: JsonElement) {
         client.sendCommand(Commands.GUIDE_SET_ALL_SETTINGS, buildJsonObject { put(field, value) })
@@ -1966,11 +1709,7 @@ class EkosRemoteController(
         super.setGuidePreviewBinning(binning)
     }
 
-    /**
-     * Guide settings (M3.3 phase 4, curated subset) — same fire-and-forget shape as
-     * [setAlignExposure] etc, reusing [sendGuideSetting] above (same command,
-     * `guide_set_all_settings`, as the preview setters) rather than a second helper.
-     */
+    /** Guide settings (curated subset), fire-and-forget via `guide_set_all_settings`. */
     override fun setGuideAccuracyThreshold(arcsec: Double) {
         sendGuideSetting("guiderAccuracyThreshold", JsonPrimitive(arcsec))
         super.setGuideAccuracyThreshold(arcsec)
@@ -2052,12 +1791,7 @@ class EkosRemoteController(
         super.setGuideLostStarTimeout(sec)
     }
 
-    /**
-     * Focus settings (M3.3 phase 6, curated subset) — same fire-and-forget shape as
-     * [setGuideAccuracyThreshold] etc. `applyEvent`'s `FocusSettings` arm needs no change: it
-     * already does a full-struct `s.copy(wireFocusSettings = event.settings, ...)`, which picks
-     * up these new fields automatically.
-     */
+    /** Focus settings (curated subset), fire-and-forget via `focus_set_all_settings`. */
     private fun sendFocusSetting(field: String, value: JsonElement) {
         client.sendCommand(Commands.FOCUS_SET_ALL_SETTINGS, buildJsonObject { put(field, value) })
     }
@@ -2151,13 +1885,9 @@ class EkosRemoteController(
     }
 
     /**
-     * Scheduler-wide policy settings (curated subset, see [WireSchedulerSettings]'s own doc).
-     * Same fire-and-forget shape as [sendMountSetting] et al — `scheduler_set_all_settings` only
-     * touches the keys present in the map, and no immediate `scheduler_get_all_settings`
-     * re-fetch, per the same command-ordering-race lesson documented on [sendMountSetting]. Note
-     * this shares the wire endpoint with [pushRealJob]'s own per-job-add send (bug #19) — no
-     * conflict, since that send only ever fires as part of pushing a specific job, not from this
-     * sheet.
+     * Scheduler-wide policy settings (curated subset, see [WireSchedulerSettings]).
+     * Fire-and-forget like [sendMountSetting]; `scheduler_set_all_settings` touches only the
+     * keys present. [pushRealJob] uses the same command for per-job fields when adding a job.
      */
     private fun sendSchedulerSetting(field: String, value: JsonElement) {
         client.sendCommand(Commands.SCHEDULER_SET_ALL_SETTINGS, buildJsonObject { put(field, value) })
@@ -2350,11 +2080,9 @@ class EkosRemoteController(
     }
 
     /**
-     * `train_add`/`train_update` payload shape is undocumented (plan §"Protocol
-     * facts") — sends every field `train_get_all` reports back, keyed by [id]
-     * when a matching real train is already known, else falls back to
-     * `train_add`. Either way a `train_get_all` auto-push reconciles whatever
-     * the server actually accepted.
+     * The `train_add`/`train_update` payload shape is undocumented, so this sends every field
+     * `train_get_all` reports, with [id] when a matching train is known (else `train_add`).
+     * The `train_get_all` auto-push reconciles whatever the server accepted.
      */
     private fun sendTrainUpdate(slot: TrainSlot) {
         val s = _state.value
@@ -2378,7 +2106,7 @@ class EkosRemoteController(
         client.sendCommand(if (wireTrain != null) Commands.TRAIN_UPDATE else Commands.TRAIN_ADD, payload)
     }
 
-    // ── Scopes catalog (M3.1) — separate from Optical Trains, see plan §"Protocol facts" ──
+    // ── Scopes catalog (separate from Optical Trains) ───────────────────
 
     override fun addScope(name: String, vendor: String, type: String, focalMm: Int, apertureMm: Int) {
         client.sendCommand(Commands.SCOPE_ADD, buildJsonObject {
@@ -2389,9 +2117,7 @@ class EkosRemoteController(
     }
 
     override fun updateScope(id: String, name: String, vendor: String, type: String, focalMm: Int, apertureMm: Int) {
-        // Only a real (wire-known) scope has a server id to update against — a still-local-only
-        // scope (added before this connection, or under SimulatedController) has no wire
-        // counterpart yet, so falls back to add instead of an update with a made-up id.
+        // Only a wire-known scope has a server id to update; a local-only scope is added instead.
         val isWireKnown = _state.value.wireScopes?.any { it.id == id } == true
         if (isWireKnown) {
             client.sendCommand(Commands.SCOPE_UPDATE, buildJsonObject {
@@ -2414,7 +2140,7 @@ class EkosRemoteController(
         super.removeScope(id)
     }
 
-    // ── Plan tab astro_* search (M3 §4) ─────────────────────────────────
+    // ── Plan tab astro_* search ─────────────────────────────────────────
 
     override fun setQuery(text: String) {
         super.setQuery(text)
@@ -2479,11 +2205,9 @@ class EkosRemoteController(
         val names = matchingSearchNames(_state.value).take(SEARCH_RESULT_CAP)
         if (names.isEmpty()) return
         client.sendCommand(Commands.ASTRO_GET_OBJECTS_INFO, buildJsonObject { putJsonArray("names") { names.forEach { add(it) } } })
-        // "exact": true — same real name-echo mismatch risk as ensureTargetRiseset's own doc
-        // explains (message.cpp:2295), just for the full-list merge instead of the
-        // single-framed-target case. Without it, any name here that KStars' fuzzy findByName
-        // resolves to a *different* preferred name silently fails buildSearchResults()'s own
-        // name-keyed merge — that row just never gets its real "X° max" (falls back to "—").
+        // "exact": true, as in ensureTargetRiseset (message.cpp:2295): otherwise a name KStars
+        // resolves to a different preferred name misses buildSearchResults()'s name-keyed merge
+        // and the row shows no "X° max".
         client.sendCommand(Commands.ASTRO_GET_OBJECTS_RISESET, buildJsonObject {
             putJsonArray("names") { names.forEach { add(it) } }
             put("exact", true)
@@ -2491,18 +2215,17 @@ class EkosRemoteController(
     }
 
     /**
-     * `astro_search_objects` has no free-text field — only `type`/`direction`/
-     * `maxMagnitude`/`minAlt`/`minDuration`/`minFOV` — so [AppState.searchType]/
-     * [AppState.searchMaxMag]/[AppState.chips] drive the wire call, while the typed query
-     * is applied client-side once names come back ([matchingSearchNames]).
-     * `type` is a single-value filter server-side (`SkyObject::TYPE`) — one type per search.
-     * Note the DSO query is `magnitude < maxMagnitude`, so objects with no catalogued
-     * magnitude (common for large emission nebulae) never match a type search at all.
+     * `astro_search_objects` has no free-text field (only `type`/`direction`/`maxMagnitude`/
+     * `minAlt`/`minDuration`/`minFOV`), so [AppState.searchType]/[AppState.searchMaxMag]/
+     * [AppState.chips] drive the wire call and the typed query is applied client-side
+     * ([matchingSearchNames]). `type` is a single `SkyObject::TYPE`. The DSO query is
+     * `magnitude < maxMagnitude`, so objects with no catalogued magnitude (common for large
+     * emission nebulae) never match a type search.
      */
     private fun runSearch() {
         val s = _state.value
         if (s.searchType == null) {
-            // Name search — no server-side filtering at all; the name list is the source.
+            // Name search: no server-side filtering; the full name list is the source.
             if (allNames == null) {
                 if (!allNamesRequested) {
                     allNamesRequested = true
@@ -2524,37 +2247,24 @@ class EkosRemoteController(
         })
     }
 
-    // ── Sequence tab — Scheduler + .esq (M3 §5) ─────────────────────────
+    // ── Sequence tab — Scheduler + .esq ─────────────────────────────────
 
     /**
-     * Real Ekos has no "edit a synced job" wire primitive — `scheduler_add_jobs` only ever adds
-     * from the Scheduler's current form state, there's no update. So: pushing a not-yet-synced
-     * job writes its `.esq`, points the Scheduler's form at it, and adds it (`synced` flips true
-     * once `scheduler_get_jobs` confirms it — see [applySchedulerJobs]). The only way to "edit" a
-     * synced job is remove it, edit, push fresh.
+     * Ekos has no "edit a synced job" primitive: `scheduler_add_jobs` only adds from the
+     * Scheduler's current form state. Pushing an unsynced job writes its `.esq`, points the
+     * form at it, and adds it (`synced` flips once `scheduler_get_jobs` confirms, see
+     * [applySchedulerJobs]). To edit a synced job: remove it, edit, push again.
      *
-     * **Push/start/stop split (2026-08-23)** — user's explicit design call: pushing a job to Ekos
-     * and starting the Scheduler used to be one collapsed action (tapping "Start sequence" did
-     * both). That collapsing caused two real, live-confirmed bugs: a duplicate target name got
-     * refused server-side but the app's name-match still latched onto the *other* job's real
-     * slot, and starting a second job while the first was already running silently **stopped**
-     * the Scheduler (a raw toggle, not idempotent), aborting the first job's genuinely in-progress
-     * run. Fixed by refusing a duplicate name locally before ever sending anything (below), and by
-     * making "also start" an explicit opt-in only [resumeSession]/[startNextJob] request (see
-     * [PendingSchedulerStart]'s doc) — a plain push never touches the Scheduler toggle at all.
+     * Pushing never starts the Scheduler; only [resumeSession]/[startNextJob] request that (see
+     * [PendingSchedulerStart]). A duplicate target name is refused locally, since Ekos refuses it
+     * too and the name match would otherwise latch onto the other job.
      *
-     * **Confirmed live (2026-08-09) that the original minimum field set silently added nothing**:
-     * `scheduler_add_jobs` needs `raBox`/`decBox` populated directly — typing a name into
-     * `nameEdit` over the wire doesn't trigger the GUI's own name-resolution lookup the way a
-     * human clicking "Find" would, so the job's coordinates stayed blank and the add was silently
-     * a no-op (`scheduler_get_jobs` came back `{"jobs": []}` every time). `opticalTrainCombo` left
-     * at its default `"--"` is a second, independent way the same add can fail. Fixed: `raBox`/
-     * `decBox` from the target's own coords (parsed, see [parseCoordsToRaDecBox]) and
-     * `opticalTrainCombo` from the capture module's real assigned train. The rest of the chain
-     * (settings/add/get) is deferred to [sendFollowUpCommands]'s `SchedulerSaveSequenceFile` arm
-     * because `sequenceEdit` also needs the *server-resolved* absolute path from that reply, not
-     * the bare relative filename saved here (confirmed live: a relative `sequenceEdit` value
-     * produces a broken, unresolved `file:` URI, not a home-relative one like the save itself).
+     * `scheduler_add_jobs` needs `raBox`/`decBox` set directly: `nameEdit` over the wire doesn't
+     * trigger the GUI's name resolution, and without coordinates the add is a silent no-op. An
+     * `opticalTrainCombo` left at `"--"` fails the same way, so it's set to the capture module's
+     * train. The rest of the chain runs in [sendFollowUpCommands]'s `SchedulerSaveSequenceFile`
+     * arm because `sequenceEdit` needs the server-resolved absolute path; a relative path yields
+     * a broken `file:` URI.
      */
     override fun pushJob(jobId: String) {
         val s = _state.value
@@ -2569,31 +2279,21 @@ class EkosRemoteController(
         pushRealJob(jobId, alsoStart = false)
     }
 
-    /** The global Scheduler toggle — see [AppState.schedulerRunning]'s doc for why this never optimistically flips it itself; the button's own label follows the real `new_scheduler_state` push instead. */
+    /** The global Scheduler toggle. Not flipped optimistically: the label follows the `new_scheduler_state` push (see [AppState.schedulerRunning]). */
     override fun toggleScheduler() {
         client.sendCommand(Commands.SCHEDULER_START_JOB)
     }
 
-    /** The save→settings→add→get→(start) chain — see [pushJob]'s doc. Factored out so [resumeSession]/[startNextJob] can also request the [alsoStart] tail. */
+    /** The save→settings→add→get→(start) chain — see [pushJob]. [resumeSession]/[startNextJob] also request the [alsoStart] tail. */
     private fun pushRealJob(jobId: String, alsoStart: Boolean = false) {
         val s = _state.value
         val job = s.jobs.firstOrNull { it.id == jobId } ?: return
         val target = s.findTarget(job.targetId)
         val targetName = s.targetNameFor(job)
-        // Real target name (e.g. "M33_j3.esq"), not a generic "nocturne_j3.esq" that told you
-        // nothing about which job this file was (found live, 2026-08-25). Sanitized the same way
-        // FrameFileWriter already sanitizes real target/filter names for its own on-disk paths —
-        // targetNameFor's raw output is the real Scheduler job *name* (sent as-is to `nameEdit`,
-        // Ekos does its own KSUtils::sanitize() on that separately) and can carry spaces/
-        // punctuation this app's own filename needs stripped before Ekos ever sees it.
-        // Under `esq/` (2026-08-25, user's own file-organization call) — home-relative resolution
-        // of a bare filename is confirmed live (`EkosEvent.kt`'s own doc on this reply), but
-        // whether the real `scheduler_save_sequence_file` handler creates a missing intermediate
-        // directory itself (vs. only `file_directory_operation`'s documented `QDir().mkpath`,
-        // §18, which this app doesn't send) is **not** confirmed anywhere — `$HOME/esq/` must
-        // exist on the Pi before the first push after this change, or the save will likely fail
-        // silently the same way an unresolvable path did in bug #19 (see `docs/M4-plan.md`-era
-        // notes on this command).
+        // Named after the target (e.g. "esq/M33_j3.esq"), sanitized like FrameFileWriter's
+        // paths; the raw name goes to `nameEdit`, which Ekos sanitizes itself. A bare path
+        // resolves relative to $HOME. It's not known whether the save handler creates a missing
+        // directory, so `$HOME/esq/` must exist on the Pi or the save may fail silently.
         val path = "esq/${sanitizeFileToken(targetName)}.esq"
         client.sendCommand(Commands.SCHEDULER_SAVE_SEQUENCE_FILE, buildJsonObject {
             put(
@@ -2604,9 +2304,8 @@ class EkosRemoteController(
                     refocusEveryN = s.wireCaptureSettings?.refocusEveryN ?: 60,
                     enforceAutofocusOnTemperature = s.wireCaptureSettings?.enforceAutofocusOnTemperature ?: false,
                     maxFocusTemperatureDelta = s.wireCaptureSettings?.maxFocusTemperatureDelta ?: 1.0,
-                    // Real bug fix 2026-08-23 — see EsqWriter's own doc: these two were never
-                    // threaded through before, so every pushed job's FITSDirectory came out empty
-                    // and PlaceholderFormat was a fixed literal regardless of the real setting.
+                    // Carried from the capture settings so the job's FITSDirectory and
+                    // PlaceholderFormat match Ekos's.
                     fitsDirectory = s.wireCaptureSettings?.fileDirectoryT,
                     placeholderFormat = s.wireCaptureSettings?.placeholderFormatT ?: "",
                 ),
@@ -2623,22 +2322,10 @@ class EkosRemoteController(
     }
 
     /**
-     * **No forced stop first, and no blanket confirm dialog (2026-08-23 redesign, refined twice
-     * same day on user feedback)** — first cut sent `scheduler_remove_jobs` directly and let real
-     * Ekos refuse on its own if still active, with the UI asking "are you sure?" on *every* tap
-     * regardless of whether removal was actually risky. Second cut checked the job's own real
-     * `state` against [SchedulerJobStatus]'s active values ([SchedulerJobStatus.EVALUATION]/
-     * [SCHEDULED]/[BUSY]) — **wrong signal, caught live**: a job can show real `SCHEDULED` purely
-     * from Ekos's own one-shot evaluation on add, with the *Scheduler itself* still `IDLE` (never
-     * toggled on) — confirmed live: pushed a job, real Scheduler status stayed `IDLE`, job read
-     * `SCHEDULED`, and the app refused to remove it citing a state that was never actually
-     * guarded by anything ticking. The real refusal this app saw earlier today
-     * (`"Cannot delete currently running job"`) happened while the *Scheduler* was actually
-     * running (`AppState.schedulerRunning`, a different, Scheduler-level real signal from
-     * `new_scheduler_state` — see that field's own doc) — not tied to any one job's own state at
-     * all. Fixed: gate on [AppState.schedulerRunning] instead. If refused, nothing is sent and the
-     * local row stays exactly as-is (same as [pushJob]'s own refusal shape) — a refusal must never
-     * silently forget a real, still-active job.
+     * Refused while the Scheduler is running (Ekos replies "Cannot delete currently running
+     * job"). Gated on [AppState.schedulerRunning], not the job's state: a job reads `SCHEDULED`
+     * after Ekos's evaluation on add even while the Scheduler is idle. On refusal nothing is sent
+     * and the local row stays.
      */
     override fun removeJob(jobId: String) {
         val s = _state.value
@@ -2653,7 +2340,7 @@ class EkosRemoteController(
         super.removeJob(jobId)
     }
 
-    /** Same status-check-first shape as [removeJob] — see its own doc. */
+    /** Same Scheduler-running check as [removeJob]. */
     override fun removeUnmanagedJob(name: String) {
         if (_state.value.schedulerRunning) {
             update { it.copy(jobRemoveRefused = name) }
@@ -2664,20 +2351,10 @@ class EkosRemoteController(
     }
 
     /**
-     * Resolves the real index fresh, by name, against the latest `scheduler_get_jobs` reply —
-     * deliberately not a cached index (`WireSchedulerJob` has no server-assigned id; a locally
-     * cached index goes stale the instant anything else on the real queue is added/removed).
-     */
-    /**
-     * Real bug found live (2026-08-23): a successful remove doesn't always make Ekos push a
-     * `new_scheduler_state` (that only fires on a genuine Scheduler-*status* transition — removing
-     * a queued-but-never-started job leaves the Scheduler at `IDLE` throughout, no transition to
-     * report), and nothing else was re-fetching `scheduler_get_jobs` afterward. Confirmed live:
-     * removed a job, real Ekos cleared it, but `AppState.wireSchedulerJobs` stayed stale with the
-     * removed name still in it — which [AppState.unmanagedWireJobs] then rendered right back as an
-     * "unmanaged" card, since no local job claims that name anymore, making the app look like the
-     * remove hadn't worked. Fixed by explicitly re-fetching right after, same as [pushRealJob]'s
-     * own add→get pattern — same "server processes commands over one connection in order" precedent.
+     * Resolves the index by name against the latest `scheduler_get_jobs` reply rather than
+     * caching it (`WireSchedulerJob` has no server-assigned id). Re-fetches the job list
+     * afterwards: removing a job that never started causes no `new_scheduler_state` push, and a
+     * stale list would show the removed job again as "unmanaged".
      */
     private fun removeRealJobByName(targetName: String) {
         val idx = _state.value.wireSchedulerJobs.orEmpty().indexOfLast { it.name == targetName }
@@ -2688,12 +2365,9 @@ class EkosRemoteController(
     }
 
     /**
-     * Real Ekos has no "session" concept of its own — the base `endSession()`/`finishNight()`
-     * only ever move local navigation state around. `endSession`/`finishNight`/`resumeSession`/
-     * `startNextJob` **deliberately keep forcing a real stop+remove / push+start** even after the
-     * 2026-08-23 push/start/stop redesign — user's explicit call: these are deliberate, explicit
-     * whole-night lifecycle actions, not an incidental side effect of an unrelated navigation tap,
-     * so the new "never force real side effects" rule elsewhere in this file doesn't apply to them.
+     * Ekos has no session concept; the base `endSession()`/`finishNight()` only move local
+     * navigation. These whole-night lifecycle actions deliberately stop+remove (or push+start)
+     * the Scheduler jobs, unlike ordinary pushes.
      */
     override fun endSession() {
         val contract = _state.value.contractJob
@@ -2709,10 +2383,8 @@ class EkosRemoteController(
     }
 
     /**
-     * Direct consequence of [endSession] now correctly removing the real job: resuming (or
-     * advancing to the next job) must redo the real push — and, since this is the one deliberate
-     * "push and start together" lifecycle action (see [PendingSchedulerStart]'s doc), start it
-     * too, not just push it.
+     * [endSession] removed the job from Ekos, so resuming (or advancing to the next job)
+     * pushes it again and starts the Scheduler (see [PendingSchedulerStart]).
      */
     override fun resumeSession() {
         val id = _state.value.lastEndedJobId
@@ -2726,7 +2398,7 @@ class EkosRemoteController(
         if (next != null) pushRealJob(next.id, alsoStart = true)
     }
 
-    /** See [AppState.schedulerRunning]'s doc — a running real Scheduler must be toggled off before a remove can land. */
+    /** A running Scheduler must be toggled off before a remove can land (see [AppState.schedulerRunning]). */
     private fun stopThenRemove(targetName: String) {
         if (_state.value.schedulerRunning) client.sendCommand(Commands.SCHEDULER_START_JOB) // toggle: stops it, since it's running
         removeRealJobByName(targetName)
@@ -2738,13 +2410,9 @@ private fun WireProfile.toRigProfile() = RigProfile(name = name, deviceKeys = dr
 private fun WireDevice.toLiveDevice() = LiveDevice(name = name, connected = connected, roles = bitmaskToRoles(interfaceMask))
 
 /**
- * `scope_add`/`scope_update`'s request has no separate `name` field (only
- * `model`/`vendor`/`type`/`aperture`/`focal_length` — plan §"Protocol facts")
- * — [EkosRemoteController.addScope]/[updateScope] send the app's single
- * name field as `model`. On the way back, `name` (which real Ekos returns
- * alongside `model` in [WireScope]) is what a train's `scope` field actually
- * references (confirmed live: `"scope":"Field APO"` matched `name`, not
- * `model`), so decoding prefers it, falling back to `model` if ever blank.
+ * `scope_add`/`scope_update` have no `name` field, so the app's single name is sent as
+ * `model`. On the way back, a train's `scope` field references [WireScope]'s `name`, not
+ * `model`, so decoding prefers `name` and falls back to `model` if blank.
  */
 private fun WireScope.toScopeDef() = ScopeDef(
     id = id,
@@ -2755,7 +2423,7 @@ private fun WireScope.toScopeDef() = ScopeDef(
     apertureMm = aperture.roundToInt(),
 )
 
-/** Blank string fields (unassigned role, per `train_get_all`'s own convention) become "None". `internal`, not `private`, so [EkosEventCodecTest]-style regression tests can call it directly. */
+/** Blank fields (an unassigned role in `train_get_all`) become "None". `internal` so tests can call it directly. */
 internal fun WireTrain.toTrainAssignment() = TrainAssignment(
     mount = mount.ifBlank { "None" },
     camera = camera.ifBlank { "None" },
@@ -2771,11 +2439,9 @@ internal fun WireTrain.toTrainAssignment() = TrainAssignment(
 )
 
 /**
- * Mirrors a `CONNECTION` switch push into [AppState.wireDevices]'s `connected` flag for the
- * matching device — the only place other than the initial `get_devices` snapshot (and the
- * optimistic flip in [EkosRemoteController.toggleDevice]) that field ever changes. Needed
- * because a device `get_devices` caught mid-startup (see [EkosRemoteController.sendFollowUpCommands])
- * otherwise stays shown as disconnected forever even after it finishes connecting for real.
+ * Mirrors a `CONNECTION` switch push into the device's `connected` flag in
+ * [AppState.wireDevices], so a device `get_devices` caught mid-startup (see
+ * [EkosRemoteController.sendFollowUpCommands]) shows as connected once it is.
  */
 private fun AppState.withConnectionState(device: String, property: WireProperty): AppState {
     if (property !is WireProperty.Switch || property.name != "CONNECTION") return this
@@ -2783,12 +2449,6 @@ private fun AppState.withConnectionState(device: String, property: WireProperty)
     return copy(wireDevices = wireDevices?.map { if (it.name == device) it.copy(connected = connected) else it })
 }
 
-/**
- * Captures a real camera's `CCD_INFO` vector into [AppState.wireCcdInfoByDevice] for Plan tab's
- * Framing card — see that field's doc for why this reads all three elements directly instead of
- * going through the generic (lossy, single-element) [withProperty]/[indiProps] path.
- */
-/** See [AppState.wireGainRangeByDevice]. */
 private const val CAMERA_FAN_PROP = "TC_FAN_SPEED" // ToupTek-family drivers (indi_toupbase)
 /** `new_mount_state.status` values while the mount is moving (ISD::Mount status text). */
 private val MOUNT_MOVING_STATES = setOf("Slewing", "Moving", "Parking")
@@ -2807,6 +2467,7 @@ private const val PREFERRED_PIER_SIDE = "Preferred Pier Side"
 private const val PIER_SIDE_EAST = "2" // lx200_OnStep.cpp: "1" West, "2" East, "3" Best
 private const val PIER_SIDE_RESEND_MS = 10_000L
 
+/** See [AppState.wireGainRangeByDevice]. */
 private fun AppState.withGainRange(device: String, property: WireProperty): AppState {
     if (property !is WireProperty.Number) return this
     val el = when (property.name) {
@@ -2822,6 +2483,10 @@ private fun AppState.withGainRange(device: String, property: WireProperty): AppS
     return if (wireGainRangeByDevice[device] == range) this else copy(wireGainRangeByDevice = wireGainRangeByDevice + (device to range))
 }
 
+/**
+ * Captures a camera's `CCD_INFO` into [AppState.wireCcdInfoByDevice] for the Framing card,
+ * reading all three elements directly; the generic [withProperty] path keeps only one element.
+ */
 private fun AppState.withCcdInfo(device: String, property: WireProperty): AppState {
     if (property !is WireProperty.Number || property.name != "CCD_INFO") return this
     val maxX = property.numbers.firstOrNull { it.name == "CCD_MAX_X" }?.value?.roundToInt() ?: return this
@@ -2831,16 +2496,11 @@ private fun AppState.withCcdInfo(device: String, property: WireProperty): AppSta
 }
 
 /**
- * Real user requirement (2026-08-23): a block must never keep — or let the user pick — a filter
- * name that isn't actually one of the real filter wheel's current slots, since that name is what
- * ends up in the real `.esq` (`EsqWriter.writeJob`'s `<Filter>` element) sent straight to Ekos.
- * [SessionController.cycleBlockFilter] already only cycles through
- * [AppState.realFilterNames] once known, so a *new* pick can't go wrong — but a block created
- * (or last cycled) before the wheel was connected/renamed can still be sitting on a stale
- * fixture name that's no longer real. Run on every device-property push (cheap — a handful of
- * jobs/blocks at most) so a block self-corrects the moment real names actually become known,
- * rather than waiting for the user to notice and tap it themselves. Never touches a block whose
- * filter is already valid, so this can't fight a user's own just-made pick.
+ * Resets any block filter that isn't one of the filter wheel's current slots to the first slot,
+ * since that name goes into the `.esq` `<Filter>` element sent to Ekos.
+ * [SessionController.cycleBlockFilter] only offers [AppState.realFilterNames], but a block set
+ * before the wheel connected or was renamed can hold a stale name. Runs on every
+ * device-property push; valid filters are never touched.
  */
 private fun AppState.withValidBlockFilters(): AppState {
     val names = realFilterNames ?: return this
@@ -2853,7 +2513,7 @@ private fun AppState.withValidBlockFilters(): AppState {
     return next
 }
 
-/** Merges one real property-vector push into [AppState.indiProps], keyed by real device name. */
+/** Merges one property-vector push into [AppState.indiProps], keyed by device name. */
 private fun AppState.withProperty(device: String, property: WireProperty): AppState {
     val current = indiProps[device] ?: emptyList()
     val existing = current.firstOrNull { it.name == property.name }
@@ -2863,12 +2523,9 @@ private fun AppState.withProperty(device: String, property: WireProperty): AppSt
 }
 
 /**
- * Translates one wire property vector into the app's [IndiProperty] shape,
- * merging over [existing] so a compact push (which omits label/group/bounds)
- * doesn't blank out what an earlier non-compact `device_get` already
- * populated — only the live value/state fields are guaranteed fresh on every
- * push; everything else falls back to what's already known, then to a bare
- * default.
+ * Translates one wire property vector into [IndiProperty], merging over [existing] so a
+ * compact push (no label/group/bounds) doesn't blank what an earlier non-compact `device_get`
+ * populated. Only value/state are fresh on every push.
  */
 private fun WireProperty.toIndiProperty(existing: IndiProperty?): IndiProperty = when (this) {
     is WireProperty.Switch -> {
@@ -2905,10 +2562,8 @@ private fun WireProperty.toIndiProperty(existing: IndiProperty?): IndiProperty =
             name = name,
             label = label ?: ex?.label ?: name,
             group = group ?: ex?.group ?: "",
-            // Real INDI text-vector pushes are whole-vector snapshots, not per-element diffs
-            // (same assumption Switch/Light already make) — only fall back to the previous
-            // elements if this push carried none at all (a compact push omitting this vector
-            // entirely), never a partial merge.
+            // Text-vector pushes are whole-vector snapshots, not per-element diffs; fall back to
+            // the previous elements only if this push carried none.
             elements = texts.map { it.name to it.text }.ifEmpty { ex?.elements ?: emptyList() },
         )
     }
@@ -2921,10 +2576,8 @@ private fun WireProperty.toIndiProperty(existing: IndiProperty?): IndiProperty =
 }
 
 /**
- * Translates one `astro_get_objects_info` entry (+ its matching riseset entry,
- * if that reply has landed yet) into the app's [Target] shape. `size`/`band`/
- * `usable`/`fov` stay null — the wire has no equivalent for the fixture
- * catalog's precomputed display values.
+ * Translates one `astro_get_objects_info` entry (plus its riseset entry, if that reply has
+ * landed) into [Target]. `size`/`band`/`usable`/`fov` stay null; the wire has no equivalent.
  */
 private fun WireAstroObject.toTarget(riseset: WireRiseset?): Target = Target(
     id = name,

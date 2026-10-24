@@ -89,8 +89,7 @@ fun PlanScreen(
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val q = state.query.trim().lowercase()
-    // The search bar/chips drive real astro_search_objects → astro_get_objects_info
-    // (EkosRemoteController) — see AppState.wireSearchResults. No bundled fallback catalog.
+    // Search goes to Ekos (astro_search_objects → astro_get_objects_info); no bundled catalog.
     val matches = state.wireSearchResults.orEmpty()
     val tgt = state.findTarget(state.targetId)
     val userMatches = state.userTargets.filter { tg ->
@@ -110,8 +109,7 @@ fun PlanScreen(
             },
             TabItem(full = true) { SearchTypeRow(state, ctrl) },
             TabItem(full = true) {
-                // These filters (and mag) only drive astro_search_objects — a no-type name
-                // search ignores them, so they're dimmed rather than looking active.
+                // Filters and mag only apply to a typed search; a name search ignores them.
                 Row(Modifier.fillMaxWidth().alpha(if (state.searchType == null) 0.4f else 1f)) {
                     com.nocturne.session.PLAN_CHIPS.indices.forEach { i ->
                         PlanChip(
@@ -166,8 +164,8 @@ fun PlanScreen(
     )
 }
 
-/** Plan tab search's object-type picker — one `SkyObject::TYPE` per search, see [SEARCH_TYPES].
- *  Tapping the selected type deselects it (plain name search across every catalog). */
+/** Object-type picker: one `SkyObject::TYPE` per search. Tapping the selected type deselects it,
+ *  giving a plain name search across every catalog. */
 @Composable
 private fun SearchTypeRow(state: AppState, ctrl: SessionController) {
     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
@@ -183,8 +181,8 @@ private fun SearchTypeRow(state: AppState, ctrl: SessionController) {
 }
 
 /**
- * Faintest-magnitude stepper (`maxMagnitude`). Dimmed for planets — the fork only applies the
- * magnitude limit to its DSO database query, not to KStars' planet list.
+ * Faintest-magnitude stepper (`maxMagnitude`). Dimmed for planets: the fork applies the limit
+ * only to its DSO database query, not to KStars' planet list.
  */
 @Composable
 private fun MagStepper(state: AppState, ctrl: SessionController) {
@@ -300,7 +298,7 @@ private fun ResultsList(
                 state.searchType == null && state.query.trim().length < 2 && matches.isEmpty() ->
                     "Pick an object type, or type a name to search every catalog"
                 matchCount == null && matches.isEmpty() -> "Waiting for Ekos to answer the first search…"
-                // Only the direct name lookup hit — it's outside this type/filter search.
+                // Only the direct name lookup hit; it falls outside this type/filter search.
                 (matchCount ?: 0) == 0 && matches.isNotEmpty() -> "Name match · outside this type/filter search"
                 matchCount == 0 || matchCount == null -> "No matches — try another type, a fainter mag limit, or fewer filters"
                 matches.isEmpty() -> "Resolving $matchCount matches…"
@@ -340,21 +338,16 @@ private fun TargetRow(tg: Target, selected: Boolean, onClick: () -> Unit) {
 }
 
 /**
- * **Real bug found live (2026-08-22, user report)**: a bounded results list — [ResultsList]'s
- * matches, [UserCatalogSection]'s custom targets — has its own `verticalScroll` capped to
- * [VISIBLE_RESULT_ROWS] rows, but Compose's default nested-scroll behavior lets any leftover
- * scroll/fling velocity, once that inner list hits its own top/bottom bound, keep going into
- * whatever scrollable contains it — here, the *entire* Plan tab's own single page scroll (see
- * `TabPane`). A strong swipe that reaches the end of a short results list was carrying straight
- * through into flinging the whole page. This connection claims all left-over scroll/fling for
- * itself instead, so hitting the list's own bound is really the end of the gesture.
+ * Consumes leftover scroll/fling from a bounded inner list so a swipe that reaches the list's
+ * end stops there instead of flinging the whole Plan page (Compose's default nested-scroll
+ * behavior passes it on to the parent).
  */
 private fun boundedListNestedScrollConnection() = object : NestedScrollConnection {
     override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset = available
     override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity = available
 }
 
-/** Where [instant] falls within [window] as a 0..1 fraction — same units as [AppState.realDayFraction]/[AltitudeChart]'s `realNowFraction`. Not clamped: a caller checking placement should already know the instant belongs inside the window. */
+/** Where [instant] falls within [window] as a 0..1 fraction, same units as [AppState.realDayFraction]. Not clamped. */
 private fun fractionOfWindow(instant: Instant, window: Pair<Instant, Instant>): Double {
     val total = window.second.epochSecond - window.first.epochSecond
     if (total <= 0) return 0.0
@@ -362,19 +355,11 @@ private fun fractionOfWindow(instant: Instant, window: Pair<Instant, Instant>): 
 }
 
 /**
- * Real per-target altitude data ([AppState.wireTargetRiseset], fetched on demand — see
- * [SessionController.ensureTargetRiseset]) replaces the chart's fixture curve and the "21:48"/
- * "now"/"04:12" fixed literals once it's arrived *for this exact target*; the fetch itself is
- * cheap enough to just re-request every time the framed target changes (`LaunchedEffect(tgt.id)`)
- * rather than tracking staleness here. "flip" has no real data anywhere in this app (see
- * `FlipBanner`'s own doc) so it's simply omitted under a real rig, same as `NightArcCard`.
+ * Selected target with its altitude chart. Rise/set data is re-fetched whenever the target
+ * changes (cheap enough not to track staleness) and used only once it matches this target.
  *
- * **Real bug found live (2026-08-09)**: `realDayFraction` et al. are `Instant.now()`-based, which
- * Compose has no reason to ever re-evaluate on its own — with no periodic trigger, the "now"
- * position silently freezes at whatever wall-clock time this composable last happened to
- * recompose for some *other* reason (a wire event). Confirmed live: M104 shown "rising" hours
- * after it had actually set, because nothing had touched `state` since it was framed. The `tick`
- * below exists purely to force a redraw every 30s so real time keeps advancing on screen.
+ * `realDayFraction` and friends read `Instant.now()`, which Compose never re-evaluates on its own;
+ * `tick` forces a recomposition every 30 s so the "now" marker keeps moving.
  */
 @Composable
 private fun TargetCard(state: AppState, ctrl: SessionController, tgt: Target) {
@@ -394,33 +379,20 @@ private fun TargetCard(state: AppState, ctrl: SessionController, tgt: Target) {
     val realAltitudes = riseset?.altitudes?.takeIf { it.size >= 2 }
     val nowFraction = state.realDayFraction
     val window = state.realDayWindow
-    // Real absolute daily max/transit — reverted from a night-window-restricted version (M5,
-    // docs/STATUS.md) that tried to avoid pairing a daytime peak with "0h 00m usable" (real user
-    // confusion, 2026-08-22) by clamping "peak" to the highest sample *within* tonight's dark
-    // window. That clamp had its own real bug, found live: [state.realNightWindow]'s dusk/dawn are
-    // site-wide, not per-target — for any target whose true transit already precedes dusk (a
-    // spring-sky object like M101/M51/M95 by late August, altitude just descending all night), the
-    // "highest sample in the window" degenerates to the very first sample after dusk, rounded to
-    // the same 30-min grid point for every such target — multiple genuinely different targets all
-    // showed the identical dusk-ish time, which is what actually got reported (user's own account
-    // named 3 different targets all showing "21:30"). User's call: accept the earlier
-    // daytime-peak-vs-0h-usable inconsistency again rather than this — real data, always the
-    // target's own actual peak, matches the dashed line [AltitudeChart] itself already draws from
-    // the unclamped `realAltitudes` array (that line was never night-clamped even while this text
-    // was — the two had already drifted out of sync for exactly the targets reported here).
+    // The target's absolute daily max/transit, deliberately not clamped to tonight's dark window:
+    // for a target that transits before dusk, a clamped peak collapses to the first sample after
+    // dusk, so different targets all show the same time. It also matches AltitudeChart's peak line.
     val dayMaxAlt = riseset?.altitudes?.maxOrNull()
     val maxAlt = dayMaxAlt?.let { kotlin.math.round(it).toInt() } ?: tgt.max
     val peak = riseset?.transit ?: tgt.peak
     val usable = riseset?.let { state.realUsableSeconds(it) }?.let { formatHm(it) } ?: tgt.usable
-    // Real dusk/dawn (same source as the Session tab's night arc) expressed as fractions of this
-    // chart's own day window, so they land on the same x-axis realNowFraction/the curve itself
-    // use. User-requested addition (2026-08-22): shades which part of the curve is actually
-    // observable-dark versus daylight, directly on the chart rather than only in NightPlanBar.
+    // Dusk/dawn as fractions of the chart's day window, so the dark part of the curve is shaded
+    // on the same x-axis as the curve and the "now" marker.
     val nightWindow = state.realNightWindow
     val duskFraction = if (window != null && nightWindow != null) fractionOfWindow(nightWindow.first, window) else null
     val dawnFraction = if (window != null && nightWindow != null) fractionOfWindow(nightWindow.second, window) else null
-    // Same peak-sample index AltitudeChart computes internally for its own dashed line — recomputed
-    // here (a Canvas draw can't hand a value back up) purely so this label can sit at the same x.
+    // Same peak index AltitudeChart computes for its dashed line; recomputed here because a Canvas
+    // draw can't hand a value back up, so the label can sit at the same x.
     val peakFraction = realAltitudes?.withIndex()?.maxByOrNull { it.value }?.index
         ?.let { idx -> idx.toDouble() / (realAltitudes.size - 1) }
     com.nocturne.ui.components.Card {
@@ -434,8 +406,7 @@ private fun TargetCard(state: AppState, ctrl: SessionController, tgt: Target) {
             }
             TextC("${usable ?: "—"} usable", style = t.Mono115, color = c.accent400)
         }
-        // Real Moon illuminated fraction (user request) — same astro_get_almanac reply this app
-        // already fetches for dusk/dawn, MoonIllum was just never decoded before.
+        // MoonIllum comes from the same astro_get_almanac reply as dusk/dawn.
         state.wireMoonIllum?.let {
             Spacer(Modifier.height(4.dp))
             TextC("Moon ${kotlin.math.round(it * 100).toInt()}% illuminated", style = t.MonoSmall, color = c.textMuted)
@@ -451,9 +422,7 @@ private fun TargetCard(state: AppState, ctrl: SessionController, tgt: Target) {
                 realDuskFraction = duskFraction, realDawnFraction = dawnFraction,
                 moonAltitudes = state.wireMoonRiseset?.altitudes?.takeIf { it.size >= 2 },
             )
-            // Real y-axis altitude ticks (user-requested, 2026-08-22) — same altitudeToChartY
-            // mapping the real curve/horizon/peak/now lines are all drawn with, so a tick's text
-            // lands at the exact height its degree value corresponds to on the curve.
+            // Y-axis ticks use the chart's own altitudeToChartY mapping so they line up with the curve.
             if (realAltitudes != null) {
                 listOf(0, 30, 60, 90).forEach { deg ->
                     val yFraction = altitudeToChartY(deg.toDouble()) / 118f
@@ -484,9 +453,7 @@ private fun TargetCard(state: AppState, ctrl: SessionController, tgt: Target) {
                 "max ${maxAlt?.let { "$it°" } ?: "—"} @ ${peak ?: "—"}", style = t.Mono115, color = c.text,
                 modifier = Modifier.align(Alignment.TopEnd),
             )
-            // Time labels for the chart's own dusk/dawn dashed lines (the lines themselves are
-            // drawn inside AltitudeChart) — same top-aligned placement so they don't collide with
-            // the bottom-row window-edge/now labels.
+            // Labels for AltitudeChart's dusk/dawn lines, top-aligned to stay clear of the bottom row.
             if (duskFraction != null && nightWindow != null) {
                 TextC(
                     "dusk ${state.formatSiteTime(nightWindow.first)}", style = t.MonoMicro, color = c.textFaint,
@@ -499,8 +466,7 @@ private fun TargetCard(state: AppState, ctrl: SessionController, tgt: Target) {
                     modifier = Modifier.align(Alignment.TopStart).padding(start = (maxWidth * dawnFraction.toFloat() - 20.dp).coerceAtLeast(0.dp), top = 20.dp),
                 )
             }
-            // Peak label — own row (top = 40.dp, below the dusk/dawn row above) so it doesn't
-            // collide when the peak time sits close to either twilight edge on the x-axis.
+            // Own row below dusk/dawn so it can't collide when the peak is near either twilight.
             if (peakFraction != null) {
                 TextC(
                     "peak ${peak ?: "—"}", style = t.MonoMicro, color = c.textMuted,
@@ -512,10 +478,8 @@ private fun TargetCard(state: AppState, ctrl: SessionController, tgt: Target) {
 }
 
 /**
- * The user catalogue — exactly one, name is editable inline, no add/remove
- * catalogues (only one ever exists). Targets within it are freely CRUD-able,
- * minimal fields (name + coords only — no astro engine to compute the rest
- * from yet, see [Target]).
+ * The single user catalogue: inline-editable name, targets with name + coords only (nothing
+ * computes the other [Target] fields for them).
  */
 @Composable
 private fun UserCatalogSection(state: AppState, ctrl: SessionController, matches: List<Target>) {
@@ -692,26 +656,13 @@ private fun FramingCard(state: AppState, ctrl: SessionController, tgt: Target) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     LaunchedEffect(tgt.id) { ctrl.ensureReferenceImage(tgt.id) }
-    // Box rotation, current: the real CURRENT camera angle from the last solve — solid, c.warn.
-    // User correction: this box represents where the camera actually is right now, per the
-    // solve, not where it's meant to go. Prefers wireAlignSolution.PA (M5, docs/STATUS.md) — the
-    // real solved PA from `new_align_state`'s solution field, sent on *every* successful solve
-    // unconditionally — over wireRotatorCurrentPA, which only ever arrives when rotator_control
-    // is on (confirmed false by default on this rig). Falls back to the rotator push if a solve's
-    // solution hasn't landed yet but a rotator-diff push somehow has. 0° (unrotated) until either
-    // has arrived this connection — honest "unknown yet" default, not a guess.
+    // Solid box: where the camera is now, per the last solve. The align solution's PA comes with
+    // every successful solve; the rotator push only arrives when rotator_control is on (off by
+    // default). 0° until either arrives.
     val currentAngleRotation = (state.wireAlignSolution?.PA ?: state.wireRotatorCurrentPA)?.toFloat() ?: 0f
-    // Box rotation, target: the slider's own real align_set_target_pa value — dashed, c.accent,
-    // shown separately from the current box above (both were being conflated into one box
-    // before this pass — the target-angle box had gone missing entirely). No calibrated offset
-    // applied to either — there's no established real correspondence between these angles and
-    // Compose's .rotate() direction confirmed yet, same open question as NewPolarState's vector
-    // `pa` field.
+    // Dashed box: the target PA from the slider (align_set_target_pa). Neither box applies an
+    // offset; the sign convention between these angles and Compose's .rotate() is unverified.
     val targetAngleRotation = state.rotatorAngle.toFloat()
-    // Was a literal "FRAMING · 2600MM + 550MM" (the fixture's own default camera/scope,
-    // TrainAssignment("ASI2600MM Pro", "Field APO" @ 550mm) baked in as a static string —
-    // never wired to either real or fixture optical-train data since M1's port). Now reflects
-    // whichever camera/scope is actually assigned to the primary train.
     val focalMm = state.findScope(state.primaryTrain.scope)?.focalMm
     val cameraLabel = state.primaryTrain.camera.takeIf { it != "None" }
     val framingTitle = buildString {
@@ -719,9 +670,7 @@ private fun FramingCard(state: AppState, ctrl: SessionController, tgt: Target) {
         cameraLabel?.let { append(" · $it") }
         focalMm?.let { append(" · ${it}mm") }
     }
-    // Real pixel-scale/FOV once the primary camera's CCD_INFO has arrived (EkosRemoteController
-    // only) — falls back to the same placeholder readout the card always showed otherwise, so
-    // the simulator (and the brief window before CCD_INFO arrives) look unchanged.
+    // Pixel scale/FOV need the primary camera's CCD_INFO; a placeholder readout shows until then.
     val pixelScale = state.framingPixelScaleArcsecPerPx
     val fovDeg = state.framingFovDeg
     val readout = if (pixelScale != null && fovDeg != null) {
@@ -732,8 +681,7 @@ private fun FramingCard(state: AppState, ctrl: SessionController, tgt: Target) {
     com.nocturne.ui.components.Card {
         TextC(framingTitle, style = t.Body135, color = c.textMuted)
         Spacer(Modifier.height(2.dp))
-        // Not mandatory (docs/STATUS.md M5) — the whole card is skippable, "Add to sequence"
-        // never gates on anything here.
+        // Framing is optional; "Add to sequence" never gates on anything here.
         TextC("optional — skip if you don't need precise framing", style = t.Caption, color = c.textFaint)
         Spacer(Modifier.height(11.2.dp))
         Box(
@@ -742,11 +690,8 @@ private fun FramingCard(state: AppState, ctrl: SessionController, tgt: Target) {
                 .height(240.dp)
                 .background(c.surfaceDeep, RoundedCornerShape(10.dp)),
         ) {
-            // Real DSS reference-image cutout (M5, docs/STATUS.md), NOT the main camera's own
-            // captured frame — user's explicit call: framing is about the sky the target sits
-            // in, not whatever this session's camera has captured so far. MediaFramePreview's
-            // existing ByteArray? overload handles the null-until-fetched/offline case the same
-            // honest way it always has (hatch placeholder), no new fallback logic needed here.
+            // A DSS reference cutout, not the camera's last frame: framing is about the sky around
+            // the target. Shows a hatch placeholder until fetched.
             MediaFramePreview(state.referenceImageJpeg, Modifier.fillMaxSize(), hatchColor = c.divider)
             if (state.referenceImageJpeg == null) {
                 TextC(
@@ -779,9 +724,8 @@ private fun FramingCard(state: AppState, ctrl: SessionController, tgt: Target) {
                 style = t.Mono115, color = c.accent400,
                 modifier = Modifier.align(Alignment.TopStart).padding(top = 6.dp, start = 8.dp),
             )
-            // Real solving status (M5, docs/STATUS.md) — wireAlignStatus was decoded but shown
-            // nowhere in the app until now; real vocabulary (ekos.h): Idle/Complete/Failed/
-            // Aborted/In Progress/Successful/Syncing/Slewing/Rotating/Suspended.
+            // Align status, ekos.h vocabulary: Idle/Complete/Failed/Aborted/In Progress/
+            // Successful/Syncing/Slewing/Rotating/Suspended.
             state.wireAlignStatus?.let {
                 TextC(
                     it, style = t.Mono115, color = c.accent400,
@@ -799,8 +743,7 @@ private fun FramingCard(state: AppState, ctrl: SessionController, tgt: Target) {
         Spacer(Modifier.height(11.2.dp))
         TargetAngleRow(angle = state.rotatorAngle, onAngleChange = ctrl::setRotatorAngle)
         Spacer(Modifier.height(8.dp))
-        // Lets the user re-solve right from this card to refresh the box above without leaving
-        // for Controls tab — same real align_solve/captureAndSolve as AlignSolveCard there.
+        // Re-solve from here to refresh the current box; same captureAndSolve as the Controls tab.
         NocturneButton(
             text = "Plate solve here",
             onClick = ctrl::plateSolveHere,
@@ -810,8 +753,7 @@ private fun FramingCard(state: AppState, ctrl: SessionController, tgt: Target) {
     }
 }
 
-/** M5 (docs/STATUS.md) — was labeled "Rotator" before this slider was repurposed as the real
- * target-PA control (align_set_target_pa); renamed for what it actually sets now. */
+/** Target position angle slider (align_set_target_pa), 0–360°. */
 @Composable
 private fun TargetAngleRow(angle: Double, onAngleChange: (Double) -> Unit) {
     val c = NocturneTheme.colors

@@ -19,16 +19,13 @@ data class ConnectionSettings(
     val host: String? = null,
     val port: Int = 9000,
     val lastConnectedAt: Long? = null,
-    /** Companion reboot-daemon port (`pi-tools/reboot-daemon/`) — separate channel from the
-     *  EkosRemote wire's own [port], same host. */
+    /** Reboot-daemon port (`pi-tools/reboot-daemon/`) on the same host; separate from [port]. */
     val rebootPort: Int = 9001,
 )
 
 /**
- * Wraps DataStore Preferences for the connect screen and [SessionViewModel]'s
- * launch-time auto-reconnect decision. No saved host (the fresh-install default)
- * means "show the connect screen" — real-rig-only, no simulator fallback (removed
- * 2026-08-22, see docs/simulator-removal-plan.md).
+ * DataStore Preferences for the connect screen's saved host/port, read by [SessionViewModel]
+ * to pre-fill it.
  */
 class ConnectionRepository(private val context: Context) {
 

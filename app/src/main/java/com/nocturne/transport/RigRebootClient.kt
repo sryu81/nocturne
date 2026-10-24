@@ -14,20 +14,16 @@ import java.io.IOException
 import kotlin.coroutines.resume
 
 /**
- * Talks to the small companion daemon installed on the rig's Pi
- * (`pi-tools/reboot-daemon/`) — a plain unauthenticated HTTP channel, entirely
- * separate from the EkosRemote websocket. The wire protocol has no OS-level
- * reboot command, and even if it did, a hung/crashed Ekos process is exactly
- * the case a reboot needs to recover from — it can't depend on that same
- * process being alive to ask for one.
+ * Client for the companion daemon on the Pi (`pi-tools/reboot-daemon/`), a plain unauthenticated
+ * HTTP channel separate from EkosRemote. A reboot must work when Ekos itself is hung, so it can't
+ * go through the websocket.
  */
 class RigRebootClient(private val host: String, private val port: Int) {
 
     private val http = OkHttpClient()
 
-    /** POSTs `/reboot`; the daemon responds before actually rebooting, so success here means
-     *  "the Pi accepted the request", not "the Pi is back up" — callers should expect the
-     *  connection to drop shortly after and rely on [EkosRemoteClient]'s own reconnect. */
+    /** POSTs `/reboot`. The daemon replies before rebooting, so success means the request was
+     *  accepted; the connection drops shortly after and [EkosRemoteClient] reconnects. */
     suspend fun reboot(): Result<Unit> = suspendCancellableCoroutine { cont ->
         val request = Request.Builder()
             .url("http://$host:$port/reboot")
@@ -54,14 +50,10 @@ class RigRebootClient(private val host: String, private val port: Int) {
     }
 
     /**
-     * POSTs `/set-time` with the phone's own local wall-clock date/time — same daemon, real `sudo date -s`+`hwclock -w` on the Pi (2026-09 addition, see
-     * `reboot_daemon.py`'s own doc for why this needs OS-level `sudo` rather than anything on the
-     * EkosRemote wire: no INDI/Ekos property controls the Pi's system clock at all, only KStars'
-     * own internal simulated clock does, which is a separate real gap — see
-     * [com.nocturne.session.SessionController.setKstarsTime] for that half).
-     * [iso] must be a **local** (no timezone suffix) `YYYY-MM-DDTHH:MM:SS` string — the daemon
-     * passes it straight to `date -s`, interpreted in whatever timezone the Pi's own
-     * `/etc/localtime` is set to, matching the real intent (phone and rig co-located).
+     * POSTs `/set-time`; the daemon runs `date -s` + `hwclock -w`. Nothing on the EkosRemote wire
+     * sets the Pi's system clock (KStars' own clock is set separately, see
+     * [com.nocturne.session.SessionController.setKstarsTime]). [iso] is a local
+     * `YYYY-MM-DDTHH:MM:SS` with no zone suffix, interpreted in the Pi's `/etc/localtime`.
      */
     suspend fun setTime(iso: String): Result<Unit> = suspendCancellableCoroutine { cont ->
         val body = buildJsonObject { put("iso", iso) }.toString()

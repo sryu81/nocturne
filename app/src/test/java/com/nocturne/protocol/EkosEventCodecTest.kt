@@ -8,13 +8,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Decode tests for every [EkosEvent] case [EkosEventCodec] dispatches.
- * Fixtures marked "live capture" are byte-for-byte payloads pulled off a real
- * Pi running EkosRemote at `10.0.0.43:9000` (not hand-written per the docs) —
- * catches the class of bug where the docs/plan's assumed wire *type* for a
- * field turns out wrong (see [WireTrain]'s history: real `profile`/`reducer`
- * are numbers and `adaptiveoptics` can be JSON `null`, none of which the
- * hand-written model originally allowed for).
+ * Decode tests for every [EkosEvent] case [EkosEventCodec] dispatches. Fixtures marked
+ * "live capture" are verbatim payloads from the rig, so they pin the actual wire types.
  */
 class EkosEventCodecTest {
 
@@ -30,8 +25,8 @@ class EkosEventCodecTest {
 
     @Test
     fun `decodes get_profiles with real multi-profile payload, extra legacy fields ignored`() {
-        // live capture — 3 real profiles, each carrying legacy per-role fields (ccd/mount/focuser/...)
-        // that WireProfile deliberately doesn't model; ignoreUnknownKeys must swallow them.
+        // live capture — profiles carry legacy per-role fields (ccd/mount/focuser/...) that
+        // WireProfile doesn't model; ignoreUnknownKeys must swallow them.
         val json = """{"payload":{"profiles":[
             {"ao":"","auto_connect":true,"aux1":"","aux2":"","aux3":"","aux4":"","ccd":"CCD Simulator","dome":"","driver_source":"system","drivers":{"CCDs":["CCD Simulator","Guide Simulator"],"Focusers":["Focuser Simulator"],"Telescopes":["Telescope Simulator"]},"filter":"","focuser":"Focuser Simulator","guider":"Guide Simulator","guiding":0,"mode":"local","mount":"Telescope Simulator","name":"Simulators","port_selector":false,"remote":"","remote_guiding_host":"","remote_guiding_port":-1,"remote_host":"","remote_port":0,"use_web_manager":true,"weather":""},
             {"ao":"","auto_connect":true,"aux1":"","aux2":"","aux3":"","aux4":"","ccd":"Sony DSLR","dome":"","driver_source":"system","drivers":{"CCDs":["Sony DSLR","ZWO CCD"],"Focusers":["ZWO EAF"],"Telescopes":["iOptron HEM27"]},"filter":"","focuser":"ZWO EAF","guider":"ZWO CCD","guiding":1,"mode":"local","mount":"iOptron HEM27","name":"Cat51_A7_HEM27_ASI385","port_selector":false,"remote":"","remote_guiding_host":"localhost","remote_guiding_port":4400,"remote_host":"","remote_port":0,"use_web_manager":true,"weather":""},
@@ -44,8 +39,8 @@ class EkosEventCodecTest {
         assertEquals("Cat51_ATR2600MM_Onstep_IMX178", event.selectedProfile)
         assertEquals(3, event.profiles.size)
         assertEquals(listOf("Simulators", "Cat51_A7_HEM27_ASI385", "Cat51_ATR2600MM_Onstep_IMX178"), event.profiles.map { it.name })
-        // A real profile disambiguates the guide camera from the main one only via `guider`
-        // (both live in the same drivers["CCDs"] list) — confirm that still round-trips.
+        // The guide camera is told apart from the main one only via `guider` (both are in
+        // drivers["CCDs"]).
         val hem27 = event.profiles[1]
         assertEquals(listOf("Sony DSLR", "ZWO CCD"), hem27.drivers["CCDs"])
         assertEquals("ZWO CCD", hem27.guider)
@@ -53,8 +48,7 @@ class EkosEventCodecTest {
 
     @Test
     fun `decodes train_get_all — regression for real numeric profile-reducer and nullable adaptiveoptics`() {
-        // live capture — this exact payload used to throw SerializationException (profile/reducer
-        // modeled as String, adaptiveoptics modeled as non-null) and silently fall back to Raw.
+        // live capture — profile/reducer are numbers and adaptiveoptics is null.
         val json = """{"payload":[
             {"adaptiveoptics":null,"camera":"ToupTek ATR2600M","dustcap":"None","filterwheel":"EFW 7×36 mm","focuser":"EAF","guider":"LX200 OnStep","id":11,"lightbox":"None","mount":"LX200 OnStep","name":"Primary","profile":5,"reducer":1,"rotator":"None","scope":"Field APO"},
             {"adaptiveoptics":null,"camera":"ToupTek ATR2600M","dustcap":"None","filterwheel":"EFW 7×36 mm","focuser":"EAF","guider":"EQ6-R Pro","id":12,"lightbox":"None","mount":"LX200 OnStep","name":"Secondary","profile":5,"reducer":1,"rotator":"None","scope":"Field APO"}
@@ -77,8 +71,7 @@ class EkosEventCodecTest {
 
     @Test
     fun `decodes astro_get_almanac — curated to dusk-dawn, capitalized keys via SerialName`() {
-        // live capture (Session tab real night-arc, M2026-08) — only dusk/dawn are modeled,
-        // the Moon/Sun fields are ignored by design (see EkosEvent.AstroAlmanac's doc).
+        // live capture — only dusk/dawn/moon illumination are modeled; other fields are ignored.
         val json = """{"payload":{"Dawn":0.19,"Dusk":-0.085,"MoonIllum":0.585,"MoonPhase":-99.86,"MoonRise":0.968,"MoonSet":0.569,"SunMaxAlt":69.16,"SunMinAlt":-35.28,"SunRise":0.261,"SunSet":0.843},"type":"astro_get_almanac"}"""
         val event = EkosEventCodec.decode(json)
         assertTrue(event is EkosEvent.AstroAlmanac)
@@ -124,9 +117,8 @@ class EkosEventCodecTest {
 
     @Test
     fun `decodes get_scopes — real Ekos auto-derives name from vendor+model+focal+fratio, not user input`() {
-        // live capture. Confirms name != model — a scope's displayed `name` ("Skywatcher Esprit
-        // 100ED 550@F/5.5") is server-generated from vendor/model/focal_length/aperture, not the
-        // literal string a `scope_add` caller sent as `model` — see WireScope.toScopeDef()'s doc.
+        // live capture. A scope's `name` ("Skywatcher Esprit 100ED 550@F/5.5") is generated by
+        // the server from vendor/model/focal_length/aperture; it is not the `model` sent.
         val json = """{"payload":[
             {"aperture":120,"focal_length":700,"id":"1","model":"Primary","name":"Sample Primary 700@F/5.8","type":"Refractor","vendor":"Sample"},
             {"aperture":51,"focal_length":250,"id":"3","model":"Redcat 51","name":"William Optics Redcat 51 250@F/4.9","type":"Refractor","vendor":"William Optics"}
@@ -166,7 +158,7 @@ class EkosEventCodecTest {
 
     @Test
     fun `decodes device_property_get switch vector`() {
-        // per EkosRemote-Command-Reference.md §14 — switches/numbers/texts/lights sniffed by key presence
+        // switches/numbers/texts/lights sniffed by key presence (docs/PROTOCOL.md)
         val json = """{"payload":{"device":"CCD Simulator","name":"CONNECTION","state":0,
             "switches":[{"name":"CONNECT","state":0},{"name":"DISCONNECT","state":1}],
             "label":"Connection","group":"Main Control"},"type":"device_property_get"}"""
@@ -208,10 +200,7 @@ class EkosEventCodecTest {
 
     @Test
     fun `decodes mount_get_all_settings — curated subset, extra real fields ignored`() {
-        // live capture (M3.3) — real Mount::getAllSettings() reports 17 fields; only 10 are
-        // modeled. ignoreUnknownKeys must drop the other 7 (locationSource/timeSource/
-        // useGeographicUpdate/useTimeUpdate/leftRightCheckObject/upDownCheckObject) without
-        // throwing.
+        // live capture — 17 fields, 10 modeled; ignoreUnknownKeys must drop the rest.
         val json = """{"payload":{"autoParkTime":"03:00:00","enableAltitudeLimits":false,
             "enableAltitudeLimitsTrackingOnly":false,"enableHaLimit":false,"executeMeridianFlip":true,
             "leftRightCheckObject":false,"locationSource":"KStars","maximumAltLimit":90,
@@ -236,12 +225,8 @@ class EkosEventCodecTest {
 
     @Test
     fun `decodes capture_get_all_settings — curated subset, extra real fields ignored`() {
-        // live capture (M3.3 phase 5 + the preview-controls/cooler-sync fix) — real
-        // Camera::getAllSettings() reports 59 fields; only 12 are modeled. ignoreUnknownKeys
-        // must drop the other 47 without throwing. Trimmed to a representative subset of the
-        // full live payload (real values from the rig), not every one of the 59 fields — the
-        // point is the curated 12 decode correctly and unknown keys don't break decode, not to
-        // duplicate the full reference dump here.
+        // live capture, trimmed to a representative subset of the 59 fields: the modeled ones
+        // plus some unknown keys that must be dropped.
         val json = """{"payload":{"FilterPosCombo":"L","cameraTemperatureN":-1,"cameraTemperatureS":true,
             "captureBinHN":1,"captureBinVN":1,"captureExposureN":1,"captureGainN":99,"captureTypeS":"Light",
             "enableDitherPerJob":true,"enforceGuideDeviation":false,"enforceStartGuiderDrift":false,
@@ -269,15 +254,9 @@ class EkosEventCodecTest {
 
     @Test
     fun `decodes guide_get_all_settings — curated subset incl phase-4 fields, guideBinning is a string`() {
-        // live capture (M3.3 phase 4) — real Guide::getAllSettings() reports 84 fields; 8 are
-        // modeled (the 3 preview fields from Bench "Snap guide", plus accuracy threshold + dither
-        // + reuse-calibration). ignoreUnknownKeys must drop the other 76 without throwing.
-        // This capture is the one that resolved the M3.3-plan.md field-name risk: the plan's
-        // guiderAccuracyThreshold/kcfg_DitherEnabled/kcfg_DitherPixels/kcfg_DitherThreshold/
-        // kcfg_ReuseGuideCalibration names all turned out correct as-is (all present verbatim
-        // under guide_get_all_settings itself, not needing guide_set_calibration_settings as
-        // briefly suspected before probing) — unlike alignBinning's history below, this was a
-        // near-miss on the *names/command*, not the type.
+        // live capture — 84 fields; ignoreUnknownKeys must drop the unmodeled ones. The
+        // kcfg_Dither*/kcfg_ReuseGuideCalibration keys are in this reply itself, not behind
+        // guide_set_calibration_settings.
         val json = """{"payload":{"dECGuideEnabled":true,"guideAutoStar":true,"guideBinning":"1x1",
             "guideDarkFrame":false,"guideExposure":3.5,"guideGain":99,"guiderAccuracyThreshold":2,
             "kcfg_DitherEnabled":false,"kcfg_DitherPixels":2,"kcfg_DitherThreshold":1,
@@ -300,16 +279,8 @@ class EkosEventCodecTest {
 
     @Test
     fun `decodes focus_get_all_settings — curated subset incl phase-6 fields, focusAlgorithm is a string`() {
-        // live capture (M3.3 phase 6) — real Focus::getAllSettings() reports 84 fields; 8 are
-        // modeled (absTicksSpin, already used to seed AppState.focPos, plus exposure/gain/filter/
-        // backlash/algorithm for the Focus settings sheet, plus focusTicks/focusMaxTravel added
-        // later for the same sheet). ignoreUnknownKeys must drop the other 76 without throwing.
-        // Unlike Guide's field-name history, this list carried low risk —
-        // EkosRemote-Command-Reference.md flags Focus's field list "Live-captured" (same trusted
-        // bucket as Capture/Align), and all names matched verbatim before this probe — this
-        // capture confirms types only. focusAlgorithm is a string ("Linear 1 Pass"), not an enum
-        // index — same shape as alignBinning/guideBinning. focusMaxTravel was already sitting in
-        // this same live-captured payload, just dropped as unknown until modeled.
+        // live capture — 84 fields; ignoreUnknownKeys must drop the unmodeled ones.
+        // focusAlgorithm is a string ("Linear 1 Pass"), not an enum index.
         val json = """{"payload":{"absTicksSpin":29535,"defaultFocusTemperatureSource":"ZWO EAF",
             "focusAlgorithm":"Linear 1 Pass","focusBacklash":0,"focusBinning":"1x1",
             "focusCurveFit":"Hyperbola","focusExposure":2,"focusFilter":"L","focusGain":99,
@@ -331,11 +302,8 @@ class EkosEventCodecTest {
 
     @Test
     fun `decodes align_get_all_settings — curated subset, alignBinning is a string not a number`() {
-        // live capture (M3.3 phase 3) — real Align::getAllSettings() reports 98 fields; only 5
-        // are modeled. ignoreUnknownKeys must drop the other 93 without throwing. alignBinning
-        // was confirmed live as a combo-box string ("1x1"), not a number — the whole reason this
-        // test (and the live probe that produced it) exists: the M3.3 plan draft assumed Int
-        // before probing and would have silently degraded every real reply to Raw forever.
+        // live capture — 98 fields; ignoreUnknownKeys must drop the unmodeled ones.
+        // alignBinning is a combo string ("1x1"), not a number.
         val json = """{"payload":{"FlipRotationNotAllowed":false,"alignAccuracyThreshold":30,
             "alignBinning":"1x1","alignDarkFrame":false,"alignExposure":3,"alignFilter":"L",
             "alignGain":99,"alignISO":"","alignSettlingTime":1500,"alignUseCurrentFilter":false,
@@ -351,8 +319,7 @@ class EkosEventCodecTest {
         assertEquals("L", settings.alignFilter)
         assertEquals("1x1", settings.alignBinning)
         assertEquals(30.0, settings.alignAccuracyThreshold, 0.0)
-        // Polar Alignment Assistant widgets ride the same reply (PAA is a child of Align) —
-        // present in this live capture, so the PA sheet's settings read real values.
+        // Polar Alignment Assistant widgets ride the same reply (PAA is a child of Align).
         assertEquals("West", settings.pAHDirection)
         assertEquals(3.0, settings.pAHExposure!!, 0.0)
         assertEquals(30, settings.pAHRotation)
@@ -361,7 +328,7 @@ class EkosEventCodecTest {
 
     @Test
     fun `decodes astro_get_names — bare string array`() {
-        // Shape confirmed live 2026-10-22 (43,780 names, ~520 KB): payload is a flat array.
+        // Payload is a flat array (~44k names, ~520 KB live).
         val event = EkosEventCodec.decode(
             """{"payload":["51  Andromedae","Andromeda Galaxy","M 31","Whirlpool Galaxy"],"type":"astro_get_names"}""",
         )
@@ -371,12 +338,8 @@ class EkosEventCodecTest {
 
     @Test
     fun `decodes new_polar_state — partial payloads (stage-only, message-only) must not fall back to Raw`() {
-        // Regression: NewPolarState originally had no defaults on any field. Real pushes arrive
-        // as independent partial shapes per the protocol reference ({"stage"} alone, {"message"}
-        // alone, {"vector":...}, {"enabled"} alone — never all three at once) — every one of
-        // those used to fail to decode (missing required field) and silently degrade to Raw,
-        // meaning wirePolarStage would never actually update on a real rig. Caught by inspection
-        // before ever shipping real Polar Alignment wiring, not from a live bug report.
+        // Pushes arrive as independent partial shapes ({"stage"}, {"message"}, {"vector"},
+        // {"enabled"}); each must decode rather than fall to Raw.
         val stageOnly = EkosEventCodec.decode("""{"payload":{"stage":"select star"},"type":"new_polar_state"}""")
         assertTrue(stageOnly is EkosEvent.NewPolarState)
         assertEquals("select star", (stageOnly as EkosEvent.NewPolarState).stage)
@@ -434,12 +397,12 @@ class EkosEventCodecTest {
         val event = EkosEventCodec.decode("""{"payload":{"status":"Calibrating"},"type":"new_guide_state"}""")
         event as EkosEvent.NewGuideState
         assertEquals("Calibrating", event.status)
-        // Planned guide-stats shape (FORK-BACKLOG §1) carries no status — must still decode.
+        // The guide-stats shape carries no status — must still decode.
         val stats = EkosEventCodec.decode("""{"payload":{"rmsRA":0.61,"rmsDE":0.55},"type":"new_guide_state"}""")
         stats as EkosEvent.NewGuideState
         assertNull(stats.status)
         assertEquals(0.61, stats.rmsRA!!, 1e-9)
-        // live capture (fork guideStats, Simulators profile 2026-10-23)
+        // live capture (fork guideStats, Simulators profile)
         val sample = EkosEventCodec.decode("""{"payload":{"decError":122.5135222954195,"decPulse":-101,"numStars":0,"raError":-120.23391303781872,"raPulse":98,"skyBg":0,"snr":0},"type":"new_guide_state"}""")
         sample as EkosEvent.NewGuideState
         assertNull(sample.status)
@@ -466,7 +429,7 @@ class EkosEventCodecTest {
         val status = EkosEventCodec.decode("""{"payload":{"status":"In Progress"},"type":"new_focus_state"}""")
         status as EkosEvent.NewFocusState
         assertEquals("In Progress", status.status)
-        // Manager::updateCurrentHFR — one per measured focus frame, no status. Used to fall to Raw.
+        // Manager::updateCurrentHFR — one per measured focus frame, no status.
         val frame = EkosEventCodec.decode("""{"payload":{"hfr":2.41,"pos":29535},"type":"new_focus_state"}""")
         frame as EkosEvent.NewFocusState
         assertNull(frame.status)

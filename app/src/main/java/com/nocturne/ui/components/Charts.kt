@@ -16,8 +16,7 @@ import kotlin.math.min
 import kotlin.math.sin
 
 /**
- * Canvas ports of the prototype's inline SVGs. All coordinates are taken
- * straight from `Session Control.dc.html`.
+ * Canvas charts. Fixed viewBox coordinates come from the original SVG designs.
  */
 
 /** Map a trace (values are vertical deviations from center) to pixel offsets. */
@@ -109,15 +108,7 @@ fun NightArc(
                 pathEffect = PathEffect.dashPathEffect(floatArrayOf((shotFraction * arcLen).toFloat(), arcLen)),
             ),
         )
-        // Now dot + ring. A "flip" tick used to draw here too, at a hardcoded fixed fraction
-        // (0.62) regardless of anything real — removed (2026-08-25, real bug found live, user
-        // report: "altitude peak / meridian flip time is wrong"). This function had no parameter
-        // to gate it at all, contradicting NightArcCard's own doc comment, which already
-        // (incorrectly) claimed it was "simply omitted under a real rig" — it never was. No real
-        // flip time is computable client-side today regardless (would need real RA + local
-        // sidereal time, neither modeled anywhere — same conclusion FlipBanner's own doc already
-        // reached for its countdown), so there's nothing real to draw here instead; omitted
-        // outright rather than left wrong.
+        // Now dot + ring. No flip tick: flip time would need RA and local sidereal time.
         val now = pt(nowFraction, 140f)
         drawCircle(nowColor, radius = vw(6.5f), center = now)
         drawCircle(ringColor, radius = vw(12f), center = now, style = Stroke(width = vw(2f)))
@@ -125,32 +116,18 @@ fun NightArc(
 }
 
 /**
- * Plan-tab altitude chart (viewBox 348×118, stretched). [realAltitudes] (49 real points spanning
- * ±12h around local midnight, see `WireRiseset.altitudes`'s own doc) and [realNowFraction] (see
- * `AppState.realDayFraction`) replace the decorative fixture curve + fixed-pixel "now" dot once
- * both have arrived for the currently-framed target — until then (simulator, or before the fetch
- * lands) this keeps rendering the exact same fixture shape it always has, zero regression. There's
- * no real "flip" (meridian-flip time) data anywhere in this app (see `FlipBanner`'s own doc) so
- * that dashed line is real-mode-only omitted, same treatment as Session tab's `NightArcCard`.
- *
- * **User-requested improvements (2026-08-22)**: [realDuskFraction]/[realDawnFraction] (both
- * fractions of the same day window [realNowFraction] is measured against — see
- * `PlanScreen.kt`'s `fractionOfDayWindow`) shade the real astronomical-dark span between them and
- * draw thin dashed edges, so it's visually obvious which part of the curve is actually
- * observable versus daylight. A dashed line also now marks the real curve's own peak (its
- * highest-altitude sample) — previously only named in the corner "max X° @ time" text, with
- * nothing tying that time to a position on the curve itself. All three are real-mode only, same
- * gating as [realNowFraction] — no equivalent data exists for the fixture curve.
- */
-/**
- * Real altitude (degrees, +90..-90) mapped onto [AltitudeChart]'s own 0..118 viewBox height —
- * high altitude at the top (y=8) down to low/below-horizon at the bottom (y=110), leaving a
- * small margin either side. Shared (not private to [AltitudeChart]) so `PlanScreen.kt`'s y-axis
- * tick labels (user-requested, 2026-08-22) land at exactly the same height the real curve/
- * horizon/peak/now lines do — divide by 118 for a 0..1 fraction of the chart's own height.
+ * Altitude (degrees, +90..-90) mapped onto [AltitudeChart]'s 0..118 viewBox height, y=8 at
+ * the top to y=110 at the bottom. Public so `PlanScreen.kt`'s y-axis labels line up; divide
+ * by 118 for a 0..1 fraction.
  */
 fun altitudeToChartY(alt: Double): Float = (((90.0 - alt) / 180.0) * 102.0 + 8.0).toFloat()
 
+/**
+ * Plan-tab altitude chart (viewBox 348×118, stretched). [realAltitudes] is 49 points over ±12h
+ * around local midnight (`WireRiseset.altitudes`); the fractions are positions in that same day
+ * window. Shades dusk→dawn and marks the curve's peak and "now". Without data it draws a
+ * placeholder curve.
+ */
 @Composable
 fun AltitudeChart(
     modifier: Modifier,
@@ -158,10 +135,8 @@ fun AltitudeChart(
     realNowFraction: Double? = null,
     realDuskFraction: Double? = null,
     realDawnFraction: Double? = null,
-    /** Real Moon altitude curve (user request) — same 49-point/30-min grid as [realAltitudes],
-     * from `astro_get_objects_riseset`'s own "Moon" entry (a real, generically-resolvable
-     * SkyObject, same command already used for every target — no new wire command needed). Drawn
-     * as a soft dashed line distinct from the target's own solid accent curve. */
+    /** Moon altitude on the same 49-point/30-min grid as [realAltitudes], from the "Moon" entry
+     *  of the same `astro_get_objects_riseset` request. Drawn soft and dashed. */
     moonAltitudes: List<Double>? = null,
 ) {
     val colors = com.nocturne.ui.theme.NocturneTheme.colors
@@ -171,10 +146,6 @@ fun AltitudeChart(
         val parts = p.split(",")
         Offset(parts[0].toFloat(), parts[1].toFloat())
     }
-    // Real altitudes are degrees, +90..-90 — mapped onto the same 0..118 viewBox height the
-    // fixture curve uses, high altitude at the top (y=8) down to low/below-horizon at the bottom
-    // (y=110), leaving a small margin either side. Shared as [altitudeToChartY] (below) so
-    // PlanScreen.kt's y-axis tick labels land at exactly the same height this curve does.
     fun altY(alt: Double) = altitudeToChartY(alt)
     Canvas(modifier = modifier) {
         fun sx(x: Float) = x / 348f * size.width
@@ -188,11 +159,7 @@ fun AltitudeChart(
             Offset(0f, sy(50f)), Offset(size.width, sy(50f)), strokeWidth = 1f,
         )
         if (realAltitudes != null && realAltitudes.size >= 2) {
-            // Astronomical-dark band (real dusk→dawn) — drawn first, as a background layer, so the
-            // curve/horizon/peak/now marks all sit on top of it. Only drawn when both edges are
-            // known and actually fall within this chart's own day-window (they always should, by
-            // construction — dusk/dawn are always within the ±12h day window they're offset from
-            // — but `dawnF > duskF` is asserted defensively rather than assumed).
+            // Astronomical-dark band (dusk→dawn), drawn first so everything else sits on top.
             if (realDuskFraction != null && realDawnFraction != null && realDawnFraction > realDuskFraction) {
                 val duskX = sx((realDuskFraction * 348f).toFloat())
                 val dawnX = sx((realDawnFraction * 348f).toFloat())
@@ -205,7 +172,7 @@ fun AltitudeChart(
                 drawLine(Color(0xFF5D5294).copy(alpha = 0.6f), Offset(duskX, 0f), Offset(duskX, size.height), strokeWidth = 1f, pathEffect = duskDashPathEffect)
                 drawLine(Color(0xFF5D5294).copy(alpha = 0.6f), Offset(dawnX, 0f), Offset(dawnX, size.height), strokeWidth = 1f, pathEffect = duskDashPathEffect)
             }
-            // Real horizon (alt=0) line, in place of the fixture's second fixed guide line.
+            // Horizon (alt=0).
             drawLine(
                 colors.warn.copy(alpha = 0.3f),
                 Offset(0f, sy(altY(0.0))), Offset(size.width, sy(altY(0.0))), strokeWidth = 1f,
@@ -219,9 +186,7 @@ fun AltitudeChart(
                 }
             }
             drawPath(path, colors.accent, style = Stroke(width = 2f))
-            // Real Moon altitude (user request) — same x-mapping as the target curve above,
-            // assumes the same sample grid (guaranteed by construction: both come from the same
-            // real astro_get_objects_riseset command, just different names in the same request).
+            // Moon altitude; same sample grid as the target (same riseset request).
             if (moonAltitudes != null && moonAltitudes.size >= 2) {
                 val moonN = moonAltitudes.size
                 val moonPath = Path().apply {
@@ -236,11 +201,8 @@ fun AltitudeChart(
                     style = Stroke(width = 1.4f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(3f, 3f))),
                 )
             }
-            // Real peak (curve's own highest-altitude sample) — previously only named in the
-            // corner "max X° @ time" text with no visual tie to a position on the curve. Bright
-            // near-white (same family as the "now" mark below, not the muted dusk/dawn indigo) —
-            // confirmed live the first cut's colors.accent400 was too close to the dusk/dawn
-            // lines' own hue to tell apart at a glance.
+            // Peak (highest sample). Near-white like the "now" mark; an accent hue was too close
+            // to the dusk/dawn lines to tell apart.
             val peakIdx = realAltitudes.withIndex().maxByOrNull { it.value }?.index
             if (peakIdx != null) {
                 val peakX = sx(peakIdx.toFloat() / (n - 1) * 348f)
@@ -279,8 +241,8 @@ fun AltitudeChart(
 }
 
 /**
- * Real guide drift trace — [com.nocturne.session.AppState.guideSamples] (fork `guideStats` push,
- * docs/FORK-BACKLOG.md §1), oldest-to-newest left-to-right, centered on 0. RA solid in [raColor],
+ * Guide drift trace from [com.nocturne.session.AppState.guideSamples] (fork `guideStats`
+ * push), oldest-to-newest left-to-right, centered on 0. RA solid in [raColor],
  * DEC dashed in [deColor] (dash keeps them apart in red mode, where hues collapse). Vertical scale
  * is ±[guideDriftScale] — symmetric, follows the data, never tighter than ±[minScaleArcsec] so a
  * calm trace doesn't get blown up into noise; [thresholdArcsec] draws dashed ± guide lines.
@@ -327,11 +289,9 @@ fun GuideDriftChart(
 }
 
 /**
- * Real per-solve pointing-accuracy trend (follow-up to M5, docs/STATUS.md) — [AppState.alignAccuracyHistory]'s
- * real `targetDiff` values (arcsec), oldest-to-newest left-to-right. Unlike [HfrRunChart], this
- * normalizes against the data's own dynamic range rather than a fixed 60 — target accuracy has no
- * single universal scale the way this app's HFR values happen to. [thresholdArcsec] (real
- * `alignAccuracyThreshold`, when known) draws the same dashed reference line convention.
+ * Per-solve pointing accuracy ([AppState.alignAccuracyHistory]'s `targetDiff`, arcsec),
+ * oldest-to-newest. Scaled to the data's own range since accuracy has no fixed scale like HFR.
+ * [thresholdArcsec] (`alignAccuracyThreshold`) draws a dashed reference line.
  */
 @Composable
 fun AccuracyTrendChart(values: List<Double>, thresholdArcsec: Double?, modifier: Modifier) {

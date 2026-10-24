@@ -9,11 +9,9 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * [FrameFileWriter]'s real folder templates (user-specified 2026-08-23, docs/M4.5-plan.md):
- * `Preview/<date>/Prev_00000.jpg` for test captures,
+ * [FrameFileWriter]'s folder templates: `Preview/<date>/Prev_00000.jpg` for test captures,
  * `Plan/<date>/<target>/<target>_<date>_<filter>_<exposure>sec_<temp>C_<seq>.jpg` for scheduler
- * ones. Uses a real [TemporaryFolder] as the base dir — [FrameFileWriter] takes a plain [java.io.File],
- * not a Context, specifically so this doesn't need Robolectric/instrumentation to test.
+ * ones. [FrameFileWriter] takes a plain [java.io.File], so a [TemporaryFolder] suffices.
  */
 class FrameFileWriterTest {
 
@@ -59,7 +57,7 @@ class FrameFileWriterTest {
         val source = FrameSource.Plan(target = "NGC 7000", filter = "Ha", temperatureC = -10.0)
         val f = writer.write(frame(exposure = "300"), timestampMs = 1_700_000_000_000L, source = source)
 
-        // Spaces sanitized out of the target name for the real filesystem path.
+        // Spaces sanitized out of the target name for the filesystem path.
         assertTrue(f.path.contains("Plan"))
         assertTrue(f.path.contains("NGC_7000"))
         assertTrue(f.name.startsWith("NGC_7000_"))

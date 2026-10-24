@@ -77,7 +77,7 @@ fun tapFeedback(onClick: () -> Unit): () -> Unit {
     }
 }
 
-/** Button — prototype has solid accent fill (dark text), outline, danger fills. */
+/** Button styles: solid accent fill (dark text), outline, danger fill, subtle. */
 enum class BtnStyle { SOLID, OUTLINE, DANGER, SUBTLE }
 
 @Composable
@@ -105,16 +105,13 @@ fun NocturneButton(
             bg = c.danger; fg = c.surfaceDeep; bd = null
         }
         BtnStyle.SUBTLE -> {
-            // Was c.textMuted — read as gray/low-contrast at a glance (user feedback), same class
-            // of complaint already fixed once for SectionHeader's own label color. Full-brightness
-            // c.text keeps SUBTLE's transparent-bg/thin-border look distinct from OUTLINE, just
-            // legible now — applies app-wide (18 call sites), not a one-off override.
+            // Full-brightness text: muted text read as disabled. The border still sets it apart from OUTLINE.
             bg = Color.Transparent; fg = c.text; bd = c.divider
         }
     }
     val shape = RoundedCornerShape(10.dp)
     val base = Modifier
-        .height(38.dp) // was 34 — most call sites override with their own explicit height anyway
+        .height(38.dp) // most call sites override this
         .clip(shape)
         .background(bg, shape)
         .clickable(enabled = enabled, onClick = tapFeedback(onClick)) // before padding: ripple fills the button
@@ -282,7 +279,7 @@ fun LabeledRow(
     }
 }
 
-/** Toggle row with custom switch (prototype uses filled/unfilled circles). */
+/** Toggle row with a custom switch (filled/unfilled circles). */
 @Composable
 fun SwitchRow(
     label: String,
@@ -390,13 +387,9 @@ fun SliderRow(
 }
 
 /**
- * Renders a real JPEG frame — decode happens off the main thread via
- * [androidx.compose.runtime.produceState] since a capture frame can be a few hundred KB and
- * decoding synchronously inside composition would jank a live-updating preview. Falls back to
- * [HatchBg] while [key] is null or decoding fails (malformed/partial frame, missing file) — never
- * blank, so there's no flash between "no frame yet" and "frame failed to decode." [key] doubles
- * as the [produceState] key — pass whatever value should trigger a re-decode (the raw bytes, or
- * the file path).
+ * Renders a JPEG frame, decoded off the main thread via [androidx.compose.runtime.produceState]
+ * (frames can be a few hundred KB and would jank a live preview). Shows [HatchBg] while [key]
+ * is null or decoding fails. [key] is also the [produceState] key: the bytes or the file path.
  */
 @Composable
 private fun MediaFramePreviewImpl(
@@ -421,38 +414,29 @@ private fun MediaFramePreviewImpl(
     }
 }
 
-/**
- * Raw-bytes overload — a live `/media/ekos` push's JPEG isn't backed by a file (M4.2 call sites
- * before a frame is ever persisted); see the [String]-path overload below for a Room-persisted
- * [com.nocturne.data.FrameEntity] row (M4.5, real on-disk file, not a DB blob).
- */
+/** Raw-bytes overload, for a live `/media/ekos` frame not yet written to disk. */
 @Composable
 fun MediaFramePreview(jpeg: ByteArray?, modifier: Modifier = Modifier, hatchColor: Color? = null) {
     MediaFramePreviewImpl(jpeg, modifier, hatchColor) { BitmapFactory.decodeByteArray(jpeg, 0, jpeg!!.size)?.asImageBitmap() }
 }
 
-/** [MediaFrame]-typed convenience overload for a live `/media/ekos` push (M4.2 call sites). */
+/** [MediaFrame] overload for a live `/media/ekos` frame. */
 @Composable
 fun MediaFramePreview(frame: MediaFrame?, modifier: Modifier = Modifier, hatchColor: Color? = null) {
     MediaFramePreview(frame?.jpeg, modifier, hatchColor)
 }
 
-/** Real on-disk file path overload (M4.5) — a [com.nocturne.data.FrameEntity]'s own `filePath`. */
+/** File-path overload, for a [com.nocturne.data.FrameEntity]'s `filePath`. */
 @Composable
 fun MediaFramePreviewFile(filePath: String?, modifier: Modifier = Modifier, hatchColor: Color? = null) {
     MediaFramePreviewImpl(filePath, modifier, hatchColor) { BitmapFactory.decodeFile(filePath)?.asImageBitmap() }
 }
 
 /**
- * Camera FOV reticle (M5, docs/STATUS.md) — a transparent-fill rectangle overlaid on a live/
- * reference preview, rotated to a real camera position angle. Two real angles share this
- * composable, distinguished by [color]/[dashed] at the call site (not baked in here): the
- * **current** angle from the last solve (`wireRotatorCurrentPA`) — solid, `c.warn` (an existing
- * warm orange-tan tone, already used for the meridian-flip label elsewhere) — and the **target**
- * angle the slider is set to (`AppState.rotatorAngle`) — dashed, `c.accent`, since it's a goal, not
- * a measurement. Transparent fill either way keeps whatever's underneath visible. [aspectW]/
- * [aspectH] come from real [com.nocturne.session.AppState.framingFovDeg] when available; callers
- * fall back to a fixed ratio otherwise so this always renders something reasonable pre-connection.
+ * Camera FOV reticle: an unfilled rectangle over a preview, rotated to a position angle.
+ * Callers draw the solved angle (`wireRotatorCurrentPA`) solid in `c.warn` and the target
+ * (`AppState.rotatorAngle`) dashed in `c.accent`. [aspectW]/[aspectH] come from
+ * [com.nocturne.session.AppState.framingFovDeg], or a fixed ratio before it's known.
  */
 @Composable
 fun FovOverlayBox(
@@ -514,7 +498,7 @@ fun HDivider(modifier: Modifier = Modifier, strong: Boolean = false) {
     )
 }
 
-/** Section kicker + right side, per prototype section headers. */
+/** Section kicker with optional right-side content. */
 @Composable
 fun SectionHeader(kicker: String, modifier: Modifier = Modifier, right: (@Composable () -> Unit)? = null) {
     val c = NocturneTheme.colors

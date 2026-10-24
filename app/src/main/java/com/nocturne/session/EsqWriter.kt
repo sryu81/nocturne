@@ -1,42 +1,21 @@
 package com.nocturne.session
 
 /**
- * Serializes one [SequenceJob]'s [Block] list to Ekos's real `.esq` sequence
- * queue XML (format version 2.6) — confirmed against the actual KStars
- * source (`kstars/ekos/capture/sequencequeue.cpp`/`sequencejob.cpp`) and the
- * real `Tests/ekos/scheduler/9filters.esq` fixture, not guessed.
+ * Serializes one [SequenceJob]'s [Block] list to Ekos's `.esq` sequence queue XML
+ * (version 2.6), per KStars' `sequencequeue.cpp`/`sequencejob.cpp` and the
+ * `Tests/ekos/scheduler/9filters.esq` fixture.
  *
- * Deliberately partial: `sequencejob.cpp`'s load switch treats every per-Job
- * field as its own independent `else if` (`Frame`/`Temperature`/
- * `PlaceholderSuffix`/`RemoteDirectory`/`ISOIndex`/`Rotation`/pre/post
- * scripts/...) — an absent field just keeps the constructor default, it's
- * not an error. Only the fields Nocturne actually has data for are written:
- * - `FITSDirectory`/`PlaceholderFormat` **were previously omitted/hardcoded — real bug, found
- *   live 2026-08-23**: the doc here used to claim omitting `FITSDirectory` "avoids blanking out
- *   whatever the Pi's Capture module already has configured" — confirmed live that assumption was
- *   wrong: a real pushed job's own `.esq` had NO `FITSDirectory` element at all, and real Ekos
- *   showed the job's save directory as genuinely empty, not falling back to any other config —
- *   the Camera-settings "Save path" field (`fileDirectoryT`) is a *different*, Capture-module-wide
- *   setting from a job's own per-job `FITSDirectory`; setting one never populated the other. Now
- *   sourced from [AppState.wireCaptureSettings]'s own `fileDirectoryT`/`placeholderFormatT`
- *   (both real, both already wired to the Camera settings sheet) instead of a fixed literal.
- * - `HFRCheck` is omitted — Nocturne has no "HFR deviation %" setting to
- *   source it from (`enforceAutofocusOnTemperature`/`enforceRefocusEveryN` map to the two
- *   fields below, not this one).
- * - `afOnFilterChange` had no `.esq` field at all (README §8), and turned out to have no real
- *   Ekos equivalent anywhere else either — removed entirely 2026-08-23, same call as the
- *   per-block `forceAfOnStart` toggle that shared this exact gap (real per-block autofocus
- *   stays deferred past M4, see docs/app-side-feature-backlog.md).
+ * Deliberately partial: Ekos loads each per-Job field independently and an absent one keeps
+ * its default, so only fields Nocturne has data for are written.
+ * - `FITSDirectory` must be written per job: an absent element leaves the job's save directory
+ *   empty, it does not fall back to Capture's "Save path" (`fileDirectoryT`), which is a
+ *   separate module-wide setting. Both it and `PlaceholderFormat` come from
+ *   [AppState.wireCaptureSettings].
+ * - `HFRCheck` is omitted; Nocturne has no "HFR deviation %" setting.
  *
- * **`enabled='true'`/`'false'` fixed 2026-08-23** — previously hardcoded `enabled='true'` on
- * both refocus elements unconditionally, so there was no way to actually turn either off. Real
- * Ekos writes/reads this as a literal string attribute, not a magic value (confirmed
- * `sequencequeue.cpp:283-287` write / `:146` read: `!strcmp(findXMLAttValu(ep, "enabled"),
- * "true")`) — and, confirmed the same source, loading an `.esq` with these set actually writes
- * straight through to the same global `Options::enforceRefocusEveryN`/`refocusEveryN` etc. the
- * Camera-settings sheet's own `capture_set_all_settings` call uses (`sequencequeue.cpp:213-214`)
- * — genuinely the same underlying setting via two different real paths, not two independent
- * ones, so feeding this from [AppState.wireCaptureSettings] can't drift out of sync with itself.
+ * The refocus elements' `enabled` attribute is compared as the literal string "true"
+ * (`sequencequeue.cpp`), and loading them writes the same global `Options` that
+ * `capture_set_all_settings` does, so both are fed from [AppState.wireCaptureSettings].
  */
 object EsqWriter {
 
@@ -44,9 +23,9 @@ object EsqWriter {
         job: SequenceJob, targetName: String,
         enforceRefocusEveryN: Boolean, refocusEveryN: Int,
         enforceAutofocusOnTemperature: Boolean, maxFocusTemperatureDelta: Double,
-        /** Real `fileDirectoryT` (Camera settings' "Save path") — null/blank omits the element entirely. */
+        /** `fileDirectoryT` (Camera settings' "Save path"); null/blank omits the element. */
         fitsDirectory: String? = null,
-        /** Real `placeholderFormatT` — falls back to Ekos's own real default format when blank. */
+        /** `placeholderFormatT`; Ekos's default format when blank. */
         placeholderFormat: String = DEFAULT_PLACEHOLDER_FORMAT,
     ): String = buildString {
         append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
@@ -71,8 +50,7 @@ object EsqWriter {
         append("<Count>${b.subCount}</Count>\n")
         append("<Delay>0</Delay>\n")
         append("<TargetName>${xmlEscape(targetName)}</TargetName>\n")
-        // Real "-1 means off" sentinel (confirmed against sequencejob.cpp:1069-1070) — kept
-        // confined to this one write site; the app's own Block.ditherEvery uses a real `null`.
+        // Ekos uses -1 for "off" (sequencejob.cpp); Block.ditherEvery uses null.
         append("<GuideDitherPerJob>${b.ditherEvery ?: -1}</GuideDitherPerJob>\n")
         if (!fitsDirectory.isNullOrBlank()) {
             append("<FITSDirectory>${xmlEscape(fitsDirectory)}</FITSDirectory>\n")
@@ -88,7 +66,7 @@ object EsqWriter {
         append("</Job>\n")
     }
 
-    /** Decimals are always `.`-locale on the wire (plan §"Protocol facts") — drop a bare `.0` for whole numbers, matching the fixture's own `<HFRDeviation>1.12</HFRDeviation>` / integer style. */
+    /** `.`-decimal regardless of locale; whole numbers drop the `.0`, as Ekos writes them. */
     private fun formatDecimal(d: Double): String =
         if (d == d.toLong().toDouble()) d.toLong().toString() else d.toString()
 

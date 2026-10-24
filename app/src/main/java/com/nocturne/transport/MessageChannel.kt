@@ -11,25 +11,12 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 
 /**
- * Thin wrapper over one OkHttp WebSocket (`/message/ekos` — JSON commands and
- * pushes). Translates OkHttp's callback-based `WebSocketListener` into flows;
- * OkHttp invokes these callbacks on its own dispatcher thread, not a
- * suspend context, so emission uses non-suspending `tryEmit` throughout.
+ * Wraps one OkHttp WebSocket on `/message/ekos` (JSON commands and pushes) as flows. OkHttp calls
+ * the listener on its own thread, so emission uses non-suspending `tryEmit`.
  *
- * **One client at a time, confirmed from the real server source**
- * (`kstars/ekos/ekosremote/node.cpp`, `Node::adoptSocket`): the real
- * EkosRemote server holds exactly one `QWebSocket*` per path — a *new*
- * connection to `/message/ekos` disconnects and deletes whatever was
- * previously connected there, silently. This isn't a Nocturne bug to work
- * around; it's a hard constraint of the real protocol. Concretely: a second
- * Nocturne instance, a raw diagnostic script, or anything else opening its
- * own `/message/ekos` connection while this one is live will evict it
- * (triggering this client's own reconnect/backoff) — confirmed live while
- * debugging what looked like a flaky Mount-settings write (M3.3): every
- * "independent verification" probe opened during that investigation was
- * itself the thing kicking the real connection off the wire and returning
- * stale reads, not a write actually failing. Keep this in mind before ever
- * trusting a second concurrent connection's read as ground truth.
+ * The server keeps one socket per path (`ekosremote/node.cpp`, `Node::adoptSocket`): any new
+ * `/message/ekos` connection, such as a diagnostic script, silently evicts this one and triggers
+ * a reconnect. Don't trust reads from a second concurrent connection.
  */
 class MessageChannel(private val okHttpClient: OkHttpClient, private val url: String) {
 
@@ -39,8 +26,8 @@ class MessageChannel(private val okHttpClient: OkHttpClient, private val url: St
         data class Failure(val throwable: Throwable) : SocketEvent
     }
 
-    // A dropped intermediate status push is fine — the next one supersedes it.
-    // Blocking OkHttp's callback thread on backpressure (the SUSPEND default) is not.
+    // Dropping an intermediate push is fine (the next supersedes it); blocking OkHttp's callback
+    // thread on backpressure is not.
     private val _inbound = MutableSharedFlow<String>(extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     val inbound: SharedFlow<String> = _inbound.asSharedFlow()
 

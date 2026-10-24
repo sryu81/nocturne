@@ -44,11 +44,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * First-launch and manual-reconnect screen. Shown whenever
- * [SessionViewModel.ConnectionMode] is `NeedsConnect`/`Connecting` — never
- * auto-skipped even with saved settings, since the app must not silently
- * dial an address the user didn't just confirm (see [ConnectionStatus]'s
- * trust-boundary note below).
+ * First-launch and manual-reconnect screen, shown while [SessionViewModel.ConnectionMode] is
+ * `NeedsConnect`/`Connecting`. Never auto-skipped with saved settings: the wire has no auth,
+ * so the app only dials an address the user just confirmed.
  */
 @Composable
 fun ConnectScreen(
@@ -64,10 +62,8 @@ fun ConnectScreen(
     val t = NocturneTheme.type
     var host by remember { mutableStateOf("") }
     var portText by remember { mutableStateOf("") }
-    // savedHost/savedPort resolve asynchronously (a DataStore read in SessionViewModel.init) —
-    // this composable can render its first frame before that finishes, so `remember`'s
-    // initializer above would latch onto "" permanently. Backfill once savedHost arrives,
-    // but only if the user hasn't already started typing in the meantime.
+    // savedHost/savedPort load asynchronously, after `remember` above may have latched "".
+    // Backfill once they arrive, unless the user has started typing.
     LaunchedEffect(savedHost, savedPort) {
         if (host.isEmpty()) savedHost?.let { host = it }
         if (portText.isEmpty()) portText = savedPort.toString()
@@ -75,10 +71,8 @@ fun ConnectScreen(
 
     val connecting = status.state == ConnectionState.CONNECTING || status.state == ConnectionState.SOCKET_OPEN
 
-    // LAN auto-discovery via the Pi's astro-beacon broadcast (transport/RigBeacon.kt). Listens
-    // only while this screen is composed. Discovery never dials on its own — it pre-fills an
-    // empty HOST field once and lists rigs; connecting still takes an explicit tap, per the
-    // trust-boundary note on this composable.
+    // LAN discovery via the Pi's astro-beacon broadcast (transport/RigBeacon.kt), only while
+    // this screen is composed. It pre-fills an empty HOST once and lists rigs; it never dials.
     val context = LocalContext.current
     val discovered = remember { mutableStateMapOf<String, DiscoveredRig>() }
     var autoFilled by remember { mutableStateOf(false) }
@@ -90,7 +84,7 @@ fun ConnectScreen(
                     if (!autoFilled && host.isEmpty()) host = rig.address
                     autoFilled = true
                 }
-            } // bind failure (port taken) / no Wi-Fi service — discovery is best-effort
+            } // bind failure (port taken) / no Wi-Fi service; discovery is best-effort
         }
         // Beacon interval is 5 s; drop a rig after 3 missed beacons (powered off / left network).
         while (true) {
@@ -104,18 +98,10 @@ fun ConnectScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(c.bg)
-            // Only top-level screen with no shared shell/header of its own (NocturneShell's
-            // screens get this via NocturneHeader/BottomNavBar/NocturneApp.kt's own Row fix) —
-            // needed its own status-bar/nav-bar insets, confirmed live: in landscape, "Connect to
-            // rig"'s title/fields ran straight under the system nav column on whichever side it
-            // occupied.
+            // Outside NocturneShell, so it applies its own system-bar insets.
             .statusBarsPadding()
             .navigationBarsPadding()
-            // No scroll existed here at all before — in landscape's shorter viewport the content
-            // (title/warning/HOST/PORT/Connect) already didn't fit, and there was
-            // no way to reach the Connect button at all; confirmed live (a swipe did nothing).
-            // Adding the two insets above only made the available height smaller, so this was
-            // very possibly already a latent bug, not one introduced by that fix.
+            // Scrolls so Connect stays reachable in landscape, where the content doesn't fit.
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp),
     ) {
@@ -212,9 +198,7 @@ fun ConnectScreen(
                 enabled = !connecting && host.isNotBlank(),
                 modifier = Modifier.weight(1f),
             )
-            // Only meaningful mid-dial — a stuck CONNECTING/SOCKET_OPEN with no way back
-            // short of force-killing the app otherwise (real gap: nothing else here ever
-            // calls SessionViewModel.disconnect() before a first ONLINE).
+            // Mid-dial only: the one way out of a stuck CONNECTING/SOCKET_OPEN before the first ONLINE.
             if (connecting) {
                 Spacer(Modifier.width(8.dp))
                 NocturneButton(
@@ -263,8 +247,8 @@ private fun DiscoveredRigRow(rig: DiscoveredRig, enabled: Boolean, onClick: () -
                 listOfNotNull(rig.address, rig.uptimeSec?.let { "up ${formatUptime(it)}" }).joinToString(" · "),
                 style = t.MonoSmall, color = c.textMuted,
             )
-            // vcgencmd get_throttled bit 0 = under-voltage right now — a real rig-health
-            // problem (USB dropouts, SD corruption) worth seeing before connecting.
+            // vcgencmd get_throttled bit 0 = under-voltage now (risks USB dropouts, SD
+            // corruption); worth seeing before connecting.
             if (rig.throttled?.removePrefix("0x")?.toLongOrNull(16)?.and(1L) == 1L) {
                 TextC("Under-voltage now", style = t.Caption, color = c.warn)
             }

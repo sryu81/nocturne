@@ -16,8 +16,8 @@ import com.nocturne.ui.theme.NocturneTheme
 
 /**
  * Live guiding numbers — RMS per axis + total (Ekos's running sigma), the RA/DEC drift trace, and
- * SNR/star count when the detector reports them. All from the fork's guide-stats push
- * (docs/FORK-BACKLOG.md §1); shown in the Guide sheet and the Controls tab's guide card.
+ * SNR/star count when the detector reports them. All from the fork's guide-stats push;
+ * shown in the Guide sheet and the Controls tab's guide card.
  * The dashed ± lines are Capture's guide-deviation abort limit, only when that guard is enabled.
  */
 @Composable

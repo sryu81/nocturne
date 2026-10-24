@@ -21,12 +21,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * What [NocturneApp] should show at the top level. Once [Connected] is
- * reached for a client, later status churn (a dropped socket mid-session)
- * stays in [Connected] with an updated [ConnectionStatus] — [connect] only
- * ever reports [Connecting] *before* the first `ONLINE`. Falling back to
- * [NeedsConnect] happens solely via an explicit user disconnect, never as a
- * side effect of a reconnect attempt — see plan §7's mid-session-loss note.
+ * What [NocturneApp] shows at the top level. Once [Connected], later status churn (a dropped
+ * socket) stays in [Connected] with an updated [ConnectionStatus]; [Connecting] only precedes
+ * the first `ONLINE`. Only an explicit disconnect returns to [NeedsConnect].
  */
 sealed interface ConnectionMode {
     data object NeedsConnect : ConnectionMode
@@ -35,10 +32,9 @@ sealed interface ConnectionMode {
 }
 
 /**
- * Owns the real [EkosRemoteController] connection. Real-rig-only (the simulator was removed
- * 2026-08-22 — see docs/simulator-removal-plan.md); [ctrl] is only ever set by [connect], never
- * before — [NocturneApp] only composes anything that reads it once [connectionMode] has left
- * [ConnectionMode.NeedsConnect], which [connect] guarantees happens after [ctrl] is assigned.
+ * Owns the [EkosRemoteController] connection. [ctrl] is set only by [connect], before
+ * [connectionMode] leaves [ConnectionMode.NeedsConnect], which is when [NocturneApp] starts
+ * reading it.
  */
 class SessionViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -57,9 +53,7 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
     private val _connectionMode = MutableStateFlow<ConnectionMode>(ConnectionMode.NeedsConnect)
     val connectionMode: StateFlow<ConnectionMode> = _connectionMode.asStateFlow()
 
-    // Compose State, not a plain var — ConnectScreen composes off ConnectionMode alone (which
-    // is already NeedsConnect at construction, before repo.current() resolves), so a plain var
-    // set later inside init's coroutine would never trigger a recomposition to pick it up.
+    // Compose State so ConnectScreen recomposes when init's coroutine loads the saved values.
     var savedHost: String? by mutableStateOf(null)
         private set
     var savedPort: Int by mutableStateOf(9000)
@@ -73,9 +67,7 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
             val settings = repo.current()
             savedHost = settings.host
             savedPort = settings.port
-            // A saved host only pre-fills ConnectScreen's fields (via savedHost/savedPort
-            // above) — it must never auto-dial on its own, a saved host is not a confirmation
-            // to connect, it's just what was typed last time.
+            // A saved host only pre-fills ConnectScreen; it never auto-dials.
             _connectionMode.value = ConnectionMode.NeedsConnect
         }
     }
@@ -110,8 +102,7 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Explicit user action only — the sole path back to [ConnectionMode.NeedsConnect]
-     *  once a session has ever reached [ConnectionMode.Connected]. */
+    /** Explicit user action; the only path back to [ConnectionMode.NeedsConnect]. */
     fun disconnect() {
         client?.disconnect()
         client = null
@@ -119,9 +110,8 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
         _connectionMode.value = ConnectionMode.NeedsConnect
     }
 
-    /** The daemon accepted a reboot: the Pi is about to drop, so instead of leaving the shell up
-     *  behind a "Reconnecting" banner (with sheets/dialogs still open over stale state), go back to
-     *  ConnectScreen. No auto-dial — the user reconnects once the beacon shows the Pi again. */
+    /** After an accepted reboot, return to ConnectScreen rather than leave the shell up over
+     *  stale state. No auto-dial; the user reconnects once the beacon shows the Pi again. */
     fun disconnectAfterReboot() {
         disconnect()
         connectNotice = "Rig is rebooting — reconnect once it shows up again (about a minute)."

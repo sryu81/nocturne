@@ -1,11 +1,6 @@
 package com.nocturne.protocol
 
-/**
- * Wire command strings M2 actually sends — the connection lifecycle +
- * bootstrap set. Flat namespace, not the full ~230-command set from
- * EkosRemote-Command-Reference.md; M3 appends more `const val`s here as it
- * wires up real capture/mount/focus/etc. commands, no restructuring needed.
- */
+/** Wire command strings the app sends. A subset of the EkosRemote command set; see docs/PROTOCOL.md. */
 object Commands {
     const val SET_CLIENT_STATE = "set_client_state"
     const val GET_CONNECTION = "get_connection"
@@ -15,20 +10,20 @@ object Commands {
     /** Every INDI driver KStars knows (its drivers.xml catalog), installed or not running. */
     const val GET_DRIVERS = "get_drivers"
 
-    // M3 — profiles.
+    // Profiles
     const val PROFILE_START = "profile_start"
     const val PROFILE_STOP = "profile_stop"
     const val PROFILE_ADD = "profile_add"
     const val PROFILE_UPDATE = "profile_update"
     const val PROFILE_DELETE = "profile_delete"
 
-    // M3 — devices/properties.
+    // Devices / INDI properties
     const val DEVICE_GET = "device_get"
     const val DEVICE_PROPERTY_GET = "device_property_get"
     const val DEVICE_PROPERTY_SET = "device_property_set"
     const val DEVICE_PROPERTY_SUBSCRIBE = "device_property_subscribe"
 
-    // M3 — astro lookups.
+    // Astro lookups
     const val ASTRO_SEARCH_OBJECTS = "astro_search_objects"
     /** Every object name KStars knows (stars, planets, comets, DSOs…) — ~44k names / ~0.5 MB live. */
     const val ASTRO_GET_NAMES = "astro_get_names"
@@ -38,7 +33,7 @@ object Commands {
     const val ASTRO_GET_ALMANAC = "astro_get_almanac"
     const val ASTRO_GET_LOCATION = "astro_get_location"
 
-    // M3 — scheduler/capture sequences.
+    // Scheduler
     const val SCHEDULER_GET_JOBS = "scheduler_get_jobs"
     const val SCHEDULER_ADD_JOBS = "scheduler_add_jobs"
     const val SCHEDULER_REMOVE_JOBS = "scheduler_remove_jobs"
@@ -47,20 +42,20 @@ object Commands {
     const val SCHEDULER_GET_ALL_SETTINGS = "scheduler_get_all_settings"
     const val SCHEDULER_SET_ALL_SETTINGS = "scheduler_set_all_settings"
 
-    // M3 — optical trains.
+    // Optical trains
     const val TRAIN_GET_ALL = "train_get_all"
     const val TRAIN_GET_PROFILES = "train_get_profiles"
     const val TRAIN_SET = "train_set"
     const val TRAIN_ADD = "train_add"
     const val TRAIN_UPDATE = "train_update"
 
-    // M3.1 — Scopes catalog (separate from Optical Trains — EkosRemote-Command-Reference.md §4).
+    // Scopes catalog (separate from optical trains)
     const val GET_SCOPES = "get_scopes"
     const val SCOPE_ADD = "scope_add"
     const val SCOPE_UPDATE = "scope_update"
     const val SCOPE_DELETE = "scope_delete"
 
-    // M3.2 — Bench check (Capture preview/Focus jog/Mount motion — EkosRemote-Command-Reference.md §5/6/8/9).
+    // Capture preview, focus jog, mount motion, solve
     const val CAPTURE_PREVIEW = "capture_preview"
     /** Cancels a preview still waiting in preparation (e.g. "Setting Temperature"). */
     const val CAPTURE_STOP = "capture_stop"
@@ -75,34 +70,28 @@ object Commands {
     const val MOUNT_GOTO_TARGET = "mount_goto_target"
     const val MOUNT_ABORT = "mount_abort"
     const val ALIGN_SOLVE = "align_solve"
-    // M5 — rotator angle-readback + auto-drive (docs/STATUS.md M5 steps 4/5). Real
-    // align_manual_rotator_toggle also exists but is deliberately unused here — confirmed it
-    // only shows/hides Ekos's own dialog on the Pi's own physical screen, no effect remotely.
+    // Rotator. align_manual_rotator_toggle is unused: it only shows/hides Ekos's dialog on the
+    // Pi's own screen.
     const val ALIGN_SET_ASTROMETRY_SETTINGS = "align_set_astrometry_settings"
     const val ALIGN_SET_TARGET_PA = "align_set_target_pa"
     const val CAPTURE_SET_ALL_SETTINGS = "capture_set_all_settings"
 
-    // M3.3 — per-module settings (curated subset, see docs/M3.3-plan.md).
+    // Per-module settings
     const val MOUNT_GET_ALL_SETTINGS = "mount_get_all_settings"
     const val MOUNT_SET_ALL_SETTINGS = "mount_set_all_settings"
     const val CAPTURE_GET_ALL_SETTINGS = "capture_get_all_settings"
 
-    // M3.3 phase 3 — Align settings (curated subset, see docs/M3.3-plan.md).
     const val ALIGN_GET_ALL_SETTINGS = "align_get_all_settings"
     const val ALIGN_SET_ALL_SETTINGS = "align_set_all_settings"
 
-    // M3.3 phase 4 (partial, brought forward for Bench "Snap guide" exposure/gain/bin control).
     const val GUIDE_GET_ALL_SETTINGS = "guide_get_all_settings"
     const val GUIDE_SET_ALL_SETTINGS = "guide_set_all_settings"
 
-    // M3.3 phase 6 — Focus settings (curated subset, see docs/M3.3-plan.md). GET brought
-    // forward earlier to fix Bench Focuser's stale initial position; SET added now.
     const val FOCUS_GET_ALL_SETTINGS = "focus_get_all_settings"
     const val FOCUS_SET_ALL_SETTINGS = "focus_set_all_settings"
 
-    // Controls tab v2 — real Autofocus/Guide/Polar-Align start-stop control (empty
-    // request/response, all three — see EkosRemote-Command-Reference.md §8/9/11; progress
-    // arrives only via new_focus_state/new_guide_state/new_polar_state, already wired).
+    // Autofocus/guide/polar-align start-stop. No payload and no reply; progress arrives only
+    // via new_focus_state/new_guide_state/new_polar_state.
     const val FOCUS_START = "focus_start"
     const val FOCUS_STOP = "focus_stop"
     const val GUIDE_START = "guide_start"
@@ -122,24 +111,18 @@ object Commands {
     /** `{"x","y"}` as 0..1 fractions of the sent align image — picks the correction star. */
     const val POLAR_SET_CROSSHAIR = "polar_set_crosshair"
 
-    // M4.1 — Media channel. Payload is a bare boolean, not an object-wrapped one like every
-    // other command here — see MediaChannel/EkosRemoteClient call sites.
+    // Media channel. The payload is a bare boolean, not an object.
     const val SET_BLOBS = "set_blobs"
 
-    // M4.5 half B (docs/STATUS.md) — generic Options::self() property GET/SET
-    // (message.cpp:1445-1471). Reaches ANY real kcfg-backed setting by its Qt property name
-    // (camelCase, e.g. "ekosRemoteNotifications", "astrometryUseRotator") with no ambiguous
-    // findObject() lookup involved, unlike the separate GET_PROPERTY/invoke_method escape hatch
-    // considered (and deliberately not used) earlier this session for the same rotator_control
-    // ground-truth gap.
+    // Generic Options::self() property get/set (message.cpp:1445-1471): any kcfg-backed setting
+    // by its Qt property name (e.g. "ekosRemoteNotifications", "astrometryUseRotator"), without
+    // the ambiguous findObject() lookup that invoke_method relies on.
     const val OPTION_GET = "option_get"
     const val OPTION_SET = "option_set"
 
-    // 2026-09 — phone-initiated GPS/time sync. New fork commands (not in the pre-existing
-    // ~230-command set): direct in-process calls to KStars::setGPSLocation/setLocalTime, since
-    // neither OPTION_SET (persisted-default only, not live) nor INVOKE_METHOD (findObject() can't
-    // resolve the top-level KStars singleton) can reach them. No reply either way — same
-    // fire-and-forget shape as focus_in/out etc.
+    // Phone GPS/time sync. Fork-only commands calling KStars::setGPSLocation/setLocalTime
+    // directly: option_set only changes the persisted default, and invoke_method's findObject()
+    // can't resolve the KStars singleton. Fire-and-forget, no reply.
     const val KSTARS_SET_LOCATION = "kstars_set_location"
     const val KSTARS_SET_TIME = "kstars_set_time"
 }

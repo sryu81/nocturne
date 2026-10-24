@@ -19,18 +19,9 @@ private val Context.sequenceDataStore: DataStore<Preferences> by preferencesData
 private val sequenceJson = Json { ignoreUnknownKeys = true }
 
 /**
- * The app's own local job queue, persisted across process death — this is the fix for the "app
- * relaunch silently loses the sequence" report: [EkosRemoteController] previously reset
- * `AppState.jobs` to `emptyList()` unconditionally on every fresh connection, so a killed-and-
- * reopened app forgot everything it had queued, even though nothing about the job itself had
- * actually changed.
- *
- * **Fully decoupled from real Ekos (2026-08-23 push/start/stop redesign)**: this used to also be
- * "the source of truth" that got force-pushed over whatever Ekos's own Scheduler already held on
- * every connect — that connect-time reconcile is gone. This snapshot is now purely local session
- * continuity; syncing a job to the real Scheduler is an explicit, separate, user-driven action
- * ([SessionController.pushJob]/`toggleScheduler`/`removeJob`), never an automatic side effect of
- * this persistence layer or of connecting.
+ * The app's local job queue, persisted across process death. Purely local: syncing with Ekos's
+ * Scheduler is always an explicit action ([SessionController.pushJob]/`toggleScheduler`/
+ * `removeJob`), never a side effect of loading this or of connecting.
  */
 data class SequenceSnapshot(
     val jobs: List<SequenceJob> = emptyList(),
@@ -48,8 +39,7 @@ class SequenceRepository(private val context: Context) {
 
     val snapshot: Flow<SequenceSnapshot> = context.sequenceDataStore.data.map { prefs ->
         SequenceSnapshot(
-            // A corrupt/unparseable blob (e.g. a future app version's job shape) falls back to
-            // an empty queue rather than crashing the whole app on launch.
+            // A corrupt or incompatible blob falls back to an empty queue rather than crashing.
             jobs = prefs[Keys.JOBS_JSON]?.let {
                 runCatching { sequenceJson.decodeFromString<List<SequenceJob>>(it) }.getOrNull()
             } ?: emptyList(),

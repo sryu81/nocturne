@@ -24,9 +24,8 @@ import com.nocturne.ui.theme.NocturneTheme
 
 /**
  * Small centered confirm/cancel dialog for actions that shouldn't fire on a
- * single accidental tap (e.g. Session tab's FLIP NOW / DEFER). Custom-styled
- * rather than Material's AlertDialog — this app has no Material dependency
- * (README §3: "no Material — custom Nocturne theme").
+ * single accidental tap. Custom-styled to match the Nocturne theme rather than
+ * Material's AlertDialog.
  */
 @Composable
 fun ConfirmDialog(

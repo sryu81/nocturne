@@ -18,23 +18,13 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 /**
- * Opt-in integration test against a REAL EkosRemote server — not a mock, not
- * a hand-written fixture. Skipped by default (no network dependency, safe in
- * CI); enable with `-DnocturneHwHost=<pi-ip>` (see docs/M3-plan.md §6):
+ * Opt-in integration test against a live EkosRemote server, skipped unless
+ * `-DnocturneHwHost=<pi-ip>` is set:
  *
  *   ./gradlew :app:testDebugUnitTest --tests "*HardwareTest" -DnocturneHwHost=10.0.0.43
  *
- * Decodes every reply through the real [EkosEventCodec] — the exact same
- * code `EkosRemoteClient` runs in production. This is the class of test that
- * caught the real bug fixed alongside it: `train_get_all`'s live payload has
- * `profile`/`reducer` as JSON numbers and `adaptiveoptics` as JSON `null`,
- * none of which the original hand-written [com.nocturne.protocol.WireTrain]
- * allowed — every real `train_get_all` reply silently fell back to
- * [EkosEvent.Raw] instead of [EkosEvent.Trains]. A mock server built from the
- * docs would never have caught that; only the real rig's actual bytes did.
- * [com.nocturne.protocol.EkosEventCodecTest] pins that exact payload as a
- * frozen regression fixture so this doesn't depend on hardware being
- * reachable to keep failing closed.
+ * Decodes every reply through [EkosEventCodec], as `EkosRemoteClient` does, to catch wire types
+ * that differ from the models (and would silently decode to [EkosEvent.Raw]).
  */
 class EkosRemoteHardwareTest {
 
@@ -60,11 +50,11 @@ class EkosRemoteHardwareTest {
         try {
             assertTrue("socket never opened against $host:$port", opened.await(5, TimeUnit.SECONDS))
 
-            // Give the server's automatic post-connect burst (new_connection_state, get_profiles,
-            // train_get_all — confirmed live, not requested by the client) time to arrive.
+            // Let the server's unrequested post-connect burst (new_connection_state, get_profiles,
+            // train_get_all) arrive.
             Thread.sleep(2_000)
 
-            // These work regardless of whether Ekos itself is online (confirmed live).
+            // These work whether or not Ekos is online.
             webSocket.send(EkosEventCodec.encode(Commands.ASTRO_SEARCH_OBJECTS))
             webSocket.send(EkosEventCodec.encode(Commands.SCHEDULER_GET_JOBS))
             Thread.sleep(2_000)
@@ -72,8 +62,7 @@ class EkosRemoteHardwareTest {
             assertTrue("no messages received at all from $host:$port — is EkosRemote actually running?", events.isNotEmpty())
 
             val raw = events.filterIsInstance<EkosEvent.Raw>()
-            // A handful of push types genuinely have no typed case yet —
-            // only fail on Raw for the commands this test itself explicitly requested/expects.
+            // Some push types have no typed case; only fail on Raw for the commands requested here.
             val requestedTypes = setOf("get_profiles", "train_get_all", "new_connection_state", "astro_search_objects", "scheduler_get_jobs")
             val unexpectedRaw = raw.filter { it.type in requestedTypes }
             assertTrue(

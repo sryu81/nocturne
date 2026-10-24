@@ -38,9 +38,8 @@ enum class SheetType {
 }
 
 /**
- * Progress of a [SessionController.rebootRig] request against the rig's
- * companion reboot daemon (separate HTTP channel — the EkosRemote wire
- * itself has no OS-level reboot command, see `pi-tools/reboot-daemon/`).
+ * Progress of a [SessionController.rebootRig] request. Reboot goes over a separate HTTP daemon
+ * (`pi-tools/reboot-daemon/`); the EkosRemote wire has no OS-level reboot command.
  */
 enum class RigRebootState { IDLE, SENDING, SENT, FAILED }
 
@@ -62,21 +61,19 @@ data class SkyAtlasStatus(
 )
 
 /**
- * Real `new_guide_state.status` strings for which Ekos's Guide module is *not* busy — the same
- * idle group `Guide::checkCamera` (guide.cpp) switches on; every other `guideStates` value
- * (`ekos.h`: Capturing, Looping, Calibrating, Guiding, Dithering, Settling...) means busy.
+ * `new_guide_state.status` strings for which Ekos's Guide module is idle: the same group
+ * `Guide::checkCamera` (guide.cpp) switches on. Every other `guideStates` value (`ekos.h`) means busy.
  */
 val GUIDE_IDLE_STATES = setOf("Idle", "Aborted", "Connected", "Disconnected", "Calibration error")
 
 /**
- * Real `new_focus_state.status` strings for which no Autofocus run is going (`ekos.h`
- * `focusStates`). "Framing" is the Focus module's plain loop, not an autofocus run, so it counts
- * as idle here too; busy = "In Progress", "User Input", "Changing Filter".
+ * `new_focus_state.status` strings for which no autofocus run is going (`ekos.h` `focusStates`).
+ * "Framing" is the plain focus loop, not an autofocus run, so it counts as idle.
  */
 val FOCUS_IDLE_STATES = setOf("Idle", "Complete", "Failed", "Aborted", "Framing")
 
 /**
- * Real `new_polar_state.stage` strings — `PolarAlignmentAssistant::PAHStages`
+ * `new_polar_state.stage` strings: `PolarAlignmentAssistant::PAHStages`
  * (polaralignmentassistant.cpp:26-43, English locale), in run order.
  */
 const val PAH_STAGE_IDLE = "Idle"
@@ -96,10 +93,10 @@ val PAH_REFRESH_ALGORITHMS = listOf("Plate Solve", "Move Star", "Move Star & Cal
 /** Which meridian-flip action is awaiting confirmation. */
 enum class FlipConfirm { DEFER, NOW }
 
-/** Frames tab's top-level category picker (M4.5 Part C) — see [AppState.frameCategory]. */
+/** Frames tab's top-level category picker; see [AppState.frameCategory]. */
 enum class FrameCategory { PREVIEW, PLAN }
 
-/** Every mutable field the simulator drives, mirroring the prototype's state. */
+/** The whole UI state: local UI fields plus the `wire*` mirrors of what Ekos pushes. */
 data class AppState(
     val t: Int = 0,
     val sheet: SheetType? = null,
@@ -108,10 +105,8 @@ data class AppState(
     /** Frames tab: id of the frame expanded to a full-screen overlay, if any. */
     val expandedFrameId: String? = null,
     /**
-     * Frames tab navigation (M4.5 Part C) — pure local UI nav, no wire effect, same shape as
-     * [openBlockId]/[activeJobId]. Null [frameCategory] = top-level Preview/Plan picker;
-     * [frameTarget] only meaningful once [frameCategory] is [FrameCategory.PLAN] — null there
-     * means "show the target list," non-null means "show that target's own frame grid."
+     * Frames tab navigation (local only). Null [frameCategory] = Preview/Plan picker. Under
+     * [FrameCategory.PLAN], null [frameTarget] shows the target list, non-null that target's frames.
      */
     val frameCategory: FrameCategory? = null,
     val frameTarget: String? = null,
@@ -125,11 +120,8 @@ data class AppState(
     /** Monotonic job id counter — survives removals, unlike jobs.size + 1. */
     val jobSeq: Int = DEFAULT_JOBS.size + 1,
     /**
-     * Last job that was actually started (running set true) — the Session
-     * tab's fallback when nothing is currently running, so pausing the job
-     * you're looking at doesn't jump you to some other job by list position.
-     * Only [contractJob] should read this; everything else should keep using
-     * `jobs`.
+     * Last job that was started: the Session tab's fallback when nothing is running, so pausing
+     * a job doesn't jump to another one by list position. Only [contractJob] should read this.
      */
     val lastActiveJobId: String? = null,
     /** Which block card is expanded — global scalar is fine, only one job is ever drilled into at a time. */
@@ -137,18 +129,13 @@ data class AppState(
     /** The job [endSession] stopped, pending a Back-to-session/Next-job/Finish choice on the Summary sheet. */
     val lastEndedJobId: String? = null,
     val mountParked: Boolean = false,
-    /** Fixture-only tracking on/off — real rig reads [mountTrackingOn] instead (real INDI `TELESCOPE_TRACK_STATE`). */
+    /** Local default only; a connected rig reads [mountTrackingOn] (INDI `TELESCOPE_TRACK_STATE`). */
     val mountTracking: Boolean = true,
     /**
-     * Client-side optimistic "is a start/stop routine running" flag for real Autofocus/Guide/
-     * Polar-Align control — flipped on tap, same shape as [mountTracking]/[mountParked]. Doesn't
-     * attempt to string-match the real wire's undocumented status/stage values (see
-     * `EkosRemoteController.startAutofocus`'s doc) — the raw wire text is shown alongside these,
-     * never derived from them. [focusRunning], [guiding] and [polarRunning] auto-clear: the real
-     * status/stage push overrides the optimistic value (see [FOCUS_IDLE_STATES],
-     * [GUIDE_IDLE_STATES], [PAH_STAGE_IDLE]). [guiding]
-     * means "Guide module busy" (guiding, calibrating, looping, capturing...), like Ekos's own
-     * Stop button being enabled.
+     * Optimistic "routine running" flags for Autofocus/Guide/Polar Align, flipped on tap. The
+     * status/stage push overrides them (see [FOCUS_IDLE_STATES], [GUIDE_IDLE_STATES],
+     * [PAH_STAGE_IDLE]). [guiding] means "Guide module busy" (guiding, calibrating, looping...),
+     * like Ekos's own Stop button being enabled.
      */
     val focusRunning: Boolean = false,
     val guiding: Boolean = false,
@@ -169,24 +156,19 @@ data class AppState(
     val paRate: Int = 1,
     val query: String = "",
     val chips: List<Int> = listOf(0),
-    /** `astro_search_objects`' `type` — a real `SkyObject::TYPE` value, one of [SEARCH_TYPES].
+    /** `astro_search_objects`' `type`: a `SkyObject::TYPE` value, one of [SEARCH_TYPES].
      *  Null = no type: nothing listed until the user types, then names from every catalog. */
     val searchType: Int? = SEARCH_TYPES.first().skyType,
-    /** `astro_search_objects`' `maxMagnitude` — only honored server-side for DSO types, not planets. */
+    /** `astro_search_objects`' `maxMagnitude`; the server only honours it for DSO types. */
     val searchMaxMag: Int = 10,
     /** Empty = nothing picked yet; Plan tab shows a "pick a target" hint instead of the target card. */
     val targetId: String = "",
     /**
-     * The target as it looked when [targetId] was picked — kept so the framed target survives the
-     * next search replacing [wireSearchResults] (the row it came from is gone by then, but goto,
-     * add-to-sequence, and the target card all still need its resolved coords). See [findTarget].
+     * The target as it was when [targetId] was picked, so it survives the next search replacing
+     * [wireSearchResults]; goto, add-to-sequence and the target card need its coords. See [findTarget].
      */
     val targetSnapshot: Target? = null,
-    /**
-     * The user catalogue — exactly one, always exists, name is the only thing
-     * about the catalogue itself the user can change (no add/remove catalogues,
-     * no second one). Targets within it are freely add/edit/remove-able.
-     */
+    /** The single user catalogue; only its name and its targets are editable. */
     val userCatalogName: String = "My targets",
     val userTargets: List<Target> = emptyList(),
     /** Monotonic id counter for custom targets — survives removals. */
@@ -194,16 +176,11 @@ data class AppState(
     val editingUserTargetId: String? = null,
     val addingUserTarget: Boolean = false,
     /**
-     * The Scopes catalog (M3.1) — real Ekos manages telescopes/lenses in
-     * their own dialog (`get_scopes`/`scope_add`, `EkosRemote-Command-
-     * Reference.md` §4), entirely separate from both the rig Profile and
-     * the Optical Train's per-slot role pickers; a train's Scope role just
-     * *references* one of these by name, same as every other role. Lives on
-     * the Gear tab next to Rig profile — configured once, prior to and
-     * independent of which train slot uses it.
+     * Scopes catalog. Ekos keeps telescopes/lenses separate from profiles and trains
+     * (`get_scopes`/`scope_add`, docs/PROTOCOL.md); a train's Scope role references one by name.
      */
     val scopes: List<ScopeDef> = DEFAULT_SCOPES,
-    /** Monotonic id counter for user-added scopes — survives removals, same pattern as [userTargetSeq]. */
+    /** Monotonic id counter for user-added scopes; survives removals. */
     val scopeSeq: Int = DEFAULT_SCOPES.size + 1,
     val editingScopeId: String? = null,
     val addingScope: Boolean = false,
@@ -218,22 +195,16 @@ data class AppState(
     /** User edits only — keyed by catalog device name; unedited defaults come from [DRIVER_INDI_PROPS]. */
     val indiProps: Map<String, List<IndiProperty>> = emptyMap(),
     /**
-     * Real `option_get`/`option_set` values (M4.5 half B, docs/STATUS.md) — replaced the old
-     * `PREF_DEFS`/`prefs` fixture (6 invented per-category notification toggles — "guide
-     * degraded"/"cloud"/"disconnect"/"flip"/"frameCut"/"seqEnd" — confirmed live in this repo's own
-     * source search: not a single one has a matching real Ekos kcfg setting, and `prefs`/
-     * `togglePref` had zero consumers anywhere, purely a local switch flipping itself with no
-     * effect on anything). These 2 are what's actually real: the master gate for the whole
-     * `new_notification` stream this app now reads, and whether Ekos plays a sound on the Pi's own
-     * speaker for one. Null until `ensurePrefsLoaded`'s eager fetch replies.
+     * Ekos options via `option_get`/`option_set`: the master gate for the `new_notification`
+     * stream, and whether Ekos plays a sound on the Pi's speaker for one. Null until
+     * `ensurePrefsLoaded` gets a reply.
      */
     val wireEkosRemoteNotifications: Boolean? = null,
     val wireEkosRemoteSound: Boolean? = null,
     /**
-     * Real persisted capture frames (M4.3), newest-first — Room-backed via [FrameRepository],
-     * fed by [com.nocturne.session.EkosRemoteController]'s own `frameRepo.observeAll()` collector.
-     * Replaces the old fixture `cut: Set<String>`/`Frame`/`FRAME_IDS`/`FRAME_HFRS` entirely — each
-     * row's own [FrameEntity.keep] *is* the real keep/cut state now, not a separate local set.
+     * Persisted capture frames, newest first, from [FrameRepository] via
+     * [com.nocturne.session.EkosRemoteController]'s `frameRepo.observeAll()`. Each row's
+     * [FrameEntity.keep] is its keep/cut state.
      */
     val frameRows: List<FrameEntity> = emptyList(),
     val devOff: Set<String> = setOf("rotator", "dome"),
@@ -244,23 +215,18 @@ data class AppState(
         camera = "ASI174MM mini", rotator = "None", scope = "OAG",
         filterWheel = "None", focuser = "None",
     ),
-    /** Focus sheet: real bookkeeping from the last "Run autofocus now" tap — feeds [focusNextAfMin]/TEMP Δ. */
+    /** Focus sheet: bookkeeping from the last "Run autofocus now" tap; feeds [focusNextAfMin]/TEMP Δ. */
     val focusLastAfAt: Int = 0,
     val focusTempAtLastAf: Double = -0.6,
     val quietHoursEnabled: Boolean = true,
-    /** Bench sheet: live mount pointing, driven by the D-pad in [SimulatedController.tick]. */
+    /** Bench sheet mount pointing. `new_mount_state` has no alt/az, so these keep their defaults. */
     val mountAlt: Double = 49.2,
     val mountAz: Double = 71.6,
     /** Cleared whenever the mount slews — a solve is only valid until the mount moves again. */
     val mountSolved: Boolean = false,
     /**
-     * Wire-mirror fields (M2): raw `new_*_state` payload fields from a real
-     * EkosRemote connection, populated only by [EkosRemoteController] and
-     * never read or written by [SimulatedController]. Additive and separate
-     * from the simulator's own fields above rather than reusing them —
-     * e.g. `new_mount_state` has no alt/az, so [mountAlt]/[mountAz] stay at
-     * their simulator defaults on a real connection rather than being
-     * fabricated. Null until the corresponding push has arrived at least once.
+     * Wire-mirror fields: raw `new_*_state` payload fields, set only by [EkosRemoteController].
+     * Null until the corresponding push has arrived at least once.
      */
     val wireCaptureStatus: String? = null,
     val wireMountStatus: String? = null,
@@ -283,278 +249,171 @@ data class AppState(
     /** Latest SNR / star count; null when the detector doesn't report them (wire sends 0). */
     val guideSnr: Double? = null,
     val guideStarCount: Int? = null,
-    /** Real vocabulary (`ekos.h`): `Idle`/`Complete`/`Failed`/`Aborted`/`In Progress`/
-     * `Successful`/`Syncing`/`Slewing`/`Rotating`/`Suspended` — shown in `FramingCard`/
-     * `AlignSolveCard` as of M5 (docs/STATUS.md). */
+    /** Vocabulary (`ekos.h`): `Idle`/`Complete`/`Failed`/`Aborted`/`In Progress`/
+     * `Successful`/`Syncing`/`Slewing`/`Rotating`/`Suspended`. */
     val wireAlignStatus: String? = null,
-    /** Real solve result, every successful solve — see [com.nocturne.protocol.WireAlignSolution]'s
-     * own doc for why this is the *correct* primary source for a "current camera angle" display,
-     * unlike the rotator-diff-gated [wireRotatorCurrentPA] below. */
+    /** Latest successful solve. The primary source for the current camera angle, unlike the
+     * rotator-gated [wireRotatorCurrentPA]; see [com.nocturne.protocol.WireAlignSolution]. */
     val wireAlignSolution: WireAlignSolution? = null,
     /**
-     * Real per-solve pointing-accuracy trend (follow-up to M5, docs/STATUS.md) — real
-     * `targetDiff` (total pointing error, arcsec) appended on every solve that reports one,
-     * oldest-first, bounded at [MAX_ACCURACY_HISTORY]. User's own "target accuracy status plot"
-     * ask — genuinely real data, just from Align's solve result, not Guide (confirmed live,
-     * fresh, that no RMS/drift data of any kind exists for Guide on this wire — see
-     * [WireAlignSolution]'s own doc and `GuideSheet`'s existing honest disclosure).
+     * Pointing-accuracy trend: each solve's `targetDiff` (total pointing error, arcsec),
+     * oldest first, bounded at [MAX_ACCURACY_HISTORY].
      */
     val alignAccuracyHistory: List<Double> = emptyList(),
-    /** Real `new_notification` stream (M4.5 half A, docs/STATUS.md) — newest first, capped at
-     * [MAX_NOTIFICATIONS] (this is a genuinely unbounded real event stream over a whole session,
-     * not a single mutable current-value push like every other `wire*` field here). Deduplicated
-     * by the real `uuid` field — a reconnect could plausibly replay recent events, confirmed no
-     * such replay guarantee exists on this wire either way, so guarding costs nothing. */
+    /** `new_notification` stream, newest first, capped at [MAX_NOTIFICATIONS] (an event stream,
+     * not a current-value push). Deduplicated by `uuid` in case a reconnect replays events. */
     val wireNotifications: List<Alert> = emptyList(),
     val wirePolarStage: String? = null,
-    /** `new_polar_state`'s `enabled`/`message` fields — decoded since [EkosEvent.NewPolarState]
-     * models them, but unused until Polar Alignment gets real wiring; kept alongside
-     * [wirePolarStage] rather than discarded. */
+    /** `new_polar_state`'s `enabled`/`message` fields. */
     val wirePolarEnabled: Boolean? = null,
     val wirePolarMessage: String? = null,
     /**
-     * `new_polar_state`'s real correction-vector/error fields (M4.4). [wirePolarVector]'s own
-     * `pa`/`mag` aren't drawn as a directional arrow yet — Qt's `QLineF::angle()` rotation
-     * convention isn't confirmed against a live solve (see [WirePolarVector]'s own doc) — but the
-     * numeric az/alt/total error fields are real and shown as text in [PaRealSheet].
-     * [wirePolarUpdatedError]/Az/Alt come from a *separate* real push (`setUpdatedErrors`, no
-     * `vector` wrapper) that fires after a correction slew, not alongside [wirePolarVector].
+     * `new_polar_state`'s correction vector and errors. The vector's `pa`/`mag` aren't drawn as an
+     * arrow: Qt's `QLineF::angle()` convention is unverified (see [WirePolarVector]).
+     * [wirePolarUpdatedError]/Az/Alt come from a separate push (`setUpdatedErrors`, no `vector`
+     * wrapper) that fires after a correction slew.
      */
     val wirePolarVector: WirePolarVector? = null,
     val wirePolarUpdatedError: Double? = null,
     val wirePolarUpdatedAzError: Double? = null,
     val wirePolarUpdatedAltError: Double? = null,
     /**
-     * `align_manual_rotator_status` push (M5, docs/STATUS.md) — Ekos's own current-vs-target
-     * camera-position-angle readback, used both for a by-hand manual rotator turn (no real
-     * rotator device) and to drive a real one via [rotatorAutoControl]. Only ever populates once
-     * [rotatorAutoControl] is on *and* a solve (`align_solve`) has run — confirmed against the
-     * real fork source (`align_goto.cpp`'s `checkIfRotationRequired()`), not driven by anything
-     * else. Null until then; Ekos doesn't push this proactively.
+     * `align_manual_rotator_status`: Ekos's current-vs-target camera position angle, for a manual
+     * turn or a rotator device. Only pushed once [rotatorAutoControl] is on and a solve has run
+     * (`align_goto.cpp` `checkIfRotationRequired()`); null until then.
      */
     val wireRotatorCurrentPA: Double? = null,
     val wireRotatorTargetPA: Double? = null,
     val wireRotatorThreshold: Double? = null,
-    /** Local optimistic mirror of `align_set_astrometry_settings`'s `rotator_control` bool — the
-     * **master gate** for the whole rotator feature (see [wireRotatorCurrentPA]'s own doc),
-     * required on regardless of whether the primary train has a real rotator device
-     * ([TrainAssignment.rotator] != "None") or not; which server-side branch runs (real auto-drive
-     * vs. no-hardware manual-diff readback) depends on that, but this switch itself doesn't. */
+    /** Optimistic mirror of `align_set_astrometry_settings`' `rotator_control`: the master gate
+     * for the rotator feature, needed with or without a rotator device. The device only decides
+     * whether Ekos drives it or reports a manual-turn diff. */
     val rotatorAutoControl: Boolean = false,
     /**
-     * Real ground truth for [rotatorAutoControl] (M4.5 half B, docs/STATUS.md) — `option_get`'s
-     * `astrometryUseRotator` reply. Fetched on connect (`ensurePrefsLoaded`); once it arrives,
-     * this is authoritative and [rotatorAutoControl] is seeded from it — closes the read gap the
-     * 4th M5 pass could only work around (re-sending our own guess on every connect) because no
-     * GET existed on the Align-specific commands; this generic `Options::self()` reflection reaches
-     * it directly, no ambiguous `findObject()` resolution involved.
+     * Server value of [rotatorAutoControl]: `option_get`'s `astrometryUseRotator`, fetched on
+     * connect (`ensurePrefsLoaded`). Authoritative once it arrives and seeds [rotatorAutoControl];
+     * the Align commands have no getter for it.
      */
     val wireAstrometryUseRotator: Boolean? = null,
-    /**
-     * `get_devices` translated to app-friendly shape — null until the first
-     * push arrives (still showing the fixture [DEVICES] catalog), populated
-     * only by [EkosRemoteController]. [SimulatedController] never touches
-     * this, same discipline as every other wire-mirror field above.
-     */
+    /** `get_devices`, translated. Null until the first reply; the default [DEVICES] catalog shows until then. */
     val wireDevices: List<LiveDevice>? = null,
     /**
-     * Real cameras' `CCD_INFO` vector (sensor resolution + pixel size), keyed by device name —
-     * needed for Plan tab's Framing card to compute a real pixel-scale/FOV instead of the
-     * literal placeholder it shipped with. Parsed specially (not via the generic single-value
-     * [indiProps] map) because `CCD_INFO` has multiple number elements
-     * (`CCD_MAX_X`/`CCD_MAX_Y`/`CCD_PIXEL_SIZE`) and the generic decode
-     * (`WireProperty.Number.toIndiProperty`) only keeps the first one — a real gap in that
-     * generic path for any multi-element vector, out of scope to fix generally here. Empty
-     * until each connected camera's own `device_get` reply arrives.
+     * Each camera's `CCD_INFO` (sensor size, pixel size) by device name, for the Framing card's
+     * pixel scale/FOV. Parsed directly because the generic decode
+     * (`WireProperty.Number.toIndiProperty`) keeps only the first element of a vector.
      */
     val wireCcdInfoByDevice: Map<String, CcdInfo> = emptyMap(),
-    /** Each camera's real gain range — `CCD_GAIN`, or the "gain" element of `CCD_CONTROLS`, same
-     *  lookup as Ekos's `Camera::getGainMinMaxStep`. Read directly for the same multi-element
-     *  reason as [wireCcdInfoByDevice]. See [gainSpecialValue]. */
+    /** Each camera's gain range: `CCD_GAIN`, or the "gain" element of `CCD_CONTROLS`, same lookup
+     *  as Ekos's `Camera::getGainMinMaxStep`. See [gainSpecialValue]. */
     val wireGainRangeByDevice: Map<String, GainRange> = emptyMap(),
-    /** `train_get_all` translated (M3) — read by `OpticalTrainCard` when present instead of [trainRolePool]. */
+    /** `train_get_all`, translated; `OpticalTrainCard` prefers it over [trainRolePool]. */
     val wireTrains: List<WireTrain>? = null,
     /**
-     * Which real train (by name) each Ekos module currently uses (M3) — the
-     * real `ProfileSettings` mechanism (`train_get_profiles`/`train_set`)
-     * that actually connects an active Profile to its Optical Trains, kept
-     * per-active-profile server-side. Keys are the module strings `train_set`
-     * itself accepts: `"capture"`, `"focus"`, `"mount"`, `"guide"`, `"align"`,
-     * `"darklibrary"`. Null until the first `train_get_profiles` reply —
-     * [SimulatedController] never sets this, no fixture default either,
-     * since there's no fixture equivalent of "which module uses which train."
+     * Train name per Ekos module (`train_get_profiles`/`train_set`, stored per profile
+     * server-side). Keys are `train_set`'s module strings: `"capture"`, `"focus"`, `"mount"`,
+     * `"guide"`, `"align"`, `"darklibrary"`. Null until the first reply.
      */
     val moduleTrainAssignments: Map<String, String>? = null,
     /**
-     * Every driver label ever saved across any profile on this Pi, unioned
-     * from every `get_profiles` reply's `drivers` maps and keyed by the same
-     * family strings as [CATEGORY_TO_DRIVER_FAMILY] (M3) — see
-     * [realDeviceOptions]. Null until the first `get_profiles` reply.
+     * Every driver label saved in any profile on the Pi, unioned from `get_profiles` and keyed by
+     * [CATEGORY_TO_DRIVER_FAMILY] families; see [realDeviceOptions]. Null until the first reply.
      */
     val wireKnownDrivers: Map<String, List<String>>? = null,
     /** Every INDI driver installed on the Pi (`get_drivers`); see [installedDriverOptions]. */
     val wireDriverCatalog: List<com.nocturne.protocol.WireDriver>? = null,
     /**
-     * `get_scopes` translated (M3.1) — real Ekos's Scopes catalog is a
-     * separate dialog from Optical Trains entirely (`get_scopes`/`scope_add`/
-     * `scope_update`/`scope_delete`, message.cpp:204/1469/1474/1479), not
-     * bundled into either the Profile editor or the Optical Train dialog.
-     * Read by [ScopesCard]/[trainRolePool] instead of [scopes] when present.
-     * Null until the first `get_scopes` reply (it's sent in the same
-     * pre-online-ok burst as `get_profiles`/`train_get_all`).
+     * `get_scopes`, translated (message.cpp:204/1469/1474/1479). [ScopesCard]/[trainRolePool]
+     * prefer it over [scopes]. Null until the first reply (sent with `get_profiles`/`train_get_all`).
      */
     val wireScopes: List<ScopeDef>? = null,
     /**
-     * Name of a `profile_delete` that came back refused (M3) — real Ekos
-     * silently refuses to delete `"Simulators"` or the active profile, with
-     * no error sent; [EkosRemoteController] detects this by diffing the next
-     * `get_profiles` push against the pre-delete list, and surfaces it here
-     * rather than leaving the UI to silently do nothing.
+     * Name of a refused `profile_delete`. Ekos silently refuses to delete `"Simulators"` or the
+     * active profile; [EkosRemoteController] detects it by diffing the next `get_profiles` push.
      */
     val profileDeleteRefused: String? = null,
     /**
-     * `astro_search_objects` → `astro_get_objects_info`/`astro_get_objects_riseset`
-     * pipeline result (M3) — what `PlanScreen`'s results list shows. Null = no search
-     * reply yet (one runs automatically once Ekos is online, see EkosRemoteController).
+     * Result of `astro_search_objects` → `astro_get_objects_info`/`astro_get_objects_riseset`,
+     * shown by `PlanScreen`. Null = no reply yet (a search runs once Ekos is online).
      */
     val wireSearchResults: List<Target>? = null,
     /**
-     * How many names the last search matched after the typed-query filter, before the
-     * [SEARCH_RESULT_CAP] cut — lets the results list tell "still resolving" apart from "no
-     * matches", and say when it's only showing the brightest slice. Null = no search reply yet.
+     * Names the last search matched before the [SEARCH_RESULT_CAP] cut, so the list can tell
+     * "still resolving" from "no matches" and say when it is truncated. Null = no reply yet.
      */
     val wireSearchMatchCount: Int? = null,
-    /** `scheduler_get_jobs` translated (M3) — cross-referenced for progress; see [SequenceJob.synced]. */
+    /** `scheduler_get_jobs`, translated; cross-referenced for progress, see [SequenceJob.synced]. */
     val wireSchedulerJobs: List<WireSchedulerJob>? = null,
     /**
-     * Whether the real Scheduler is currently toggled on — promoted out of what used to be a
-     * private `EkosRemoteController` var so the UI can render a real Start/Stop-Scheduler
-     * control. Written only from the real `new_scheduler_state` push, same "derived from real
-     * events only, never optimistic" shape [ekosRunning] already uses — a prior fix this session
-     * had to remove an optimistic flip here for causing a live "tapped stop, it started again"
-     * bug, so this field must never be set from a local tap, only from a real event.
+     * Whether the Scheduler is on. Set only from the `new_scheduler_state` push, never
+     * optimistically from a tap: an optimistic flip races the push and can show the wrong state.
      */
     val schedulerRunning: Boolean = false,
     /**
-     * Target name of a "Push to Ekos" that came back refused (M3.4) — real Ekos refuses a
-     * duplicate job name outright (`"A job with name '...' already exists"`, confirmed live);
-     * [EkosRemoteController.pushJob] checks [wireSchedulerJobs] before ever sending the add and
-     * surfaces the refusal here rather than racing a server-side one, same shape as
-     * [profileDeleteRefused].
+     * Target name of a refused "Push to Ekos". Ekos refuses duplicate job names
+     * (`"A job with name '...' already exists"`), so [EkosRemoteController.pushJob] checks
+     * [wireSchedulerJobs] before sending.
      */
     val jobPushRefused: String? = null,
     /**
-     * Target name of a "Remove from Ekos" refused *before it was even sent* (M3.4) — real Ekos
-     * refuses `scheduler_remove_jobs` while the *Scheduler itself* is running
-     * ([schedulerRunning]), confirmed live: `"Cannot delete currently running job"`.
-     *
-     * **Not** gated on the job's own real `state` — confirmed live this was the wrong signal: a
-     * freshly-pushed job can read `SCHEDULED` from Ekos's own one-shot evaluation on add even
-     * while the Scheduler itself stays `IDLE` (never toggled on), and removal is perfectly safe
-     * in that case. [schedulerRunning] is the actual gating condition, independent of any one
-     * job's own state.
-     *
-     * User feedback (2026-08-23): a blanket "are you sure?" confirm on every remove tap was the
-     * wrong UX — [EkosRemoteController.removeJob] checks this first instead and only ever asks
-     * the user to look here if it's actually going to be refused; otherwise the remove is sent
-     * immediately, no dialog. Same shape as [jobPushRefused].
+     * Target name of a "Remove from Ekos" refused before sending: Ekos refuses
+     * `scheduler_remove_jobs` while the Scheduler is running (`"Cannot delete currently running
+     * job"`). Gate on [schedulerRunning], not the job's `state`: a freshly pushed job can read
+     * `SCHEDULED` while the Scheduler is idle, and removing it then is fine.
      */
     val jobRemoveRefused: String? = null,
     /**
-     * Most recent real `/media/ekos` binary frame per device (M4.1), keyed by
-     * [com.nocturne.protocol.MediaFrameType] — no history buffer here, this is just "what's on
-     * screen right now"; [FramesScreen]'s own grid (M4.3) is backed by Room instead, not this.
-     * Null until the first frame of that type actually arrives; [EkosRemoteController] routes
-     * each inbound [com.nocturne.protocol.MediaFrame] into the matching field by its header's
-     * real `uuid` tag ([com.nocturne.protocol.frameType]).
+     * Latest `/media/ekos` binary frame per module, routed by the header's `uuid` tag
+     * ([com.nocturne.protocol.frameType]). No history; [FramesScreen]'s grid is Room-backed.
      */
     val latestCaptureFrame: com.nocturne.protocol.MediaFrame? = null,
     val latestAlignFrame: com.nocturne.protocol.MediaFrame? = null,
     val latestFocusFrame: com.nocturne.protocol.MediaFrame? = null,
     val latestGuideFrame: com.nocturne.protocol.MediaFrame? = null,
-    /**
-     * `mount_get_all_settings` translated (M3.3, curated subset — see docs/M3.3-plan.md).
-     * Null until the first reply (sent when [MOUNT_SETTINGS] sheet opens); also gates that
-     * sheet's real-vs-simulator content, same as [wireTrains]/[wireScopes].
-     */
+    /** `mount_get_all_settings` (curated subset). Null until the first reply. */
     val wireMountSettings: WireMountSettings? = null,
-    /**
-     * `capture_get_all_settings` translated (M3.3, curated subset — see docs/M3.3-plan.md).
-     * Null until the first reply (sent eagerly on connect, same as [wireMountSettings]); also
-     * gates [CAMERA_SETTINGS] sheet's real-vs-simulator content.
-     */
+    /** `capture_get_all_settings` (curated subset), fetched on connect. Null until the first reply. */
     val wireCaptureSettings: WireCaptureSettings? = null,
-    /**
-     * `align_get_all_settings` translated (M3.3 phase 3, curated subset — see
-     * docs/M3.3-plan.md). Null until the first reply (sent eagerly on connect, same as
-     * [wireMountSettings]/[wireCaptureSettings]); also gates [ALIGN_SETTINGS] sheet's
-     * real-vs-simulator content.
-     */
+    /** `align_get_all_settings` (curated subset), fetched on connect. Null until the first reply. */
     val wireAlignSettings: WireAlignSettings? = null,
     /**
-     * `guide_get_all_settings` translated (partial — see [WireGuideSettings]'s own doc). Null
-     * until the first reply (sent eagerly on connect, same as the other module settings above);
-     * gates Bench "Snap guide"'s exposure/gain/binning controls (real-rig only, no fixture
-     * equivalent, same as the others).
+     * `guide_get_all_settings` (partial, see [WireGuideSettings]), fetched on connect. Gates
+     * Bench "Snap guide"'s exposure/gain/binning controls.
      */
     val wireGuideSettings: WireGuideSettings? = null,
     /**
-     * `focus_get_all_settings` translated (partial — see [WireFocusSettings]'s own doc). Null
-     * until the first reply (sent eagerly on connect, same as the other module settings above).
-     * Not read directly by the UI — its `absTicksSpin` seeds [focPos] once, on arrival (see
-     * [EkosRemoteController.applyEvent]'s `FocusSettings` arm); kept here mainly so
-     * [benchFocPos] can tell "already seeded" apart from "still on the raw-INDI fallback".
+     * `focus_get_all_settings` (partial, see [WireFocusSettings]), fetched on connect. Its
+     * `absTicksSpin` seeds [focPos] once on arrival; kept so [benchFocPos] can tell "seeded"
+     * from "still on the raw-INDI fallback".
      */
     val wireFocusSettings: WireFocusSettings? = null,
-    /**
-     * `scheduler_get_all_settings` translated (curated subset — see [WireSchedulerSettings]'s own
-     * doc). Null until the first reply (sent eagerly on connect, same as the other module
-     * settings above); gates [SCHEDULER_SETTINGS] sheet's real-vs-simulator content, no fixture
-     * equivalent (same as [wireMountSettings] etc).
-     */
+    /** `scheduler_get_all_settings` (curated subset, see [WireSchedulerSettings]), fetched on connect. */
     val wireSchedulerSettings: WireSchedulerSettings? = null,
     /**
-     * `astro_get_almanac`'s `Dusk`/`Dawn` (M2026-08 Session tab real night-arc) — signed
-     * fraction-of-day offsets from local midnight, see [EkosEvent.AstroAlmanac]'s own doc for the
-     * exact sign convention. Null until the first reply (sent eagerly on connect, same as the
-     * module settings above); real-rig only, no fixture equivalent.
+     * `astro_get_almanac`'s `Dusk`/`Dawn`: signed fraction-of-day offsets from local midnight
+     * (sign convention in [EkosEvent.AstroAlmanac]). Fetched on connect; drives the night arc.
      */
     val wireDusk: Double? = null,
     val wireDawn: Double? = null,
-    /** Real Moon illuminated fraction (`astro_get_almanac`'s own `MoonIllum`, same reply as
-     * [wireDusk]/[wireDawn] — see [com.nocturne.protocol.EkosEvent.AstroAlmanac]'s own doc). User's
-     * "lunar phase" ask. */
+    /** Moon illuminated fraction, `astro_get_almanac`'s `MoonIllum`. */
     val wireMoonIllum: Double? = null,
-    /** `astro_get_location`'s `tz` — real signed UTC hour offset, needed to resolve [wireDusk]/[wireDawn] into an absolute instant. Null until the first reply. */
+    /** `astro_get_location`'s `tz`: signed UTC hour offset, needed to turn [wireDusk]/[wireDawn] into instants. */
     val wireSiteTz: Double? = null,
     /**
-     * Real `astro_get_objects_riseset` for the Plan tab's *currently framed* target specifically —
-     * independent of [wireSearchResults]' own riseset-driven fields (`Target.max`/`peak`), which
-     * only ever cover live search results, never custom targets.
-     * Populated on demand (see [EkosRemoteController.ensureTargetRiseset]) whenever the framed
-     * target changes; check `.name` matches the framed target before trusting it — real-rig only.
+     * `astro_get_objects_riseset` for the framed target, which may be a custom target that
+     * search results don't cover. Fetched on target change
+     * ([EkosRemoteController.ensureTargetRiseset]); check `.name` matches before trusting it.
      */
     val wireTargetRiseset: WireRiseset? = null,
     /**
-     * Real Moon altitude curve (user's "lunar altitude" ask) — same real `astro_get_objects_riseset`
-     * command as [wireTargetRiseset], "Moon" bundled into the same per-target request rather than a
-     * separate fetch (the Moon's own position doesn't depend on which target is framed, so this
-     * only ever needs fetching once per connection in practice, but riding along on the existing
-     * request is simpler than a dedicated dedup path). Kept once fetched, not cleared on target
-     * switch — real-rig only.
+     * Moon altitude curve. "Moon" rides along in the [wireTargetRiseset] request; kept across
+     * target switches since it doesn't depend on the target.
      */
     val wireMoonRiseset: WireRiseset? = null,
     /**
-     * Real astronomy reference-image cutout (M5, docs/STATUS.md) for the Plan tab's Framing card
-     * — a real DSS sky survey image centered on the framed target's own RA/Dec, fetched from CDS
-     * Strasbourg's `hips2fits` service (`transport/ReferenceImageClient.kt`) — **the first direct
-     * internet call this app makes that isn't to the Pi itself**, worth remembering next time the
-     * network/trust-model doc gets revisited. User's explicit call: use this over the Plan tab's
-     * own just-captured live camera frame (which used to sit behind the FOV box there) — framing
-     * is about the sky the target actually sits in, not whatever this session's own camera has
-     * captured so far. [referenceImageForTargetId] guards against a stale image surviving a target
-     * switch before the new fetch lands; null jpeg (fetch failed/offline/no internet) falls back to
-     * an honest placeholder, not a silently wrong image.
+     * DSS reference image centred on the framed target, for the Framing card. Comes from the
+     * offline atlas or CDS `hips2fits` (`transport/ReferenceImageClient.kt`, the app's only
+     * internet call that isn't to the Pi). [referenceImageForTargetId] guards against a stale image
+     * after a target switch; null shows a placeholder.
      */
     val referenceImageJpeg: ByteArray? = null,
     val referenceImageForTargetId: String? = null,
@@ -564,14 +423,12 @@ data class AppState(
     val referenceImageOnlineSkipped: Boolean = false,
     /** Offline sky atlas copied from the rig (see [com.nocturne.hips.SkyAtlas]). */
     val skyAtlas: SkyAtlasStatus = SkyAtlasStatus(),
-    /** Companion reboot daemon's port on the rig's Pi — separate from the EkosRemote wire port (see `pi-tools/reboot-daemon/`). */
+    /** Reboot daemon's port on the Pi, separate from the EkosRemote port (`pi-tools/reboot-daemon/`). */
     val rigRebootPort: Int = 9001,
     val rigRebootState: RigRebootState = RigRebootState.IDLE,
     val rigRebootError: String? = null,
-    /** [SessionController.syncTimeToRig]'s own progress — deliberately a separate field from
-     *  [rigRebootState] even though both go to the reboot daemon: they're independent
-     *  actions (reboot vs. set-time), and sharing one state field would have one action's
-     *  success/failure text wrongly show up under the other button. */
+    /** [SessionController.syncTimeToRig]'s progress. Separate from [rigRebootState] (same daemon)
+     *  so one action's result doesn't show under the other button. */
     val piTimeSyncState: RigRebootState = RigRebootState.IDLE,
     val piTimeSyncError: String? = null,
 )
@@ -604,25 +461,24 @@ fun AppState.primaryImageSize(): PrimaryImageSize? {
     )
 }
 
-/** A real camera's `CCD_INFO` vector — see [AppState.wireCcdInfoByDevice]. */
+/** A camera's `CCD_INFO` vector; see [AppState.wireCcdInfoByDevice]. */
 data class CcdInfo(val maxX: Int, val maxY: Int, val pixelUm: Double)
 
-/** A real camera's gain range — see [AppState.wireGainRangeByDevice]. */
+/** A camera's gain range; see [AppState.wireGainRangeByDevice]. */
 data class GainRange(val min: Double, val max: Double, val step: Double)
 
-// ── Catalog data (prototype script constants) ──────────────────────────────
+// ── Catalog data ───────────────────────────────────────────────────────────
 
 val PA_SECS = listOf(1, 2, 5, 10)
 val PLAN_CHIPS = listOf("Up tonight", "Alt > 40°", "Fits FOV")
 
-/** One `astro_search_objects` object-type choice — [skyType] is the real `SkyObject::TYPE` value. */
+/** One `astro_search_objects` object-type choice; [skyType] is the `SkyObject::TYPE` value. */
 data class SearchType(val label: String, val skyType: Int, val usesMagnitude: Boolean = true)
 
 /**
- * Only types the fork's `astro_search_objects` actually handles (`message.cpp`'s type switch) —
- * comets/asteroids/supernovae/satellites are left out on purpose: the latter two flip KStars'
- * own display options on as a side effect, and the first two are huge, mostly-faint lists.
- * Planets go through KStars' sky composite, not the DSO database, so `maxMagnitude` is ignored.
+ * Types the fork's `astro_search_objects` handles (`message.cpp`'s type switch). Supernovae and
+ * satellites are left out because they turn on KStars display options as a side effect; comets and
+ * asteroids are huge, mostly faint lists. Planets ignore `maxMagnitude` (not in the DSO database).
  */
 val SEARCH_TYPES = listOf(
     SearchType("Galaxies", 8),
@@ -644,10 +500,9 @@ val SEARCH_MAG_RANGE = 6..16
 const val SEARCH_RESULT_CAP = 150
 
 /**
- * [size]/[max]/[peak]/[usable] come from real `astro_*` replies for search results. They're
- * nullable because user-catalogue [custom] targets only ever get [id]/[common]/[coords].
- * [band]/[fov] are only ever set by the old M1 fixture shape and are always null now.
- * Serializable for [com.nocturne.data.TargetRepository] (user catalogue persistence).
+ * [size]/[max]/[peak]/[usable] come from `astro_*` replies for search results; user-catalogue
+ * [custom] targets only have [id]/[common]/[coords]. [band]/[fov] are unused and always null.
+ * Serializable for [com.nocturne.data.TargetRepository].
  */
 @Serializable
 data class Target(
@@ -662,11 +517,8 @@ data class Target(
     val fov: Int? = null,
     val custom: Boolean = false,
     /**
-     * Resolved J2000 coords/magnitude (M3) — populated only for
-     * [AppState.wireSearchResults] entries (from `astro_get_objects_info`),
-     * carried through to [addToSequence]/`SequenceJob.targetRA/DEC`. Null for
-     * every fixture/user-catalogue target, which never resolves against the
-     * real astro engine.
+     * Resolved J2000 coords/magnitude from `astro_get_objects_info`, set only for search results
+     * and carried to [addToSequence]/`SequenceJob.targetRA/DEC`.
      */
     val ra0: Double? = null,
     val de0: Double? = null,
@@ -705,23 +557,16 @@ fun guideOpticNote(focalMm: Int): String {
 }
 
 /**
- * A saved equipment profile (`get_profiles`/`profile_add` per the wire
- * protocol) — what a real Ekos Profile actually is: name + driver selection
- * + connection mode. Optics (focal length/aperture) live entirely in the
- * Scopes catalog ([ScopeDef]/[AppState.scopes], M3.1), referenced by a
- * train's [TrainAssignment.scope] — a real Profile carries no optics of its
- * own, that's the Scopes catalog + Optical Train's job.
+ * A saved Ekos profile (`get_profiles`/`profile_add`): name, drivers, connection mode. It carries
+ * no optics; those live in the Scopes catalog ([ScopeDef]) referenced by [TrainAssignment.scope].
  */
 data class RigProfile(
     val name: String,
     val deviceKeys: List<String>,
     /**
-     * Real `get_profiles`'s `drivers` map (device-family name to that family's driver-label list,
-     * M3) — [deviceKeys] alone (a flattened label list) can't drive
-     * [editProfile]'s per-category picker, since it's lost which family
-     * each label came from. Empty for every [SimulatedController] fixture
-     * profile — [deviceKeys] there is category *keys*, not driver labels,
-     * a different thing entirely (see the doc above `DEFAULT_PROFILES`).
+     * `get_profiles`' `drivers` map (device family → driver labels). [editProfile]'s per-category
+     * picker needs it; the flat [deviceKeys] lose the family. Empty for [DEFAULT_PROFILES], whose
+     * [deviceKeys] are category keys, not driver labels.
      */
     val drivers: Map<String, List<String>> = emptyMap(),
     /** Which entry in `drivers["CCDs"]` (if any) is the guide camera — see [WireProfile.guider]. */
@@ -737,7 +582,7 @@ val DEFAULT_PROFILES = listOf(
 
 val AppState.activeRigProfile: RigProfile? get() = profiles.firstOrNull { it.name == activeProfile }
 
-/** Looks up a [ScopeDef] by name (a [TrainAssignment.scope]/[TrainAssignment] reference) — real or fixture catalog, whichever is current. */
+/** Looks up a [ScopeDef] by name in [AppState.wireScopes], falling back to [AppState.scopes]. */
 fun AppState.findScope(name: String): ScopeDef? = (wireScopes ?: scopes).firstOrNull { it.name == name }
 
 /** "1160 mm · f/8.9" — formats the F-ratio from a [ScopeDef]'s focal length + aperture. */
@@ -745,14 +590,9 @@ fun fRatio(focalMm: Int, apertureMm: Int): String =
     if (apertureMm <= 0) "—" else "f/${"%.1f".format(focalMm.toDouble() / apertureMm)}"
 
 /**
- * One entry in the Scopes catalog — real Ekos's `OAL::Scope::toJson()`
- * (`get_scopes`/`scope_add`/`scope_update`/`scope_delete`,
- * `EkosRemote-Command-Reference.md` §4): `{id, model, vendor, type, name,
- * focal_length, aperture}`. Entirely separate from both the rig Profile and
- * the Optical Train dialog in real Ekos — a train's Scope role just
- * references one of these by [name], same as every other role's device pick.
- * `id` is server-assigned once real ([EkosRemoteController] populates
- * [AppState.wireScopes] from the wire); locally it's `"scope_<seq>"`.
+ * One Scopes catalog entry, Ekos's `OAL::Scope::toJson()`: `{id, model, vendor, type, name,
+ * focal_length, aperture}` (docs/PROTOCOL.md). Trains reference it by [name]. `id` is
+ * server-assigned on the wire; locally it is `"scope_<seq>"`.
  */
 data class ScopeDef(
     val id: String,
@@ -775,13 +615,9 @@ enum class TrainSlot { PRIMARY, SECONDARY }
 enum class TrainRole { MOUNT, CAMERA, ROTATOR, GUIDE_VIA, DUST_CAP, SCOPE, FILTER_WHEEL, FOCUSER, LIGHT_BOX, ADAPTIVE_OPTICS }
 
 /**
- * One Optical Train's device-role assignments — mirrors `train_get_all`'s
- * `mount`/`camera`/`guider`/`focuser`/`filterwheel`/`rotator`/`reducer`/
- * `dustcap`/`lightbox`/`scope` fields (message.cpp:236, `OpticalTrainManager::getOpticalTrains()`).
- * Each field's picker pool is whatever's currently selected in the rig
- * profile's device/scope categories — Dust cap and Light box have no backing
- * category yet, so they stay "None" (matches the real dialog's own idle state
- * for optional roles with nothing connected).
+ * One Optical Train's role assignments, mirroring `train_get_all`'s `mount`/`camera`/`guider`/
+ * `focuser`/`filterwheel`/`rotator`/`reducer`/`dustcap`/`lightbox`/`scope` (message.cpp:236).
+ * Dust cap and Light box have no device category yet, so they stay "None".
  */
 data class TrainAssignment(
     val mount: String = "EQ6-R Pro",
@@ -833,7 +669,7 @@ fun AppState.withTrain(slot: TrainSlot, train: TrainAssignment): AppState = when
     TrainSlot.SECONDARY -> copy(secondaryTrain = train)
 }
 
-/** Which [DeviceRole] bit(s) a train role's real-device pool should draw from — [SCOPE] has none, it's the Scopes catalog, not a device. */
+/** [DeviceRole] bits each train role's device pool draws from. [TrainRole.SCOPE] has none: it is the Scopes catalog. */
 private val TRAIN_ROLE_DEVICE_ROLES: Map<TrainRole, Set<DeviceRole>> = mapOf(
     TrainRole.MOUNT to setOf(DeviceRole.TELESCOPE),
     TrainRole.CAMERA to setOf(DeviceRole.CCD, DeviceRole.GUIDER),
@@ -847,16 +683,9 @@ private val TRAIN_ROLE_DEVICE_ROLES: Map<TrainRole, Set<DeviceRole>> = mapOf(
 )
 
 /**
- * Picker pool for one train role. Real connection ([wireDevices] non-null):
- * every connected device whose `interface` bitmask ORs in this role's
- * [DeviceRole] — [TrainRole.SCOPE] has no device backing (it's the Scopes
- * catalog, `get_scopes`/`scope_add`, not an INDI device) so it always falls
- * through to the `when` block below regardless of connection mode, where it
- * reads [wireScopes] (real) or [scopes] (fixture) by name.
- * [SimulatedController] pool (fixture): sourced from the rig profile's
- * device category selections, per the design brief ("the dropdown list is
- * from the devices in the rig profile"). Dust cap/Light box/AO have no
- * backing category there, so they're always just "None".
+ * Picker pool for one train role. With [wireDevices], every device whose `interface` bitmask
+ * includes the role's [DeviceRole]; otherwise the rig profile's category selections.
+ * [TrainRole.SCOPE] always reads the Scopes catalog ([wireScopes] or [scopes]).
  */
 fun AppState.trainRolePool(role: TrainRole): List<String> {
     val live = wireDevices
@@ -880,11 +709,8 @@ fun AppState.trainRolePool(role: TrainRole): List<String> {
 }
 
 /**
- * One device role/category a rig profile can assign — mirrors an INDI
- * `DRIVER_INTERFACE` family (`get_devices`'s `interface` bitmask decides which
- * role a connected device fills). [catalog] simulates the list of devices
- * `get_devices` would return for that family; first entry ("None") only for
- * optional (non-[req]) roles, since a rig doesn't need a dome or rotator.
+ * One device category a rig profile can assign, mirroring an INDI `DRIVER_INTERFACE` family.
+ * [catalog] is the default device list; optional (non-[req]) categories start with "None".
  */
 data class Device(
     val key: String,
@@ -941,7 +767,7 @@ val DEVICES = listOf(
     ), catalog = listOf("None", "Pegasus Ultimate Powerbox v2", "Pegasus Pocket Powerbox")),
 )
 
-/** Which [DeviceRole] bit(s) a rig-setup category's real-device pool should draw from. */
+/** [DeviceRole] bits each rig-setup category's device pool draws from. */
 private val CATEGORY_DEVICE_ROLES: Map<String, Set<DeviceRole>> = mapOf(
     "mount" to setOf(DeviceRole.TELESCOPE),
     "cam" to setOf(DeviceRole.CCD),
@@ -955,23 +781,13 @@ private val CATEGORY_DEVICE_ROLES: Map<String, Set<DeviceRole>> = mapOf(
 )
 
 /**
- * `ProfileInfo.drivers` family keys (`EkosRemote-Command-Reference.md` §3
- * confirms `"Telescopes"`/`"CCDs"`/`"Focusers"`/`"Filter Wheels"` only — the
- * rest are this app's best-effort guess at the remaining `INDI::DriverInterface`
- * family names Ekos's own driver-selection combo uses, unverified against
- * source. `finishSetup`'s wire payload is fire-and-refresh either way
- * (auto-replies with a fresh `get_profiles`), so a wrong family key here
- * just means that device lands under "Aux" until corrected in real Ekos.
- * Shared by [EkosRemoteController]'s profile_add/update translation and by
- * [realDeviceOptions] below.
+ * Rig-setup category → `ProfileInfo.drivers` family key. `"Telescopes"`/`"CCDs"`/`"Focusers"`/
+ * `"Filter Wheels"` are documented (docs/PROTOCOL.md); the rest follow INDI's driver families.
+ * A wrong key lands the device under "Aux". Used by profile_add/update and [realDeviceOptions].
  *
- * `"guide"` deliberately maps to the *same* family as `"cam"` — confirmed
- * live, real Ekos has no separate "Guiders" family; a guide camera is just
- * a second `"CCDs"` entry, disambiguated only by the legacy `guider` field
- * ([WireProfile.guider]/[RigProfile.guider]), not by `drivers` map structure
- * at all. Only used for building the *pool* here — resolving which value is
- * actually *selected* for `"guide"` must read `.guider` directly, never this
- * family lookup (which would just return the main camera).
+ * `"guide"` maps to `"CCDs"` like `"cam"`: Ekos has no "Guiders" family, a guide camera is a
+ * second CCD marked by the `guider` field ([WireProfile.guider]/[RigProfile.guider]). This map
+ * only builds the pool; the selected guide camera must be read from `.guider`.
  */
 val CATEGORY_TO_DRIVER_FAMILY = mapOf(
     "mount" to "Telescopes",
@@ -982,26 +798,16 @@ val CATEGORY_TO_DRIVER_FAMILY = mapOf(
     "rotator" to "Rotators",
     "dome" to "Domes",
     "weather" to "Weather",
-    // INDI files power boxes (Pegasus UPB/PPB, Terrans, ...) under "Power" (checked on the rig's
-    // /usr/share/indi, 2026-10-24); before this the role fell into the invalid "Aux" family.
+    // INDI files power boxes (Pegasus UPB/PPB, Terrans, ...) under "Power" (/usr/share/indi);
+    // "Aux" is not a valid family.
     "powerbox" to "Power",
 )
 
 /**
- * Real-device options for one rig-setup category (M3) — [DevicePickerBody]
- * (the New/Edit rig profile wizard) reads this instead of [Device.catalog]'s
- * fixed fixture list whenever connected, same discipline as the Gear tab's
- * device list/Optical Train already following [wireDevices] over fixtures.
- *
- * This is the "used before" list; the full installed catalog comes from
- * `get_drivers` ([installedDriverOptions]). The pool here is the union of two
- * real sources: whatever's *currently connected* ([wireDevices],
- * empty/absent until Ekos is actually running) and every driver label
- * *ever saved* across any profile on this Pi ([wireKnownDrivers], available
- * as soon as `get_profiles` replies — even before Ekos starts, which is
- * exactly the case a rig-setup wizard needs). Null only when neither source
- * has arrived yet at all, i.e. not connected — falls back to the fixture
- * catalog then.
+ * "Used before" device options for one rig-setup category in the profile wizard
+ * ([DevicePickerBody]): connected devices ([wireDevices], only once Ekos runs) plus every driver
+ * saved in any profile ([wireKnownDrivers], available before Ekos starts). Null when neither has
+ * arrived; callers then fall back to [Device.catalog]. Full catalog: [installedDriverOptions].
  */
 fun AppState.realDeviceOptions(key: String): List<String>? {
     val family = CATEGORY_TO_DRIVER_FAMILY[key]
@@ -1017,10 +823,8 @@ fun AppState.realDeviceOptions(key: String): List<String>? {
 }
 
 /**
- * Every installed INDI driver for one rig-setup role, from the Pi's full catalog
- * ([wireDriverCatalog], `get_drivers`) — the profile wizard's "all installed drivers" list, next
- * to [realDeviceOptions]' "used before" list. One entry per label, sorted by manufacturer then
- * label. Null until the catalog arrives (not connected, or an old KStars without the command).
+ * Every installed INDI driver for one rig-setup role ([wireDriverCatalog], `get_drivers`), one per
+ * label, sorted by manufacturer then label. Null until the catalog arrives (or KStars lacks the command).
  */
 fun AppState.installedDriverOptions(key: String): List<com.nocturne.protocol.WireDriver>? {
     val catalog = wireDriverCatalog ?: return null
@@ -1031,9 +835,8 @@ fun AppState.installedDriverOptions(key: String): List<com.nocturne.protocol.Wir
 }
 
 /**
- * Generic INDI property vector — mirrors the wire protocol's `device_get`/
- * `device_property_get` shapes (Switch/Number/Text/Light) so the UI can render
- * any device's controls the same way, without per-device-specific screens.
+ * Generic INDI property vector, mirroring `device_get`/`device_property_get` shapes
+ * (Switch/Number/Text/Light) so the UI can render any device's controls.
  */
 sealed class IndiProperty {
     abstract val name: String
@@ -1045,11 +848,8 @@ sealed class IndiProperty {
         val options: List<String>,
         val selected: Int,
         /**
-         * Real element name per option (M3) — defaults to [options] so all 19
-         * [DRIVER_INDI_PROPS] fixture entries keep compiling/rendering
-         * unchanged. A real device's `device_property_set` needs the actual
-         * INDI element name (`elementNames[index]`), which isn't always the
-         * same string as the display label.
+         * INDI element name per option, for `device_property_set`; it can differ from the label.
+         * Defaults to [options].
          */
         val elementNames: List<String> = options,
     ) : IndiProperty()
@@ -1057,26 +857,18 @@ sealed class IndiProperty {
     data class NumberProp(
         override val name: String, override val label: String, override val group: String,
         val value: Double, val min: Double, val max: Double, val step: Double, val format: String = "%.1f",
-        /** Real INDI element name within this vector (M3) — see [SwitchProp.elementNames]. */
+        /** INDI element name within this vector; see [SwitchProp.elementNames]. */
         val elementName: String = name,
         /**
-         * Real vector-level IPState (M3.4) — 0 Idle, 1 Ok, 2 Busy, 3 Alert. Defaults to 1 (Ok) so
-         * every pre-existing [DRIVER_INDI_PROPS] fixture entry keeps compiling/rendering unchanged.
-         * `WireProperty.Number.state` already decodes this; only the generic-property conversion
-         * had been dropping it. Added specifically so a real `CCD_EXPOSURE` vector's own Busy state
-         * (confirmed live: 2 while an exposure is running, 1 once idle/complete) can drive a real
-         * "capturing" indicator — see [indiBusy].
+         * Vector-level IPState: 0 Idle, 1 Ok, 2 Busy, 3 Alert. `CCD_EXPOSURE` is Busy while an
+         * exposure runs, which drives the "capturing" indicator; see [indiBusy].
          */
         val state: Int = 1,
     ) : IndiProperty()
 
     /**
-     * Multi-element (2026-08-23, real gap found live): used to hold a single `value`/
-     * `elementName` — real INDI text vectors can carry several elements at once (confirmed
-     * live: `FILTER_NAME`, one element per filter-wheel slot), and the old shape silently kept
-     * only the first, with no way to even represent the rest. `elements` is (real INDI element
-     * name, current value), same `Pair`-list shape [LightProp.elements] already uses for the
-     * same reason.
+     * Text vectors can have several elements (e.g. `FILTER_NAME`, one per filter slot).
+     * `elements` is (INDI element name, value).
      */
     data class TextProp(
         override val name: String, override val label: String, override val group: String,
@@ -1090,7 +882,7 @@ sealed class IndiProperty {
     ) : IndiProperty()
 }
 
-/** Looks up a NumberProp's live value by property name — user's own edit first, else the driver fixture default. */
+/** A NumberProp's value by property name: the user's edit, else the [DRIVER_INDI_PROPS] default. */
 fun AppState.indiNumber(deviceName: String, propName: String): Double? {
     val props = indiProps[deviceName] ?: DRIVER_INDI_PROPS[deviceName] ?: emptyList()
     return (props.firstOrNull { it.name == propName } as? IndiProperty.NumberProp)?.value
@@ -1106,23 +898,16 @@ fun AppState.indiSwitchElement(deviceName: String, propName: String): String? {
 fun AppState.indiSwitchElements(deviceName: String, propName: String): List<String> =
     (indiProps[deviceName]?.firstOrNull { it.name == propName } as? IndiProperty.SwitchProp)?.elementNames.orEmpty()
 
-/** Looks up a NumberProp's own vector-level IPState (see [IndiProperty.NumberProp.state]) by property name. */
+/** Whether a NumberProp is Busy (see [IndiProperty.NumberProp.state]). */
 fun AppState.indiBusy(deviceName: String, propName: String): Boolean {
     val props = indiProps[deviceName] ?: DRIVER_INDI_PROPS[deviceName] ?: emptyList()
     return (props.firstOrNull { it.name == propName } as? IndiProperty.NumberProp)?.state == 2
 }
 
 /**
- * Real per-driver property layouts — keyed by catalog device name, not by
- * role. Sourced from the actual driver code in `~/cc/repo/indi` and
- * `~/cc/repo/indi-3rdparty` (property names/groups/ranges verified against
- * source, not invented). Trimmed to the "Main Control"-tier controls a mobile
- * panel would expose — diagnostics/firmware/alignment tabs are skipped, same
- * as the old fake per-role set did implicitly.
- *
- * Values queried live from the SDK on a real connection (gain ranges, step
- * counts, etc.) are given plausible fixed defaults here — the shape (which
- * properties exist, their groups) is what's verified, not every live value.
+ * Default per-driver property layouts, keyed by catalog device name. Names, groups and ranges
+ * come from the `indi` and `indi-3rdparty` driver sources, trimmed to main controls. Values that a
+ * connected driver reports (gain ranges, step counts) are plausible placeholders here.
  */
 val DRIVER_INDI_PROPS: Map<String, List<IndiProperty>> = mapOf(
     // Mounts — INDI::Telescope base (EQUATORIAL_EOD_COORD/ON_COORD_SET/etc.) omitted;
@@ -1214,9 +999,7 @@ val DRIVER_INDI_PROPS: Map<String, List<IndiProperty>> = mapOf(
         IndiProperty.NumberProp("ROTATION_RATE", "Rotation rate", "Settings", 8.0, 0.0, 99.0, 10.0, "%.0f"),
     ),
 
-    // Domes — NexDome (indi-3rdparty, verified in detail); MaxDome II only
-    // verified to exist (not researched in detail) — uses the shared
-    // INDI::Dome base properties every dome driver inherits.
+    // Domes — NexDome (indi-3rdparty); MaxDome II uses only the shared INDI::Dome base properties.
     "NexDome" to listOf(
         IndiProperty.SwitchProp("DOME_SHUTTER", "Shutter", "Main Control", listOf("Open", "Close"), 1),
         IndiProperty.SwitchProp("DOME_MOTION", "Motion", "Main Control", listOf("Dome CW", "Dome CCW"), -1),
@@ -1231,8 +1014,7 @@ val DRIVER_INDI_PROPS: Map<String, List<IndiProperty>> = mapOf(
         IndiProperty.SwitchProp("DOME_PARK", "Parking", "Main Control", listOf("Park", "UnPark"), 1),
     ),
 
-    // Weather — AAG CloudWatcher NG (indi-3rdparty, real driver); Weather
-    // Watcher (core INDI, generic file/URL-poll driver).
+    // Weather — AAG CloudWatcher NG (indi-3rdparty); Weather Watcher (core INDI, file/URL poll).
     "AAG CloudWatcher NG" to listOf(
         IndiProperty.LightProp("WEATHER_STATUS", "Status", "Main Control", listOf("Wind" to 1, "Rain" to 1, "Cloud" to 1, "Humidity" to 1)),
         IndiProperty.NumberProp("WEATHER_WIND_SPEED", "Wind speed", "Parameters", 6.0, 0.0, 30.0, 1.0, "%.1f km/h"),
@@ -1276,16 +1058,9 @@ data class Block(
     val offset: Int,
     val binning: Int,
     /**
-     * `null` means dithering is off for this block — a genuine, real per-block Ekos concept
-     * (`SequenceJob::SJ_DitherPerJobEnabled`, confirmed against real KStars source,
-     * `sequencejob.cpp`), unlike autofocus rules which are purely global. Real Ekos itself
-     * encodes "off" as `-1` in the written `<GuideDitherPerJob>` element (`sequencejob.cpp:1070`:
-     * `ditherPerJobEnabled ? ditherPerJobFrequency : -1`) and reads it back the same way
-     * (`value >= 0` → enabled at that frequency, `value < 0` → disabled;
-     * `sequencejob.cpp:841-850`) — note `0` itself is a *valid* real frequency ("dither every
-     * frame"), not a stand-in for off, so `null`/`-1` had to be a distinct value from `0`. This
-     * wire-specific `-1` encoding stays confined to [EsqWriter] — the app's own model uses a
-     * real `null`, not a magic number, for "off".
+     * Per-block dither frequency; `null` = off (`SequenceJob::SJ_DitherPerJobEnabled`). Ekos writes
+     * off as `-1` in `<GuideDitherPerJob>` (`sequencejob.cpp:1070`, read back at 841-850), and `0`
+     * is a valid frequency, so off must stay distinct from `0`. The `-1` encoding lives in [EsqWriter].
      */
     val ditherEvery: Int?,
 )
@@ -1297,11 +1072,9 @@ val DEFAULT_BLOCKS = listOf(
 )
 
 /**
- * One queued target's capture plan — Nocturne's counterpart to Ekos's
- * `SchedulerJob` (`scheduler_get_jobs`/`scheduler_add_jobs`): one target, one
- * sequence (`blocks`), queued alongside other jobs rather than Capture's flat
- * single-sequence model. Named `SequenceJob`, not `Job`, to avoid colliding
- * with `kotlinx.coroutines.Job` already used in [SimulatedController].
+ * One queued target's capture plan, the counterpart of Ekos's `SchedulerJob`
+ * (`scheduler_get_jobs`/`scheduler_add_jobs`): one target, one sequence of [blocks].
+ * Not named `Job` to avoid clashing with `kotlinx.coroutines.Job`.
  */
 @Serializable
 data class SequenceJob(
@@ -1310,29 +1083,17 @@ data class SequenceJob(
     val blocks: List<Block> = DEFAULT_BLOCKS,
     val blockSeq: Int = DEFAULT_BLOCKS.size + 1,
     /**
-     * True once this job has been pushed to the real Scheduler ("Push to Ekos", M3.4) —
-     * `scheduler_add_jobs` was sent and confirmed via a `scheduler_get_jobs` round-trip. Means
-     * only "Ekos currently lists a job with this target's name" — nothing about whether it's
-     * actually running; use [wireJobFor] for that. The block editor goes read-only while true
-     * (matches real Ekos — there's no live-edit-a-running-job wire primitive).
+     * True once "Push to Ekos" was confirmed by a `scheduler_get_jobs` round-trip. Says only that
+     * Ekos lists the job; use [wireJobFor] for its state. The block editor is read-only while true
+     * (the wire can't edit a queued job).
      *
-     * `running: Boolean` and `wireIndex: Int?` used to live here too (M3/M3.4) — dropped
-     * 2026-08-23 once the push/start/stop split landed: `WireSchedulerJob` has no server-assigned
-     * id, only `name`, so a cached index went stale the instant anything else on the real queue
-     * was added/removed (confirmed live — this exact staleness is what let a duplicate-name push
-     * silently latch onto a different job's slot). Both are now resolved fresh, by name, against
-     * [AppState.wireSchedulerJobs] at the moment a command needs them, via [wireJobFor].
+     * Don't cache a wire index or running flag here: `WireSchedulerJob` has no id, only `name`,
+     * and indices shift when the queue changes. Resolve by name via [wireJobFor] when needed.
      */
     val synced: Boolean = false,
     /**
-     * Real wall-clock time this job was created (2026-08-25, user's own call) — feeds
-     * [targetNameFor]'s date/time suffix so pushing the same target months apart never produces
-     * the exact same real Scheduler job name/`.esq` filename twice. `0L` for any job persisted
-     * before this field existed (deserializes to the default, per kotlinx.serialization) —
-     * [targetNameFor] deliberately falls back to the old undated name in that case rather than
-     * collide every pre-existing job on `0`, since a currently-`synced` old-format job must keep
-     * matching the exact name Ekos already has for it (see [wireJobFor]) or the app silently loses
-     * track of it.
+     * Creation time, for [targetNameFor]'s date suffix. `0L` for jobs persisted before this field;
+     * those keep their undated name so a synced job still matches what Ekos has.
      */
     val createdAtMs: Long = 0L,
 )
@@ -1342,36 +1103,14 @@ val DEFAULT_JOBS = listOf(
 )
 
 /**
- * The name Ekos would know a job by — used to name-match [AppState.wireSchedulerJobs]. Always
- * suffixed with this job's own local id (`"NGC 7000_j2"`), not just the target's own display
- * name — real Ekos's Scheduler has no separate job-id field, only `name`, so two local jobs for
- * the *same target* (different filters/exposures — a real user need: "different session
- * profile") would otherwise both resolve to the identical wire name and collide, either racing
- * this app's own duplicate-name refusal or (worse) real Ekos's own. The suffix is stable for a
- * given job's whole lifetime (the id never changes), so a job's wire identity never shifts out
- * from under a live sync just because a sibling job for the same target was added or removed.
+ * The name Ekos knows a job by, used to name-match [AppState.wireSchedulerJobs]:
+ * `"<target>_<job id>_<yyyyMMdd_HHmmss>"`.
  *
- * **Real bug, found live 2026-08-23**: this used a literal `#` separator (`"$base #${job.id}"`)
- * until now — confirmed against source (`ksutils.cpp:1924` `KSUtils::sanitize()`) that real
- * Ekos's own filename sanitizer does NOT strip `#` (only whitespace/`/`/`(`/`)`/`:`/`*`/`+`/`~`/
- * `"`), so every job this app ever pushed had a `#` baked into its real save-path target name —
- * real symptom: "image write failed" once a job with a `#`-suffixed name actually reached
- * capture. Switched to `_`, which Ekos's own sanitizer already treats as the safe replacement
- * character for everything else it strips.
- *
- * **Date/time suffix added 2026-08-25 (user's own call)**: `job.id` (`"j1"`, `"j2"`, ...) is a
- * local, in-app monotonic counter — it only ever *increases* for the app's own persisted
- * lifetime, but that lifetime isn't forever (a reinstall, or the sequence-jobs DataStore being
- * cleared, restarts it from `"j1"` again). Pushing the same target as job "j1" months apart would
- * otherwise produce the exact same real Scheduler job name and `.esq` filename twice — the user's
- * own concrete worry: real Ekos could plausibly treat the second, unrelated push as a continuation
- * of the first (whatever it keys its own "remember job progress"/completion state on,
- * `kcfg_RememberJobProgress`, confirmed `true` on this rig — not confirmed *what* key it uses, so
- * removing the collision outright rather than reasoning about that mechanism). [SequenceJob.createdAtMs]
- * makes every future job's name unique regardless of *why* `job.id` collided. Falls back to the
- * pre-2026-08-25 undated name when `createdAtMs` is `0` (a job persisted before this field
- * existed) — required so an already-`synced` old-format job keeps matching the exact name Ekos
- * already has for it; see [SequenceJob.createdAtMs]'s own doc.
+ * - The job id keeps two jobs for the same target apart; Ekos's Scheduler has only `name`, no id.
+ * - The date keeps names unique if the local id counter restarts (reinstall, cleared store), so
+ *   Ekos's remembered job progress (`RememberJobProgress`) can't latch onto an unrelated job.
+ * - Separator is `_`: Ekos's filename sanitizer (`ksutils.cpp:1924` `KSUtils::sanitize()`)
+ *   doesn't strip `#`, and a `#` in the save path makes image writes fail.
  */
 fun AppState.targetNameFor(job: SequenceJob): String {
     val target = findTarget(job.targetId)
@@ -1383,26 +1122,21 @@ fun AppState.targetNameFor(job: SequenceJob): String {
 private val JOB_NAME_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")
 
 /**
- * Filesystem-safe token from a real name — spaces/punctuation a filesystem path shouldn't carry
- * replaced with `_`. Same convention as [com.nocturne.data.FrameFileWriter]'s own private
- * `sanitize`, shared here since [pushRealJob]-style callers need an identical transform on
- * [targetNameFor]'s output before it can be used as an actual `.esq` filename.
+ * Filesystem-safe token: anything but `[A-Za-z0-9_-]` becomes `_`. Same rule as
+ * [com.nocturne.data.FrameFileWriter]'s `sanitize`; used to turn [targetNameFor] into an `.esq` filename.
  */
 fun sanitizeFileToken(s: String): String = s.replace(Regex("[^A-Za-z0-9_-]"), "_")
 
 /**
- * This job's real counterpart on the wire, if any — `null` for an unsynced job by construction
- * (never name-match a job that hasn't been confirmed pushed; this is exactly where the
- * duplicate-name bug bit before this field was added). This is the one place "is this job really
- * running" gets answered from now on — [SequenceJob] itself carries no local running flag.
+ * This job's counterpart on the wire, if any. Always null for an unsynced job: name-matching an
+ * unpushed job can latch onto someone else's job. The single source of "is this job running".
  */
 fun AppState.wireJobFor(job: SequenceJob): WireSchedulerJob? =
     if (!job.synced) null else wireSchedulerJobs.orEmpty().firstOrNull { it.name == targetNameFor(job) }
 
 /**
- * Real jobs Ekos's Scheduler holds that no local, synced [SequenceJob] claims — added directly in
- * KStars, or left over from before this app ever touched them. The app never hides these: it
- * reads Ekos's real state and shows it as-is, it doesn't force/clear anything on connect.
+ * Scheduler jobs no synced [SequenceJob] claims (added in KStars, or left over). Shown as-is;
+ * nothing is cleared on connect.
  */
 val AppState.unmanagedWireJobs: List<WireSchedulerJob> get() {
     val claimed = jobs.filter { it.synced }.map { targetNameFor(it) }.toSet()
@@ -1410,12 +1144,8 @@ val AppState.unmanagedWireJobs: List<WireSchedulerJob> get() {
 }
 
 /**
- * Which job the Session tab reflects: prefers real truth over local guesswork — a synced job
- * actually [SchedulerJobStatus.BUSY] right now, else one in [ACTIVE_SCHEDULER_STATES] (Ekos has
- * committed to it, even pre-slew), else whichever job was last active locally, else the first
- * queued job, else null. Session tab's own telemetry (night arc, HFR/RMS/SNR) stays the decoupled
- * simulator fixture it always was — only the header (target name, block progress) is wired to
- * this job.
+ * The job the Session tab reflects: a synced job that is [SchedulerJobStatus.BUSY], else one in
+ * [ACTIVE_SCHEDULER_STATES] (committed, even pre-slew), else the last active job, else the first.
  */
 val AppState.contractJob: SequenceJob? get() =
     jobs.firstOrNull { wireJobFor(it)?.state == SchedulerJobStatus.BUSY }
@@ -1423,7 +1153,7 @@ val AppState.contractJob: SequenceJob? get() =
         ?: jobs.firstOrNull { it.id == lastActiveJobId }
         ?: jobs.firstOrNull()
 
-/** The job [endSession] stopped — what the Summary sheet and its export report are about. */
+/** The job [endSession] stopped; the subject of the Summary sheet and its export. */
 val AppState.endedJob: SequenceJob? get() = jobs.firstOrNull { it.id == lastEndedJobId }
 
 /**
@@ -1435,32 +1165,21 @@ fun AppState.findTarget(id: String): Target? =
         ?: wireSearchResults?.firstOrNull { it.id == id }
         ?: targetSnapshot?.takeIf { it.id == id }
 
-/** "NGC 7000 — North America" for the well-known catalog; just the name for custom targets (no catalog id to show). */
+/** "NGC 7000 — North America"; just the name for custom targets, which have no catalog id. */
 val Target.displayName: String get() = if (custom) common else "$id — $common"
 
 /**
- * The name to send to any real wire call that resolves an object by name (`mount_goto_target`,
- * `astro_get_objects_riseset`, the Scheduler's `nameEdit`, etc.) — **not** [displayName] or
- * [common] unconditionally. For the old (since-removed) fixture catalog, `id` was the real resolvable
- * designation ("NGC 7000") while `common` is just the human nickname ("North America"), which
- * real KStars won't resolve as an object name at all — confirmed live (a real
- * `astro_get_objects_riseset { "names": ["North America"] }` call was the original bug here).
- * For a live search result, `id`/`common` are already identical (both the resolved catalog name),
- * so this is a no-op there. Only for a user's custom target — where `id` is a synthetic
- * `"custom_N"` string, not resolvable at all — is `common` (whatever they actually typed) the
- * better (if still not guaranteed to resolve) choice.
+ * The name to send to wire calls that resolve an object by name (`mount_goto_target`,
+ * `astro_get_objects_riseset`, the Scheduler's `nameEdit`). KStars resolves designations
+ * ("NGC 7000"), not nicknames ("North America"), so use `id`, except for custom targets whose
+ * `id` is a synthetic `"custom_N"`; those use what the user typed.
  */
 val Target.realLookupName: String get() = if (custom) common.ifBlank { id } else id.ifBlank { common }
 
 /**
- * Real J2000 RA/Dec as decimal degrees (M5, docs/STATUS.md — reference-image fetch). Prefers
- * [Target.ra0]/[Target.de0] when set (real, only populated for live search results — `ra0` is in
- * **hours**, confirmed against [formatRaHours]'s own param name, so `* 15.0` converts to degrees;
- * `de0` is already degrees). Falls back to parsing [Target.coords]'s own "HHhMMmSSs ±DD°MM′SS″"
- * string (every target has one, fixture/custom included) with the same shape
- * [EkosRemoteController]'s `COORDS_REGEX` matches for the scheduler wire — just computed into
- * actual degrees here instead of re-formatted sexagesimal strings. Null only for a free-text
- * custom target whose `coords` doesn't match this shape at all.
+ * J2000 RA/Dec in decimal degrees. Uses [Target.ra0] (hours, hence `* 15.0`) and [Target.de0]
+ * (degrees) when set, else parses [Target.coords] ("HHhMMmSSs ±DD°MM′SS″", the shape
+ * `COORDS_REGEX` matches). Null when `coords` doesn't parse.
  */
 val Target.raDecDegrees: Pair<Double, Double>?
     get() {
@@ -1473,11 +1192,9 @@ val Target.raDecDegrees: Pair<Double, Double>?
     }
 
 /**
- * Real "is a scheduler job actually imaging right now" check (M4.5) — decides Preview/ vs Plan/
- * on disk for a just-arrived capture frame. A real `BUSY` job means a real target+filter
- * capture; no `BUSY` job means a test/bench capture. Fragile only around the exact moment a job
- * starts/stops — no better wire signal exists (frame headers carry no target/filter at all,
- * confirmed against source) — see docs/M4.5-plan.md.
+ * Whether a just-arrived capture frame belongs to a scheduler job (Plan/) or is a test capture
+ * (Preview/): a `BUSY` job means a job capture. Can misfile around a job's start/stop, but frame
+ * headers carry no target or filter, so there is no better signal.
  */
 fun AppState.activeFrameSource(): FrameSource {
     val busyJob = wireSchedulerJobs?.firstOrNull { it.state == SchedulerJobStatus.BUSY } ?: return FrameSource.Test
@@ -1490,7 +1207,7 @@ fun AppState.activeFrameSource(): FrameSource {
     )
 }
 
-/** Median HFR across real *kept* frames only (M4.3, Room-backed) — null if no kept frame has an HFR yet. */
+/** Median HFR across kept frames; null if no kept frame has an HFR yet. */
 val AppState.medHfr: Double? get() {
     val sorted = frameRows.filter { it.keep }.mapNotNull { it.hfr }.sorted()
     return if (sorted.isEmpty()) null else sorted[sorted.size / 2]
@@ -1503,13 +1220,8 @@ val SequenceJob.currentBlockIndex: Int? get() =
 val FILTER_CYCLE = listOf("Ha", "OIII", "SII", "L", "R", "G", "B")
 
 /**
- * Real filter-wheel slot names (INDI's `FILTER_NAME`, one element per slot), if the real filter
- * wheel is connected and has reported them (2026-08-23, wired once `FILTER_NAME` itself became
- * editable) — null otherwise, letting every caller fall back to the fixture [FILTER_CYCLE].
- * Looked up by the filter wheel's own real device *name*, not the `"efw"` role key —
- * `indiProps` is keyed by whatever name the driver reports (see `IndiPropertyPanel`'s call
- * sites), found here via the same [DeviceRole]-filtered [wireDevices] lookup
- * `realDeviceOptions` already uses for the same role.
+ * Filter slot names (INDI `FILTER_NAME`) from the connected filter wheel; null otherwise, and
+ * callers fall back to [FILTER_CYCLE]. [indiProps] is keyed by device name, not the `"efw"` key.
  */
 val AppState.realFilterNames: List<String>? get() {
     val filterWheel = wireDevices?.firstOrNull { DeviceRole.FILTER in it.roles } ?: return null
@@ -1517,7 +1229,7 @@ val AppState.realFilterNames: List<String>? get() {
     return prop?.elements?.map { it.second }?.filter { it.isNotBlank() }?.takeIf { it.isNotEmpty() }
 }
 val BINNING_OPTIONS = listOf(1, 2, 3, 4)
-/** `null` ("Off") leads the list — see [Block.ditherEvery]'s own doc for why real Ekos needs a distinct off-value from `0`. */
+/** `null` is "Off"; see [Block.ditherEvery] for why off is distinct from `0`. */
 val DITHER_OPTIONS: List<Int?> = listOf(null, 1, 2, 3, 5)
 
 /** "300 s × 40" — collapsed-card headline, derived so an edit is reflected immediately. */
@@ -1540,7 +1252,7 @@ val Block.meta: String get() {
     return if (doneCount > 0) "$doneCount done · $remaining left" else "queued · $remaining"
 }
 
-/** Total subs done/planned across all blocks — real once [SequenceJob.synced], fixture math otherwise. */
+/** Total subs done/planned across all blocks. */
 val SequenceJob.totalDone: Int get() = blocks.sumOf { it.doneCount }
 val SequenceJob.totalSubs: Int get() = blocks.sumOf { it.subCount }
 
@@ -1558,17 +1270,14 @@ private fun formatHM(totalSec: Int): String {
     return "$h:${m.toString().padStart(2, '0')}"
 }
 
-/** "1:00" / "3:20" style (hours:minutes, unpadded hour) — matches NightArcCard's existing literal shape. */
+/** "1:00" / "3:20" style (hours:minutes, unpadded hour), as NightArcCard shows. */
 val SequenceJob.doneHM: String get() = formatHM(totalDoneSec)
 val SequenceJob.plannedHM: String get() = formatHM(totalPlannedSec)
 
 /**
- * Real dusk/dawn as absolute instants, resolved from [AppState.wireDusk]/[AppState.wireDawn]'s
- * signed day-fraction-from-midnight offsets against the *site's* own local "today" (per
- * [AppState.wireSiteTz]) — deliberately not the Android device's own timezone, since the almanac
- * itself is anchored to the Pi's configured site, which could differ from wherever the phone
- * happens to be. Null until all three wire fields have arrived — [SessionScreen.kt]'s
- * `NightArcCard` keeps its hardcoded "21:48 → 04:12" until then.
+ * Dusk/dawn as instants: [AppState.wireDusk]/[AppState.wireDawn] offsets applied to the site's
+ * midnight in [AppState.wireSiteTz], not the phone's timezone (the almanac is for the Pi's site).
+ * Null until all three have arrived.
  */
 val AppState.realNightWindow: Pair<Instant, Instant>? get() {
     val dusk = wireDusk ?: return null
@@ -1578,17 +1287,13 @@ val AppState.realNightWindow: Pair<Instant, Instant>? get() {
     return anchor.plusSeconds((dusk * 86400).roundToLong()) to anchor.plusSeconds((dawn * 86400).roundToLong())
 }
 
-/** [wireSiteTz] as a [ZoneOffset] — null until it's arrived (real-rig only). */
+/** [wireSiteTz] as a [ZoneOffset]; null until it has arrived. */
 val AppState.siteZoneOffset: ZoneOffset? get() = wireSiteTz?.let { ZoneOffset.ofTotalSeconds((it * 3600).roundToInt()) }
 
 /**
- * "Local midnight today" is ambiguous by clock time alone — offsets like [wireDusk]/[wireDawn], or
- * the ±12h span a real `astro_get_objects_riseset` altitude curve is centered on, are small deltas
- * from *some* midnight, but which one (the one just passed, in the small hours, or the upcoming
- * one, in the evening/daytime) depends on where "now" actually sits. Anchoring on whichever
- * midnight is chronologically nearest to "now" resolves both cases correctly without guessing
- * AM/PM — confirmed live: anchoring on today's midnight-*start* unconditionally (the first cut of
- * [realNightWindow]) put a 2pm-computed dusk a full day early.
+ * The site midnight nearest to now. Almanac and riseset offsets are relative to "tonight's"
+ * midnight, which is the one just passed in the small hours but the upcoming one in the
+ * afternoon; always using today's start would put an afternoon dusk a day early.
  */
 private fun nearestMidnight(zone: ZoneOffset): Instant {
     val now = Instant.now()
@@ -1599,9 +1304,8 @@ private fun nearestMidnight(zone: ZoneOffset): Instant {
 }
 
 /**
- * The real ±12h-around-local-midnight window a `astro_get_objects_riseset` altitude curve spans
- * (see [WireRiseset.altitudes]'s own doc) — a full day cycle centered on midnight, distinct from
- * [realNightWindow]'s dusk-to-dawn observing window. Null until [wireSiteTz] has arrived.
+ * The ±12h-around-midnight window an `astro_get_objects_riseset` altitude curve spans (see
+ * [WireRiseset.altitudes]), unlike [realNightWindow]'s dusk-to-dawn. Null until [wireSiteTz] arrives.
  */
 val AppState.realDayWindow: Pair<Instant, Instant>? get() {
     val zone = siteZoneOffset ?: return null
@@ -1610,17 +1314,10 @@ val AppState.realDayWindow: Pair<Instant, Instant>? get() {
 }
 
 /**
- * Real "usable tonight" duration for [riseset] — replaces the fixture `Target.usable` string
- * (M1, same fixed value every night regardless of date/season/real sky) once real riseset data
- * for this exact target has arrived. Total time [riseset]'s real altitude curve (see
- * [WireRiseset.altitudes]'s own doc — 49 points, every 30 min, spanning [realDayWindow]) is both
- * above [thresholdDeg] — 40° by default, matching this app's own existing "Alt > 40°" Plan-tab
- * filter chip, no other "usable" altitude convention exists anywhere else in this codebase to
- * borrow instead — *and* within [realNightWindow]'s real dusk-to-dawn dark window. Linear
- * interpolation between the 30-min samples for the threshold-crossing instant, same "the curve is
- * linear between samples" assumption [AltitudeChart] itself already renders under. Null until
- * both [realDayWindow] (site tz) and [realNightWindow] (dusk/dawn) have arrived, or if [riseset]
- * has fewer than 2 samples.
+ * Seconds tonight that [riseset]'s altitude curve (49 samples, 30 min apart, over [realDayWindow])
+ * is above [thresholdDeg] (default matches the "Alt > 40°" chip) and inside [realNightWindow].
+ * Interpolates linearly between samples, as [AltitudeChart] draws. Null until both windows are
+ * known or with fewer than 2 samples.
  */
 fun AppState.realUsableSeconds(riseset: WireRiseset, thresholdDeg: Double = 40.0): Int? {
     val dayStart = realDayWindow?.first ?: return null
@@ -1640,8 +1337,8 @@ fun AppState.realUsableSeconds(riseset: WireRiseset, thresholdDeg: Double = 40.0
 }
 
 /**
- * Within absolute time range `[lo, hi]` (a subset of `[t0, t1]`), the seconds where a straight
- * line from `(t0, a0)` to `(t1, a1)` is above `threshold`. Shared math behind [realUsableSeconds].
+ * Within `[lo, hi]` (a subset of `[t0, t1]`), the seconds where the line from `(t0, a0)` to
+ * `(t1, a1)` is above `threshold`.
  */
 private fun aboveThresholdSeconds(t0: Long, t1: Long, a0: Double, a1: Double, lo: Long, hi: Long, threshold: Double): Double {
     if (a0 == a1) return if (a0 > threshold) (hi - lo).toDouble() else 0.0
@@ -1654,16 +1351,7 @@ private fun aboveThresholdSeconds(t0: Long, t1: Long, a0: Double, a1: Double, lo
     }
 }
 
-// realNightMaxAltitude (restricted-to-dark-window peak) removed (M5, docs/STATUS.md) — its own
-// real bug (dusk is site-wide, not per-target, so any target whose true transit precedes dusk
-// degenerated to "first sample after dusk" — identical across every such target regardless of
-// their real RA) outweighed the 2026-08-22 confusion it was written to fix. User's call: revert to
-// always showing the real absolute daily peak/transit (TargetCard now uses
-// riseset.altitudes.maxOrNull()/riseset.transit directly again), accepting that a daytime-transit
-// target can again look inconsistent next to realUsableSeconds' own "0h 00m usable" — a real fact
-// about the target, not a bug, even if the two readouts don't obviously agree at a glance.
-
-/** Real fraction of [realDayWindow] elapsed right now — always defined once the window is (by construction, "now" sits within ±12h of its own nearest midnight). */
+/** Fraction of [realDayWindow] elapsed now; always in range, since now is within ±12h of the nearest midnight. */
 val AppState.realDayFraction: Double? get() {
     val (start, end) = realDayWindow ?: return null
     val total = end.epochSecond - start.epochSecond
@@ -1673,16 +1361,15 @@ val AppState.realDayFraction: Double? get() {
 
 private val SITE_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm")
 
-/** [instant] formatted "HH:mm" in the site's own local time — real replacement for the "21:48"/"04:12" literals. */
+/** [instant] formatted "HH:mm" in the site's local time. */
 fun AppState.formatSiteTime(instant: Instant): String {
     val tz = wireSiteTz ?: return "--:--"
     return instant.atZone(ZoneOffset.ofTotalSeconds((tz * 3600).roundToInt())).format(SITE_TIME_FORMATTER)
 }
 
 /**
- * Real fraction of tonight's dusk-to-dawn span elapsed right now — null (not clamped) whenever
- * "now" falls outside that span (daytime, or between a stale dawn and the next dusk), so the UI
- * can show an honest "not observing" state instead of plotting a wrong dot position.
+ * Fraction of tonight's dusk-to-dawn span elapsed now. Null (not clamped) outside the span, so the
+ * UI shows "not observing" instead of a misplaced dot.
  */
 val AppState.realNowFraction: Double? get() {
     val (dusk, dawn) = realNightWindow ?: return null
@@ -1694,12 +1381,8 @@ val AppState.realNowFraction: Double? get() {
 }
 
 /**
- * "T-H:MM" real countdown to the *next* dusk — shown when [realNowFraction] is null because
- * we're outside tonight's dark window (daytime, or already past dawn). Dusk recurs roughly every
- * 24h; adding a day to [realNightWindow]'s own dusk instant whenever it's already in the past
- * (the "already past dawn, waiting for tonight" case) lands on the correct next occurrence
- * without needing a second almanac fetch — confirmed sound because the dawn-to-next-dusk gap is
- * always well under 24h.
+ * "T-H:MM" countdown to the next dusk, shown when [realNowFraction] is null. A dusk already in the
+ * past is pushed a day ahead, which is close enough without a second almanac fetch.
  */
 val AppState.realCountdownToDusk: String? get() {
     val (dusk, _) = realNightWindow ?: return null
@@ -1718,11 +1401,8 @@ internal fun AppState.mapJobBlock(jobId: String, blockId: String, f: (Block) -> 
     mapJob(jobId) { job -> job.copy(blocks = job.blocks.map { if (it.id == blockId) f(it) else it }) }
 
 /**
- * Real `new_notification` push (M4.5 half A, docs/STATUS.md) — replaces the old fixture `Alert`
- * (invented `warn`/`cut`/`cloud`/`ok`/`AlertIcon` categories with zero real basis) with the actual
- * wire fields. [source]/[severity] are the raw real `KSNotification::EventSource`/`EventType`
- * enum ints — see [EkosEvent.NewNotification]'s own doc for the full value tables and
- * [sourceLabel]/[severityLabel] below for human-readable text.
+ * One `new_notification` push. [source]/[severity] are raw `KSNotification::EventSource`/
+ * `EventType` ints (tables in [EkosEvent.NewNotification]); see [sourceLabel]/[severityLabel].
  */
 data class Alert(
     val uuid: String,
@@ -1737,13 +1417,10 @@ private val ALERT_SEVERITY_LABELS = listOf("Debug", "Info", "Warn", "Alert")
 val Alert.sourceLabel: String get() = ALERT_SOURCE_LABELS.getOrNull(source) ?: "Unknown"
 val Alert.severityLabel: String get() = ALERT_SEVERITY_LABELS.getOrNull(severity) ?: "Unknown"
 
-/** Cap on [AppState.wireNotifications] — a whole session's worth of real events could otherwise
- * grow unbounded; this is more than enough for the Alerts sheet's own scrollback and the Summary
- * sheet's session-event log. */
+/** Cap on [AppState.wireNotifications]; enough for the Alerts sheet and the Summary event log. */
 const val MAX_NOTIFICATIONS = 100
 
-/** Cap on [AppState.alignAccuracyHistory] — enough points for a meaningful trend without growing
- * unbounded over a long imaging session. */
+/** Cap on [AppState.alignAccuracyHistory]. */
 const val MAX_ACCURACY_HISTORY = 30
 
 /** Cap on [AppState.guideSamples] — one per guide frame, so ~2.5 min at a 1 s exposure. */
@@ -1762,7 +1439,7 @@ val AppState.guideRmsTotal: Double?
 /** One guide frame's correction (fork `guideStats`): error in arcsec, pulse in ms (signed). */
 data class GuideSample(val ra: Double, val de: Double, val raPulse: Int, val dePulse: Int)
 
-// ── Derived values (mirror the prototype renderVals math) ─────────────────
+// ── Derived values ─────────────────────────────────────────────────────────
 
 private fun hhmm(s: Int): String {
     val m = floor(s / 60.0).toInt()
@@ -1774,53 +1451,27 @@ val AppState.elapsed: Int get() = (128 + t) % 300
 val AppState.expRemain: String get() = hhmm(300 - elapsed)
 val AppState.fNow: Double get() = 0.485 + t / 9000.0
 
-/** Minutes until the next scheduled autofocus — real countdown off the real [WireCaptureSettings.refocusEveryN] (2026-08-23) and the last run's timestamp. */
+/** Minutes until the next scheduled autofocus, from [WireCaptureSettings.refocusEveryN] and the last run. */
 val AppState.focusNextAfMin: Int get() = ((wireCaptureSettings?.refocusEveryN ?: 45) - (t - focusLastAfAt) / 60).coerceAtLeast(0)
 
-/** Live EAF focuser temperature — reads the user's own edits first, falls back to the driver fixture default. */
+/** EAF focuser temperature: the user's edit, else the [DRIVER_INDI_PROPS] default. */
 val AppState.eafTemp: Double get() = indiNumber("EAF", "FOCUS_TEMPERATURE") ?: -0.6
 
 /**
- * Real position for Bench check's Focuser card (M3.2) — [focPos] itself stays a plain fixture
- * field (`focusStepIn`/`focusStepOut`'s local optimistic update needs it mutable), but on a real
- * rig it was never reconciled against the focuser's actual `ABS_FOCUS_POSITION` INDI property,
- * which is already fetched/subscribed like any other connected device's properties. The real
- * override does send real `focus_in`/`focus_out` — only the number shown ever went stale, silently
- * drifting from truth with every jog since the local math started from the fixture default
- * (confirmed live: real rig showed 29445 on the device sheet while Bench stayed stuck at
- * 18422, the exact `focPos` default). `primaryTrain.focuser` is the real focuser's own device
- * name once `wireTrains` is populated (see `WireTrain.toTrainAssignment`) — falls back to
- * [focPos] whenever that lookup misses (simulator, or before the real value has arrived).
- *
- * **Real bug found live, fixed**: the getter itself had this exact backwards — it preferred the
- * real INDI number only *before* `wireFocusSettings` arrived, then fell back to the stale fixture
- * once actually connected (the normal case), guaranteeing Controls tab never showed a real live
- * position on a healthy connection. `wireFocusSettings` was never a meaningful gate for this value
- * in the first place (a different module's settings reply, unrelated to whether the focuser's own
- * INDI property has arrived) — dropped entirely, always prefer the real number now.
+ * Focuser position for the Bench Focuser card: the focuser's `ABS_FOCUS_POSITION` when known,
+ * else the local optimistic [focPos]. Always prefer the INDI value; [focPos] drifts with jogs.
  */
 val AppState.benchFocPos: Int get() =
     indiNumber(primaryTrain.focuser, "ABS_FOCUS_POSITION")?.roundToInt() ?: focPos
 
 /**
- * Real focuser hard limits — `ABS_FOCUS_POSITION`'s own `min`/`max` (same generic device-property
- * mechanism [benchFocPos] already reads the live value from; real Ekos reads these identically,
- * `focus.cpp`'s `absMove[0].getMin()`/`getMax()`, to bound `absTicksSpin`/clamp `focusIn`/
- * `focusOut`). Distinct from [WireFocusSettings.focusMaxTravel] — that one's a policy cap on a
- * single *autofocus search*, not a hardware bound, see its own doc; this is the real physical
- * end-stop range. Null until the property has actually arrived (min/max both exactly 0.0 is the
- * generic mechanism's own unpopulated shape, not a real 0..0 focuser) — never fabricated, so
- * jog/goto safety clamping below only activates once a real range is known.
+ * Focuser end stops: `ABS_FOCUS_POSITION`'s `min`/`max`, as Ekos uses them (`focus.cpp`
+ * `absMove[0].getMin()`/`getMax()`). Not [WireFocusSettings.focusMaxTravel], which caps one
+ * autofocus search. Null until known (0..0 means not populated).
  *
- * **Added alongside a real, dangerous fork bug found live** (2026-08 session): `Focus::focusOut`
- * appeared to unconditionally overwrite the caller's `steps` with the settings panel's own
- * `focusTicks` value — recorded then as "fixed at the fork source." **Re-confirmed live 2026-09,
- * still true**: it substitutes `focusTicks` for *any* requested amount, always, matching real
- * Ekos's own manual-button behavior (not a bug on that side, see `WireFocusSettings.focusTicks`'s
- * own doc for the full finding) — the earlier "fixed" note was wrong or described a narrower case;
- * treat this as a standing, confirmed real behavior, not a resolved one. This range is enforced
- * client-side too, as a second guard on top of the server's own real `currentPosition==absMotionMin/
- * Max` check — see [SessionController.focusStepIn]/`focusStepOut` call sites.
+ * [SessionController.focusStepIn]/`focusStepOut` clamp to this range on top of the server's own
+ * end-stop check. (`focus_in`/`focus_out` move by `steps`; `steps <= 0` means Ekos's Relative
+ * Step, `WireFocusSettings.focusTicks`.)
  */
 val AppState.focRange: IntRange? get() {
     val props = indiProps[primaryTrain.focuser] ?: DRIVER_INDI_PROPS[primaryTrain.focuser] ?: emptyList()
@@ -1830,11 +1481,9 @@ val AppState.focRange: IntRange? get() {
 }
 
 /**
- * Real guide camera's own device name — whichever train is *actually* assigned to the Guide
- * module (`moduleTrainAssignments["guide"]`, the same resolution `opticalTrainCombo` uses for
- * real scheduler jobs, bug #19), not [secondaryTrain] (a plain index-1 pick into [wireTrains],
- * never reconciled against which train the Guide module itself is really using). Null under the
- * simulator or before trains + assignments have both arrived.
+ * Guide camera device name, from the train assigned to the Guide module
+ * (`moduleTrainAssignments["guide"]`), not [secondaryTrain], which is just the second train.
+ * Null until trains and assignments have arrived.
  */
 val AppState.guideCameraDevice: String?
     get() = wireTrains?.firstOrNull { it.name == moduleTrainAssignments?.get("guide") }?.camera?.takeIf { it.isNotBlank() }
@@ -1856,14 +1505,9 @@ fun AppState.gainSpecialValue(device: String?): Double? =
     device?.let { wireGainRangeByDevice[it] }?.let { it.min - it.step }
 
 /**
- * Real live exposure countdown/busy state for a Snap preview shot (M3.4 — Controls tab's Primary
- * Camera/Guide "Snap" panels had no Stop button and no status/elapsed indication at all). Read
- * straight off the camera's own generic INDI `CCD_EXPOSURE` vector rather than the `new_capture_state`
- * push: confirmed live that `guide_capture` never emits `new_capture_state` at all (only
- * `capture_preview` does, and only a `status`-only subset of shapes at that) — `CCD_EXPOSURE`'s own
- * value/Busy-state is the one progress signal that's actually real and uniform across both cameras.
- * `remainingSec`/`busy` are null/false whenever the property hasn't arrived yet (simulator, or before
- * the camera's own `device_get` reply lands).
+ * Exposure countdown/busy state for a Snap shot, read from the camera's INDI `CCD_EXPOSURE`
+ * vector: `guide_capture` emits no `new_capture_state`, so this is the only signal that works for
+ * both cameras. `remainingSec`/`busy` are null/false until the property arrives.
  */
 data class CaptureProgress(val remainingSec: Double?, val totalSec: Double, val busy: Boolean)
 
@@ -1877,28 +1521,17 @@ fun AppState.captureProgress(cameraDevice: String?, totalSec: Double): CapturePr
 }
 
 /**
- * Real mount's actual slew-rate options straight from its own `TELESCOPE_SLEW_RATE` INDI
- * switch vector — already flowing into [indiProps] via the generic device-property subscribe
- * (switch vectors decode every element, unlike the multi-element gap noted on
- * [wireCcdInfoByDevice]). Real driver rate lists vary in both count and labels — confirmed live,
- * an LX200 OnStep reports 10 (`0.25x`..`Max`), not the Bench check UI's fixed 5-option `RATES`
- * fixture list (`"0.5×"/"1×"/"8×"/"64×"/"max"`), which never matched any real driver's actual
- * rates. `mount_set_slew_rate`'s `rate` field is documented as a plain ordinal "index into
- * driver's slew-rate list" — this switch vector's own element order *is* that list, so the
- * index Bench check sends for option `i` here needs no translation. Null in the simulator or
- * before the mount's own `device_get` reply has arrived.
+ * The mount's `TELESCOPE_SLEW_RATE` switch. Rate lists vary by driver (an LX200 OnStep has 10).
+ * `mount_set_slew_rate`'s `rate` is an index into this vector's element order, so option `i`
+ * maps directly. Null until the mount's `device_get` reply arrives.
  */
 val AppState.realSlewRateProp: IndiProperty.SwitchProp?
     get() = (indiProps[primaryTrain.mount] ?: emptyList())
         .firstOrNull { it.name == "TELESCOPE_SLEW_RATE" } as? IndiProperty.SwitchProp
 
 /**
- * Real mount's actual tracking on/off, read from its own `TELESCOPE_TRACK_STATE` INDI switch
- * (standard INDI telescope interface property, confirmed live: elements `TRACK_ON`/`TRACK_OFF`)
- * — falls back to the fixture-only [mountTracking] field for the simulator or before the
- * property has arrived. Used by [MountControlCard]'s Tracking on/off button, which sends the
- * real `mount_set_tracking` Ekos-level command rather than writing this INDI property directly
- * (this is read-only display; the write goes through the more universal Ekos command).
+ * Mount tracking from INDI `TELESCOPE_TRACK_STATE` (`TRACK_ON`/`TRACK_OFF`), else [mountTracking].
+ * Display only; writes go through `mount_set_tracking`.
  */
 val AppState.mountTrackingOn: Boolean get() {
     val prop = (indiProps[primaryTrain.mount] ?: emptyList()).firstOrNull { it.name == "TELESCOPE_TRACK_STATE" } as? IndiProperty.SwitchProp
@@ -1906,10 +1539,8 @@ val AppState.mountTrackingOn: Boolean get() {
 }
 
 /**
- * Real mount's actual parked state, read from its own `TELESCOPE_PARK` INDI switch (standard
- * INDI telescope interface property, confirmed live: elements `PARK`/`UNPARK`) — falls back to
- * the fixture-only [mountParked] field. Same read-display/write-via-Ekos-command split as
- * [mountTrackingOn]: writes go through `mount_park`/`mount_unpark`, not this property directly.
+ * Mount parked state from INDI `TELESCOPE_PARK` (`PARK`/`UNPARK`), else [mountParked].
+ * Display only; writes go through `mount_park`/`mount_unpark`.
  */
 val AppState.mountParkedReal: Boolean get() {
     val prop = (indiProps[primaryTrain.mount] ?: emptyList()).firstOrNull { it.name == "TELESCOPE_PARK" } as? IndiProperty.SwitchProp
@@ -1917,11 +1548,8 @@ val AppState.mountParkedReal: Boolean get() {
 }
 
 /**
- * [wireMountPierSide]'s raw ordinal named, per a single live-confirmed data point (2026-08-09):
- * the real rig reported `pierSide = 1` while the user visually confirmed the tube was physically
- * on the mount's West side — so `1 -> "West"`, `0 -> "East"` by elimination. Not exhaustively
- * verified across every sky position; falls back to the raw ordinal (no invented label) for any
- * other value so a wrong guess never gets shown as if confirmed.
+ * [wireMountPierSide] named. `1` = West is from one observation on the rig, `0` = East by
+ * elimination; not verified across positions. Other values show the raw ordinal.
  */
 val AppState.mountPierSideLabel: String? get() = when (wireMountPierSide) {
     1 -> "West"
@@ -1931,11 +1559,8 @@ val AppState.mountPierSideLabel: String? get() = when (wireMountPierSide) {
 }
 
 /**
- * Real pixel scale (arcsec/pixel) for Plan tab's Framing card — standard formula
- * `206.265 × pixel_size_µm / focal_length_mm`. Null (falls back to the card's own placeholder)
- * until both the primary scope's focal length and the primary camera's [CcdInfo] are known —
- * on the simulator that's always, since [wireCcdInfoByDevice] is only ever populated by
- * [EkosRemoteController].
+ * Pixel scale (arcsec/px) for the Framing card: `206.265 × pixel_µm / focal_mm`. Null until the
+ * primary scope's focal length and the primary camera's [CcdInfo] are known.
  */
 val AppState.framingPixelScaleArcsecPerPx: Double? get() {
     val focalMm = findScope(primaryTrain.scope)?.focalMm?.takeIf { it > 0 } ?: return null
@@ -1943,7 +1568,7 @@ val AppState.framingPixelScaleArcsecPerPx: Double? get() {
     return 206.265 * ccd.pixelUm / focalMm
 }
 
-/** Real field of view (width, height) in degrees, derived from [framingPixelScaleArcsecPerPx] and the primary camera's sensor resolution. */
+/** Field of view (width, height) in degrees, from [framingPixelScaleArcsecPerPx] and the sensor size. */
 val AppState.framingFovDeg: Pair<Double, Double>? get() {
     val scale = framingPixelScaleArcsecPerPx ?: return null
     val ccd = wireCcdInfoByDevice[primaryTrain.camera] ?: return null
@@ -1957,15 +1582,12 @@ val AppState.coolBarPct: Int get() {
     return raw.coerceIn(2, 100)
 }
 val AppState.coolPowerPct: Int get() = min(99, (abs(coolNow - 12.4) * 3 + 8).roundToInt())
-// Real once Room has real rows (M4.3) — was fixture-derived (`frames`/`FRAME_IDS`/`FRAME_HFRS`,
-// all deleted) before. SessionReport's own "kept/cut" export line still says M4-gap elsewhere
-// pending the rest of M4.6; these two counts themselves are real now.
 val AppState.rejectCount: Int get() = frameRows.count { !it.keep }
 val AppState.keepCount: Int get() = frameRows.count { it.keep }
 val AppState.ready: Boolean get() = ekosRunning && isOn("mount") && isOn("cam")
 fun AppState.isOn(key: String): Boolean = ekosRunning && key !in devOff
 
-/** Whether a device is picked for the profile being built — independent of Ekos actually running. */
+/** Whether a device is picked for the profile being built, regardless of Ekos running. */
 fun AppState.isSelected(key: String): Boolean = key !in devOff
 val AppState.missing: String get() {    val parts = buildList {
         if (!isOn("mount")) add("mount")
@@ -1974,13 +1596,13 @@ val AppState.missing: String get() {    val parts = buildList {
     return parts.joinToString(" + ")
 }
 
-/** The prototype's trace generator: x = i + t*0.6 + seed, summed sines. */
+/** Synthetic trace: x = i + t*0.6 + seed, summed sines. */
 fun wiggle(t: Int, seed: Int, n: Int, amp: Double): List<Double> =
     (0 until n).map { i ->
         val x = i + t * 0.6 + seed
         (sin(x * 0.7) + sin(x * 0.31) * 0.7 + sin(x * 1.9) * 0.35) / 2.05 * amp
     }
 
-/** Ease a polar-align axis toward zero, exactly like the prototype. */
+/** Ease a polar-align axis toward zero. */
 fun ease(v: Double): Double =
     if (abs(v) < 0.15) 0.0 else (v - sign(v) * 0.22)

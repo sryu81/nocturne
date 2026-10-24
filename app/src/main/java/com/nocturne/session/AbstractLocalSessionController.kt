@@ -6,20 +6,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
 /**
- * Every [SessionController] method that's pure local UI/state mutation with
- * no real-time wire dependency — sheet navigation, job/block list editing,
- * target search/catalog, prefs toggles, device-picker, train editor, rig
- * profile wizard, and so on. [EkosRemoteController] extends this and
- * overrides whichever of these have since gained a real wire-command
- * implementation; anything not overridden here is still local-only under a
- * real connection today (see docs/simulator-removal-plan.md's inventory for
- * the current list — most of it is harmless permanent local UI chrome, a
- * few items genuinely have no wire command to send at all).
- *
- * (Historical: this class used to also be [SimulatedController]'s entire
- * behavior, M1's demo driver — that class was removed 2026-08-22 once the
- * app went real-rig-only. This base class stays; only the "shared with a
- * fake driver" framing is gone.)
+ * The local UI/state half of [SessionController]: sheet navigation, job/block editing,
+ * target search, prefs, device picker, train editor, profile wizard. [EkosRemoteController]
+ * overrides whatever has a wire command; the rest stays local-only (mostly UI chrome, a few
+ * items have no wire command at all).
  */
 abstract class AbstractLocalSessionController : SessionController {
 
@@ -56,9 +46,7 @@ abstract class AbstractLocalSessionController : SessionController {
     override fun closeSubPreview() = update { it.copy(subPreviewExpanded = false) }
     override fun expandFrame(id: String) = update { it.copy(expandedFrameId = id) }
     override fun closeFrameExpand() = update { it.copy(expandedFrameId = null) }
-    // Pure local nav, no wire effect — same shape as openBlock/closeBlock. Leaving PLAN's target
-    // list (category set to null or PREVIEW) also clears any drilled-into target, so returning to
-    // the top-level picker never leaves a stale target selection behind.
+    // Changing category also clears the drilled-into target so the picker never keeps a stale one.
     override fun selectFrameCategory(category: FrameCategory?) = update {
         it.copy(frameCategory = category, frameTarget = null)
     }
@@ -70,11 +58,10 @@ abstract class AbstractLocalSessionController : SessionController {
 
     override fun confirmFlipAction() = update { s ->
         val applied = when (s.pendingFlipConfirm) {
-            // Matches real Ekos's meridian-flip delay — push the deadline back 10 min.
+            // Matches Ekos's meridian-flip delay: push the deadline back 10 min.
             FlipConfirm.DEFER -> s.copy(flipDeferSec = s.flipDeferSec + 600)
-            // No manual-trigger command exists on the real wire (executeMeridianFlip is
-            // an enable/disable setting, not an RPC) — Nocturne-only. Zeroes the countdown;
-            // no real flip sequence fires.
+            // The wire has no manual flip trigger (executeMeridianFlip is a setting, not an
+            // RPC), so this only zeroes the countdown.
             FlipConfirm.NOW -> s.copy(flipDeferSec = s.t - 2530)
             null -> s
         }
@@ -82,14 +69,9 @@ abstract class AbstractLocalSessionController : SessionController {
     }
 
     /**
-     * Always creates a new job, even if one already exists for this target — real user need,
-     * found live (2026-08-23): the same target can want more than one queued job with a different
-     * session profile (filters, exposures). Used to dedupe by `targetId` and just reopen the
-     * existing job instead — real Ekos itself has no notion of "job per target" either (only a
-     * `name` per job), so nothing on the real side required this restriction; it was purely this
-     * app's own local model being stricter than it needed to be. See [AppState.targetNameFor]'s
-     * own per-job suffix for how multiple jobs on the same target avoid colliding on Ekos's own
-     * name once pushed.
+     * Always creates a new job, even if the target already has one: one target can have several
+     * jobs with different filters/exposures. [AppState.targetNameFor] adds a per-job suffix so
+     * their Ekos names don't collide.
      */
     override fun addToSequence(targetId: String) {
         update { s ->
@@ -99,9 +81,8 @@ abstract class AbstractLocalSessionController : SessionController {
             )
             val job = SequenceJob(
                 id = "j${s.jobSeq}", targetId = targetId, blocks = listOf(block), blockSeq = 2,
-                // Real creation time (2026-08-25) — see AppState.targetNameFor's own doc: makes
-                // this job's eventual real Scheduler name/`.esq` filename unique even if job.id
-                // ever repeats (app reinstall, persisted-queue reset) months apart.
+                // Keeps the Scheduler name/`.esq` filename unique even if job.id repeats
+                // (reinstall, queue reset); see AppState.targetNameFor.
                 createdAtMs = System.currentTimeMillis(),
             )
             s.copy(jobs = s.jobs + job, jobSeq = s.jobSeq + 1, activeJobId = job.id, openBlockId = null)
@@ -121,12 +102,9 @@ abstract class AbstractLocalSessionController : SessionController {
     override fun closeJob() = update { it.copy(activeJobId = null, openBlockId = null) }
 
     /**
-     * Pure local navigation only — "is this job actually running" is answered by real Ekos state
-     * (`AppState.wireJobFor`) since the push/start/stop split (2026-08-23), not a local flag, so
-     * there's nothing per-job left to mutate here; these three just move `sheet`/`lastEndedJobId`/
-     * `lastActiveJobId` around. [EkosRemoteController] overrides all three to also drive the real
-     * Scheduler (stop+remove / push+start) around this same local navigation — a deliberate,
-     * explicit whole-night lifecycle action, unlike the passive connect/add-to-sequence path.
+     * Local navigation only; whether a job is running comes from Ekos (`AppState.wireJobFor`).
+     * [EkosRemoteController] overrides these three to also drive the Scheduler
+     * (stop+remove / push+start).
      */
     override fun endSession() = update { s -> s.copy(sheet = SheetType.SUMMARY, lastEndedJobId = s.contractJob?.id) }
 
@@ -238,10 +216,8 @@ abstract class AbstractLocalSessionController : SessionController {
     override fun clearQuery() = update { it.copy(query = "") }
 
     override fun selectTarget(id: String) = update { it.copy(targetId = id, targetSnapshot = it.findTarget(id)) }
-    // Fixture has no real astro engine to query — AltitudeChart keeps its decorative curve.
+    // Both need the rig and a coroutine scope; EkosRemoteController implements them.
     override fun ensureTargetRiseset(targetId: String) {}
-    // No CoroutineScope at this layer to launch the real fetch from (EkosRemoteController has
-    // one) — matches ensureTargetRiseset's own no-op-here shape.
     override fun ensureReferenceImage(targetId: String) {}
 
     override fun setEkosRemoteNotifications(enabled: Boolean) = update { it.copy(wireEkosRemoteNotifications = enabled) }
@@ -249,10 +225,7 @@ abstract class AbstractLocalSessionController : SessionController {
 
     override fun toggleQuietHours() = update { it.copy(quietHoursEnabled = !it.quietHoursEnabled) }
 
-    // Local-only optimistic flip of the matching row's own keep flag — EkosRemoteController
-    // overrides this to also write through to Room (M4.3); real frameRows there gets
-    // re-collected from Room's own Flow right after, so this local edit is superseded almost
-    // immediately, same "optimistic-then-reconcile" shape as every other real override.
+    // Optimistic flip; EkosRemoteController also writes it to Room, whose Flow then supersedes it.
     override fun toggleCut(id: String) = update { s ->
         s.copy(frameRows = s.frameRows.map { if (it.id.toString() == id) it.copy(keep = !it.keep) else it })
     }
@@ -280,16 +253,15 @@ abstract class AbstractLocalSessionController : SessionController {
         s.copy(moduleTrainAssignments = (s.moduleTrainAssignments ?: emptyMap()) + (module to trainName))
     }
 
-    // Local-only bookkeeping; [EkosRemoteController] overrides both to actually talk to the
-    // rig's companion reboot daemon. There's no real Pi under a bare local mutation, so a
-    // reboot attempt fails honestly rather than pretending to succeed.
+    // [EkosRemoteController] overrides both to talk to the reboot daemon; without a rig a
+    // reboot attempt reports failure rather than pretending to succeed.
     override open fun setRigRebootPort(port: Int) = update { s -> s.copy(rigRebootPort = port) }
 
     override open fun rebootRig() = update { s ->
         s.copy(rigRebootState = RigRebootState.FAILED, rigRebootError = "No real rig connected — nothing to reboot")
     }
 
-    // The sky atlas lives on the real rig; EkosRemoteController overrides these.
+    // The sky atlas comes from the rig; EkosRemoteController overrides these.
     override open fun refreshSkyAtlas() {}
     override open fun copySkyAtlasFromRig() = update { s ->
         s.copy(skyAtlas = s.skyAtlas.copy(error = "No real rig connected — nothing to copy from"))
@@ -303,12 +275,12 @@ abstract class AbstractLocalSessionController : SessionController {
     }
 
     override open fun syncLocationToRig(lat: Double, lon: Double, elevM: Double) {
-        // No-op: no real Ekos wire under a bare local mutation to send `kstars_set_location` to.
+        // No-op: needs the wire to send `kstars_set_location`.
     }
 
-    // Mount settings (M3.3): Nothing populates wireMountSettings here (there's no
-    // real mount_get_all_settings reply to translate), so these are safe no-ops there — the
-    // sheet itself is gated on wireMountSettings != null and never calls them before it's arrived.
+    // Module settings below only edit the wire*Settings structs, which stay null until the rig
+    // replies; the sheets are gated on them being non-null.
+    // Mount settings.
     override open fun setMountMeridianFlip(enabled: Boolean) = update { s ->
         s.copy(wireMountSettings = s.wireMountSettings?.copy(executeMeridianFlip = enabled))
     }
@@ -340,10 +312,7 @@ abstract class AbstractLocalSessionController : SessionController {
         s.copy(wireMountSettings = s.wireMountSettings?.copy(autoParkTime = time))
     }
 
-    // Camera settings (M3.3): same shape as Mount settings above —
-    // nothing populates wireCaptureSettings here (there's no real
-    // capture_get_all_settings reply to translate), so these only ever touch a null field; the
-    // sheet itself is gated on wireCaptureSettings != null and never calls them before it's arrived.
+    // Camera settings.
     override open fun setCameraSaveDir(path: String) = update { s ->
         s.copy(wireCaptureSettings = s.wireCaptureSettings?.copy(fileDirectoryT = path))
     }
@@ -384,8 +353,7 @@ abstract class AbstractLocalSessionController : SessionController {
         s.copy(wireCaptureSettings = s.wireCaptureSettings?.copy(FilterPosCombo = filter))
     }
 
-    // Align settings (M3.3 phase 3): same shape as Mount/Camera settings
-    // above — nothing populates wireAlignSettings here.
+    // Align settings.
     override open fun setAlignExposure(sec: Double) = update { s ->
         s.copy(wireAlignSettings = s.wireAlignSettings?.copy(alignExposure = sec))
     }
@@ -408,14 +376,11 @@ abstract class AbstractLocalSessionController : SessionController {
         s.copy(wireAlignSettings = s.wireAlignSettings?.copy(kcfg_AstrometryRotatorThreshold = arcmin))
     }
 
-    // M5 rotator (docs/STATUS.md steps 4/5) — local-only intent, no PA readback exists to
-    // populate without a real connection (EkosRemoteController overrides this to also send).
+    // Rotator: local intent only; EkosRemoteController overrides this to also send it.
     override open fun setRotatorAutoControl(enabled: Boolean) =
         update { it.copy(rotatorAutoControl = enabled, wireAstrometryUseRotator = enabled) }
 
-    // Guide settings (M3.3 phase 4): same shape as Align above —
-    // nothing populates wireGuideSettings here, so these are dead in practice
-    // (the settings card/sheet are real-rig-gated) but kept consistent with the pattern.
+    // Guide settings.
     override open fun setGuideAccuracyThreshold(arcsec: Double) = update { s ->
         s.copy(wireGuideSettings = s.wireGuideSettings?.copy(guiderAccuracyThreshold = arcsec))
     }
@@ -477,7 +442,7 @@ abstract class AbstractLocalSessionController : SessionController {
         s.copy(wireGuideSettings = s.wireGuideSettings?.copy(kcfg_GuideLostStarTimeout = sec))
     }
 
-    // Focus settings (M3.3 phase 6): same shape as Guide above.
+    // Focus settings.
     override open fun setFocusExposure(sec: Double) = update { s ->
         s.copy(wireFocusSettings = s.wireFocusSettings?.copy(focusExposure = sec))
     }
@@ -545,9 +510,7 @@ abstract class AbstractLocalSessionController : SessionController {
         s.copy(wireFocusSettings = s.wireFocusSettings?.copy(focusBinning = binning))
     }
 
-    // Primary/guide preview capture params: same shape as every other
-    // module setting above — nothing populates wireCaptureSettings/
-    // wireGuideSettings's new fields any differently than the rest of those structs.
+    // Primary/guide preview capture params.
     override open fun setCapturePreviewExposure(sec: Double) = update { s ->
         s.copy(wireCaptureSettings = s.wireCaptureSettings?.copy(captureExposureN = sec))
     }
@@ -567,7 +530,7 @@ abstract class AbstractLocalSessionController : SessionController {
         s.copy(wireGuideSettings = s.wireGuideSettings?.copy(guideBinning = binning))
     }
 
-    // ── Scheduler settings (curated subset, see WireSchedulerSettings' own doc, M2026-08) ──
+    // ── Scheduler settings (curated subset, see WireSchedulerSettings) ────
     override open fun setSchedulerStartAsap() = update { s ->
         s.copy(wireSchedulerSettings = s.wireSchedulerSettings?.copy(asapConditionR = true, startupTimeConditionR = false))
     }
@@ -713,8 +676,7 @@ abstract class AbstractLocalSessionController : SessionController {
     override fun snapMain() = update { it.copy(snappedMain = true) }
     override fun snapGuide() = update { it.copy(snappedGuide = true) }
 
-    // Local-only mirror moves by the real configured relative step (`focusTicks`), same amount
-    // the real fork always substitutes server-side — see [SessionController.focusStepIn]'s doc.
+    // Moves by `focusTicks` (the app sends steps=0); see [SessionController.focusStepIn].
     override open fun focusStepIn() = update { s ->
         val step = s.wireFocusSettings?.focusTicks ?: 200
         s.copy(focPos = (s.focPos - step).coerceIn(0, 62000))
@@ -741,10 +703,8 @@ abstract class AbstractLocalSessionController : SessionController {
     override open fun setCameraFan(element: String) {}
     override open fun cancelPendingCapture() {}
 
-    // focusLastAfAt/focusTempAtLastAf are real bookkeeping (feed focusNextAfMin's real countdown
-    // and TEMP Δ) kept optimistically here pending EkosRemoteController's real FOCUS_START send
-    // (see that override) — the old focusLastBestPos/focusLastHfr fabricated-HFR-bump fixture was
-    // removed (M4.4): FocusSheet now shows the real HFR off latestFocusFrame's own header instead.
+    // focusLastAfAt/focusTempAtLastAf feed focusNextAfMin's countdown and TEMP Δ; set
+    // optimistically ahead of EkosRemoteController's FOCUS_START send.
     override fun runAutofocusNow() = update { s ->
         s.copy(focusLastAfAt = s.t, focusTempAtLastAf = s.eafTemp)
     }
@@ -758,9 +718,8 @@ abstract class AbstractLocalSessionController : SessionController {
     override fun setMountTracking(enabled: Boolean) = update { it.copy(mountTracking = enabled) }
 
     override fun plateSolveHere() = update { it.copy(mountSolved = true) }
-    // No real mount-position model exists here (mountAlt/mountAz are display-only, never
-    // driven by an actual slew) — nothing meaningful to simulate for a plain goto. "& center"
-    // pretends the same solved-success gesture as plateSolveHere.
+    // No local mount-position model (mountAlt/mountAz are display-only), so a plain goto does
+    // nothing; "& center" marks solved like plateSolveHere.
     override fun gotoTarget(targetId: String) {}
     override fun gotoAndCenter(targetId: String) = update { it.copy(mountSolved = true) }
     override fun startGuiding() = update { it.copy(guiding = true) }
@@ -851,8 +810,8 @@ abstract class AbstractLocalSessionController : SessionController {
     }
 
     override fun openSetup() = update { s ->
-        // A new profile starts with nothing chosen: the selections otherwise held the fixture
-        // names (EQ6-R Pro, ...) or leftovers from a previous edit, and Save would send those.
+        // A new profile starts with nothing chosen, so Save never sends defaults or leftovers
+        // from a previous edit.
         if (s.ekosRunning) s else s.copy(
             sheet = SheetType.SETUP, setupEditingName = null, profileName = "New profile",
             selectedDeviceNames = DEVICES.associate { it.key to "None" },

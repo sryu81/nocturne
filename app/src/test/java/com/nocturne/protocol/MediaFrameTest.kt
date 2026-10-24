@@ -5,17 +5,12 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * [MediaFrame.parse] round-trip against literal 512-byte header buffers, one per real shape.
- * The full-shape fixture is a REAL live capture (`NocturneMedia` debug probe against the real
- * rig, 2026-08-23) — the docs' own field-type summary had two real mistakes ([bpp]/[size] typed
- * as numbers, `uuid` assumed `""` for a capture frame) that silently decode-failed every real
- * frame until caught this way; see [MediaHeader]'s own doc. The other shapes are hand-built
- * (reduced/minimal frames weren't captured live this pass) but corrected to match the same two
- * fixes.
+ * [MediaFrame.parse] against literal 512-byte header buffers, one per header shape. The full
+ * shape is a live capture from the rig; the reduced and minimal shapes are hand-built.
  */
 class MediaFrameTest {
 
-    /** Null-pads [json] out to 512 bytes, then appends [jpeg] — the real on-wire layout. */
+    /** Null-pads [json] out to 512 bytes, then appends [jpeg] — the on-wire layout. */
     private fun frameBytes(json: String, jpeg: ByteArray = byteArrayOf(0x11, 0x22, 0x33)): ByteArray {
         val header = ByteArray(512)
         val jsonBytes = json.toByteArray(Charsets.UTF_8)
@@ -25,9 +20,8 @@ class MediaFrameTest {
 
     @Test
     fun `parses a real live-captured full header shape`() {
-        // live capture — real primary-camera preview frame, 10.0.0.43:9000 (compact, no inline
-        // whitespace — the real wire JSON is single-line; a multi-line Kotlin literal here would
-        // add newline/indent bytes that don't exist on the wire and blow past the 512-byte cap)
+        // live capture of a primary-camera preview. Kept single-line like the wire JSON: a
+        // multi-line literal would add bytes and overflow the 512-byte header.
         val json = "{\"aperture\":\"51\",\"bin\":\"1x1\",\"bpp\":\"16\",\"channels\":1,\"exposure\":\"5\",\"ext\":\"jpg\"," +
             "\"focal_length\":\"250\",\"gain\":\"100\",\"hasWCS\":false,\"hfr\":-1,\"highlights\":1,\"max\":65535," +
             "\"mean\":53.827204703235324,\"median\":53,\"midtones\":0.0005698748864233494,\"min\":0," +
@@ -40,10 +34,9 @@ class MediaFrameTest {
         assertEquals("16", frame.header.bpp)
         assertEquals("250", frame.header.focalLength)
         assertEquals("3.7600", frame.header.pixelSize)
-        // the live frame really carried "hfr": -1 (Ekos INVALID_STAR_MEASURE) — decoded as no HFR
+        // the live frame carried "hfr": -1 (Ekos INVALID_STAR_MEASURE) — decoded as no HFR
         assertNull(frame.header.hfr)
-        // A real per-image identifier, not "" — MediaFrameType.CAPTURE is the default case, not
-        // gated on an empty uuid (see MediaHeader.frameType's own doc).
+        // A per-image identifier, not "": any non-tag uuid is a capture.
         assertEquals(MediaFrameType.CAPTURE, frame.header.frameType)
         assertEquals(3, frame.jpeg.size)
         assertEquals(0x11.toByte(), frame.jpeg[0])

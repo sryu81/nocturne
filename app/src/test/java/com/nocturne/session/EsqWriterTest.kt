@@ -10,10 +10,8 @@ import java.io.StringReader
 import javax.xml.parsers.DocumentBuilderFactory
 
 /**
- * Round-trips [EsqWriter]'s output against the real Ekos `.esq` fixture
- * (`kstars/Tests/ekos/scheduler/9filters.esq`, format 2.6, copied into
- * `src/test/resources/fixtures/`) — confirms the schema EsqWriter emits
- * actually matches what real Ekos writes/reads, not just what the docs claim.
+ * Round-trips [EsqWriter]'s output against an Ekos-written `.esq` fixture
+ * (`kstars/Tests/ekos/scheduler/9filters.esq`, format 2.6, in `src/test/resources/fixtures/`).
  */
 class EsqWriterTest {
 
@@ -81,7 +79,7 @@ class EsqWriterTest {
             assertEquals("EasternVeil", directChildText(actual, "TargetName"))
         }
 
-        // Job index 3 (H_Alpha) is the fixture's only one with real gain/offset — confirm it round-tripped.
+        // Job index 3 (H_Alpha) is the fixture's only one with gain/offset — confirm it round-tripped.
         val haGenerated = generatedJobs[3]
         assertEquals("50", propertyElement(haGenerated, "CCD_GAIN")!!.getElementsByTagName("OneElement").item(0).textContent)
         assertEquals("10", propertyElement(haGenerated, "CCD_OFFSET")!!.getElementsByTagName("OneElement").item(0).textContent)
@@ -96,7 +94,7 @@ class EsqWriterTest {
         val whole = EsqWriter.write(job, "T", enforceRefocusEveryN = true, refocusEveryN = 45, enforceAutofocusOnTemperature = true, maxFocusTemperatureDelta = 1.0)
         assertTrue(whole.contains(">1</RefocusOnTemperatureDelta>"))
 
-        // Matches the fixture's own <HFRDeviation>1.12</HFRDeviation> style — a real non-integer value on the wire.
+        // Matches the fixture's <HFRDeviation>1.12</HFRDeviation> style — a non-integer value on the wire.
         val fraction = EsqWriter.write(job, "T", enforceRefocusEveryN = true, refocusEveryN = 45, enforceAutofocusOnTemperature = true, maxFocusTemperatureDelta = 1.12)
         assertTrue(fraction.contains(">1.12</RefocusOnTemperatureDelta>"))
     }
@@ -113,15 +111,13 @@ class EsqWriterTest {
         assertTrue(withDir.contains("<FITSDirectory>/home/soo/Pictures</FITSDirectory>"))
         assertTrue(withDir.contains("<PlaceholderFormat>/%t/%F</PlaceholderFormat>"))
 
-        // Null/blank fitsDirectory omits the element entirely (real Ekos default behavior, not a
-        // fabricated empty one) — matches how a job pushed before any Save-path had ever been
-        // read looked before this fix, just now the *other* real case (a set save path) works too.
+        // Null/blank fitsDirectory omits the element entirely (Ekos's default), not an empty one.
         val withoutDir = EsqWriter.write(
             job, "T", enforceRefocusEveryN = true, refocusEveryN = 45, enforceAutofocusOnTemperature = true, maxFocusTemperatureDelta = 1.0,
             fitsDirectory = null, placeholderFormat = "",
         )
         assertTrue(!withoutDir.contains("FITSDirectory"))
-        // Blank placeholderFormat falls back to Ekos's own real default, not an empty element.
+        // Blank placeholderFormat falls back to Ekos's default, not an empty element.
         assertTrue(withoutDir.contains("<PlaceholderFormat>/%t/%T/%F/%t_%T_%F_%e_%D</PlaceholderFormat>"))
     }
 

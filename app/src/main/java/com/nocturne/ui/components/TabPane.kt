@@ -16,9 +16,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
 /**
- * A tab's scrolling body. Portrait = single column; landscape = the
- * prototype's 2-column `pane-cols` masonry (cards flow down col 1 then col 2,
- * `full` items span both columns).
+ * A tab's scrolling body. Portrait = single column; landscape = 2-column
+ * masonry (cards flow down col 1 then col 2, `full` items span both columns).
  */
 class TabItem(
     val full: Boolean = false,

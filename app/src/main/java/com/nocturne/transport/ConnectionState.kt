@@ -1,12 +1,9 @@
 package com.nocturne.transport
 
 /**
- * Socket-level + Ekos-level connection progress. Two different booleans live
- * on the wire ([EkosRemote-Client-Guide.md]'s `new_connection_state`
- * `connected`/`online`) — `connected` is trivially true once you're receiving
- * pushes at all, `online` is whether Ekos itself has finished starting.
- * [SOCKET_OPEN] vs [ONLINE] keeps that distinction visible to the connect
- * screen instead of collapsing it into a single "connected" flag.
+ * Socket-level and Ekos-level connection progress. `new_connection_state` carries
+ * `connected` (true whenever pushes arrive at all) and `online` (Ekos has finished starting);
+ * [SOCKET_OPEN] vs [ONLINE] keeps that distinction.
  */
 enum class ConnectionState {
     /** No socket, not attempting one (fresh, explicit disconnect, or between backoff attempts). */
@@ -18,7 +15,7 @@ enum class ConnectionState {
     /** WebSocket open, `set_client_state`/`get_connection` sent, but Ekos hasn't reported `online` yet. */
     SOCKET_OPEN,
 
-    /** `new_connection_state.online == true` observed — bootstrap fired, real pushes flowing. */
+    /** `new_connection_state.online == true` observed; module data has been requested. */
     ONLINE,
 }
 

@@ -19,21 +19,18 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * Which real capture context a frame came from (M4.5) — decides Preview/ vs Plan/ on disk. There
- * is no wire signal on the frame itself for this (confirmed: [com.nocturne.protocol.MediaHeader]
- * carries no target/filter) — [Test] vs [Plan] is decided by whatever's active in `AppState` at
- * the moment the frame arrives (see `AppState.activeFrameSource`), which is a real but fragile
- * correlation, not a guaranteed one — see docs/M4.5-plan.md.
+ * Which capture context a frame came from; decides Preview/ vs Plan/ on disk. The frame itself
+ * carries no target/filter ([com.nocturne.protocol.MediaHeader]), so this is inferred from what
+ * is active when it arrives (`AppState.activeFrameSource`), a correlation rather than a guarantee.
  */
 sealed interface FrameSource {
-    /** Bench "Preview Main Cam"/"Preview Guide Cam" — real `JOBTYPE_PREVIEW` on the server side. */
+    /** Bench "Preview Main Cam"/"Preview Guide Cam" (`JOBTYPE_PREVIEW` in Ekos). */
     data object Test : FrameSource
 
     /**
-     * A real scheduler job was `BUSY` when this frame landed. [targetRA]/[targetDEC] are the
-     * job's own real coordinates (`WireSchedulerJob.targetRA`/`targetDEC`) — **known ambiguity,
-     * not fixed here**: the wire model defaults both to `0.0` when absent, so a real target
-     * sitting exactly at RA/Dec 0° is indistinguishable from "no data" under this scheme.
+     * A scheduler job was `BUSY` when this frame landed. [targetRA]/[targetDEC] come from
+     * `WireSchedulerJob`, which defaults them to `0.0` when absent, so a target at exactly
+     * RA/Dec 0° is indistinguishable from "no data".
      */
     data class Plan(
         val target: String,
@@ -45,18 +42,13 @@ sealed interface FrameSource {
 }
 
 /**
- * Writes a real capture frame's JPEG to the app's own external-files storage under the real
- * folder templates specified 2026-08-23 (docs/M4.5-plan.md):
- * - `Preview/<date>/Prev_00000.jpg` (test captures — one dated folder per **day**, matching
- *   `Plan`'s own date granularity; multiple app sessions on the same day share the folder and
- *   keep counting up, they don't restart at 0 and clobber each other)
- * - `Plan/<date>/<target>/<target>_<date>_<filter>_<exposure>sec_<temp>C_<seq>.jpg` (scheduler
- *   captures — `<seq>` is 1-indexed, scoped per target+filter+exposure combination)
+ * Writes capture JPEGs to the app's external-files storage:
+ * - `Preview/<date>/Prev_00000.jpg` for test captures, one folder per day
+ * - `Plan/<date>/<target>/<target>_<date>_<filter>_<exposure>sec_<temp>C_<seq>.jpg` for
+ *   scheduler captures, `<seq>` 1-indexed per target+filter+exposure
  *
- * [previewFile]'s counter is in-memory but seeded from what's already on disk the first time it's
- * needed — a relaunch on the same day continues numbering instead of overwriting what an earlier
- * session that day already wrote. [planFile]'s per-combo counters stay session-only (not
- * disk-seeded) — same accepted gap as before, unrelated to the change requested here.
+ * [previewFile]'s counter is seeded from disk so a same-day relaunch doesn't overwrite earlier
+ * frames. [planFile]'s per-combo counters are session-only (not disk-seeded).
  */
 class FrameFileWriter(private val baseDir: File) {
     private var previewDir: File? = null
@@ -65,7 +57,7 @@ class FrameFileWriter(private val baseDir: File) {
 
     private val dateFmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 
-    /** Writes [frame]'s JPEG bytes to the real path for [source], creating parent folders as needed. */
+    /** Writes [frame]'s JPEG bytes to the path for [source], creating parent folders as needed. */
     fun write(frame: MediaFrame, timestampMs: Long, source: FrameSource): File {
         val file = when (source) {
             is FrameSource.Test -> previewFile(timestampMs)
@@ -103,18 +95,14 @@ class FrameFileWriter(private val baseDir: File) {
         return File(baseDir, "Plan/$date/$target/${target}_${date}_${filter}_${exposure}_${temp}_$seq.jpg")
     }
 
-    /** Real target/filter names can carry spaces/punctuation a filesystem path shouldn't — shared with [pushRealJob]'s `.esq` filename. */
+    /** Target/filter names can contain characters unsafe in a path; same rule as the `.esq` filename. */
     private fun sanitize(s: String): String = sanitizeFileToken(s)
 }
 
 /**
- * One real capture frame (M4.3/M4.5), persisted so the Frames grid survives a relaunch — the
- * in-memory `AppState.latestCaptureFrame` (M4.2) only ever holds the *most recent* frame, no
- * history. Metadata fields are exactly [com.nocturne.protocol.MediaHeader]'s own real ones for a
- * full-shape capture frame — no per-sub index/name exists on the wire (confirmed against source,
- * docs/M4-plan.md), so [id] is minted client-side (arrival order), not a real Ekos-assigned
- * identifier. [filePath] is the real on-disk JPEG (M4.5, [FrameFileWriter]) — Room indexes
- * metadata + path only, it doesn't duplicate the image bytes into a blob column too.
+ * One persisted capture frame, so the Frames grid survives a relaunch. Fields mirror
+ * [com.nocturne.protocol.MediaHeader]; the wire has no per-sub id, so [id] is assigned locally
+ * in arrival order. Room stores metadata and [filePath] only, not the image bytes.
  */
 @Entity(tableName = "frames")
 data class FrameEntity(
@@ -130,14 +118,14 @@ data class FrameEntity(
     val resolution: String?,
     val keep: Boolean = true,
     val filePath: String,
-    /** Null for a [FrameSource.Test] capture — real target/filter/coordinates only exist for [FrameSource.Plan] (M4.5 Part C). */
+    /** Null for a [FrameSource.Test] capture; target/filter/coordinates exist only for [FrameSource.Plan]. */
     val target: String? = null,
     val filter: String? = null,
     val targetRA: Double? = null,
     val targetDEC: Double? = null,
 ) {
     companion object {
-        /** Real capture frame → persisted row. [id] is left at its default; Room assigns it on insert. */
+        /** Capture frame → row. [id] is left at its default; Room assigns it on insert. */
         fun from(frame: MediaFrame, timestampMs: Long, filePath: String, source: FrameSource): FrameEntity = FrameEntity(
             timestampMs = timestampMs,
             hfr = frame.header.hfr,
@@ -162,7 +150,7 @@ interface FrameDao {
     @Insert
     suspend fun insert(frame: FrameEntity): Long
 
-    /** Newest first — matches the Frames grid's own display order. */
+    /** Newest first, the Frames grid's display order. */
     @Query("SELECT * FROM frames ORDER BY timestampMs DESC")
     fun observeAll(): Flow<List<FrameEntity>>
 
@@ -173,26 +161,23 @@ interface FrameDao {
     fun observeRecent(limit: Int): Flow<List<FrameEntity>>
 }
 
-// Bumped 1->2 for M4.5 Part A's jpeg-blob -> filePath change, 2->3 for Part C's
-// target/filter/targetRA/targetDEC columns. Pre-release schema churn only —
-// fallbackToDestructiveMigration wipes old rows rather than needing a real migration written for
-// data nothing depends on surviving yet.
+// fallbackToDestructiveMigration: frames are a convenience cache of files on disk, so a schema
+// change wipes rows instead of needing a migration.
 @Database(entities = [FrameEntity::class], version = 3, exportSchema = false)
 abstract class FrameDatabase : RoomDatabase() {
     abstract fun frameDao(): FrameDao
 }
 
 /**
- * Thin wrapper matching this package's existing [SequenceRepository]/[ConnectionRepository]
- * shape — [EkosRemoteController] depends on this, not on Room types directly, same "optional,
- * tests can omit it" convention as those two.
+ * Keeps Room types out of [EkosRemoteController], like [SequenceRepository]/[ConnectionRepository];
+ * optional, so tests can omit it.
  */
 class FrameRepository(context: Context) {
     private val appContext = context.applicationContext
     private val db = Room.databaseBuilder(appContext, FrameDatabase::class.java, "frames.db")
         .fallbackToDestructiveMigration(true)
         .addCallback(object : RoomDatabase.Callback() {
-            // Rows saved before MediaFrame.parse dropped Ekos's HFR -1 ("no star measured").
+            // Ekos sends HFR -1 for "no star measured"; clear any such values stored as numbers.
             override fun onOpen(db: SupportSQLiteDatabase) {
                 db.execSQL("UPDATE frames SET hfr = NULL WHERE hfr <= 0")
             }

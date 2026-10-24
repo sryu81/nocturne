@@ -64,13 +64,8 @@ fun NocturneSheet(
                     indication = null,
                 ) {},
         ) {
-            // Was a flat 420dp cap regardless of orientation — every sheet, `fullscreen` ones
-            // included, stayed squeezed into that same narrow column even in landscape (screen
-            // width often 700-800dp+ on a phone). User's own report, chasing Guide specifically
-            // ("guiding need separate landscape display to show everything in one screen") — but
-            // the real constraint was systemic, not Guide-specific, so fixed here for every sheet:
-            // widen to most of the real width once the device is actually wider than it is tall,
-            // leaving a small margin (8%) so the backdrop's own tap-to-dismiss area still exists.
+            // In landscape, widen to most of the screen; the 8% margin keeps a tap-to-dismiss
+            // backdrop area.
             val panelWidth = when {
                 maxWidth > maxHeight -> maxWidth * 0.92f
                 maxWidth > 420.dp -> 420.dp
@@ -87,12 +82,8 @@ fun NocturneSheet(
                         else RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp),
                     )
                     .let { if (fullscreen) it.statusBarsPadding() else it }
-                    // Real bug found live (2026-08-23): the panel is BottomCenter-aligned and
-                    // reaches the physical screen edge (by design, to read as a bottom sheet),
-                    // but had no inset for the phone's own system navigation bar — confirmed
-                    // live, a 3-button nav bar covered the last field in a long sheet
-                    // (Scheduler settings' own "Max ΔT"). Only affects the bottom edge; the top
-                    // (status bar) is already handled above, only for the fullscreen case.
+                    // The panel reaches the bottom edge, so inset it from the system nav bar,
+                    // which would otherwise cover the last field.
                     .navigationBarsPadding()
                     .padding(18.dp),
             ) {

@@ -90,12 +90,9 @@ fun NocturneApp() {
                 onCancel = vm::disconnect,
                 notice = vm.connectNotice,
             )
-            // SOCKET_OPEN means the WebSocket handshake succeeded and get_profiles/get_devices
-            // are already flowing — there's a real, useful app to show. Only the pre-socket
-            // dial phase (CONNECTING) still needs ConnectScreen's own status text; waiting on
-            // Ekos itself to start is the shell's problem to show a banner for, not a reason to
-            // trap the user behind the connect form — Gear tab's Start Ekos is how you'd ever
-            // get past this in the first place (profile_start), so it must be reachable now.
+            // SOCKET_OPEN: the socket is up but Ekos isn't running. Show the shell with a banner
+            // so Gear's Start Ekos (profile_start) is reachable; only the dial phase keeps
+            // ConnectScreen.
             is ConnectionMode.Connecting -> if (mode.status.state == ConnectionState.SOCKET_OPEN) {
                 NocturneShell(
                     vm = vm,
@@ -116,21 +113,9 @@ fun NocturneApp() {
                 vm = vm,
                 redMode = redMode,
                 onToggleRed = { redMode = !redMode },
-                // Session tab reached ONLINE at least once — a subsequent drop stays on this
-                // shell with a banner, never a forced ConnectScreen.
-                //
-                // Real bug found live (2026-08-23, user report): this used to say
-                // "Reconnecting to rig…" for *any* non-ONLINE state, including SOCKET_OPEN —
-                // but SOCKET_OPEN means the WebSocket itself is fine, only Ekos stopped (the
-                // real `online` field of new_connection_state tracks Ekos's own run state, not
-                // the socket — see ConnectionState's own doc). Confirmed live: after a real
-                // Scheduler-driven auto-shutdown (mount parked, Ekos stopped, socket never
-                // dropped), the banner claimed "Reconnecting" for 20+ minutes while the app was
-                // rendering perfectly live data the whole time — actively misleading, reads as
-                // a network problem when there wasn't one. Now matches the identical, already-
-                // correct SOCKET_OPEN message the pre-ONLINE Connecting branch above uses — an
-                // actual socket-level drop (CONNECTING/DISCONNECTED) is the only case that still
-                // says "Reconnecting".
+                // Once ONLINE, a later drop stays on the shell with a banner. SOCKET_OPEN means
+                // only Ekos stopped (e.g. a Scheduler shutdown), not the socket, so only a
+                // socket-level drop says "Reconnecting".
                 banner = when (mode.status.state) {
                     ConnectionState.ONLINE -> null
                     ConnectionState.SOCKET_OPEN -> "Connected — Ekos isn't running"
@@ -181,22 +166,12 @@ private fun NocturneShell(
         Column(
             Modifier
                 .fillMaxSize()
-                // Applied once here, at the very top of the stack — covers the banner (which
-                // used to render with no status-bar padding of its own, overlapping the status
-                // bar icons, confirmed live) and the header (which used to apply its OWN
-                // statusBarsPadding *again* below the banner, creating a real, visible gap
-                // between "connection status" and "session status" rows — also confirmed live,
-                // per the user's own report). navigationBarsPadding here insets whichever side is
-                // actually the system nav bar (bottom in portrait, left/right in landscape) for
-                // every row in this Column uniformly, replacing the narrower fixes that used to
-                // live on the content Row / BottomNavBar individually.
+                // System-bar insets applied once for the whole stack (banner, header, rail, nav
+                // bar); the nav bar is at the bottom in portrait, at a side in landscape.
                 .statusBarsPadding()
                 .navigationBarsPadding(),
         ) {
-            // Landscape's "connection status" (banner) and "session status" (header) rows are
-            // squeezed as compact as they'll go — landscape keeps a *vertical* tab rail (user's
-            // explicit call, a horizontal bar was tried and rejected), which needs every bit of
-            // vertical room it can get for all 6 tabs to fit without clipping.
+            // Banner and header are compact in landscape so all 6 tabs fit the vertical rail.
             if (banner != null) {
                 Row(
                     modifier = Modifier
@@ -214,21 +189,10 @@ private fun NocturneShell(
                     )
                 }
             }
-            // M4.5 half A follow-up (docs/STATUS.md) — user clarified the actual ask after seeing
-            // the first cut (latest-alert-only banner text): a real, always-visible per-module
-            // status dashboard (Scheduler/Mount/Camera/Focus/Guide/Align), not just alerts.
-            // Rendered unconditionally (not gated on `banner == null`) — real per-module status is
-            // still meaningful context even during a connection hiccup (SOCKET_OPEN specifically:
-            // socket fine, values just stale from the last real push), and showing "—" for
-            // everything pre-connection is itself honest signal, not clutter to hide.
+            // Shown even with a banner: last-known module status is still useful context.
             ModuleStatusRow(state, landscape, onOpen = ctrl::openSheet)
-            // NocturneHeader used to sit here, above this whole Row — meaning the vertical
-            // NavRail's own top started below it, leaving a visible gap between the connection
-            // status banner and the rail (confirmed live, user-reported: "the session message
-            // bar should be shrunk so vertical bar should reach to the connection status bar").
-            // Moved inside the Row instead, alongside NavRail rather than above it, so the rail
-            // spans this Row's *full* height — flush with the banner above, independent of the
-            // header's own height — while the header still only affects the content pane's width.
+            // The header lives inside this Row, beside the rail, so the rail spans the full
+            // height up to the status row.
             Row(
                 modifier = Modifier
                     .weight(1f)
@@ -288,9 +252,8 @@ private fun NocturneShell(
             com.nocturne.ui.frames.FrameExpandOverlay(state = state, ctrl = ctrl)
         }
 
-        // Unreachable in practice — FlipBanner's FLIP NOW/DEFER are always disabled (no wire
-        // command exists for either, see FlipBanner's own doc), so pendingFlipConfirm can never
-        // be set. Left in place rather than torn out, in case a real trigger is ever wired.
+        // Currently unreachable: FlipBanner's FLIP NOW/DEFER are disabled (no wire command), so
+        // pendingFlipConfirm is never set. Kept for when a trigger exists.
         state.pendingFlipConfirm?.let { pending ->
             val isNow = pending == FlipConfirm.NOW
             com.nocturne.ui.components.ConfirmDialog(
@@ -309,23 +272,13 @@ private fun NocturneShell(
     }
 }
 
-// ── Module status row (M4.5, docs/STATUS.md) ────────────────────────────────
+// ── Module status row ─────────────────────────────────────────────────────
 
 /**
- * Always-visible per-module status dashboard — user's own explicit ask, after the first cut
- * (latest-alert-only banner text) wasn't it: "I want to display all EKOS schedulars, cameras,
- * mount, guiding, align, focusing... status in a banner always." One compact badge per module,
- * real wire data already decoded elsewhere in this app (nothing new fetched for this):
- * [AppState.schedulerRunning] (real `new_scheduler_state` ground truth), [AppState.wireMountStatus]
- * ([EkosEvent.NewMountState]), [AppState.wireCaptureStatus], [AppState.wireFocusStatus],
- * [AppState.wireGuideStatus], [AppState.wireAlignStatus]. Colored by a generic keyword heuristic
- * (Fail/Abort/Error → danger, Idle/Complete/Successful/Connected → neutral, anything else → busy/
- * accent) rather than a hand-enumerated table per module — the 4 real state vocabularies checked
- * while wiring this (`ekos.h`'s `guideStates`/`captureStates`/`focusStates`/`schedulerStates`, plus
- * `NewAlignState`'s own already-documented one) share enough common English wording that one
- * heuristic covers all of them reasonably, without pretending to enumerate every module's exact
- * enum here. Horizontally scrollable — 6 badges don't reliably fit one phone-width line, especially
- * once a status word itself is long ("Filter Focus", "Guider Settling").
+ * Always-visible per-module status: one badge each for Scheduler, Mount, Camera, Focus, Guide
+ * and Align, from state already decoded elsewhere. Coloring is a keyword heuristic (see
+ * [statusColorFor]) because Ekos's state vocabularies (`ekos.h`) share enough wording that a
+ * per-module table isn't needed. Scrolls horizontally since 6 badges don't always fit.
  */
 @Composable
 private fun ModuleStatusRow(state: AppState, landscape: Boolean, onOpen: (SheetType) -> Unit) {
@@ -348,7 +301,7 @@ private fun ModuleStatusRow(state: AppState, landscape: Boolean, onOpen: (SheetT
     }
 }
 
-/** One module's compact "Label: Status" badge — [statusColorFor]'s own doc explains the coloring. */
+/** One module's compact "Label: Status" badge. */
 @Composable
 private fun ModuleStatusBadge(label: String, status: String?, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
     val c = NocturneTheme.colors
@@ -369,8 +322,7 @@ private fun ModuleStatusBadge(label: String, status: String?, modifier: Modifier
     }
 }
 
-/** Generic real-status coloring — see [ModuleStatusRow]'s own doc for why this is a keyword
- * heuristic rather than a per-module enum table. */
+/** Fail/Abort/Error → danger, Idle/Complete/Successful/Connected → neutral, else busy. */
 private fun statusColorFor(status: String?, c: com.nocturne.ui.theme.NocturneColorScheme): Color = when {
     status == null -> c.textFaint
     status.contains("fail", true) || status.contains("abort", true) || status.contains("error", true) -> c.danger
@@ -398,14 +350,8 @@ private fun NocturneHeader(
         modifier = Modifier
             .fillMaxWidth()
             .background(colors.bg)
-            // statusBarsPadding used to live here, but that meant it applied a *second* time
-            // whenever a banner rendered above this header (which had none of its own) — the
-            // banner overlapped the status bar icons, and the header then left an unwanted gap
-            // below the banner from its own redundant top inset. Now applied once, in
-            // NocturneShell's own outer Column, ahead of both the banner and this header.
-            // Vertical padding shrinks in landscape — the vertical tab rail needs every bit of
-            // height it can get for all 6 tabs to fit without clipping (user's explicit call to
-            // keep the rail vertical rather than switch to a horizontal bar).
+            // No status-bar inset here; NocturneShell applies it once above the banner.
+            // Tighter in landscape so all 6 tabs fit the vertical rail.
             .padding(horizontal = NocturneTheme.spacing.s4, vertical = if (landscape) NocturneTheme.spacing.s1 else NocturneTheme.spacing.s3)
             .border(
                 width = 1.dp,
@@ -419,9 +365,7 @@ private fun NocturneHeader(
         ) {
             Column(Modifier.weight(1f)) {
                 if (tab == NocturneTab.Session && contractJob != null) {
-                    // Real status once pushed (see AppState.wireJobFor) — "Not pushed" while
-                    // still local-only, matching this app's own vocabulary elsewhere for the
-                    // same condition (2026-08-23 push/start/stop split).
+                    // Ekos's job status once pushed (AppState.wireJobFor), else "Not pushed".
                     val real = state.wireJobFor(contractJob)
                     val label = if (contractJob.synced) real?.jobStatusLabel ?: "Queued" else "Not pushed"
                     val statusColor = if (real?.state == SchedulerJobStatus.BUSY) colors.ok else colors.warn
@@ -560,10 +504,8 @@ private fun NavItem(
 }
 
 /**
- * Portrait-only horizontal tab strip, bottom-anchored. (Landscape briefly reused this at the top
- * of the screen instead of a vertical rail — rejected, per the user's explicit call: landscape
- * keeps a vertical rail, full stop.) No navigationBarsPadding of its own: the shared outer Column
- * in [NocturneShell] already insets from the system nav bar once, for every row alike.
+ * Portrait-only bottom tab strip; landscape uses [NavRail]. No nav-bar inset of its own,
+ * [NocturneShell] applies it.
  */
 @Composable
 private fun TabBar(
@@ -590,10 +532,7 @@ private fun TabBar(
 }
 
 /**
- * Landscape's vertical tab rail — user's explicit call over a horizontal bar (tried, rejected).
- * Item height trimmed from the original 56.dp to help all 6 tabs fit without clipping, alongside
- * the header/banner above it also being squeezed as compact as they'll go in landscape — see
- * NocturneShell's own landscape-specific padding.
+ * Landscape's vertical tab rail. Items are short so all 6 tabs fit without clipping.
  */
 @Composable
 private fun NavRail(

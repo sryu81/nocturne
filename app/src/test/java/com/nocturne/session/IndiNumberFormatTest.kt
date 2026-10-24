@@ -4,12 +4,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * Regression coverage for the real-rig crash: every INDI device exposes
- * `POLLING_PERIOD` with format `"%.f"`, which Android's Formatter mis-parses
- * into `IllegalFormatPrecisionException(102)` (the ASCII code of 'f') — see
- * [formatIndiNumber]'s doc. Format strings below are byte-for-byte what a
- * real rig (LX200 OnStep mount, ToupTek cameras, ZWO EAF/EFW) reported live
- * via `device_get`, not guessed.
+ * Every INDI device exposes `POLLING_PERIOD` with format `"%.f"`, which Android's Formatter
+ * rejects with `IllegalFormatPrecisionException(102)` (see [formatIndiNumber]). Format strings
+ * below are verbatim from the rig's `device_get` (OnStep mount, ToupTek cameras, ZWO EAF/EFW).
  */
 class IndiNumberFormatTest {
 
@@ -28,13 +25,12 @@ class IndiNumberFormatTest {
     }
 
     @Test fun `bare general conversion does not crash`() {
-        // Real value: SCOPE_INFO.FOCAL_LENGTH, "%g" — just needs to not throw and
-        // to contain the magnitude; Java's own %g default precision is fine here.
+        // SCOPE_INFO.FOCAL_LENGTH, "%g": must not throw and must contain the magnitude.
         assertEquals(true, formatIndiNumber("%g", 90.0).startsWith("90"))
     }
 
     @Test fun `sexagesimal m conversion renders DD-MM-SS, not a Java crash`() {
-        // Real value: EQUATORIAL_EOD_COORD.RA/DEC, "%010.6m"
+        // EQUATORIAL_EOD_COORD.RA/DEC, "%010.6m"
         assertEquals("12:30:00.0", formatIndiNumber("%010.6m", 12.5))
         // GEOGRAPHIC_COORD.LAT, "%012.8m"
         assertEquals("37:46:39.00", formatIndiNumber("%012.8m", 37.7775))

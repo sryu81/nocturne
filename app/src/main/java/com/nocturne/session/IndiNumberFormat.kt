@@ -3,20 +3,13 @@ package com.nocturne.session
 import kotlin.math.abs
 
 /**
- * Real INDI drivers report `format` as a C-printf-style spec (indiapi.h's `numberFormat`),
- * not a Java/Android Formatter spec — two real-world gaps confirmed live, both of which
- * crashed *every* real device sheet (every single INDI device exposes `POLLING_PERIOD` with
- * format `"%.f"`, so it was the first Number property hit on any device):
+ * INDI number `format` is a C printf spec (indiapi.h `numberFormat`), not a Java one:
  *
- * 1. A precision-less dot (`"%.f"`, `"%.g"`) is valid C (precision defaults to 0) but not
- *    valid Java — and specifically on Android/ART throws `IllegalFormatPrecisionException`
- *    with the *ASCII code of the conversion letter* as the reported precision (`'f'` = 102 —
- *    confirmed against the real crash), not the desktop JVM's `UnknownFormatConversionException`.
- * 2. INDI's own sexagesimal `m` conversion (`"%010.6m"` for RA/DEC/lat-long) has no Java
- *    equivalent at all — `UnknownFormatConversionException: m`.
+ * 1. A precision-less dot (`"%.f"`, as on every device's `POLLING_PERIOD`) is valid C
+ *    (precision 0) but throws `IllegalFormatPrecisionException` on Android.
+ * 2. INDI's sexagesimal `m` conversion (`"%010.6m"` for RA/DEC/lat-long) has no Java equivalent.
  *
- * Anything this can't confidently normalize falls back to a plain decimal string rather than
- * ever crashing a device sheet again — a wrong-looking number beats a crashed sheet.
+ * Anything that can't be normalized falls back to a plain decimal rather than throwing.
  */
 private val INDI_NUMBER_FORMAT = Regex("^%([-+0 #]*)(\\d+)?(?:\\.(\\d+)?)?([a-zA-Z])(.*)$")
 
@@ -26,13 +19,12 @@ fun formatIndiNumber(format: String, value: Double): String {
     val width = m.groupValues[2]
     val precisionDigits = m.groupValues[3]
     val conv = m.groupValues[4]
-    val suffix = m.groupValues[5] // e.g. Nocturne's own simulator-only " °C"/"°"/" %" fixture units
+    val suffix = m.groupValues[5] // trailing unit text, e.g. " °C"
     return try {
         when (conv) {
             "m", "M" -> sexagesimal(value, precisionDigits.toIntOrNull()) + suffix
             "f", "F", "g", "G", "e", "E" -> {
-                // A dot with no digits after it (INDI's "%.f") means precision 0 in C; no dot
-                // at all means C's own default of 6 — Java requires the digit explicitly either way.
+                // C: "%.f" means precision 0, no dot means 6; Java needs the digit explicitly.
                 val precision = precisionDigits.toIntOrNull() ?: if (format.contains('.')) 0 else 6
                 "%$flags$width.$precision$conv".format(value) + suffix
             }
@@ -48,8 +40,8 @@ private fun safeFallback(value: Double): String =
     if (value == value.toLong().toDouble()) value.toLong().toString() else "%.2f".format(value)
 
 /**
- * INDI's sexagesimal display (`fs_sexa` in indicom.c) — DD:MM:SS-style, used for RA/DEC/
- * lat-long. [fracDigits] follows INDI's own numberFormat table: 3->D:M, 5->D:M:S,
+ * INDI's sexagesimal display (`fs_sexa` in indicom.c) for RA/DEC/lat-long. [fracDigits]
+ * follows INDI's numberFormat table: 3->D:M, 5->D:M:S,
  * 6->D:M:S.S, 8->D:M:SS.SS, 9->D:M:SS.SSS. Anything else falls back to the D:M:S.S shape.
  */
 private fun sexagesimal(value: Double, fracDigits: Int?): String {

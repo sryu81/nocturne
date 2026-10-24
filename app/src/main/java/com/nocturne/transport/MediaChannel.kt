@@ -13,18 +13,13 @@ import okhttp3.WebSocketListener
 import okio.ByteString
 
 /**
- * Binary frame channel (`/media/ekos`) — mirrors [MessageChannel]'s shape
- * (same reconnect/backoff ownership lives in [EkosRemoteClient], not here)
- * but the payload is binary: a 512-byte JSON header (see [MediaFrame]) then
- * raw JPEG bytes, no length prefix. This channel also carries a handful of
- * JSON *text* commands (`set_blobs`, `astro_get_objects_image`,
- * `astro_get_skypoint_image` — EkosRemote-Client-Guide.md), hence [send]/
- * [inboundText] alongside the binary [frames] flow.
+ * `/media/ekos` channel, shaped like [MessageChannel]; reconnects are owned by
+ * [EkosRemoteClient]. Inbound binary frames are a 512-byte JSON header (see [MediaFrame]) then
+ * JPEG bytes. A few text commands also use this socket (`set_blobs`, `astro_get_objects_image`,
+ * `astro_get_skypoint_image`), hence [send]/[inboundText].
  *
- * ⚠️ Any binary frame *sent* on this socket is treated by the real server as
- * an align-solve image upload (`Media::onBinaryReceived` →
- * `Align::loadAndSlew`). This client never sends binary here — [send] is
- * text-only, deliberately, so nothing here can trigger that by accident.
+ * Any binary frame sent here is treated as an align image upload (`Media::onBinaryReceived` →
+ * `Align::loadAndSlew`), so [send] is text-only on purpose.
  */
 class MediaChannel(private val okHttpClient: OkHttpClient, private val url: String) {
 
@@ -34,8 +29,7 @@ class MediaChannel(private val okHttpClient: OkHttpClient, private val url: Stri
         data class Failure(val throwable: Throwable) : SocketEvent
     }
 
-    // A dropped intermediate frame is fine — the next push supersedes it, same rationale as
-    // MessageChannel's inbound flow.
+    // Dropping an intermediate frame is fine; the next one supersedes it.
     private val _frames = MutableSharedFlow<MediaFrame>(extraBufferCapacity = 4, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     val frames: SharedFlow<MediaFrame> = _frames.asSharedFlow()
 

@@ -103,26 +103,13 @@ private fun IdleSessionCard(state: AppState, modifier: Modifier) {
 }
 
 /**
- * Real-rig dusk/dawn (`state.realNightWindow`, from `astro_get_almanac`/`astro_get_location`,
- * M2026-08) replace the "21:48 → 04:12" literals once they've arrived; the arc's "now" dot uses
- * `state.realNowFraction` — **null, not clamped**, whenever real "now" falls outside tonight's
- * dusk-dawn span (daytime, or a stale window), so an honest message is shown instead of a wrong
- * dot position. The "flip" tick has no real position to show (see `FlipBanner`'s own doc — no
- * real flip-time data exists anywhere) — this comment used to claim it was "simply omitted under
- * a real rig," which was never actually true (`NightArc` in `Charts.kt` had no parameter to gate
- * it at all and drew it at a hardcoded fixed fraction unconditionally, confirmed a real live bug
- * 2026-08-25 by user report). Now genuinely removed at the draw-call level instead of merely
- * claimed removed here. `plannedFraction`/duration text use real block totals
- * ([SequenceJob.totalPlannedSec]/[SequenceJob.totalDoneSec]) once [SequenceJob.synced]; the
- * per-sub "X left" countdown the simulator shows has no real equivalent (blocked on the Media
- * channel, same M4 gap as `StatsRow`/`SubPreview`) so it's dropped, not fabricated, in that case.
+ * Dusk/dawn come from `state.realNightWindow` (`astro_get_almanac`/`astro_get_location`). The
+ * "now" dot ([AppState.realNowFraction]) is null rather than clamped outside tonight's window,
+ * so a message replaces a wrong position. No flip tick: there is no flip-time data on the wire.
+ * Planned/done use block totals once [SequenceJob.synced].
  *
- * **Real bug found live (2026-08-09)**: all of the above is `Instant.now()`-based, which Compose
- * has no reason to ever re-evaluate on its own — with no periodic trigger, the "now" position
- * silently freezes at whatever wall-clock time this composable last happened to recompose for any
- * *other* reason (a wire event). Confirmed live: a target shown "rising" hours after it had
- * actually set, because nothing had touched `state` since. The `tick` below exists purely to force
- * a redraw every 30s so real time keeps advancing on screen without needing an unrelated event.
+ * "Now" is `Instant.now()`-based, which Compose never re-evaluates by itself; `tick` forces a
+ * recompose every 30s so it doesn't freeze between wire events.
  */
 @Composable
 private fun NightArcCard(state: AppState) {
@@ -216,13 +203,8 @@ private fun NightArcCard(state: AppState) {
                 if (realProgress) job!!.filterBreakdown else "Ha 12/40 · OIII 0/30",
                 style = t.MonoMicro, color = c.textMuted, modifier = Modifier.weight(1f),
             )
-            // Was a bare "dither in 2" literal, no relation to anything real (found live, user
-            // report, 2026-08-25) — real per-block `ditherEvery`/`doneCount` already exist
-            // (block editor, EsqWriter) but nothing here ever read them. No real dither-fired
-            // wire event exists to reset this against an actual dither (confirmed: EkosEvent has
-            // no such case) — this is the same "every N subs" countdown Ekos itself computes
-            // locally from doneCount, not a server-pushed status, so it's exact as long as
-            // doneCount itself is (see doneCount's own M3 waterfall-fill-approximation caveat).
+            // No dither event on the wire; this is the same every-N-subs countdown Ekos computes
+            // from doneCount, so it's as exact as doneCount is.
             TextC(
                 if (realProgress) job!!.currentBlockIndex?.let { job.blocks[it] }?.let { b ->
                     when {
@@ -237,14 +219,12 @@ private fun NightArcCard(state: AppState) {
 }
 
 /**
- * Fallback line while no real frame has arrived yet — real ones do now (M4.2, `latestCaptureFrame`,
- * routed off `/media/ekos`'s `uuid == ""` frames). No per-sub index/HFR/ADU exists on the wire at
- * all (confirmed against source, docs/M4-plan.md) — the header's own real `exposure`/`gain` are
- * shown instead of a fabricated "SUB 013"-style counter once a frame lands.
+ * Shown until the first capture frame arrives (`latestCaptureFrame`, from `/media/ekos`). The
+ * wire has no per-sub index, so the frame header's `exposure`/`gain` label it instead.
  */
 private const val SUB_PREVIEW_LINE = "no live preview yet — waiting on a real capture"
 
-/** e.g. "300s · g100" from the frame header's own real fields — null pieces are dropped, not guessed. */
+/** e.g. "300s · g100" from the frame header; missing pieces are dropped. */
 private fun AppState.captureFrameTag(): String? {
     val h = latestCaptureFrame?.header ?: return null
     return listOfNotNull(h.exposure?.let { "${it}s" }, h.gain?.let { "g$it" }).joinToString(" · ").ifBlank { null }
@@ -359,9 +339,8 @@ private fun ChipTag(text: String, accent: Boolean) {
 }
 
 /**
- * HFR (M4.2) comes from the real capture frame header's own `hfr` field — real, once a frame has
- * landed. RMS/SNR come from the fork's guide-stats push (docs/FORK-BACKLOG.md §1); SNR only when
- * the guide detector reports one (plain SEP/Smart send 0).
+ * HFR comes from the capture frame header's `hfr`. RMS/SNR come from the fork's guide-stats
+ * push; SNR only when the guide detector reports one (SEP/Smart send 0).
  */
 @Composable
 private fun StatsRow(state: AppState, ctrl: SessionController) {
@@ -424,12 +403,9 @@ private fun MiniStat(
 }
 
 /**
- * Real rig: no wire RPC exists for a manual flip trigger at all (`executeMeridianFlip` is an
- * enable/disable *setting*, not a command — see `EkosRemoteController`'s doc on
- * `requestFlipNow`/`requestDeferFlip`, which have no real override and would silently no-op on a
- * real rig if left tappable) — so FLIP NOW/DEFER are disabled with an honest explanation instead
- * of a fake countdown. Real pier side/auto-flip state shown in their place (no T-minus number
- * exists on the wire — would need real RA + local sidereal time, neither modeled anywhere today).
+ * The wire has no manual flip trigger (`executeMeridianFlip` is a setting, not a command), so
+ * FLIP NOW/DEFER are disabled with an explanation. Pier side and auto-flip state are shown
+ * instead of a countdown, which would need RA and local sidereal time.
  */
 @Composable
 private fun FlipBanner(state: AppState, ctrl: SessionController) {
@@ -459,11 +435,7 @@ private fun FlipBanner(state: AppState, ctrl: SessionController) {
                 style = t.MonoMicro, color = c.textFaint,
             )
         }
-        // FLIP NOW/DEFER are always disabled — no real wire command exists for either (see the
-        // "no real trigger" text above); no simulator left to enable them (removed 2026-08-22,
-        // see docs/simulator-removal-plan.md). Kept visible with an honest disabled state rather
-        // than removed, same pattern as rotator/dome (ControlsScreen.kt) and the other genuinely
-        // unwired controls this app is honest about instead of hiding.
+        // Kept visible but disabled, like other unwired controls, rather than hidden.
         Box(
             Modifier
                 .border(1.dp, c.warn.copy(alpha = 0.25f), RoundedCornerShape(8.dp))

@@ -5,7 +5,7 @@ import com.nocturne.protocol.MediaHeader
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/** [FrameEntity.from] maps a real [MediaFrame]'s header fields verbatim — pure mapping, no Room instance needed. */
+/** [FrameEntity.from] maps a [MediaFrame]'s header fields verbatim — pure mapping, no Room instance needed. */
 class FrameEntityTest {
 
     @Test

@@ -18,8 +18,8 @@ import kotlin.math.sqrt
  * A HiPS tile of order k is one HEALPix pixel at order k, stored as a 512×512 JPEG; each image
  * pixel is one HEALPix pixel at order k+9. The in-tile orientation (image column = the y bits of
  * the face coordinate, image row = the x bits) was checked against CDS's own `hips2fits`
- * renderer in four sky zones (equatorial, polar/equatorial boundary, north cap, south),
- * 2026-10-24: correlation 0.74–0.96 for this mapping, ≤0.50 for each of the other seven.
+ * renderer in four sky zones (equatorial, polar/equatorial boundary, north cap, south):
+ * correlation 0.74–0.96 for this mapping, ≤0.50 for each of the other seven.
  */
 object Healpix {
     const val TILE_ORDER_BITS = 9

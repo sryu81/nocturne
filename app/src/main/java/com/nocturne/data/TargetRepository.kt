@@ -19,9 +19,8 @@ private val Context.targetDataStore: DataStore<Preferences> by preferencesDataSt
 private val targetJson = Json { ignoreUnknownKeys = true }
 
 /**
- * The Plan tab's user catalogue ("My targets"), persisted across process death — previously
- * in-memory only, so every hand-entered target vanished on app restart. Same DataStore +
- * JSON-blob shape as [SequenceRepository]. Purely local: nothing here touches real Ekos.
+ * The Plan tab's user catalogue ("My targets"), persisted across process death. Same DataStore +
+ * JSON-blob shape as [SequenceRepository]. Local only; nothing here touches Ekos.
  */
 data class UserCatalogSnapshot(
     val name: String = "My targets",

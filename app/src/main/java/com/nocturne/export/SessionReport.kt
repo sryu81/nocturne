@@ -16,9 +16,8 @@ import com.nocturne.session.spec
 import java.io.File
 
 /**
- * Builds the "Export log + FITS list" report as one self-contained HTML file —
- * session log (alerts timeline) and frame list side by side, viewable in any
- * browser instead of two separate plain-text exports.
+ * Builds the "Export log + FITS list" report as one self-contained HTML file:
+ * alerts timeline and frame list, viewable in any browser.
  */
 fun buildSessionReportHtml(state: AppState): String {
     val job = state.endedJob
@@ -28,9 +27,7 @@ fun buildSessionReportHtml(state: AppState): String {
         "<tr><td>${b.filter}</td><td>${b.spec}</td><td>${b.meta}</td></tr>"
     } ?: "<tr><td colspan=\"3\">No job active at export time.</td></tr>"
 
-    // Real once a frame has actually landed (M4.3, Room-backed) — HFR can be null if the real
-    // header didn't carry one for that frame. Filename is the real on-disk name (M4.5 Part A);
-    // target/filter are real too, null for a Preview/test capture (M4.5 Part C).
+    // From Room. HFR is null when the header had none; target/filter are null for previews.
     val frameRows = state.frameRows.sortedBy { it.timestampMs }.joinToString("\n") { f ->
         val status = if (f.keep) "kept" else "cut"
         val filename = File(f.filePath).name
@@ -38,7 +35,7 @@ fun buildSessionReportHtml(state: AppState): String {
             "<td>${f.filter ?: "—"}</td><td>${f.hfr?.let { "%.2f".format(it) } ?: "—"}</td><td>$status</td></tr>"
     }
 
-    // Real new_notification stream (M4.5 half A, docs/STATUS.md) — was the static ALERTS fixture.
+    // The new_notification stream.
     val alertRows = if (state.wireNotifications.isEmpty()) {
         "<tr><td colspan=\"2\">No alerts this session.</td></tr>"
     } else {
@@ -47,9 +44,7 @@ fun buildSessionReportHtml(state: AppState): String {
         }
     }
 
-    // Real dusk/dawn (same `state.realNightWindow` source as `NightArcCard`'s Session-tab fix,
-    // M2026-08) once it's arrived. The rest of this report (alerts/frames) is still genuinely
-    // fixture data regardless — that caveat stays as-is, only the window itself was fake here.
+    // Dusk/dawn from `state.realNightWindow`, as on the Session tab's night arc.
     val nightWindow = state.realNightWindow?.let {
         "${state.formatSiteTime(it.first)} → ${state.formatSiteTime(it.second)}"
     } ?: "21:48 → 04:12"
@@ -69,7 +64,7 @@ fun buildSessionReportHtml(state: AppState): String {
         </style></head>
         <body>
             <h1>${target?.displayName ?: "Nocturne session"}</h1>
-            <div class="meta">$nightWindow · exported from Nocturne (session log below is still fixture placeholder data, pending M4.5)</div>
+            <div class="meta">$nightWindow · exported from Nocturne</div>
 
             <h2>Sequence</h2>
             <table><tr><th>Filter</th><th>Exposure</th><th>Progress</th></tr>$blockRows</table>
@@ -87,10 +82,9 @@ fun buildSessionReportHtml(state: AppState): String {
 }
 
 /**
- * The milestone's own exit criteria names "export produces log + FITS list" — this app never
- * receives raw FITS bytes over the wire (only JPEG previews via the Media channel), so this is a
- * plain CSV manifest of the real per-frame metadata already sitting in Room (M4.3/M4.5), not
- * actual FITS files. One row per real captured frame; empty (header-only) if none exist yet.
+ * The "FITS list": a CSV manifest of per-frame metadata from Room. The app never receives FITS
+ * bytes (only JPEG previews), so it lists frames rather than including files. Header-only when
+ * there are no frames.
  */
 fun buildFrameListCsv(state: AppState): String {
     fun esc(s: String) = if (s.any { it == ',' || it == '"' || it == '\n' }) "\"${s.replace("\"", "\"\"")}\"" else s
@@ -114,7 +108,7 @@ fun buildFrameListCsv(state: AppState): String {
     return (listOf(header) + rows).joinToString("\n") + "\n"
 }
 
-/** Writes both the HTML report and the real FITS-list CSV to cache, offers them together via FileProvider. */
+/** Writes the HTML report and FITS-list CSV to cache and shares them together via FileProvider. */
 fun exportSessionReport(context: Context, state: AppState) {
     val dir = File(context.cacheDir, "reports").apply { mkdirs() }
     val htmlFile = File(dir, "session_report.html").apply { writeText(buildSessionReportHtml(state)) }

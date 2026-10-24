@@ -48,11 +48,9 @@ import java.util.Locale
 private val TIMESTAMP_FMT = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
 
 /**
- * Real capture frames, Room-backed via [FrameEntity]/`state.`[AppState.frameRows] (M4.3) —
- * replaces the honest "not available (M4)" placeholder that stood here since the simulator-removal
- * pass (2026-08-22). Navigation restructured M4.5 Part C: top-level Preview/Plan picker, Plan
- * drills into a per-target list before a target's own grid — [FrameEntity.target] is null for a
- * Preview/test capture, real for a Plan one (`AppState.activeFrameSource`).
+ * Capture frames from Room ([FrameEntity] via [AppState.frameRows]). Top level picks Preview or
+ * Plan; Plan drills into a per-target list, then a target's grid. [FrameEntity.target] is null
+ * for Preview captures.
  */
 @Composable
 fun FramesScreen(
@@ -117,10 +115,7 @@ private fun CategoryPicker(
                     onClick = { ctrl.selectFrameCategory(FrameCategory.PLAN) },
                 )
             },
-            // Save path/placeholder format (2026-09, user request — moved here from Controls
-            // tab's own Camera settings card: "these are about file locations", which this tab
-            // already is. Dither moved to Sequence tab instead — "suitable for image session",
-            // per the same user request — see SequenceScreen's own doc for that half.
+            // Save path and placeholder format live here, with the files they produce.
             TabItem(full = true) {
                 CategoryCard(
                     icon = Phosphor.SlidersHorizontal,
@@ -261,8 +256,7 @@ private fun FrameListScreen(
                                 style = t.MonoSmall, color = c.textMuted,
                             )
                             Spacer(Modifier.height(8.dp))
-                            // Newest-last so the run reads left-to-right in capture order — rows
-                            // itself is newest-first (grid display order).
+                            // Reversed so the run reads left-to-right in capture order.
                             HfrRunChart(
                                 values = rows.mapNotNull { it.hfr?.toFloat() }.asReversed(),
                                 modifier = Modifier.fillMaxWidth().height(60.dp),
@@ -319,11 +313,9 @@ private fun FrameThumb(f: FrameEntity, modifier: Modifier, onClick: () -> Unit) 
 }
 
 /**
- * Full-screen frame preview — tap anywhere, the close button, or system back dismisses it.
- * Info panel (M4.5 Part C) shows every real field this row actually carries — timestamp, real
- * target/filter/coordinates for a Plan capture (absent entirely for a Preview/test one, not shown
- * as a blank/zero), exposure/gain/bin/resolution, mean/median/stddev, HFR, and an honest "not
- * solved yet" placeholder for the M4.5 Part B solver, not implemented yet.
+ * Full-screen frame preview; tap anywhere, the close button, or back dismisses it. The info
+ * panel lists every field the row has (target/filter/coordinates only for Plan captures),
+ * plus a solver placeholder.
  */
 @Composable
 fun FrameExpandOverlay(state: AppState, ctrl: SessionController) {
@@ -343,7 +335,7 @@ fun FrameExpandOverlay(state: AppState, ctrl: SessionController) {
         ) {
             MediaFramePreviewFile(frame.filePath, Modifier.fillMaxSize(), hatchColor = c.surfaceRaised)
             TextC(
-                // Real on-disk filename (M4.5) — the actual Preview/Plan path, not a fabricated label.
+                // On-disk filename.
                 File(frame.filePath).name, style = t.Mono17, color = c.textFaint,
                 modifier = Modifier.align(Alignment.TopStart).padding(16.dp),
             )
@@ -383,7 +375,7 @@ fun FrameExpandOverlay(state: AppState, ctrl: SessionController) {
     }
 }
 
-/** One label/value row for [FrameExpandOverlay]'s info panel — null [value] means the row isn't shown at all. */
+/** One label/value row for [FrameExpandOverlay]'s info panel; a null [value] hides the row. */
 @Composable
 private fun InfoRow(label: String, value: String?) {
     if (value == null) return
@@ -428,7 +420,6 @@ private fun FrameInfoRows(frame: FrameEntity) {
         ).joinToString(" · ").ifBlank { null },
     )
     Spacer(Modifier.height(2.dp))
-    // Honest placeholder — M4.5 Part B (offline coarse solver) isn't implemented yet; no
-    // fabricated RA/Dec/confidence number invented ahead of the real feature landing.
+    // Placeholder until the offline solver exists.
     TextC("SOLVER: not solved yet", style = t.MonoMicro, color = c.textFaint)
 }
