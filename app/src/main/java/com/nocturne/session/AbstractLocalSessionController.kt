@@ -289,6 +289,14 @@ abstract class AbstractLocalSessionController : SessionController {
         s.copy(rigRebootState = RigRebootState.FAILED, rigRebootError = "No real rig connected — nothing to reboot")
     }
 
+    // The sky atlas lives on the real rig; EkosRemoteController overrides these.
+    override open fun refreshSkyAtlas() {}
+    override open fun copySkyAtlasFromRig() = update { s ->
+        s.copy(skyAtlas = s.skyAtlas.copy(error = "No real rig connected — nothing to copy from"))
+    }
+    override open fun cancelSkyAtlasCopy() {}
+    override open fun clearSkyAtlas() {}
+
     override open fun syncTimeToRig() = update { s ->
         s.copy(piTimeSyncState = RigRebootState.FAILED, piTimeSyncError = "No real rig connected — nothing to sync")
     }

@@ -45,6 +45,23 @@ enum class SheetType {
 enum class RigRebootState { IDLE, SENDING, SENT, FAILED }
 
 /**
+ * Offline sky atlas ([com.nocturne.hips.SkyAtlas]): DSS2 colour HiPS tiles orders 0..5 copied
+ * from the rig. [completeOrder] is the deepest order fully on the phone (-1: none), which is
+ * what framing can render from; [rigTiles] is null until the rig has been asked.
+ */
+data class SkyAtlasStatus(
+    val localTiles: Int = 0,
+    val completeOrder: Int = -1,
+    val totalTiles: Int = com.nocturne.hips.SkyAtlas.TOTAL_TILES,
+    val rigTiles: Int? = null,
+    val copying: Boolean = false,
+    val copyDone: Int = 0,
+    /** Tiles the rig didn't have yet at the end of the last copy (its own mirror still running). */
+    val lastMissing: Int? = null,
+    val error: String? = null,
+)
+
+/**
  * Real `new_guide_state.status` strings for which Ekos's Guide module is *not* busy — the same
  * idle group `Guide::checkCamera` (guide.cpp) switches on; every other `guideStates` value
  * (`ekos.h`: Capturing, Looping, Calibrating, Guiding, Dithering, Settling...) means busy.
@@ -539,6 +556,12 @@ data class AppState(
      */
     val referenceImageJpeg: ByteArray? = null,
     val referenceImageForTargetId: String? = null,
+    /** Where [referenceImageJpeg] came from: the offline sky atlas on the phone, or CDS online. */
+    val referenceImageOffline: Boolean = false,
+    /** No atlas tiles for this field and the online cutout was skipped (rig/metered network). */
+    val referenceImageOnlineSkipped: Boolean = false,
+    /** Offline sky atlas copied from the rig (see [com.nocturne.hips.SkyAtlas]). */
+    val skyAtlas: SkyAtlasStatus = SkyAtlasStatus(),
     /** Companion reboot daemon's port on the rig's Pi — separate from the EkosRemote wire port (see `pi-tools/reboot-daemon/`). */
     val rigRebootPort: Int = 9001,
     val rigRebootState: RigRebootState = RigRebootState.IDLE,

@@ -12,6 +12,13 @@ This is a small stdlib-only Python daemon that listens on its own port
 (9001 by default) for `POST /reboot` and `POST /set-time`. No token or
 pairing — the app finds it on the same host it already connects to.
 
+## Sky atlas tiles
+
+`GET /hips/status` (tiles per order) and `GET /hips/<Norder/Dir/Npix path>` serve the offline
+DSS2 colour HiPS copy at `~/.local/share/kstars/hips/DSSColor` (override `NOCTURNE_HIPS_DIR`),
+the same folder KStars' offline HiPS reads. The app copies missing tiles from here (Gear →
+Rig maintenance → Sky atlas); only HiPS tile paths are served, nothing else on the Pi.
+
 ## Install
 
 ```

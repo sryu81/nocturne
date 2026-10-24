@@ -207,6 +207,17 @@ interface SessionController {
     /** Sends the actual reboot request. See [AppState.rigRebootState] for the result. */
     fun rebootRig()
 
+    /** Re-reads the offline sky atlas on the phone and asks the rig how much it can serve. */
+    fun refreshSkyAtlas()
+
+    /** Copies missing sky atlas tiles from the rig (reboot daemon `/hips/`); resumable. */
+    fun copySkyAtlasFromRig()
+
+    fun cancelSkyAtlasCopy()
+
+    /** Deletes the phone's copy of the sky atlas. */
+    fun clearSkyAtlas()
+
     /**
      * Sets the real Pi's OS system clock (`date -s`+`hwclock -w`, via the same reboot-daemon
      * channel as [rebootRig] — no EkosRemote/INDI property controls this at all, it's the same

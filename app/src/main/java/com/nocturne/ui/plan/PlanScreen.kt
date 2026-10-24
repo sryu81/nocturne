@@ -750,7 +750,11 @@ private fun FramingCard(state: AppState, ctrl: SessionController, tgt: Target) {
             MediaFramePreview(state.referenceImageJpeg, Modifier.fillMaxSize(), hatchColor = c.divider)
             if (state.referenceImageJpeg == null) {
                 TextC(
-                    if (state.referenceImageForTargetId == tgt.id) "fetching reference image…" else "no reference image yet",
+                    when {
+                        state.referenceImageOnlineSkipped -> "not in offline atlas · online lookup off on rig network"
+                        state.referenceImageForTargetId == tgt.id -> "fetching reference image…"
+                        else -> "no reference image yet"
+                    },
                     style = t.Caption, color = c.textFaint,
                     modifier = Modifier.align(Alignment.Center),
                 )
@@ -782,6 +786,13 @@ private fun FramingCard(state: AppState, ctrl: SessionController, tgt: Target) {
                 TextC(
                     it, style = t.Mono115, color = c.accent400,
                     modifier = Modifier.align(Alignment.TopEnd).padding(top = 6.dp, end = 8.dp),
+                )
+            }
+            if (state.referenceImageJpeg != null) {
+                TextC(
+                    if (state.referenceImageOffline) "DSS2 · offline atlas" else "DSS2 · CDS online",
+                    style = t.MonoMicro, color = c.textFaint,
+                    modifier = Modifier.align(Alignment.BottomStart).padding(bottom = 6.dp, start = 8.dp),
                 )
             }
         }

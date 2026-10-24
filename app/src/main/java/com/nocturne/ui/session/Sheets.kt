@@ -24,6 +24,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -46,6 +48,7 @@ import com.nocturne.session.IndiProperty
 import com.nocturne.session.LiveDevice
 import com.nocturne.session.PA_SECS
 import com.nocturne.session.RigRebootState
+import com.nocturne.session.SkyAtlasStatus
 import com.nocturne.session.formatIndiNumber
 import com.nocturne.session.formatSiteTime
 import com.nocturne.session.sourceLabel
@@ -2020,6 +2023,10 @@ private fun MaintenanceSheet(state: AppState, ctrl: SessionController) {
             }
             else -> {}
         }
+        Spacer(Modifier.height(24.dp))
+        HDivider()
+        Spacer(Modifier.height(24.dp))
+        SkyAtlasSection(state.skyAtlas, ctrl)
     }
 
     if (showConfirm) {
@@ -2035,6 +2042,73 @@ private fun MaintenanceSheet(state: AppState, ctrl: SessionController) {
             },
             onDismiss = { showConfirm = false },
         )
+    }
+}
+
+/**
+ * Offline sky atlas (DSS2 colour HiPS, orders 0..5) for the Plan tab's Framing card, copied from
+ * the rig's own mirror over the reboot daemon. Tiles don't depend on the scope or camera, so one
+ * copy frames any target at any focal length with no internet.
+ */
+@Composable
+private fun SkyAtlasSection(atlas: SkyAtlasStatus, ctrl: SessionController) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    LaunchedEffect(Unit) { ctrl.refreshSkyAtlas() }
+
+    TextC("SKY ATLAS (OFFLINE FRAMING)", style = t.MicroUppercase, color = c.textMuted)
+    Spacer(Modifier.height(8.dp))
+    TextC(
+        if (atlas.copying) "Copying: checked ${atlas.copyDone} / ${atlas.totalTiles} tiles"
+        else "On phone: ${atlas.localTiles} / ${atlas.totalTiles} tiles" +
+            if (atlas.completeOrder >= 0) " · frames from level ${atlas.completeOrder}" else " · not usable yet",
+        style = t.Body13, color = c.text,
+    )
+    Spacer(Modifier.height(4.dp))
+    TextC(
+        atlas.rigTiles?.let { "On rig: $it / ${atlas.totalTiles} tiles" } ?: "On rig: checking…",
+        style = t.MonoMicro, color = c.textFaint,
+    )
+    Spacer(Modifier.height(12.dp))
+    if (atlas.copying) {
+        LinearProgressIndicator(
+            progress = { atlas.copyDone.toFloat() / atlas.totalTiles.coerceAtLeast(1) },
+            modifier = Modifier.fillMaxWidth(),
+            color = c.accent,
+            trackColor = c.divider,
+        )
+        Spacer(Modifier.height(10.dp))
+        NocturneButton(
+            text = "Cancel copy",
+            onClick = ctrl::cancelSkyAtlasCopy,
+            style = com.nocturne.ui.components.BtnStyle.OUTLINE,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    } else {
+        NocturneButton(
+            text = if (atlas.localTiles == 0) "Copy atlas from rig (~1 GB)" else "Copy missing tiles from rig",
+            onClick = ctrl::copySkyAtlasFromRig,
+            enabled = atlas.localTiles < atlas.totalTiles,
+            style = com.nocturne.ui.components.BtnStyle.OUTLINE,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        if (atlas.localTiles > 0) {
+            Spacer(Modifier.height(10.dp))
+            NocturneButton(
+                text = "Delete loaded tiles (level 5) from phone",
+                onClick = ctrl::clearSkyAtlas,
+                style = com.nocturne.ui.components.BtnStyle.SUBTLE,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+    atlas.lastMissing?.takeIf { it > 0 }?.let {
+        Spacer(Modifier.height(8.dp))
+        TextC("$it tiles not on the rig yet (its download is still running) — copy again later.", style = t.Caption, color = c.warn)
+    }
+    atlas.error?.let {
+        Spacer(Modifier.height(8.dp))
+        TextC(it, style = t.Caption, color = c.danger)
     }
 }
 

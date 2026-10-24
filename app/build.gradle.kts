@@ -73,3 +73,23 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
 }
+
+// Offline sky atlas (DSS2 colour HiPS orders 0..4, ~211 MB, 4,092 tiles) packed into the APK's
+// assets at build time from a local mirror (pi-tools/hips-mirror), never committed to git.
+// Order 5 (~760 MB) stays out of the APK; tools/push_sky_atlas.sh loads it into app storage.
+// Without the mirror the APK still builds, just with no packaged atlas (framing falls back).
+val skyAtlasSrc: String = providers.gradleProperty("nocturneAtlasDir")
+    .getOrElse(System.getProperty("user.home") + "/astro-data/hips/DSSColor")
+val skyAtlasAssets = layout.buildDirectory.dir("generated/skyAtlasAssets")
+val syncSkyAtlasAssets = tasks.register<Sync>("syncSkyAtlasAssets") {
+    from(skyAtlasSrc) {
+        include((0..4).map { "Norder$it/**/Npix*.jpg" })
+        into("hips/DSSColor")
+    }
+    into(skyAtlasAssets)
+    doFirst {
+        if (!file(skyAtlasSrc).isDirectory) logger.warn("No sky atlas at $skyAtlasSrc — APK built without it")
+    }
+}
+android.sourceSets["main"].assets.srcDir(skyAtlasAssets)
+tasks.named("preBuild") { dependsOn(syncSkyAtlasAssets) }

@@ -45,6 +45,7 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
     private val repo = ConnectionRepository(app.applicationContext)
     private val sequenceRepo = SequenceRepository(app.applicationContext)
     private val frameRepo = FrameRepository(app.applicationContext)
+    private val skyAtlas = com.nocturne.hips.SkyAtlas(app.applicationContext)
     private val targetRepo = TargetRepository(app.applicationContext)
 
     lateinit var ctrl: SessionController
@@ -89,7 +90,10 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
         client = newClient
         // Set ctrl before connectionMode flips to Connecting/Connected — NocturneShell
         // only composes once connectionMode says so, and must see the final ctrl then.
-        ctrl = EkosRemoteController(newClient, viewModelScope, repo, sequenceRepo, frameRepo, targetRepo)
+        ctrl = EkosRemoteController(
+            newClient, viewModelScope, repo, sequenceRepo, frameRepo, targetRepo, skyAtlas,
+            allowOptionalInternet = { com.nocturne.transport.RigNetwork.allowOptionalInternet(getApplication(), host) },
+        )
 
         viewModelScope.launch {
             newClient.connectionStatus.collect { status ->

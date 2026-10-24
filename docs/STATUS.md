@@ -65,6 +65,16 @@ inevitably-drifting tracker — check `README.md` itself for what's current, thi
       Pi) sets East whenever any device reports otherwise; the app does the same while connected and
       raises a Mount alert. East in both hemispheres (OnStep picks the side by hour angle). Verified
       live: guard Best→East on install; app on connect and on a live change.
+- [x] Offline sky atlas (2026-10-24): Framing card renders from the DSS2 colour HiPS survey
+      (`hips/Healpix.kt` + `hips/SkyAtlas.kt`; HEALPix nested math and in-tile orientation checked
+      against CDS `hips2fits` in 4 sky zones, pinned by unit tests). Orders 0–4 (~211 MB) packed
+      into the APK at build time from `~/astro-data/hips/DSSColor` (never in git); order 5 (~900 MB)
+      loaded by `tools/push_sky_atlas.sh` or copied from the rig (reboot daemon `/hips/`, Gear →
+      Rig maintenance → Sky atlas). Online `hips2fits` is only a fallback, skipped on the rig's
+      subnet or a metered network (`RigNetwork`; the rig uplink is a prepaid SIM). Pi: orders 0–5
+      on the SD card, KStars offline HiPS on (`pi-tools/hips-mirror/README.md`); order 6 deferred.
+      Live: phone 16,380/16,380 tiles, M31 framed offline; KStars shows the survey.
+- [x] HFR −1 (Ekos "no star measured") now shown as no HFR everywhere (2026-10-24).
 - [x] Night forensics (2026-10-24): 10-23 M31 flip was a 1 s no-op (pier stayed West, Ekos retried
       once, then sat 26 min in FLIP_RUNNING with the mount "Slewing"/frozen and tracking stopped);
       M45 flipped fine at 02:50, job finished 04:34 (80/80), power cut ~05:53. Nothing but the

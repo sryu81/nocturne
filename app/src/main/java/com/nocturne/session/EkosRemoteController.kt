@@ -23,6 +23,7 @@ import com.nocturne.protocol.WireSchedulerJob
 import com.nocturne.protocol.bitmaskToRoles
 import com.nocturne.transport.EkosRemoteClient
 import com.nocturne.transport.ReferenceImageClient
+import com.nocturne.hips.SkyAtlas
 import com.nocturne.transport.RigRebootClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -77,6 +78,11 @@ class EkosRemoteController(
     /** Persists the Plan tab's user catalogue ("My targets") — see [UserCatalogSnapshot].
      *  Optional: pass null and hand-entered targets just won't survive process death. */
     private val targetRepo: TargetRepository? = null,
+    /** Offline sky atlas for framing, copied from the rig. Optional: null = online cutouts only. */
+    private val skyAtlas: SkyAtlas? = null,
+    /** Asked before optional internet use (online framing cutout) — false on the rig's own,
+     *  possibly SIM-metered network; see [com.nocturne.transport.RigNetwork]. */
+    private val allowOptionalInternet: () -> Boolean = { true },
 ) : AbstractLocalSessionController() {
 
     /** Name a `profile_delete` was just sent for — checked against the next [EkosEvent.Profiles]. */
@@ -85,6 +91,7 @@ class EkosRemoteController(
     /** M5 (docs/STATUS.md) — plain internet fetch, not wire-protocol-dependent at all; see
      * [ensureReferenceImage]/[ReferenceImageClient]'s own docs. */
     private val referenceImageClient = ReferenceImageClient()
+    private var skyAtlasCopyJob: Job? = null
 
     // Plan tab search bookkeeping (M3 §4) — astro_get_objects_info/riseset can reply in
     // either order, so the latest of each is kept here and merged into wireSearchResults
@@ -206,6 +213,7 @@ class EkosRemoteController(
     }
 
     init {
+        if (skyAtlas != null) scope.launch { rescanSkyAtlas() }
         // AppState.jobs/activeJobId/lastActiveJobId/openBlockId default to DEFAULT_JOBS — one
         // job pre-marked running = true, a SimulatedController demo convenience. A real
         // connection has no session queued until the user actually adds one (Plan tab "Add to
@@ -1216,14 +1224,19 @@ class EkosRemoteController(
         val target = s.findTarget(targetId) ?: return
         val (raDeg, decDeg) = target.raDecDegrees ?: return
         val fovDeg = (s.framingFovDeg?.let { maxOf(it.first, it.second) } ?: 2.4) * 1.4
-        _state.update { it.copy(referenceImageForTargetId = targetId, referenceImageJpeg = null) }
+        _state.update { it.copy(referenceImageForTargetId = targetId, referenceImageJpeg = null, referenceImageOnlineSkipped = false) }
         scope.launch {
-            val jpeg = referenceImageClient.fetchCutout(raDeg, decDeg, fovDeg)
+            // Offline atlas first (works with no internet, any FOV); CDS cutout as the fallback.
+            val offline = skyAtlas?.render(raDeg, decDeg, fovDeg, _state.value.skyAtlas.completeOrder)
+            val online = offline == null && allowOptionalInternet()
+            val jpeg = offline ?: if (online) referenceImageClient.fetchCutout(raDeg, decDeg, fovDeg) else null
             // Only apply if the framed target hasn't changed again while this was in flight —
             // a fast double-tap through search results shouldn't let a slow first fetch land on
             // top of a since-selected second target.
             if (_state.value.referenceImageForTargetId == targetId) {
-                _state.update { it.copy(referenceImageJpeg = jpeg) }
+                _state.update {
+                    it.copy(referenceImageJpeg = jpeg, referenceImageOffline = offline != null, referenceImageOnlineSkipped = offline == null && !online)
+                }
             }
         }
     }
@@ -1551,6 +1564,66 @@ class EkosRemoteController(
                     onFailure = { e -> s.copy(rigRebootState = RigRebootState.FAILED, rigRebootError = e.message ?: "request failed") },
                 )
             }
+        }
+    }
+
+    private suspend fun rescanSkyAtlas() {
+        val local = skyAtlas?.scanLocal() ?: return
+        _state.update { it.copy(skyAtlas = it.skyAtlas.copy(localTiles = local.tiles, completeOrder = local.completeOrder)) }
+    }
+
+    override fun refreshSkyAtlas() {
+        val atlas = skyAtlas ?: return
+        scope.launch {
+            rescanSkyAtlas()
+            val rig = runCatching { atlas.rigTiles(client.host, rigRebootPort) }
+            _state.update { s ->
+                s.copy(skyAtlas = s.skyAtlas.copy(
+                    rigTiles = rig.getOrNull(),
+                    error = rig.exceptionOrNull()?.let { "Rig atlas: ${it.message ?: "unreachable"}" },
+                ))
+            }
+        }
+    }
+
+    /** Over the reboot daemon's `/hips/` (same host and port as [rebootRig]), 4 tiles at a time. */
+    override fun copySkyAtlasFromRig() {
+        val atlas = skyAtlas ?: return
+        if (skyAtlasCopyJob?.isActive == true) return
+        _state.update { it.copy(skyAtlas = it.skyAtlas.copy(copying = true, error = null, lastMissing = null)) }
+        skyAtlasCopyJob = scope.launch {
+            var missing: Int? = null
+            var error: String? = null
+            try {
+                missing = atlas.copyFromRig(client.host, rigRebootPort) { done, _ ->
+                    _state.update { it.copy(skyAtlas = it.skyAtlas.copy(copyDone = done)) }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                error = "Copy stopped: ${e.message ?: "rig unreachable"}"
+            } finally {
+                // also runs after Cancel, so the sheet doesn't stay stuck on "Copying…"
+                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                    rescanSkyAtlas()
+                    _state.update { s ->
+                        s.copy(skyAtlas = s.skyAtlas.copy(copying = false, lastMissing = missing, error = error))
+                    }
+                }
+            }
+        }
+    }
+
+    override fun cancelSkyAtlasCopy() {
+        skyAtlasCopyJob?.cancel()
+    }
+
+    override fun clearSkyAtlas() {
+        val atlas = skyAtlas ?: return
+        skyAtlasCopyJob?.cancel()
+        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            atlas.clear()
+            rescanSkyAtlas()
         }
     }
 
