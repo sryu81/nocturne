@@ -4,13 +4,13 @@
 
 | # | Topic | State |
 |---|---|---|
-| 1 | Rig status and logs | proposal written, open decisions below |
+| 1 | Home tab: rig overview, status and logs | decided layout, open decisions below |
 | 2 | Frames tab → file manager for the Pi | proposal written, open decisions below |
 | 3 | Tab layout | decided in discussion, not built; Home tab, Session merged into Sequence |
 
 ---
 
-# 1. Rig status and logs
+# 1. Home tab: rig overview, status and logs
 
 ## Why
 
@@ -44,11 +44,28 @@ Pi are doing, keep that history on the phone, and tell the user when something g
 (`Capture::getLogText()` = `m_LogText.join("\n")`, never trimmed), so traffic grows quadratically
 over a night. The app should not consume it as-is.
 
-## Proposal
+## Home page layout
 
-### 1. Rig health (status)
+The first page after connecting: a glanceable rig overview that never needs a long scroll; deeper
+views sit one tap away. The old Session tab becomes Home (its job progress moves to Sequence, see
+section 3).
 
-Shown on the Home tab (section 3), laid out as a chain, so it is clear where it breaks:
+1. **Connection chain and Ekos control** — Wi-Fi, Pi, KStars, Ekos, devices with each state (rig
+   health, below), plus start/stop Ekos and the active profile (moved from Gear). Must work with
+   Ekos not running, the state you land in at the rig: a clear "Ekos not running → Start" card.
+2. **Session one-liner** — target, subs done/planned, ETA, guide RMS; tap opens Sequence.
+3. **Night arc** and sky-site card (they describe the night, not a job).
+4. **Alerts and log** — count and latest lines, link to the full Log screen.
+5. **Pi health** — CPU temperature, undervoltage, free disk, uptime, clock (from the maintenance
+   daemon).
+6. **Rig maintenance** — reboot, shut down, time and GPS sync (moved from Gear). The Connect screen
+   keeps its own reboot/shut-down section for when there is no connection yet.
+
+## What it needs
+
+### Rig health
+
+Section of the Home page, laid out as a chain, so it is clear where it breaks:
 
 **Phone ↔ Pi link → KStars → Ekos profile → indiserver → each driver → each module**
 
@@ -67,31 +84,31 @@ Shown on the Home tab (section 3), laid out as a chain, so it is clear where it 
 - **Pi health** from the 9001 daemon (extended `/health`): CPU temperature, undervoltage/throttling
   flags (`vcgencmd get_throttled`), SD and USB free space, uptime, clock in sync.
 
-### 2. Log screen
+### Log screen
 
-- One merged, timestamped timeline of all sources; filter chips per module; "warnings/errors only"
+- A section of Home with the latest lines and a link to the full screen. The full screen is one
+  merged, timestamped timeline of all sources; filter chips per module; "warnings/errors only"
   toggle; search; pause/follow; copy/share an excerpt.
 - **Stored on the phone** (Room, like Frames) so a night's history survives an app restart, a Pi
   reboot or a power cut.
 - On demand, fetch the Pi's own logs through the daemon: mount-event log, journal excerpt.
 
-### 3. Fork changes (EkosRemote)
+### Fork changes (EkosRemote)
 
 - Push **one new line at a time** (`{module, time, level?, text}`) instead of the full history;
   keep the old push for compatibility. Add a `get_logs` snapshot for (re)connect.
 - Forward the **Ekos main log** and the **Mount** module log.
 - Forward **INDI driver messages** with their level (INFO / WARNING / ERROR).
 
-### 4. Phone notifications
+### Phone notifications
 
 Alerts and errors (flip failed, slew stuck, guiding lost, undervoltage, disk low) as Android
 notifications with sound while the phone is in a pocket. Needs the app to keep running in the
 background (foreground service, small persistent notification).
 
-## Open decisions (status and logs)
+## Open decisions (Home, status and logs)
 
-1. ~~Log screen as its own tab or a sheet~~ — decided: a section of the Home tab, full timeline one
-   tap away (section 3).
+1. ~~Log screen as its own tab or a sheet~~ — decided: a section of Home, full timeline one tap away.
 2. Fork changes OK (new per-line log push alongside the old one)?
 3. Android background notifications: yes / no?
 4. Log retention on the phone: last N nights (e.g. 7) or until deleted?
@@ -168,25 +185,15 @@ Home after connecting (today it opens on Session).
 
 ## What changes
 
-- **Session tab becomes Home** — the first page after connecting, a glanceable rig overview that
-  never needs a long scroll (deeper views sit one tap away):
-  - Connection chain (Wi-Fi, Pi, KStars, Ekos, devices) with each state — this is the rig-health
-    view from section 1, so it is a page, not a sheet.
-  - **Ekos control**: start/stop Ekos and the active profile (moved from Gear). It must work with
-    Ekos not running, the state you land in at the rig.
-  - Session one-liner: target, subs done/planned, ETA, guide RMS; tap opens Sequence.
-  - **Night arc** and sky-site card (moved to stay with Home; they describe the night, not a job).
-  - Alerts: count and latest lines, with a link to the full Log timeline (section 1).
-  - Pi health from the maintenance daemon: CPU temperature, undervoltage, free disk, uptime, clock.
-  - **Rig maintenance**: reboot, shut down, time and GPS sync (moved from Gear). The Connect
-    screen keeps its own reboot/shut-down section for when there is no connection yet.
+- **Session becomes Home**: the rig overview, status and logs of section 1.
 - **Sequence absorbs the rest of the old Session tab**: a running job's progress card on top
   (preview, stats, flip banner, End session), the queue below. Idle, the queue comes first and the
   progress card is absent.
-- **Gear** keeps rig setup only: profile editing, devices, scopes, optical trains.
+- **Gear** keeps rig setup only: profile editing, devices, scopes, optical trains (Ekos control and
+  rig maintenance move to Home).
 - **Frames** gets a "Phone" view (stored previews, keep/discard, as today) and a "Rig storage"
   view (the Pi file manager, section 2).
-- **Log** is not a tab: a section of Home with the full timeline one tap away.
+- **Log** is not a tab: a section of Home.
 - Plan is unchanged.
 
 ## Consequences to handle when building
@@ -197,4 +204,3 @@ Home after connecting (today it opens on Session).
   designed separately (no horizontal tabs, to respect the landscape rule).
 - Controls and Sequence end up two tabs apart; if jumping between them at night is awkward, add a
   shortcut from the Sequence progress card to Controls.
-- Home needs a clear "Ekos not running → Start" card for the connected-but-no-Ekos state.
