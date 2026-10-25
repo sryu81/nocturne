@@ -172,6 +172,19 @@ class EkosEventCodecTest {
     }
 
     @Test
+    fun `decodes device_property_add like a get, for properties defined after Ekos settled`() {
+        // The fork pushes these (Message::processNewProperty) once settled; a camera defines its
+        // cooler properties about a minute after CONNECTION flips, so this is how the app finds out.
+        val json = """{"payload":{"device":"ToupTek ATR2600M","name":"CCD_TEMPERATURE","state":0,
+            "numbers":[{"name":"CCD_TEMPERATURE_VALUE","value":9.9,"min":-50.0,"max":50.0,"step":0.1}]},"type":"device_property_add"}"""
+        val event = EkosEventCodec.decode(json) as EkosEvent.DeviceProperty
+        val prop = event.property as WireProperty.Number
+        assertEquals("ToupTek ATR2600M", prop.device)
+        assertEquals("CCD_TEMPERATURE", prop.name)
+        assertEquals(9.9, prop.numbers[0].value, 0.0)
+    }
+
+    @Test
     fun `decodes device_property_get number vector`() {
         val json = """{"payload":{"device":"CCD Simulator","name":"CCD_EXPOSURE","state":0,
             "numbers":[{"name":"CCD_EXPOSURE_VALUE","value":1.0,"min":0.0,"max":3600.0,"step":1.0}]},"type":"device_property_get"}"""

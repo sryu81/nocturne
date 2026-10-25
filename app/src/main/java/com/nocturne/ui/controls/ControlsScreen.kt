@@ -73,6 +73,12 @@ private val BIN_OPTIONS = listOf(1, 2, 3, 4)
 private val GUIDE_BIN_OPTIONS = listOf("1x1", "2x2", "3x3", "4x4")
 
 /**
+ * Focus and Guide report an empty binning until their camera defines `CCD_BINNING` (about a minute
+ * after Ekos says it is connected); Ekos' own default is 1x1, shown until the real value arrives.
+ */
+private const val DEFAULT_BIN = "1x1"
+
+/**
  * Live control and per-module settings for Camera, Focus, Align, Mount, Guide and polar alignment.
  * Rig topology (profile, devices, scopes, trains) lives in Gear. Each card gates itself.
  */
@@ -157,7 +163,7 @@ fun ControlsScreen(
                     val guideCam = state.guideCameraDevice
                     val progress = if (real) state.captureProgress(guideCam, guide?.guideExposure ?: 1.0) else null
                     SnapPanel(
-                        tag = if (guide != null) "${"%.0f".format(guide.guideExposure)} s · bin ${guide.guideBinning}" else "guide cam",
+                        tag = if (guide != null) "${"%.0f".format(guide.guideExposure)} s · bin ${guide.guideBinning.ifBlank { DEFAULT_BIN }}" else "guide cam",
                         label = benchSnapLabel(real, state.snappedGuide, state.wireGuideStatus, "★ 214 · SNR 18.4"),
                         snapLabel = "Preview Guide Cam",
                         onSnap = ctrl::snapGuide,
@@ -177,7 +183,7 @@ fun ControlsScreen(
                                     Column(Modifier.weight(1f)) {
                                         TextC("BIN", style = tt.MonoMicro, color = cc.textMuted)
                                         Spacer(Modifier.height(3.dp))
-                                        BinCycleChip(it.guideBinning, GUIDE_BIN_OPTIONS, labelOf = { it }, modifier = Modifier.fillMaxWidth()) { ctrl.setGuidePreviewBinning(it) }
+                                        BinCycleChip(it.guideBinning.ifBlank { DEFAULT_BIN }, GUIDE_BIN_OPTIONS, labelOf = { it }, modifier = Modifier.fillMaxWidth()) { ctrl.setGuidePreviewBinning(it) }
                                     }
                                 }
                             }
@@ -399,9 +405,8 @@ private fun <T> BinCycleChip(value: T, options: List<T>, labelOf: (T) -> String,
             .padding(horizontal = 12.dp),
         contentAlignment = Alignment.Center,
     ) {
-        // Guide/Focus send binning as a string that is blank until the module's settings load.
-        val label = labelOf(value)
-        TextC(if (label.isBlank()) "bin N/A" else "bin $label", style = t.Body13, color = if (label.isBlank()) c.textMuted else c.text)
+        // No "bin" prefix: the BIN label above the chip says it, and "bin 2x2" doesn't fit the narrow chips.
+        TextC(labelOf(value), style = t.Body13, color = c.text, maxLines = 1)
     }
 }
 
@@ -619,7 +624,7 @@ private fun FocuserCard(state: AppState, ctrl: SessionController) {
                 Column(Modifier.weight(1f)) {
                     TextC("BIN", style = t.MonoMicro, color = c.textMuted)
                     Spacer(Modifier.height(3.dp))
-                    BinCycleChip(fs.focusBinning, GUIDE_BIN_OPTIONS, labelOf = { it }, modifier = Modifier.fillMaxWidth()) { ctrl.setFocusBinning(it) }
+                    BinCycleChip(fs.focusBinning.ifBlank { DEFAULT_BIN }, GUIDE_BIN_OPTIONS, labelOf = { it }, modifier = Modifier.fillMaxWidth()) { ctrl.setFocusBinning(it) }
                 }
                 Spacer(Modifier.width(8.dp))
                 Column(Modifier.weight(1f)) {

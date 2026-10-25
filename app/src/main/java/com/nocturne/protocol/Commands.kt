@@ -4,6 +4,8 @@ package com.nocturne.protocol
 object Commands {
     const val SET_CLIENT_STATE = "set_client_state"
     const val GET_CONNECTION = "get_connection"
+    /** Reply: `get_logs {lines: [...]}`, the fork's buffered log; an older fork never answers. */
+    const val GET_LOGS = "get_logs"
     const val GET_STATES = "get_states"
     const val GET_DEVICES = "get_devices"
     const val GET_PROFILES = "get_profiles"

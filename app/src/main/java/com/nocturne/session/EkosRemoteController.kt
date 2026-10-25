@@ -109,6 +109,15 @@ class EkosRemoteController(
     // would trigger another DEVICE_GET indefinitely.
     private val fullyFetchedDevices = mutableSetOf<String>()
 
+    // Modules ("focus", "guide") already sent a default 1x1 binning since Ekos came online; one try
+    // per camera property arrival (see refreshModuleSettingsForCamera), so a combo that stays
+    // empty can't make this loop.
+    private val binningDefaulted = mutableSetOf<String>()
+
+    // Camera whose settings refresh is already scheduled, so the several CCD_* properties a camera
+    // defines at once cause one re-request, not one each.
+    private val settingsRefreshPending = mutableSetOf<String>()
+
     // Last time (ms) we pushed Preferred Pier Side = East per device — see enforcePreferredPierSide.
     private val pierSideFixSentAt = mutableMapOf<String, Long>()
 
@@ -528,6 +537,8 @@ class EkosRemoteController(
             )
         }
 
+        // Only the log keeps these (LogCollector).
+        is EkosEvent.NewLog, is EkosEvent.LogSnapshot, is EkosEvent.DeviceMessage -> s
         is EkosEvent.Raw -> s
     }
 
@@ -660,7 +671,11 @@ class EkosRemoteController(
                 fullyFetchedDevices.clear()
                 event.devices.forEach { device -> subscribeDevice(device) }
             }
+            is EkosEvent.NewConnectionState -> binningDefaulted.clear()
+            is EkosEvent.FocusSettings -> defaultBinningIfMissing("focus", event.settings.focusBinning) { setFocusBinning(DEFAULT_BINNING) }
+            is EkosEvent.GuideSettings -> defaultBinningIfMissing("guide", event.settings.guideBinning) { setGuidePreviewBinning(DEFAULT_BINNING) }
             is EkosEvent.DeviceProperty -> {
+                refreshModuleSettingsForCamera(event.property)
                 fetchFullDeviceIfNewlyConnected(event.property.device, event.property)
                 enforcePreferredPierSide(event.property.device, event.property)
             }
@@ -778,6 +793,41 @@ class EkosRemoteController(
         val was = property.switches.firstOrNull { it.state == 1 }
             ?.let { mapOf("1" to "West", "3" to "Best")[it.name] ?: it.label ?: it.name } ?: "unset"
         pushLocalAlert("$device preferred pier side was $was — set to East (needed for meridian flip)", source = 5, severity = 2)
+    }
+
+    /**
+     * Focus and Guide report an empty binning while their camera's `CCD_BINNING` is undefined; the
+     * app then sets 1x1, Ekos' own default, so the module has a binning rather than none. A combo
+     * with no entries yet ignores the write, which the refresh in [refreshModuleSettingsForCamera]
+     * repeats once the camera defines them.
+     */
+    private fun defaultBinningIfMissing(module: String, reported: String, set: () -> Unit) {
+        if (reported.isNotBlank() || !binningDefaulted.add(module)) return
+        set()
+    }
+
+    /**
+     * Focus and Guide fill their binning combos from their camera's `CCD_BINNING`/`CCD_INFO`, which
+     * a camera defines about a minute after Ekos reports it connected. A `*_get_all_settings` read
+     * before that carries an empty binning, and nothing pushes it again, so ask once more when the
+     * camera's property arrives, after Ekos has had a moment to apply it.
+     */
+    private fun refreshModuleSettingsForCamera(property: WireProperty) {
+        if (property.name != "CCD_BINNING" && property.name != "CCD_INFO") return
+        val s = _state.value
+        val modules = buildList {
+            if (property.device == s.focusCameraDevice) add(Commands.FOCUS_GET_ALL_SETTINGS)
+            if (property.device == s.guideCameraDevice) add(Commands.GUIDE_GET_ALL_SETTINGS)
+        }
+        modules.forEach { command ->
+            if (!settingsRefreshPending.add(command)) return@forEach
+            scope.launch {
+                delay(SETTINGS_REFRESH_DELAY_MS)
+                settingsRefreshPending -= command
+                binningDefaulted -= if (command == Commands.FOCUS_GET_ALL_SETTINGS) "focus" else "guide"
+                client.sendCommand(command)
+            }
+        }
     }
 
     /** A device that arrived not yet connected has only a CONNECTION subscribe (see
@@ -2531,6 +2581,8 @@ private const val ALIGN_RUN_TIMEOUT_MS = 15 * 60_000L
 private const val RECENT_GOTO_MS = 5_000L
 private const val PREFERRED_PIER_SIDE = "Preferred Pier Side"
 private const val PIER_SIDE_EAST = "2" // lx200_OnStep.cpp: "1" West, "2" East, "3" Best
+private const val SETTINGS_REFRESH_DELAY_MS = 1_500L
+private const val DEFAULT_BINNING = "1x1"
 private const val PIER_SIDE_RESEND_MS = 10_000L
 
 /** See [AppState.wireGainRangeByDevice]. */

@@ -157,6 +157,8 @@ class EkosRemoteClient(
         _connectionStatus.update { it.copy(state = ConnectionState.SOCKET_OPEN, lastError = null) }
         sendCommand(Commands.SET_CLIENT_STATE, buildJsonObject { put("state", true) })
         sendCommand(Commands.GET_CONNECTION)
+        // The fork's buffered log; answered even with Ekos stopped, so it lands before any module log push.
+        sendCommand(Commands.GET_LOGS)
         // Scopes, profiles and the driver catalog are answered while Ekos is stopped, so fetch
         // them on socket open: the profile picker and wizard need them before Start Ekos.
         sendCommand(Commands.GET_SCOPES)

@@ -299,9 +299,38 @@ sealed interface EkosEvent {
         val uuid: String? = null,
     ) : EkosEvent
 
+    /**
+     * `new_log` push (fork `Message::appendLog`): one log line, sent once. [module] is "Capture",
+     * "Align", "Focus", "Guide", "Scheduler", "Mount", "Ekos" or "INDI"; [id] is unique per line
+     * across KStars runs, so a line also present in a `get_logs` snapshot is recognised.
+     */
+    @Serializable
+    data class NewLog(val line: WireLogLine) : EkosEvent
+
+    /** `get_logs` reply: the fork's buffered lines, oldest first. */
+    @Serializable
+    data class LogSnapshot(val lines: List<WireLogLine> = emptyList()) : EkosEvent
+
+    /** `device_message` push: an INDI driver message, the form an older fork sends (no `new_log`). */
+    @Serializable
+    data class DeviceMessage(val device: String? = null, val message: String? = null) : EkosEvent
+
     /** Anything not decoded above — unrecognized `type`, or a shape that failed to parse. */
     data class Raw(val type: String, val payload: JsonElement) : EkosEvent
 }
+
+/**
+ * One line of the fork's log. [time] is the Pi's epoch milliseconds; [level] is 0 info, 1 warning,
+ * 2 error, absent when the source doesn't say.
+ */
+@Serializable
+data class WireLogLine(
+    val id: String,
+    val time: Long,
+    val module: String,
+    val level: Int? = null,
+    val text: String,
+)
 
 /**
  * `new_polar_state`'s `vector` (`Message::setPolarResults`, `message.cpp:1222-1243`): the

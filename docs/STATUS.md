@@ -64,6 +64,14 @@ maintenance); the Pi keeps orders 0–5 on the SD card for KStars' offline HiPS.
   device list only once, before the wheel existed; fixed by probing with `get_profiles`, not
   `get_connection`); the module log pushes (Capture/Focus/Guide/Align/Scheduler) now decode as
   state events with a `log`; the Log fills while connected and survives an app restart.
+- M5 (fork per-line logs, deployed to the Pi 2026-10-25 02:15): `new_log` and `get_logs` work end to
+  end (INDI driver messages, the Ekos main log, Scheduler/Align lines arrive with `fork:` ids and no
+  duplicates); Capture, Focus, Guide and Mount lines are unseen so far. Cooler N/A after an Ekos
+  stop/start was the app dropping `device_property_add` (properties a camera defines ~100 s after it
+  connects); decoded now, confirmed on reconnect, not yet on a real stop/start. Focus and Guide
+  binning are empty until their camera defines `CCD_BINNING`: the app shows 1x1, sets 1x1 once, and
+  re-reads the settings when the camera's property arrives. Still to check at the rig: all of that
+  after an Ekos stop/start, and that older forks fall back to the per-module log pushes.
 - The Pi reported `throttled 0x50000` on 2026-10-25: under-voltage and throttling since boot.
   Probably the power supply or cable; the Home health card now shows it.
 - Shut down Pi (compiled, not run on the rig): `POST /shutdown` on the maintenance daemon, a "Shut

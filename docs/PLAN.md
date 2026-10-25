@@ -65,9 +65,9 @@ Consequences to handle when building:
 | Source | On the wire? |
 |---|---|
 | Capture / Guide / Focus / Align / Scheduler logs | Yes — `{"log": ...}` in each module's state push |
-| Ekos main log (INDI start/stop, devices online, driver timeouts) | No |
-| Mount module log (slews, limits, park) | No (only `pierSide`) |
-| INDI driver messages (e.g. OnStep "[WARNING] Slew error") | No |
+| Ekos main log (INDI start/stop, devices online, driver timeouts) | No (M5 adds it) |
+| Mount module log (slews, limits, park) | No (only `pierSide`; M5 adds it) |
+| INDI driver messages (e.g. OnStep "[WARNING] Slew error") | Yes, as `device_message`, only with the notifications option on and only lines with a level tag (found while building M5) |
 | KStars itself (crash, restart, blocking modal dialog) | No |
 
 **Problem:** each module log push resends the module's **entire** history on every new line
@@ -84,7 +84,7 @@ views sit one tap away. The old Session tab becomes Home (its job progress moves
    health, below), plus start/stop Ekos and the active profile (moved from Gear). Must work with
    Ekos not running, the state you land in at the rig: a clear "Ekos not running → Start" card.
 2. **Session one-liner** — target, subs done/planned, ETA, guide RMS; tap opens Sequence.
-3. **Night arc** and sky-site card (they describe the night, not a job).
+3. **Night arc**, the first card on Home (it describes the night, not a job). A sky-and-site card (roof, ambient, dew, SQM, cloud) is dropped: nothing on the wire supplies those values.
 4. **Alerts and log** — count and latest lines, link to the full Log screen.
 5. **Pi health** — CPU temperature, undervoltage, free disk, uptime, clock (from the maintenance
    daemon).
@@ -155,7 +155,7 @@ verified on the rig and noted in `docs/STATUS.md` until then.
 | # | Milestone | Needs | Done when |
 |---|---|---|---|
 | M1 | **Tab shell** | app only | Order is Home \| Gear \| Controls \| Plan \| Sequence \| Frames and the app opens on Home. Sequence shows the running job's progress card (preview, stats, flip banner, End session) above the queue. Notification taps and "Back to session" go to Sequence/Home. The old Session tab is gone. |
-| M2 | **Home with today's data** | app only | Home shows the Ekos card (start/stop, profile, "Ekos not running → Start" with Ekos down), the session one-liner, night arc and sky site, alert count with the latest lines, and rig maintenance (reboot, shut down, time and GPS sync). Gear has only profile editing, devices, scopes and trains. |
+| M2 | **Home with today's data** | app only | Home shows the Ekos card (start/stop, profile, "Ekos not running → Start" with Ekos down), the session one-liner, night arc, alert count with the latest lines, and rig maintenance (reboot, shut down, time and GPS sync). Gear has only profile editing, devices, scopes and trains. |
 | M3 | **Rig health** | app + daemon | Home shows the connection chain (Wi-Fi, beacon, EkosRemote, media, daemon) with per-module state and "last change" times. The daemon's `/health` is extended with CPU temperature, throttling, SD/USB free space, uptime and clock; reinstalled on the Pi. |
 | M4 | **Log, phone-side** | app only | Per-module log pushes (full history each time) are diffed to new lines only; with alerts and connection events they go into a Room-backed, timestamped store. Home shows the latest lines; the full Log screen has module filters, warnings-only, search, pause/follow, copy/share. Kept until deleted: Clear log and delete-by-night. |
 | M5 | **Fork: per-line logs** | fork build + rig deploy | One-line-at-a-time log push, a `get_logs` snapshot on connect, and the Ekos main log, Mount module log and INDI driver messages with levels. The app prefers the new push and falls back to M4's diffing on the old fork. |

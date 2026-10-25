@@ -35,6 +35,9 @@ object EkosEventCodec {
                 "new_polar_state" -> protocolJson.decodeFromJsonElement<EkosEvent.NewPolarState>(envelope.payload)
                 "new_scheduler_state" -> protocolJson.decodeFromJsonElement<EkosEvent.NewSchedulerState>(envelope.payload)
                 "new_camera_state" -> protocolJson.decodeFromJsonElement<EkosEvent.NewCameraState>(envelope.payload)
+                "new_log" -> EkosEvent.NewLog(protocolJson.decodeFromJsonElement(envelope.payload))
+                "get_logs" -> protocolJson.decodeFromJsonElement<EkosEvent.LogSnapshot>(envelope.payload)
+                "device_message" -> protocolJson.decodeFromJsonElement<EkosEvent.DeviceMessage>(envelope.payload)
                 "new_notification" -> protocolJson.decodeFromJsonElement<EkosEvent.NewNotification>(envelope.payload)
                 "get_profiles" -> protocolJson.decodeFromJsonElement<EkosEvent.Profiles>(envelope.payload)
                 "get_devices" -> EkosEvent.Devices(protocolJson.decodeFromJsonElement(envelope.payload))
@@ -45,7 +48,9 @@ object EkosEventCodec {
                         properties = payload.properties.mapNotNull { decodeWireProperty(it.jsonObject) },
                     )
                 }
-                "device_property_get" -> decodeWireProperty(envelope.payload.jsonObject)
+                // `device_property_add` is a property the driver defines after Ekos settled (a camera's
+                // cooler, say): same shape as a get, and the only way the app learns it exists.
+                "device_property_get", "device_property_add" -> decodeWireProperty(envelope.payload.jsonObject)
                     ?.let { EkosEvent.DeviceProperty(it) }
                     ?: EkosEvent.Raw(envelope.type, envelope.payload)
                 "astro_search_objects" -> EkosEvent.AstroSearchResult(protocolJson.decodeFromJsonElement(envelope.payload))

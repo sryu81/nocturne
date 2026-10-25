@@ -18,6 +18,13 @@ class LogCollector(
 ) {
     private val tracker = ModuleLogTracker()
 
+    /**
+     * Set by the first `new_log`/`get_logs`: the fork then sends each line once, so the older
+     * per-module history pushes and `device_message` are ignored instead of logged twice. An older
+     * fork never answers `get_logs`, and those pushes stay the source.
+     */
+    private var forkLogs = false
+
     fun onEvent(event: EkosEvent, nowMs: Long = System.currentTimeMillis()) {
         when (event) {
             is EkosEvent.NewCaptureState -> module("Capture", event.log, nowMs)
@@ -25,6 +32,18 @@ class LogCollector(
             is EkosEvent.NewGuideState -> module("Guide", event.log, nowMs)
             is EkosEvent.NewAlignState -> module("Align", event.log, nowMs)
             is EkosEvent.NewSchedulerState -> module("Scheduler", event.log, nowMs)
+            is EkosEvent.NewLog -> {
+                forkLogs = true
+                write(listOf(LogIngest.forkLine(event.line)))
+            }
+            is EkosEvent.LogSnapshot -> {
+                forkLogs = true
+                write(event.lines.map(LogIngest::forkLine))
+            }
+            is EkosEvent.DeviceMessage -> {
+                if (forkLogs) return
+                LogIngest.deviceMessage(event.device ?: return, event.message ?: return, nowMs)?.let { write(listOf(it)) }
+            }
             is EkosEvent.NewNotification -> {
                 val message = event.message ?: return
                 val source = Alert("", message, "", event.source ?: 0, event.severity ?: 1).sourceLabel
@@ -40,7 +59,7 @@ class LogCollector(
     }
 
     private fun module(source: String, blob: String?, nowMs: Long) {
-        if (blob.isNullOrBlank()) return
+        if (blob.isNullOrBlank() || forkLogs) return
         write(tracker.fresh(source, LogIngest.parseModuleLog(source, blob, nowMs, zone)))
     }
 

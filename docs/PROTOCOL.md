@@ -70,19 +70,23 @@ Each binary frame is a 512-byte null-padded JSON header followed by JPEG bytes.
 | `new_polar_state` | `stage`, `enabled`, `message`, `vector`, `updated*Error` | |
 | `new_scheduler_state` | `status` (int) or `{log}` | |
 | `new_notification` | `source`, `severity`, `message`, `uuid` | Ekos alerts (flip, capture failed, INDI server) |
+| `new_log` | `id`, `time` (Pi epoch ms), `module`, `level` (0 info, 1 warn, 2 error; optional), `text` | Fork. One log line, sent once: modules Capture, Align, Focus, Guide, Scheduler, Mount, Ekos, and INDI driver messages (`text` = "device: message") |
+| `get_logs` (reply) | `lines`: the same objects, oldest first | Fork. The last 2,000 lines since KStars started; the app asks on every socket open. An older fork never answers |
+| `device_message` | `device`, `message` | INDI driver messages with an `[INFO]`/`[WARNING]`/`[ERROR]` tag, only while the notifications option is on; the app uses it only when the fork has no `new_log` |
 | `*_get_all_settings` | full settings map | Also pushed on every change (`settingsUpdated` → full map) |
 
 **Rule:** many pushes have several payload shapes under one name. Every decoded field defaults to
 null and is merged into state, never replaced wholesale, or one shape wipes another.
 
 Each module's `log` field carries the module's **entire** log text on every new line (never
-trimmed) — see `docs/PLAN.md`.
+trimmed). The app keeps only the new lines of it, and ignores it once the fork's `new_log` /
+`get_logs` are seen (`LogCollector`).
 
 ## Commands the app sends
 
 | Area | Commands |
 |---|---|
-| Lifecycle | `set_client_state`, `get_connection`, `get_states`, `get_devices`, `set_blobs` |
+| Lifecycle | `set_client_state`, `get_connection`, `get_logs`, `get_states`, `get_devices`, `set_blobs` |
 | Profiles | `get_profiles`, `get_drivers`, `profile_start`, `profile_stop`, `profile_add`, `profile_update`, `profile_delete` |
 | Trains / scopes | `train_get_all`, `train_get_profiles`, `train_set`, `train_add`, `train_update`, `get_scopes`, `scope_add`, `scope_update`, `scope_delete` |
 | Devices | `device_get`, `device_property_get`, `device_property_set`, `device_property_subscribe` |

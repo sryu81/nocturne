@@ -83,4 +83,35 @@ class LogIngestTest {
         val guide = EkosEventCodec.decode("""{"payload":{"log":"x"},"type":"new_guide_state"}""") as EkosEvent.NewGuideState
         assertEquals("x", guide.log)
     }
+
+    @Test
+    fun deviceMessageKeepsTheDriverNameAndReadsTheIndiLevel() {
+        val line = LogIngest.deviceMessage("ZWO EFW", "2026-10-25T08:41:16: [WARNING] Slew error", 99)!!
+        assertEquals("INDI", line.source)
+        assertEquals("ZWO EFW: [WARNING] Slew error", line.text)
+        assertEquals(LogLevel.WARN, line.level)
+        assertEquals(LogLevel.ERROR, LogIngest.deviceMessage("m", "[ERROR] boom", 1)!!.level)
+        assertEquals(null, LogIngest.deviceMessage("m", "  ", 1))
+    }
+
+    @Test
+    fun forkLineUsesTheForksLevelAndStableIdentity() {
+        val a = LogIngest.forkLine(com.nocturne.protocol.WireLogLine("run1:7", 1000, "Mount", 2, "Slew failed"))
+        assertEquals(LogLevel.ERROR, a.level)
+        assertEquals("fork:run1:7", a.raw)
+        assertEquals(1000L, a.timeMs)
+        val noLevel = LogIngest.forkLine(com.nocturne.protocol.WireLogLine("run1:8", 1, "Ekos", null, "Driver timeout"))
+        assertEquals(LogLevel.WARN, noLevel.level)
+    }
+
+    @Test
+    fun decodesTheForksLogPushes() {
+        val push = EkosEventCodec.decode("""{"payload":{"id":"r:1","time":5,"module":"Guide","level":1,"text":"Lost star"},"type":"new_log"}""")
+        assertEquals(EkosEvent.NewLog(com.nocturne.protocol.WireLogLine("r:1", 5, "Guide", 1, "Lost star")), push)
+        val snap = EkosEventCodec.decode("""{"payload":{"lines":[{"id":"r:1","time":5,"module":"Guide","text":"x"}]},"type":"get_logs"}""") as EkosEvent.LogSnapshot
+        assertEquals(1, snap.lines.size)
+        assertEquals(null, snap.lines[0].level)
+        val driver = EkosEventCodec.decode("""{"payload":{"device":"ZWO EFW","message":"[INFO] hi"},"type":"device_message"}""")
+        assertEquals(EkosEvent.DeviceMessage("ZWO EFW", "[INFO] hi"), driver)
+    }
 }

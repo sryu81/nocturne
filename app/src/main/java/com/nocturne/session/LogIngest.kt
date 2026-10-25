@@ -45,6 +45,37 @@ object LogIngest {
         }
     }
 
+    private val INDI_TAG = Regex("""\[(INFO|WARNING|ERROR)]""")
+    private val INDI_STAMP = Regex("""^\d{4}-\d{2}-\d{2}T[\d:.]+:\s*""")
+
+    /** An INDI driver message as the fork forwards it, without the fork's own `new_log`: "ZWO EFW: [INFO] ...". */
+    fun deviceMessage(device: String, message: String, nowMs: Long): LogLine? {
+        val text = message.replace(INDI_STAMP, "").trim()
+        if (text.isEmpty()) return null
+        val level = when (INDI_TAG.find(text)?.groupValues?.get(1)) {
+            "ERROR" -> LogLevel.ERROR
+            "WARNING" -> LogLevel.WARN
+            "INFO" -> LogLevel.INFO
+            else -> classify(text)
+        }
+        val shown = "$device: $text"
+        return LogLine(nowMs, "INDI", level, shown, "indi:$nowMs:$shown")
+    }
+
+    /** A line of the fork's `new_log`/`get_logs`; the fork's level wins, else the keyword guess. */
+    fun forkLine(line: com.nocturne.protocol.WireLogLine): LogLine = LogLine(
+        timeMs = line.time,
+        source = line.module,
+        level = when (line.level) {
+            0 -> LogLevel.INFO
+            1 -> LogLevel.WARN
+            2 -> LogLevel.ERROR
+            else -> classify(line.text)
+        },
+        text = line.text,
+        raw = "fork:${line.id}",
+    )
+
     private val ERROR_WORDS = listOf("error", "fail", "abort", "critical", "crash", "exception")
     private val WARN_WORDS = listOf(
         "warn", "timeout", "timed out", "cannot", "can't", "unable", "lost", "refus", "retry", "ignor",
