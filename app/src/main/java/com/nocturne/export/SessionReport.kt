@@ -44,7 +44,7 @@ fun buildSessionReportHtml(state: AppState): String {
         }
     }
 
-    // Dusk/dawn from `state.realNightWindow`, as on the Session tab's night arc.
+    // Dusk/dawn from `state.realNightWindow`, as on Home's night arc.
     val nightWindow = state.realNightWindow?.let {
         "${state.formatSiteTime(it.first)} → ${state.formatSiteTime(it.second)}"
     } ?: "21:48 → 04:12"

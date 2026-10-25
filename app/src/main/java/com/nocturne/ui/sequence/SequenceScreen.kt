@@ -52,6 +52,7 @@ import com.nocturne.session.realFilterNames
 import com.nocturne.session.spec
 import com.nocturne.session.ready
 import com.nocturne.session.targetNameFor
+import com.nocturne.session.runningJob
 import com.nocturne.session.unmanagedWireJobs
 import com.nocturne.session.wireJobFor
 import com.nocturne.ui.components.Card
@@ -90,10 +91,18 @@ private fun JobListScreen(
     TabPane(
         landscape = landscape,
         modifier = modifier,
-        items = listOf(
-            TabItem(full = true) { NightPlanBar(state, ctrl) },
-            TabItem(full = true) { JobList(state, ctrl) },
-        ),
+        items = buildList {
+            // Live progress only while Ekos is running a job; otherwise the queue comes first.
+            state.runningJob?.let { job ->
+                add(TabItem(full = true) { RunningJobHeader(state, job) })
+                add(TabItem(full = true) { SubPreview(state, ctrl) })
+                add(TabItem { StatsRow(state, ctrl) })
+                add(TabItem(full = true) { FlipBanner(state, ctrl) })
+                add(TabItem(full = true) { EndSessionButton(ctrl) })
+            }
+            add(TabItem(full = true) { NightPlanBar(state, ctrl) })
+            add(TabItem(full = true) { JobList(state, ctrl) })
+        },
     )
 }
 
@@ -343,7 +352,7 @@ private fun NightPlanBar(state: AppState, ctrl: SessionController) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             // Tab title, so heavier than a section label.
             TextC("NIGHT PLAN", style = t.Body135, color = c.text, modifier = Modifier.weight(1f))
-            // Total planned time, the same figure the Session tab shows.
+            // Total planned time, the same figure Home's night arc shows.
             TextC(
                 contractJob?.let { "${it.plannedHM} planned" } ?: "—",
                 style = t.Mono13, color = c.textMuted,

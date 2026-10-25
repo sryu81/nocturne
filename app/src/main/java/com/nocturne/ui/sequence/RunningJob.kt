@@ -1,5 +1,11 @@
-package com.nocturne.ui.session
+package com.nocturne.ui.sequence
 
+import com.nocturne.protocol.SchedulerJobStatus
+import com.nocturne.protocol.jobStatusLabel
+import com.nocturne.session.SequenceJob
+import com.nocturne.session.findTarget
+import com.nocturne.session.wireJobFor
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -56,181 +62,47 @@ import com.nocturne.ui.components.TextC
 import com.nocturne.ui.icons.Phosphor
 import com.nocturne.ui.theme.NocturneTheme
 
-@Composable
-fun SessionScreen(
-    state: AppState,
-    ctrl: SessionController,
-    landscape: Boolean,
-    modifier: Modifier = Modifier,
-) {
-    if (state.contractJob == null) {
-        IdleSessionCard(state, modifier)
-        return
-    }
-    TabPane(
-        landscape = landscape,
-        modifier = modifier,
-        items = listOf(
-            TabItem(full = true) { NightArcCard(state) },
-            TabItem(full = true) { SubPreview(state, ctrl) },
-            TabItem { StatsRow(state, ctrl) },
-            TabItem(full = true) { FlipBanner(state, ctrl) },
-            TabItem(full = true) { SkySite() },
-            TabItem(full = true) {
-                NocturneButton(
-                    text = "End session & review",
-                    onClick = { ctrl.endSession() },
-                    icon = Phosphor.FlagCheckered,
-                    modifier = Modifier.fillMaxWidth().height(44.dp),
-                    style = com.nocturne.ui.components.BtnStyle.OUTLINE,
-                )
-            },
-        ),
-    )
-}
-
-@Composable
-private fun IdleSessionCard(state: AppState, modifier: Modifier) {
-    val c = NocturneTheme.colors
-    val t = NocturneTheme.type
-    Column(modifier.fillMaxWidth().padding(NocturneTheme.spacing.s4)) {
-        Card {
-            TextC("No job running — add a target to the sequence from the Plan tab.", style = t.Body13, color = c.textMuted)
-            // Only what the rig reports: nothing until the mount/camera properties arrive.
-            val camera = state.primaryTrain.camera
-            val cameraConnected = state.wireDevices?.any { it.name == camera && it.connected } == true
-            val coolerOn = if (cameraConnected) state.indiSwitchElement(camera, "CCD_COOLER")?.let { it == "COOLER_ON" } else null
-            val mount = when {
-                !state.isOn("mount") -> null
-                state.mountParkedReal -> "Mount parked"
-                state.mountTrackingOn == true -> "Mount tracking"
-                state.mountTrackingOn == false -> "Mount idle"
-                else -> null
-            }
-            val cooler = coolerOn?.let { if (it) "cooler on" else "cooler off" }
-            val line = listOfNotNull(mount, cooler).joinToString(" · ")
-            if (line.isNotEmpty()) {
-                Spacer(Modifier.height(6.dp))
-                TextC(line, style = t.MonoMicro, color = c.textFaint)
-            }
-        }
-    }
-}
 
 /**
- * Dusk/dawn come from `state.realNightWindow` (`astro_get_almanac`/`astro_get_location`). The
- * "now" dot ([AppState.realNowFraction]) is null rather than clamped outside tonight's window,
- * so a message replaces a wrong position. No flip tick: there is no flip-time data on the wire.
- * Planned/done use block totals once [SequenceJob.synced].
- *
- * "Now" is `Instant.now()`-based, which Compose never re-evaluates by itself; `tick` forces a
- * recompose every 30s so it doesn't freeze between wire events.
+ * Live progress of the job Ekos is running, shown above the queue on the Sequence tab: target and
+ * status, the latest capture, HFR/RMS/SNR, the flip state and End session.
  */
 @Composable
-private fun NightArcCard(state: AppState) {
+internal fun RunningJobHeader(state: AppState, job: SequenceJob) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
-    var tick by remember { mutableStateOf(0) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(30_000)
-            tick++
-        }
-    }
-    @Suppress("UNUSED_EXPRESSION") tick
-    val job = state.contractJob
-    val realProgress = job != null && job.synced
-    val window = state.realNightWindow
-    val nowFrac = state.realNowFraction
+    val real = state.wireJobFor(job)
+    val label = real?.jobStatusLabel ?: "Queued"
+    val color = if (real?.state == SchedulerJobStatus.BUSY) c.ok else c.warn
+    val target = state.findTarget(job.targetId)?.let { if (it.custom) it.common else it.id } ?: job.targetId
     Card {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TextC("NIGHT ARC", style = t.MicroLabel, color = c.textFaint, modifier = Modifier.weight(1f))
-            TextC(
-                if (window != null) "${state.formatSiteTime(window.first)} → ${state.formatSiteTime(window.second)}" else "21:48 → 04:12",
-                style = t.MonoMicro, color = c.textMuted,
-            )
-        }
-        Spacer(Modifier.height(4.dp))
-        if (nowFrac == null) {
-            Box(Modifier.fillMaxWidth().height(176.dp), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    TextC(
-                        if (window == null) {
-                            "fetching real dusk/dawn…"
-                        } else {
-                            "outside tonight's dark window (${state.formatSiteTime(window.first)}–${state.formatSiteTime(window.second)})"
-                        },
-                        style = t.Body13, color = c.textMuted,
-                    )
-                    state.realCountdownToDusk?.let { countdown ->
-                        Spacer(Modifier.height(11.2.dp))
-                        TextC(countdown, style = t.Mono34, color = c.ok)
-                    }
-                }
-            }
-        } else {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(176.dp),
-            ) {
-                val shotFraction = nowFrac
-                val plannedFraction = if (realProgress && window != null) {
-                    val spanSec = (window.second.epochSecond - window.first.epochSecond).coerceAtLeast(1)
-                    (job!!.totalPlannedSec.toDouble() / spanSec).coerceIn(0.0, 1.0)
-                } else {
-                    null
-                }
-                NightArc(
-                    shotFraction = shotFraction,
-                    plannedFraction = plannedFraction,
-                    nowFraction = shotFraction,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                Column(
-                    Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 60.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    TextC(if (realProgress) job!!.doneHM else "1:00", style = t.Mono34, color = c.text)
-                    TextC(
-                        if (realProgress) "OF ${job!!.plannedHM} INTEGRATED" else "OF 3:20 INTEGRATED",
-                        style = t.Caption10, color = c.textFaint,
-                    )
-                    TextC(
-                        if (realProgress) "sub ${job!!.totalDone}/${job.totalSubs}" else "sub N/A",
-                        style = t.Mono115, color = c.accent400,
-                    )
-                }
-                TextC(
-                    if (window != null) state.formatSiteTime(window.first) else "N/A", style = t.MonoMicro, color = c.textFaint,
-                    modifier = Modifier.align(Alignment.BottomStart).padding(bottom = 6.dp),
-                )
-                TextC(
-                    if (window != null) state.formatSiteTime(window.second) else "N/A", style = t.MonoMicro, color = c.textFaint,
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(bottom = 6.dp),
-                )
+            Box(Modifier.size(6.dp).background(color, RoundedCornerShape(3.dp)))
+            Spacer(Modifier.width(NocturneTheme.spacing.s2))
+            TextC(label, style = t.StatusLabel, color = color)
+            job.currentBlockIndex?.let { i ->
+                Spacer(Modifier.width(NocturneTheme.spacing.s2))
+                TextC("· blk ${i + 1}/${job.blocks.size}", style = t.TelemetryTiny, color = c.neutral600)
             }
         }
-        Row(Modifier.fillMaxWidth()) {
-            TextC(
-                if (realProgress) job!!.filterBreakdown else "filters N/A",
-                style = t.MonoMicro, color = c.textMuted, modifier = Modifier.weight(1f),
-            )
-            // No dither event on the wire; this is the same every-N-subs countdown Ekos computes
-            // from doneCount, so it's as exact as doneCount is.
-            TextC(
-                if (realProgress) job!!.currentBlockIndex?.let { job.blocks[it] }?.let { b ->
-                    when {
-                        b.ditherEvery == null || b.ditherEvery <= 0 -> "dither off"
-                        else -> "dither in ${b.ditherEvery - (b.doneCount % b.ditherEvery)}"
-                    }
-                } ?: "dither N/A" else "dither N/A",
-                style = t.MonoMicro, color = c.textFaint,
-            )
-        }
+        Spacer(Modifier.height(2.dp))
+        TextC(target, style = t.HeaderTitle, color = c.text)
+        TextC(
+            "sub ${job.totalDone}/${job.totalSubs} · ${job.doneHM} of ${job.plannedHM} integrated",
+            style = t.MonoSmall, color = c.accent400,
+        )
     }
+}
+
+@Composable
+internal fun EndSessionButton(ctrl: SessionController) {
+    NocturneButton(
+        text = "End session & review",
+        onClick = { ctrl.endSession() },
+        icon = Phosphor.FlagCheckered,
+        modifier = Modifier.fillMaxWidth().height(44.dp),
+        style = com.nocturne.ui.components.BtnStyle.OUTLINE,
+    )
 }
 
 /**
@@ -246,7 +118,7 @@ private fun AppState.captureFrameTag(): String? {
 }
 
 @Composable
-private fun SubPreview(state: AppState, ctrl: SessionController) {
+internal fun SubPreview(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val frame = state.latestCaptureFrame
@@ -358,7 +230,7 @@ private fun ChipTag(text: String, accent: Boolean) {
  * push; SNR only when the guide detector reports one (SEP/Smart send 0).
  */
 @Composable
-private fun StatsRow(state: AppState, ctrl: SessionController) {
+internal fun StatsRow(state: AppState, ctrl: SessionController) {
     val hfr = state.latestCaptureFrame?.header?.hfr
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
         MiniStat(
@@ -423,7 +295,7 @@ private fun MiniStat(
  * instead of a countdown, which would need RA and local sidereal time.
  */
 @Composable
-private fun FlipBanner(state: AppState, ctrl: SessionController) {
+internal fun FlipBanner(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     Row(
@@ -469,31 +341,3 @@ private fun FlipBanner(state: AppState, ctrl: SessionController) {
     }
 }
 
-@Composable
-private fun SkySite() {
-    val c = NocturneTheme.colors
-    val t = NocturneTheme.type
-    Card {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            TextC("SKY & SITE", style = t.MicroLabel, color = c.textFaint, modifier = Modifier.weight(1f))
-            TextC("roof open · safe", style = t.MonoMicro, color = c.ok)
-        }
-        Spacer(Modifier.height(11.2.dp))
-        Row(Modifier.fillMaxWidth()) {
-            SkyStat("−3.1°", "AMB", Modifier.weight(1f))
-            SkyStat("−5.4°", "DEW", Modifier.weight(1f))
-            SkyStat("21.3", "SQM", Modifier.weight(1f))
-            SkyStat("4%", "CLOUD", Modifier.weight(1f))
-        }
-    }
-}
-
-@Composable
-private fun SkyStat(value: String, label: String, modifier: Modifier) {
-    val c = NocturneTheme.colors
-    val t = NocturneTheme.type
-    Column(modifier) {
-        TextC(value, style = t.Mono17, color = c.text)
-        TextC(label, style = t.Caption10, color = c.textFaint)
-    }
-}

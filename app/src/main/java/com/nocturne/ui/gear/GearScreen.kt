@@ -73,14 +73,12 @@ fun GearScreen(
     state: AppState,
     ctrl: SessionController,
     landscape: Boolean,
-    onDisconnect: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     TabPane(
         landscape = landscape,
         modifier = modifier,
         items = buildList {
-            add(TabItem(full = true) { ReadyBanner(state) })
             add(TabItem(full = true) { RigProfileCard(state, ctrl) })
             // Right below the profile it belongs to.
             add(TabItem(full = true) { DeviceList(state, ctrl) })
@@ -88,77 +86,10 @@ fun GearScreen(
             add(TabItem { OpticalTrainCard(state, ctrl) })
             // Which Ekos module uses which train; absent until the rig reports its trains.
             if (state.wireTrains != null) add(TabItem { ModuleAssignmentsCard(state, ctrl) })
-            add(TabItem { MaintenanceCard(state, ctrl) })
             add(TabItem(full = true) { PowerDew(state) })
             add(TabItem(full = true) { CloseRoofButton(state, ctrl) })
-            add(TabItem(full = true) { DisconnectCard(onDisconnect) })
         },
     )
-}
-
-@Composable
-private fun ReadyBanner(state: AppState) {
-    val c = NocturneTheme.colors
-    val t = NocturneTheme.type
-
-    if (!state.ekosRunning) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .background(c.textFaint.copy(alpha = 0.1f), RoundedCornerShape(14.dp))
-                .border(1.dp, c.divider, RoundedCornerShape(14.dp))
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Phosphor.Icon(Phosphor.Plugs, size = 18.dp, tint = c.textFaint)
-            Spacer(Modifier.width(9.dp))
-            TextC("Ekos stopped — select a rig profile below", style = t.Body135, color = c.textFaint)
-        }
-        return
-    }
-
-    val ready = state.ready
-    val color = if (ready) c.ok else c.warn
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .background(color.copy(alpha = 0.1f), RoundedCornerShape(14.dp))
-            .border(1.dp, color.copy(alpha = 0.35f), RoundedCornerShape(14.dp))
-            .padding(12.dp),
-        verticalAlignment = Alignment.Top,
-    ) {
-        Box(Modifier.width(3.dp).height(48.dp).background(color, RoundedCornerShape(2.dp)))
-        Spacer(Modifier.width(9.dp))
-        Phosphor.Icon(if (ready) Phosphor.CheckCircle else Phosphor.Warning, size = 18.dp, tint = color)
-        Spacer(Modifier.width(9.dp))
-        Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                TextC(if (ready) "Ready to image" else "Needs ${state.missing}", style = t.Body135, color = color, modifier = Modifier.weight(1f))
-                TextC("MINIMUM RIG", style = t.MonoMicro, color = c.textFaint)
-            }
-            Spacer(Modifier.height(9.dp))
-            Row {
-                RigChip("● mount", if (state.isOn("mount")) c.ok else c.danger)
-                Spacer(Modifier.width(6.dp))
-                RigChip("● camera", if (state.isOn("cam")) c.ok else c.danger)
-                Spacer(Modifier.width(6.dp))
-                // wirePolarStage, not paTotal/paAlt/paAz, which nothing on the wire updates.
-                RigChip("● polar ${state.wirePolarStage ?: "not run"}", if (state.wirePolarStage != null) c.ok else c.textFaint)
-            }
-        }
-    }
-}
-
-@Composable
-private fun RigChip(text: String, color: Color) {
-    val t = NocturneTheme.type
-    Box(
-        Modifier
-            .background(NocturneTheme.colors.bg.copy(alpha = 0.5f), RoundedCornerShape(3.dp))
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-    ) {
-        TextC(text, style = t.MonoMicro, color = color)
-    }
 }
 
 @Composable
@@ -240,13 +171,7 @@ private fun RigProfileCard(state: AppState, ctrl: SessionController) {
             Spacer(Modifier.height(8.4.dp))
         }
 
-        NocturneButton(
-            text = if (state.ekosRunning) "Stop Ekos" else "Start Ekos",
-            onClick = ctrl::toggleEkos,
-            style = BtnStyle.OUTLINE,
-            enabled = state.ekosRunning || state.selectedProfile != null,
-            modifier = Modifier.fillMaxWidth().height(40.dp),
-        )
+        TextC("Start and stop Ekos from the Home tab.", style = t.MonoMicro, color = c.textFaint)
     }
 }
 
@@ -321,61 +246,6 @@ private fun ScopesCard(state: AppState, ctrl: SessionController) {
         TextC("Scopes", style = t.Body135, color = c.text)
         TextC(
             if (scopes.isEmpty()) "none defined" else "${scopes.size} defined",
-            style = t.MonoMicro, color = c.textFaint,
-        )
-    }
-}
-
-/**
- * The way back to ConnectScreen ([SessionViewModel.disconnect]) to switch rigs or reconnect
- * from scratch. Always visible.
- */
-@Composable
-private fun DisconnectCard(onDisconnect: () -> Unit) {
-    val c = NocturneTheme.colors
-    val t = NocturneTheme.type
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .background(c.surface, RoundedCornerShape(14.dp))
-            .border(1.dp, c.divider, RoundedCornerShape(14.dp))
-            .padding(12.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Phosphor.Icon(Phosphor.Plugs, size = 19.dp, tint = c.textFaint)
-            Spacer(Modifier.width(9.dp))
-            Column(Modifier.weight(1f)) {
-                TextC("Disconnect", style = t.Body135, color = c.text)
-                TextC("back to Connect screen — switch rigs or reconnect", style = t.MonoMicro, color = c.textFaint)
-            }
-        }
-        Spacer(Modifier.height(9.dp))
-        NocturneButton(
-            text = "Disconnect from rig",
-            onClick = onDisconnect,
-            style = BtnStyle.OUTLINE,
-            modifier = Modifier.fillMaxWidth().height(40.dp),
-        )
-    }
-}
-
-@Composable
-private fun MaintenanceCard(state: AppState, ctrl: SessionController) {
-    val c = NocturneTheme.colors
-    val t = NocturneTheme.type
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .background(c.surface, RoundedCornerShape(14.dp))
-            .border(1.dp, c.divider, RoundedCornerShape(14.dp))
-            .clickable { ctrl.openSheet(SheetType.MAINTENANCE) }
-            .padding(12.dp),
-    ) {
-        Phosphor.Icon(Phosphor.Warning, size = 20.dp, tint = c.accent400)
-        Spacer(Modifier.height(5.dp))
-        TextC("Rig maintenance", style = t.Body135, color = c.text)
-        TextC(
-            "reboot · shutdown · time sync · GPS",
             style = t.MonoMicro, color = c.textFaint,
         )
     }

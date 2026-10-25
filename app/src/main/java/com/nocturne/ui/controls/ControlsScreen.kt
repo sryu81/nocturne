@@ -904,7 +904,7 @@ private fun GuideControlCard(state: AppState, ctrl: SessionController) {
         if (state.guideSamples.isNotEmpty() || state.guideRmsRA != null) {
             Spacer(Modifier.height(10.dp))
             // Tap for the full Guide sheet (bigger chart + guide frame) — its only other entry
-            // point is the Session tab's RMS tile, which is hidden when no job is running.
+            // point is the Sequence tab's RMS tile, which is hidden when no job is running.
             GuideTelemetry(
                 state, chartHeight = 64.dp,
                 modifier = Modifier.clickable { ctrl.openSheet(SheetType.GUIDE) },

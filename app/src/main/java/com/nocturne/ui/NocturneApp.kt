@@ -49,20 +49,17 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.nocturne.protocol.SchedulerJobStatus
-import com.nocturne.protocol.jobStatusLabel
 import com.nocturne.session.FlipConfirm
 import com.nocturne.session.RigRebootState
 import com.nocturne.session.SheetType
 import com.nocturne.session.AppState
 import com.nocturne.session.contractJob
-import com.nocturne.session.currentBlockIndex
 import com.nocturne.session.findTarget
-import com.nocturne.session.wireJobFor
 import com.nocturne.transport.ConnectionState
 import com.nocturne.transport.ConnectionStatus
 import com.nocturne.ui.connect.ConnectScreen
 import com.nocturne.ui.frames.FramesScreen
+import com.nocturne.ui.home.HomeScreen
 import com.nocturne.ui.controls.ControlsScreen
 import com.nocturne.ui.gear.GearScreen
 import com.nocturne.ui.icons.Phosphor
@@ -70,10 +67,9 @@ import com.nocturne.ui.nav.NocturneTab
 import com.nocturne.ui.plan.PlanScreen
 import com.nocturne.ui.sequence.SequenceScreen
 import com.nocturne.ui.session.ConnectionMode
-import com.nocturne.ui.session.SessionScreen
 import com.nocturne.ui.session.SessionViewModel
 import com.nocturne.ui.session.SheetHost
-import com.nocturne.ui.session.SubPreviewOverlay
+import com.nocturne.ui.sequence.SubPreviewOverlay
 import com.nocturne.ui.theme.NocturneTheme
 
 /** App root. Red mode is hoisted above the theme so toggling re-themes everything. */
@@ -144,7 +140,7 @@ private fun NocturneShell(
     val colors = NocturneTheme.colors
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
-    val currentTab = NocturneTab.entries.firstOrNull { it.route == backStackEntry?.destination?.route } ?: NocturneTab.Session
+    val currentTab = NocturneTab.entries.firstOrNull { it.route == backStackEntry?.destination?.route } ?: NocturneTab.Home
 
     val state by vm.ctrl.state.collectAsState()
     val ctrl = vm.ctrl
@@ -218,7 +214,6 @@ private fun NocturneShell(
                 Column(Modifier.weight(1f).fillMaxHeight()) {
                     NocturneHeader(
                         tab = currentTab,
-                        state = state,
                         redMode = redMode,
                         landscape = landscape,
                         onToggleRed = onToggleRed,
@@ -228,12 +223,14 @@ private fun NocturneShell(
 
                     NavHost(
                         navController = navController,
-                        startDestination = NocturneTab.Session.route,
+                        startDestination = NocturneTab.Home.route,
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth(),
                     ) {
-                        composable(NocturneTab.Session.route) { SessionScreen(state, ctrl, landscape) }
+                        composable(NocturneTab.Home.route) {
+                            HomeScreen(state, ctrl, landscape, onGoToSequence = { navigate(NocturneTab.Sequence) }, onDisconnect = vm::disconnect)
+                        }
                         composable(NocturneTab.Plan.route) {
                             PlanScreen(state, ctrl, landscape, onGoToSequence = { navigate(NocturneTab.Sequence) })
                         }
@@ -241,7 +238,7 @@ private fun NocturneShell(
                             SequenceScreen(state, ctrl, landscape, onFixInGear = { navigate(NocturneTab.Gear) })
                         }
                         composable(NocturneTab.Frames.route) { FramesScreen(state, ctrl, landscape) }
-                        composable(NocturneTab.Gear.route) { GearScreen(state, ctrl, landscape, onDisconnect = vm::disconnect) }
+                        composable(NocturneTab.Gear.route) { GearScreen(state, ctrl, landscape) }
                         composable(NocturneTab.Controls.route) { ControlsScreen(state, ctrl, landscape) }
                     }
                 }
@@ -346,7 +343,6 @@ private fun statusColorFor(status: String?, c: com.nocturne.ui.theme.NocturneCol
 @Composable
 private fun NocturneHeader(
     tab: NocturneTab,
-    state: AppState,
     redMode: Boolean,
     landscape: Boolean,
     onToggleRed: () -> Unit,
@@ -354,8 +350,6 @@ private fun NocturneHeader(
     onOpenAlerts: () -> Unit,
 ) {
     val colors = NocturneTheme.colors
-    val contractJob = state.contractJob
-    val contractTarget = contractJob?.let { j -> state.findTarget(j.targetId) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -370,38 +364,8 @@ private fun NocturneHeader(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
-                if (tab == NocturneTab.Session && contractJob != null) {
-                    // Ekos's job status once pushed (AppState.wireJobFor), else "Not pushed".
-                    val real = state.wireJobFor(contractJob)
-                    val label = if (contractJob.synced) real?.jobStatusLabel ?: "Queued" else "Not pushed"
-                    val statusColor = if (real?.state == SchedulerJobStatus.BUSY) colors.ok else colors.warn
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(6.dp)
-                                .background(statusColor, RoundedCornerShape(3.dp)),
-                        )
-                        Spacer(Modifier.width(NocturneTheme.spacing.s2))
-                        Text(
-                            label,
-                            style = NocturneTheme.type.StatusLabel, color = statusColor,
-                        )
-                        val blockIndex = contractJob.currentBlockIndex
-                        if (blockIndex != null) {
-                            Spacer(Modifier.width(NocturneTheme.spacing.s2))
-                            Text(
-                                "· blk ${blockIndex + 1}/${contractJob.blocks.size}",
-                                style = NocturneTheme.type.TelemetryTiny,
-                                color = colors.neutral600,
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(1.dp))
-                }
                 Text(
-                    if (tab == NocturneTab.Session) {
-                        contractTarget?.let { if (it.custom) it.common else it.id } ?: "No target queued"
-                    } else tab.label,
+                    tab.label,
                     style = NocturneTheme.type.HeaderTitle,
                     color = colors.text,
                 )

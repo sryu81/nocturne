@@ -101,7 +101,7 @@ enum class FrameCategory { PREVIEW, PLAN }
 data class AppState(
     val t: Int = 0,
     val sheet: SheetType? = null,
-    /** Session tab's sub preview expanded to a full-screen overlay. */
+    /** Sequence tab's sub preview expanded to a full-screen overlay. */
     val subPreviewExpanded: Boolean = false,
     /** Frames tab: id of the frame expanded to a full-screen overlay, if any. */
     val expandedFrameId: String? = null,
@@ -113,7 +113,7 @@ data class AppState(
     val frameTarget: String? = null,
     /** Cumulative seconds the meridian flip countdown has been pushed back via DEFER. */
     val flipDeferSec: Int = 0,
-    /** Flip/defer action awaiting user confirmation on the Session tab. */
+    /** Flip/defer action awaiting user confirmation on the Sequence tab. */
     val pendingFlipConfirm: FlipConfirm? = null,
     val jobs: List<SequenceJob> = emptyList(),
     /** Which job's block editor is drilled into on the Sequence tab; null = job-list view. */
@@ -121,7 +121,7 @@ data class AppState(
     /** Monotonic job id counter — survives removals, unlike jobs.size + 1. */
     val jobSeq: Int = 1,
     /**
-     * Last job that was started: the Session tab's fallback when nothing is running, so pausing
+     * Last job that was started: the Home night arc's fallback when nothing is running, so pausing
      * a job doesn't jump to another one by list position. Only [contractJob] should read this.
      */
     val lastActiveJobId: String? = null,
@@ -948,12 +948,17 @@ val AppState.unmanagedWireJobs: List<WireSchedulerJob> get() {
 }
 
 /**
- * The job the Session tab reflects: a synced job that is [SchedulerJobStatus.BUSY], else one in
- * [ACTIVE_SCHEDULER_STATES] (committed, even pre-slew), else the last active job, else the first.
+ * The job Ekos is running: a synced job that is [SchedulerJobStatus.BUSY], else one in
+ * [ACTIVE_SCHEDULER_STATES] (committed, even pre-slew). Null when nothing is running, which is
+ * when the Sequence tab shows only the queue.
  */
-val AppState.contractJob: SequenceJob? get() =
+val AppState.runningJob: SequenceJob? get() =
     jobs.firstOrNull { wireJobFor(it)?.state == SchedulerJobStatus.BUSY }
         ?: jobs.firstOrNull { wireJobFor(it)?.state in ACTIVE_SCHEDULER_STATES }
+
+/** [runningJob], else the last active job, else the first: the job Home's night arc reflects. */
+val AppState.contractJob: SequenceJob? get() =
+    runningJob
         ?: jobs.firstOrNull { it.id == lastActiveJobId }
         ?: jobs.firstOrNull()
 
