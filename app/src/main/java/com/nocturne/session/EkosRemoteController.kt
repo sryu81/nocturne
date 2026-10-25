@@ -1062,12 +1062,21 @@ class EkosRemoteController(
         super.setSlewDir(key)
     }
 
-    /** Reads the in-flight direction before super.stopSlew() clears it; mount_set_motion stops one axis at a time. */
+    /** `mount_abort` is Ekos' Stop: it also ends a goto or park, which a per-axis motion stop doesn't. */
     override fun stopSlew() {
-        _state.value.slewDir?.let { dir ->
-            client.sendCommand(Commands.MOUNT_SET_MOTION, buildJsonObject { put("direction", dir); put("action", false) })
-        }
+        client.sendCommand(Commands.MOUNT_ABORT)
         super.stopSlew()
+    }
+
+    /** Elements are chosen by name: `TELESCOPE_HOME` carries only the ones the driver supports. */
+    override fun homeMount(element: String) {
+        val mount = _state.value.primaryTrain.mount
+        if (element !in _state.value.indiSwitchElements(mount, "TELESCOPE_HOME")) return
+        client.sendCommand(Commands.DEVICE_PROPERTY_SET, buildJsonObject {
+            put("device", mount)
+            put("property", "TELESCOPE_HOME")
+            putJsonArray("elements") { addJsonObject { put("name", element); put("state", 1) } }
+        })
     }
 
     /** `mount_unpark` — no direct reply; watch new_mount_state. */

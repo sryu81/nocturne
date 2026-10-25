@@ -44,6 +44,7 @@ import androidx.core.content.ContextCompat
 import com.nocturne.session.DEVICES
 import com.nocturne.session.Device
 import com.nocturne.session.IndiProperty
+import com.nocturne.session.indiSwitchElements
 import com.nocturne.session.LiveDevice
 import com.nocturne.session.PA_SECS
 import com.nocturne.session.RigRebootState
@@ -85,6 +86,7 @@ import com.nocturne.session.trainRolePool
 import com.nocturne.session.keepCount
 import com.nocturne.session.rejectCount
 import com.nocturne.session.medHfr
+import com.nocturne.ui.components.BtnStyle
 import com.nocturne.ui.components.GainField
 import com.nocturne.protocol.GUIDE_BOX_SIZES
 import com.nocturne.ui.components.FocusCurve
@@ -725,6 +727,7 @@ private fun MountSettingsSheet(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
 
+    var confirmSetHome by remember { mutableStateOf(false) }
     val m = state.wireMountSettings
     if (m == null) {
         TextC("Fetching mount settings…", style = t.Body13, color = c.textMuted)
@@ -827,6 +830,32 @@ private fun MountSettingsSheet(state: AppState, ctrl: SessionController) {
                 )
             }
         }
+        if ("SET" in state.indiSwitchElements(state.primaryTrain.mount, "TELESCOPE_HOME")) {
+            Spacer(Modifier.height(16.dp))
+            HDivider()
+            Spacer(Modifier.height(16.dp))
+            FieldLabel("Home position")
+            Spacer(Modifier.height(5.dp))
+            NocturneButton(
+                text = "Set home to current position",
+                onClick = { confirmSetHome = true },
+                style = BtnStyle.OUTLINE,
+                modifier = Modifier.fillMaxWidth().height(44.dp),
+            )
+        }
+    }
+    if (confirmSetHome) {
+        com.nocturne.ui.components.ConfirmDialog(
+            title = "Set home here?",
+            message = "The mount's current position becomes its home. Go home and homing will return here.",
+            confirmText = "Set home",
+            confirmStyle = BtnStyle.DANGER,
+            onConfirm = {
+                confirmSetHome = false
+                ctrl.homeMount("SET")
+            },
+            onDismiss = { confirmSetHome = false },
+        )
     }
 }
 

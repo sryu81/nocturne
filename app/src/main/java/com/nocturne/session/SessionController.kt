@@ -108,7 +108,10 @@ interface SessionController {
     fun focusStepOut()
     fun setRate(index: Int)
     fun setSlewDir(key: String)
+    /** Aborts everything the mount is doing (Ekos' Stop and the INDI Abort): goto, park, manual motion. */
     fun stopSlew()
+    /** Writes one named element of the mount's `TELESCOPE_HOME` (`GO` or `SET`); no-op if the driver lacks it. */
+    fun homeMount(element: String)
     /** Edits the cooler set point locally; nothing is sent until [applyCoolTarget] (the Set
      *  button), so partial keystrokes ("2" on the way to "20") never reach the camera. */
     fun setCoolTarget(value: Double)

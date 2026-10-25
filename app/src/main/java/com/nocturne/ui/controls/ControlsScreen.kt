@@ -690,8 +690,8 @@ private fun FocuserRangeBar(pos: Int, range: IntRange) {
 
 /**
  * D-pad, slew rates, alt/az, Park/Unpark and tracking (Ekos mount commands), plus Home. Ekos has
- * no home command, so Home writes the INDI `TELESCOPE_HOME` switch directly; it no-ops on
- * drivers without that property. (OnStep's `HomePause` is unrelated: it pauses at a meridian flip.)
+ * no home command, so Go home writes the INDI `TELESCOPE_HOME` `GO` element directly, and is
+ * disabled on drivers without it. Set home lives in the Mount settings sheet. (OnStep's `HomePause` is unrelated: it pauses at a meridian flip.)
  *
  * Leaving this tab mid-slew does not stop the mount; only STOP does.
  */
@@ -788,10 +788,10 @@ private fun MountControlCard(state: AppState, ctrl: SessionController) {
         Spacer(Modifier.height(8.4.dp))
         Row(Modifier.fillMaxWidth()) {
             NocturneButton(
-                text = "Home",
-                onClick = { ctrl.setIndiSwitch(state.primaryTrain.mount, "TELESCOPE_HOME", 1) },
+                text = "Go home",
+                onClick = { ctrl.homeMount("GO") },
                 style = BtnStyle.SUBTLE,
-                enabled = state.wireDevices != null,
+                enabled = "GO" in state.indiSwitchElements(state.primaryTrain.mount, "TELESCOPE_HOME"),
                 modifier = Modifier.weight(1f).height(44.dp),
             )
             Spacer(Modifier.width(8.4.dp))
