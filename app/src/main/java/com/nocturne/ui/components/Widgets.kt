@@ -115,9 +115,9 @@ fun NocturneButton(
         .clip(shape)
         .background(bg, shape)
         .clickable(enabled = enabled, onClick = tapFeedback(onClick)) // before padding: ripple fills the button
+        .let { if (bd != null) it.border(1.dp, bd, shape) else it } // before padding, or the border floats inside the fill
         .padding(horizontal = 14.dp)
-    val bordered = if (bd != null) base.border(1.dp, bd, shape) else base
-    Box(modifier = modifier.then(bordered), contentAlignment = Alignment.Center) {
+    Box(modifier = modifier.then(base), contentAlignment = Alignment.Center) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (icon != null) {
                 Phosphor.Icon(icon, size = 16.dp, tint = fg)

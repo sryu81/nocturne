@@ -54,6 +54,12 @@ maintenance); the Pi keeps orders 0–5 on the SD card for KStars' offline HiPS.
 
 - Polar alignment full run under the sky (Done rotating / Start adjusting / Done, Ekos triangle in
   the frames, tap-to-select star).
+- 2026-10-24 screenshot fixes (compiled and unit-tested, not run on the phone): signed PAH az/alt
+  readout, pinch-zoom on the PAH frame, FOV box sized to the DSS cutout, outline-button border,
+  header outline and alert badge, EXP boxes following Ekos, `1000000"` accuracy sentinel.
+- Cooler reads 0% power at 9.9 °C with Cooler ON and a −5 °C set point (screenshot 20:29): the
+  card now says "not cooling" in that state, but whether the camera really isn't cooling is a rig
+  question.
 - Guide RMS/drift chart and SNR tiles during real guiding; guide settings writes.
 - Focus V-curve, guide box size, Goto & center waiting on real mount/align state (field fixes of
   2026-10-23).

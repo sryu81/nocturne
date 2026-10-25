@@ -322,8 +322,9 @@ class EkosRemoteController(
         is EkosEvent.NewAlignState -> s.copy(
             wireAlignStatus = event.status ?: s.wireAlignStatus,
             wireAlignSolution = event.solution ?: s.wireAlignSolution,
-            // Per-solve pointing error (targetDiff, arcsec), bounded.
-            alignAccuracyHistory = event.solution?.targetDiff?.let {
+            // Per-solve pointing error (targetDiff, arcsec), bounded. Ekos leaves it at its 1e6
+            // initial value when the solve had no target to compare against (plain "solve here").
+            alignAccuracyHistory = event.solution?.targetDiff?.takeIf { it < ALIGN_TARGET_DIFF_UNSET }?.let {
                 (s.alignAccuracyHistory + it).takeLast(MAX_ACCURACY_HISTORY)
             } ?: s.alignAccuracyHistory,
         )
@@ -1030,7 +1031,7 @@ class EkosRemoteController(
         val target = s.findTarget(targetId) ?: return
         val (raDeg, decDeg) = target.raDecDegrees ?: return
         val fovDeg = (s.framingFovDeg?.let { maxOf(it.first, it.second) } ?: 2.4) * 1.4
-        _state.update { it.copy(referenceImageForTargetId = targetId, referenceImageJpeg = null, referenceImageOnlineSkipped = false) }
+        _state.update { it.copy(referenceImageForTargetId = targetId, referenceImageJpeg = null, referenceImageFovDeg = null, referenceImageOnlineSkipped = false) }
         scope.launch {
             // Offline atlas first (works with no internet, any FOV); CDS cutout as the fallback.
             val offline = skyAtlas?.render(raDeg, decDeg, fovDeg, _state.value.skyAtlas.completeOrder)
@@ -1040,7 +1041,7 @@ class EkosRemoteController(
             // land on a since-selected target.
             if (_state.value.referenceImageForTargetId == targetId) {
                 _state.update {
-                    it.copy(referenceImageJpeg = jpeg, referenceImageOffline = offline != null, referenceImageOnlineSkipped = offline == null && !online)
+                    it.copy(referenceImageJpeg = jpeg, referenceImageFovDeg = fovDeg.takeIf { jpeg != null }, referenceImageOffline = offline != null, referenceImageOnlineSkipped = offline == null && !online)
                 }
             }
         }

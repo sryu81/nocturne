@@ -15,7 +15,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -350,14 +353,10 @@ private fun NocturneHeader(
         modifier = Modifier
             .fillMaxWidth()
             .background(colors.bg)
+            .drawBehind { drawLine(colors.divider, Offset(0f, size.height - 0.5f), Offset(size.width, size.height - 0.5f), strokeWidth = 1.dp.toPx()) }
             // No status-bar inset here; NocturneShell applies it once above the banner.
             // Tighter in landscape so all 6 tabs fit the vertical rail.
-            .padding(horizontal = NocturneTheme.spacing.s4, vertical = if (landscape) NocturneTheme.spacing.s1 else NocturneTheme.spacing.s3)
-            .border(
-                width = 1.dp,
-                color = colors.divider,
-                shape = RoundedCornerShape(bottomStart = NocturneTheme.radius.sm, bottomEnd = NocturneTheme.radius.sm),
-            ),
+            .padding(horizontal = NocturneTheme.spacing.s4, vertical = if (landscape) NocturneTheme.spacing.s1 else NocturneTheme.spacing.s3),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -431,7 +430,7 @@ private fun NocturneHeader(
             HeaderIconButton(
                 icon = Phosphor.Bell,
                 contentDescription = "Alerts",
-                badge = alertCount,
+                badge = alertCount.takeIf { it > 0 },
                 onClick = onOpenAlerts,
             )
         }
@@ -446,23 +445,27 @@ private fun HeaderIconButton(
     badge: Int? = null,
 ) {
     val colors = NocturneTheme.colors
-    Box(
-        modifier = Modifier
-            .size(34.dp)
-            .clip(RoundedCornerShape(NocturneTheme.radius.sm))
-            .border(1.dp, colors.dividerStrong, RoundedCornerShape(NocturneTheme.radius.sm))
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(icon, contentDescription = contentDescription, tint = colors.text, modifier = Modifier.size(17.dp))
+    // The badge overhangs the corner, so it can't live inside the clipped button box.
+    Box(Modifier.size(34.dp)) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(RoundedCornerShape(NocturneTheme.radius.sm))
+                .border(1.dp, colors.dividerStrong, RoundedCornerShape(NocturneTheme.radius.sm))
+                .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(icon, contentDescription = contentDescription, tint = colors.text, modifier = Modifier.size(17.dp))
+        }
         if (badge != null) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .offset(x = 5.dp, y = (-5).dp)
+                    .defaultMinSize(minWidth = 16.dp)
+                    .height(16.dp)
                     .background(colors.warn, RoundedCornerShape(8.dp))
-                    .padding(horizontal = 4.dp)
-                    .height(16.dp),
+                    .padding(horizontal = 4.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(

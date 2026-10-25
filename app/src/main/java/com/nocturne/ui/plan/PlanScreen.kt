@@ -11,6 +11,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -673,7 +676,7 @@ private fun FramingCard(state: AppState, ctrl: SessionController, tgt: Target) {
     val readout = if (pixelScale != null && fovDeg != null) {
         "%.2f″/px · %.1f°×%.1f°".format(pixelScale, fovDeg.first, fovDeg.second)
     } else {
-        "1.24″/px · 2.4°×1.6°"
+        "N/A"
     }
     com.nocturne.ui.components.Card {
         TextC(framingTitle, style = t.Body135, color = c.textMuted)
@@ -681,11 +684,19 @@ private fun FramingCard(state: AppState, ctrl: SessionController, tgt: Target) {
         // Framing is optional; "Add to sequence" never gates on anything here.
         TextC("optional — skip if you don't need precise framing", style = t.Caption, color = c.textFaint)
         Spacer(Modifier.height(11.2.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            TextC(readout, style = t.Mono115, color = c.accent400, modifier = Modifier.weight(1f))
+            // Align status, ekos.h vocabulary: Idle/Complete/Failed/Aborted/In Progress/
+            // Successful/Syncing/Slewing/Rotating/Suspended.
+            state.wireAlignStatus?.let { TextC(it, style = t.Mono115, color = c.accent400) }
+        }
+        Spacer(Modifier.height(6.dp))
         Box(
             Modifier
                 .fillMaxWidth()
                 .height(240.dp)
-                .background(c.surfaceDeep, RoundedCornerShape(10.dp)),
+                .clip(RoundedCornerShape(10.dp))
+                .background(c.surfaceDeep),
         ) {
             // A DSS reference cutout, not the camera's last frame: framing is about the sky around
             // the target. Shows a hatch placeholder until fetched.
@@ -701,33 +712,29 @@ private fun FramingCard(state: AppState, ctrl: SessionController, tgt: Target) {
                     modifier = Modifier.align(Alignment.Center),
                 )
             }
-            FovOverlayBox(
-                rotationDeg = targetAngleRotation,
-                aspectW = (fovDeg?.first ?: 246.0).toFloat(),
-                aspectH = (fovDeg?.second ?: 166.0).toFloat(),
-                color = c.accent,
-                dashed = true,
-                modifier = Modifier.align(Alignment.Center).fillMaxWidth(0.7f),
-            )
-            FovOverlayBox(
-                rotationDeg = currentAngleRotation,
-                aspectW = (fovDeg?.first ?: 246.0).toFloat(),
-                aspectH = (fovDeg?.second ?: 166.0).toFloat(),
-                color = c.warn,
-                modifier = Modifier.align(Alignment.Center).fillMaxWidth(0.7f),
-            )
-            TextC(
-                readout,
-                style = t.Mono115, color = c.accent400,
-                modifier = Modifier.align(Alignment.TopStart).padding(top = 6.dp, start = 8.dp),
-            )
-            // Align status, ekos.h vocabulary: Idle/Complete/Failed/Aborted/In Progress/
-            // Successful/Syncing/Slewing/Rotating/Suspended.
-            state.wireAlignStatus?.let {
-                TextC(
-                    it, style = t.Mono115, color = c.accent400,
-                    modifier = Modifier.align(Alignment.TopEnd).padding(top = 6.dp, end = 8.dp),
-                )
+            // The cutout is square and fitted to the box's height, so the FOV boxes live in a
+            // square of the same size; their width is the camera FOV as a fraction of the
+            // cutout's. Skipped until both fields of view are known rather than drawing a guess.
+            val cutoutFov = state.referenceImageFovDeg
+            if (fovDeg != null && cutoutFov != null && state.referenceImageJpeg != null) {
+                Box(Modifier.align(Alignment.Center).fillMaxHeight().aspectRatio(1f)) {
+                    val widthFraction = (fovDeg.first / cutoutFov).toFloat().coerceIn(0.05f, 1f)
+                    FovOverlayBox(
+                        rotationDeg = targetAngleRotation,
+                        aspectW = fovDeg.first.toFloat(),
+                        aspectH = fovDeg.second.toFloat(),
+                        color = c.accent,
+                        dashed = true,
+                        modifier = Modifier.align(Alignment.Center).fillMaxWidth(widthFraction),
+                    )
+                    FovOverlayBox(
+                        rotationDeg = currentAngleRotation,
+                        aspectW = fovDeg.first.toFloat(),
+                        aspectH = fovDeg.second.toFloat(),
+                        color = c.warn,
+                        modifier = Modifier.align(Alignment.Center).fillMaxWidth(widthFraction),
+                    )
+                }
             }
             if (state.referenceImageJpeg != null) {
                 TextC(
@@ -757,14 +764,16 @@ private fun TargetAngleRow(angle: Double, onAngleChange: (Double) -> Unit) {
     val t = NocturneTheme.type
     val frac = (angle / 360.0).toFloat().coerceIn(0f, 1f)
     Row(verticalAlignment = Alignment.CenterVertically) {
-        TextC("Target angle", style = t.Caption, color = c.textMuted, modifier = Modifier.width(84.dp))
+        TextC("Target angle", style = t.Caption, color = c.textMuted, modifier = Modifier.width(96.dp))
+        // The knob is inset by its radius so it isn't clipped at either end of the track.
         Canvas(
             Modifier
                 .weight(1f)
                 .height(28.dp)
                 .pointerInput(Unit) {
+                    val inset = 7.dp.toPx()
                     fun update(x: Float) {
-                        onAngleChange((x / size.width).toDouble().coerceIn(0.0, 1.0) * 360.0)
+                        onAngleChange(((x - inset) / (size.width - 2 * inset)).toDouble().coerceIn(0.0, 1.0) * 360.0)
                     }
                     detectDragGestures(
                         onDragStart = { offset -> update(offset.x) },
@@ -773,20 +782,22 @@ private fun TargetAngleRow(angle: Double, onAngleChange: (Double) -> Unit) {
                 },
         ) {
             val y = size.height / 2f
+            val inset = 7.dp.toPx()
             val trackH = 4.dp.toPx()
+            val knobX = inset + (size.width - 2 * inset) * frac
             drawRoundRect(
                 color = c.divider,
-                topLeft = androidx.compose.ui.geometry.Offset(0f, y - trackH / 2),
-                size = androidx.compose.ui.geometry.Size(size.width, trackH),
+                topLeft = androidx.compose.ui.geometry.Offset(inset, y - trackH / 2),
+                size = androidx.compose.ui.geometry.Size(size.width - 2 * inset, trackH),
                 cornerRadius = androidx.compose.ui.geometry.CornerRadius(trackH / 2),
             )
             drawRoundRect(
                 color = c.accent,
-                topLeft = androidx.compose.ui.geometry.Offset(0f, y - trackH / 2),
-                size = androidx.compose.ui.geometry.Size(size.width * frac, trackH),
+                topLeft = androidx.compose.ui.geometry.Offset(inset, y - trackH / 2),
+                size = androidx.compose.ui.geometry.Size(knobX - inset, trackH),
                 cornerRadius = androidx.compose.ui.geometry.CornerRadius(trackH / 2),
             )
-            drawCircle(c.text, radius = 7.dp.toPx(), center = androidx.compose.ui.geometry.Offset(size.width * frac, y))
+            drawCircle(c.text, radius = 7.dp.toPx(), center = androidx.compose.ui.geometry.Offset(knobX, y))
         }
         Spacer(Modifier.width(8.dp))
         TextC("${"%.1f".format(angle)}°", style = t.Mono13, color = c.text, modifier = Modifier.width(56.dp))

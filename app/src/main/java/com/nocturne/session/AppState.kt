@@ -413,6 +413,8 @@ data class AppState(
      * after a target switch; null shows a placeholder.
      */
     val referenceImageJpeg: ByteArray? = null,
+    /** Field of view (degrees, square) the cutout was rendered at; sizes the camera's FOV box on it. */
+    val referenceImageFovDeg: Double? = null,
     val referenceImageForTargetId: String? = null,
     /** Where [referenceImageJpeg] came from: the offline sky atlas on the phone, or CDS online. */
     val referenceImageOffline: Boolean = false,
@@ -1214,6 +1216,9 @@ val Alert.severityLabel: String get() = ALERT_SEVERITY_LABELS.getOrNull(severity
 
 /** Cap on [AppState.wireNotifications]; enough for the Alerts sheet and the Summary event log. */
 const val MAX_NOTIFICATIONS = 100
+
+/** `targetDiff` Ekos sends when a solve had no target (`m_TargetDiffTotal`'s 1e6 initial value). */
+const val ALIGN_TARGET_DIFF_UNSET = 1e6
 
 /** Cap on [AppState.alignAccuracyHistory]. */
 const val MAX_ACCURACY_HISTORY = 30

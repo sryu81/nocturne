@@ -33,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -101,7 +102,13 @@ import com.nocturne.ui.theme.NocturnePalette
 import com.nocturne.ui.theme.NocturneTheme
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
@@ -2188,7 +2195,7 @@ private fun PaRealSheet(state: AppState, ctrl: SessionController) {
         }
         Spacer(Modifier.height(9.dp))
         TextC(
-            state.wirePolarMessage ?: "Put the mount either in the home position pointed toward the celestial pole, or pointed anywhere near the meridian, then tap Start.",
+            state.wirePolarMessage?.let(::appPahMessage) ?: "Put the mount either in the home position pointed toward the celestial pole, or pointed anywhere near the meridian, then tap Start.",
             style = t.Body13, color = c.textMuted,
         )
         // Align frame. Once PAH has a result, Ekos sends "+A" updated frames
@@ -2202,16 +2209,17 @@ private fun PaRealSheet(state: AppState, ctrl: SessionController) {
             TextC("Tap a bright star to place the correction triangle.", style = t.Caption, color = c.accent400)
         }
         // updatedError/Az/Alt arrive during refresh (setUpdatedErrors); vector.* with the
-        // measurement (setPolarResults). Degrees; -1 means "not computed yet".
-        val azErr = (state.wirePolarUpdatedAzError ?: state.wirePolarVector?.azError)?.takeIf { it >= 0 }
-        val altErr = (state.wirePolarUpdatedAltError ?: state.wirePolarVector?.altError)?.takeIf { it >= 0 }
+        // measurement (setPolarResults). Az/alt are signed (which way to turn the knob); -1/-1/-1
+        // means "not computed yet", so only the total can be tested against it.
         val totalErr = (state.wirePolarUpdatedError ?: state.wirePolarVector?.error)?.takeIf { it >= 0 }
-        if (azErr != null || altErr != null || totalErr != null) {
+        if (totalErr != null) {
+            val azErr = state.wirePolarUpdatedAzError ?: state.wirePolarVector?.azError
+            val altErr = state.wirePolarUpdatedAltError ?: state.wirePolarVector?.altError
             Spacer(Modifier.height(10.dp))
             Row(Modifier.fillMaxWidth()) {
-                totalErr?.let { TextC("total %.2f°".format(it), style = t.MonoMid, color = c.text, modifier = Modifier.weight(1f)) }
-                azErr?.let { TextC("az %.2f°".format(it), style = t.MonoMid, color = c.textMuted, modifier = Modifier.weight(1f)) }
-                altErr?.let { TextC("alt %.2f°".format(it), style = t.MonoMid, color = c.textMuted, modifier = Modifier.weight(1f)) }
+                TextC("total %.2f°".format(totalErr), style = t.MonoMid, color = c.text, modifier = Modifier.weight(1f))
+                TextC(azErr?.let { "az %+.2f°".format(it) } ?: "az —", style = t.MonoMid, color = c.textMuted, modifier = Modifier.weight(1f))
+                TextC(altErr?.let { "alt %+.2f°".format(it) } ?: "alt —", style = t.MonoMid, color = c.textMuted, modifier = Modifier.weight(1f))
             }
         }
 
@@ -2282,10 +2290,13 @@ private fun PaRealSheet(state: AppState, ctrl: SessionController) {
         }
 
         Spacer(Modifier.height(20.dp))
-        TextC(
-            "Real PAH drives its own mount rotation sequence once started — watch the mount. Stop cancels immediately, mid-motion if it's already rotating.",
-            style = t.MonoMicro, color = c.warn,
-        )
+        // Only matters before the mount moves on its own; once adjusting by hand it's just noise.
+        if (!running || stage in PAH_ROTATE_STAGES || PAH_MEASURE_IMAGE[stage] != null) {
+            TextC(
+                "Real PAH drives its own mount rotation sequence once started — watch the mount. Stop cancels immediately, mid-motion if it's already rotating.",
+                style = t.MonoMicro, color = c.warn,
+            )
+        }
         Spacer(Modifier.height(14.dp))
         val primary: Pair<String, () -> Unit>? = when {
             !running -> "Start" to ctrl::startPolarAlign
@@ -2315,11 +2326,20 @@ private fun PaRealSheet(state: AppState, ctrl: SessionController) {
     }
 }
 
+/** Ekos's PAH prompts name its desktop buttons; point them at this sheet's. */
+private fun appPahMessage(message: String): String = message
+    .replace("Click Stop", "Tap Done")
+    .replace("click Stop", "tap Done")
+    .replace("then click refresh", "then tap Start adjusting")
+    .replace("click refresh", "tap Start adjusting")
+
 /**
  * Latest align frame, box sized to the frame's own aspect (correction crops are square, a fixed
- * 4:3 box would shrink them). When [pickable], a tap sends its position as a fraction of the
- * *received image* (letterbox-corrected) — `polar_set_crosshair` maps that back through the
- * crop's bounding rect server-side (Message::processPolarCommands).
+ * 4:3 box would shrink them). Pinch to zoom, drag to pan once zoomed, double-tap to reset: Ekos
+ * paints the correction triangle at frame scale, so it's a few pixels wide on a phone. When
+ * [pickable], a tap sends its position as a fraction of the *received image* (zoom and
+ * letterbox-corrected) — `polar_set_crosshair` maps that back through the crop's bounding rect
+ * server-side (Message::processPolarCommands).
  */
 @Composable
 private fun PaImage(state: AppState, pickable: Boolean, ctrl: SessionController) {
@@ -2334,36 +2354,72 @@ private fun PaImage(state: AppState, pickable: Boolean, ctrl: SessionController)
     }
     var boxSize by remember { mutableStateOf(IntSize.Zero) }
     var picked by remember(jpeg) { mutableStateOf<Offset?>(null) }
+    var zoom by remember { mutableStateOf(1f) }
+    var pan by remember { mutableStateOf(Offset.Zero) }
+    fun clampPan(p: Offset, z: Float): Offset {
+        val maxX = boxSize.width * (z - 1f) / 2f
+        val maxY = boxSize.height * (z - 1f) / 2f
+        return Offset(p.x.coerceIn(-maxX, maxX), p.y.coerceIn(-maxY, maxY))
+    }
     Box(
         Modifier
             .fillMaxWidth()
             .aspectRatio(imageSize?.let { (it.width.toFloat() / it.height).coerceIn(0.75f, 2f) } ?: (4f / 3f))
-            .background(c.surfaceDeep, RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(8.dp))
+            .background(c.surfaceDeep)
             .onSizeChanged { boxSize = it }
-            .then(
-                if (pickable && imageSize != null) {
-                    Modifier.pointerInput(imageSize, boxSize) {
-                        detectTapGestures { tap ->
-                            val scale = minOf(boxSize.width / imageSize.width.toFloat(), boxSize.height / imageSize.height.toFloat())
-                            val ox = (boxSize.width - imageSize.width * scale) / 2f
-                            val oy = (boxSize.height - imageSize.height * scale) / 2f
-                            val fx = (tap.x - ox) / (imageSize.width * scale)
-                            val fy = (tap.y - oy) / (imageSize.height * scale)
-                            if (fx in 0f..1f && fy in 0f..1f) {
-                                picked = tap
-                                ctrl.polarSelectStar(fx.toDouble(), fy.toDouble())
-                            }
+            // One finger only moves the image while zoomed in, so the sheet still scrolls over it at 1×.
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    do {
+                        val event = awaitPointerEvent()
+                        val multi = event.changes.count { it.pressed } > 1
+                        if (multi || zoom > 1f) {
+                            val z = (zoom * event.calculateZoom()).coerceIn(1f, 6f)
+                            zoom = z
+                            pan = if (z == 1f) Offset.Zero else clampPan(pan + event.calculatePan(), z)
+                            event.changes.forEach { if (it.positionChanged()) it.consume() }
                         }
-                    }
-                } else Modifier,
-            ),
+                    } while (event.changes.any { it.pressed })
+                }
+            }
+            .pointerInput(imageSize, pickable) {
+                detectTapGestures(
+                    onDoubleTap = { zoom = 1f; pan = Offset.Zero },
+                    onTap = { tap ->
+                        if (!pickable || imageSize == null) return@detectTapGestures
+                        val center = Offset(boxSize.width / 2f, boxSize.height / 2f)
+                        val local = (tap - pan - center) / zoom + center
+                        val scale = minOf(boxSize.width / imageSize.width.toFloat(), boxSize.height / imageSize.height.toFloat())
+                        val ox = (boxSize.width - imageSize.width * scale) / 2f
+                        val oy = (boxSize.height - imageSize.height * scale) / 2f
+                        val fx = (local.x - ox) / (imageSize.width * scale)
+                        val fy = (local.y - oy) / (imageSize.height * scale)
+                        if (fx in 0f..1f && fy in 0f..1f) {
+                            picked = local
+                            ctrl.polarSelectStar(fx.toDouble(), fy.toDouble())
+                        }
+                    },
+                )
+            },
     ) {
-        MediaFramePreview(state.latestAlignFrame, Modifier.fillMaxSize(), hatchColor = c.surfaceRaised)
-        picked?.takeIf { pickable }?.let { p ->
-            Canvas(Modifier.fillMaxSize()) {
-                drawCircle(c.warn, radius = 14.dp.toPx(), center = p, style = Stroke(width = 1.5.dp.toPx()))
+        Box(
+            Modifier
+                .fillMaxSize()
+                .graphicsLayer(scaleX = zoom, scaleY = zoom, translationX = pan.x, translationY = pan.y),
+        ) {
+            MediaFramePreview(state.latestAlignFrame, Modifier.fillMaxSize(), hatchColor = c.surfaceRaised)
+            picked?.takeIf { pickable }?.let { p ->
+                Canvas(Modifier.fillMaxSize()) {
+                    drawCircle(c.warn, radius = 14.dp.toPx() / zoom, center = p, style = Stroke(width = 1.5.dp.toPx() / zoom))
+                }
             }
         }
+    }
+    if (jpeg != null) {
+        Spacer(Modifier.height(4.dp))
+        TextC("Pinch to zoom · double-tap to reset", style = NocturneTheme.type.MonoMicro, color = c.textFaint)
     }
 }
 

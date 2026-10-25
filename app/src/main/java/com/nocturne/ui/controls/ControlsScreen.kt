@@ -21,6 +21,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,7 +40,6 @@ import com.nocturne.session.primaryImageSize
 import com.nocturne.session.benchFocPos
 import com.nocturne.session.captureProgress
 import com.nocturne.session.focRange
-import com.nocturne.session.framingFovDeg
 import com.nocturne.session.guideCameraDevice
 import com.nocturne.session.indiSwitchElements
 import com.nocturne.session.indiSwitchElement
@@ -56,7 +57,6 @@ import com.nocturne.ui.components.GuideTelemetry
 import com.nocturne.ui.components.BtnStyle
 import com.nocturne.protocol.WireAlignSolution
 import com.nocturne.ui.components.AccuracyTrendChart
-import com.nocturne.ui.components.FovOverlayBox
 import com.nocturne.ui.components.MediaFramePreview
 import com.nocturne.ui.components.NocturneButton
 import com.nocturne.ui.components.SwitchRow
@@ -95,7 +95,7 @@ fun ControlsScreen(
                     val progress = if (real) state.captureProgress(state.primaryTrain.camera, cam?.captureExposureN ?: 2.0) else null
                     // FilterPosCombo is the Capture module's loaded filter, like exposure/gain/bin.
                     SnapPanel(
-                        tag = if (cam != null) "${"%.0f".format(cam.captureExposureN)} s · bin ${cam.captureBinHN} · ${cam.FilterPosCombo}" else "2 s · bin 2",
+                        tag = if (cam != null) "${"%.0f".format(cam.captureExposureN)} s · bin ${cam.captureBinHN} · ${cam.FilterPosCombo}" else "main cam",
                         label = benchSnapLabel(real, state.snappedMain, state.wireCaptureStatus, "★ 1 482 · HFR 2.31 · ADU 1 093"),
                         // "Preview" matches Ekos's own label for this action (camera.ui previewB).
                         snapLabel = "Preview Main Cam",
@@ -131,17 +131,6 @@ fun ControlsScreen(
                                 }
                                 ImageSizeLine(state, ctrl::setCaptureFullFrame)
                             }
-                        },
-                        // FOV reticle at the current camera angle (not the target angle); same
-                        // PA source preference as the Plan tab's FramingCard.
-                        overlay = {
-                            val fovDeg = state.framingFovDeg
-                            FovOverlayBox(
-                                rotationDeg = (state.wireAlignSolution?.PA ?: state.wireRotatorCurrentPA)?.toFloat() ?: 0f,
-                                aspectW = (fovDeg?.first ?: 246.0).toFloat(),
-                                aspectH = (fovDeg?.second ?: 166.0).toFloat(),
-                                modifier = Modifier.align(Alignment.Center).fillMaxWidth(0.7f),
-                            )
                         },
                     )
                 },
@@ -266,8 +255,6 @@ private fun SnapPanel(
     onStop: (() -> Unit)? = null,
     /** `/media/ekos` frame for this camera; null renders the hatch placeholder. */
     frame: com.nocturne.protocol.MediaFrame? = null,
-    /** Drawn over the preview image, e.g. [FovOverlayBox]. */
-    overlay: (@Composable BoxScope.() -> Unit)? = null,
     /** Non-null while a requested capture hasn't started exposing (e.g. waiting for temperature),
      *  shown with [onCancelPending] so a late exposure is never a surprise. */
     pendingNote: String? = null,
@@ -287,7 +274,9 @@ private fun SnapPanel(
                 .background(c.surfaceDeep, RoundedCornerShape(4.dp)),
         ) {
             MediaFramePreview(frame, Modifier.fillMaxSize(), hatchColor = c.surfaceRaised)
-            overlay?.invoke(this)
+            if (frame == null) {
+                TextC("no frame yet", style = t.Caption, color = c.textFaint, modifier = Modifier.align(Alignment.Center))
+            }
             TextC(
                 tag, style = t.Mono115, color = c.accent400,
                 modifier = Modifier.align(Alignment.TopStart).padding(top = 5.dp, start = 6.dp),
@@ -354,8 +343,13 @@ private fun SnapPanel(
 private fun MiniField(label: String, value: Double?, unit: String, modifier: Modifier, onChange: (Double) -> Unit) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
-    // re-seeded once when an unknown value (null) becomes known
-    var text by remember(value == null) { mutableStateOf(value?.let { "%.1f".format(it) } ?: "") }
+    var text by remember { mutableStateOf(value?.let { "%.1f".format(it) } ?: "") }
+    var focused by remember { mutableStateOf(false) }
+    // Follow Ekos while the user isn't typing: a scheduler job or another client changes the
+    // module's loaded value (e.g. exposure) and a stale box would contradict the status line.
+    LaunchedEffect(value, focused) {
+        if (!focused && value != null) text = "%.1f".format(value)
+    }
     Column(modifier) {
         TextC(label, style = t.MonoMicro, color = c.textMuted)
         Spacer(Modifier.height(3.dp))
@@ -380,7 +374,7 @@ private fun MiniField(label: String, value: Double?, unit: String, modifier: Mod
                     singleLine = true,
                     textStyle = t.Body13.copy(color = c.text),
                     cursorBrush = SolidColor(c.accent),
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused },
                 )
             }
             if (unit.isNotEmpty()) TextC(unit, style = t.MonoSmall, color = c.neutral500)
@@ -405,7 +399,9 @@ private fun <T> BinCycleChip(value: T, options: List<T>, labelOf: (T) -> String,
             .padding(horizontal = 12.dp),
         contentAlignment = Alignment.Center,
     ) {
-        TextC("bin ${labelOf(value)}", style = t.Body13, color = c.text)
+        // Guide/Focus send binning as a string that is blank until the module's settings load.
+        val label = labelOf(value)
+        TextC(if (label.isBlank()) "bin N/A" else "bin $label", style = t.Body13, color = if (label.isBlank()) c.textMuted else c.text)
     }
 }
 
@@ -500,11 +496,12 @@ private fun CoolerCard(state: AppState, ctrl: SessionController) {
                 when {
                     coolerOn == false -> "cooler off"
                     atSet == true -> "at set point · $powerText"
+                    atSet == false && powerPct == 0 -> "not cooling · $powerText"
                     atSet == false -> "ramping · $powerText"
                     else -> powerText
                 },
                 style = t.Mono115,
-                color = when { coolerOn == false || atSet == null -> c.textMuted; atSet -> c.ok; else -> c.warn },
+                color = when { coolerOn == false || atSet == null -> c.textMuted; atSet -> c.ok; powerPct == 0 -> c.danger; else -> c.warn },
             )
         }
         Spacer(Modifier.height(9.dp))
