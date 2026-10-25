@@ -1,6 +1,7 @@
 # Future plan (draft)
 
-**Draft, still being discussed** — plan 1 is built and merged into `main`, plans 2 and 3 are not; items are added as discussions go.
+**Draft, still being discussed** — plan 1 is built and merged into `main`, plan 2 is built on a branch
+waiting for a night test, plan 3 is planned but not started; items are added as discussions go.
 
 | # | Plan | State |
 |---|---|---|
@@ -10,6 +11,33 @@
 
 The three are independent: plan 1 only reorders the tabs and moves the old Session content;
 Controls and Frames keep their content until their own plans are built.
+
+## Milestone tracker (updated 2026-10-25)
+
+"Built" = compiled, unit-tested and installed on the phone. "Rig-checked" = also seen working on the
+rig; what is still unchecked is in `docs/STATUS.md`. Details of each milestone are in its plan below.
+
+| Plan | Milestone | What | State |
+|---|---|---|---|
+| 1 | M1 | Tab shell (Home \| Gear \| Controls \| Plan \| Sequence \| Frames) | Built, merged; partly rig-checked |
+| 1 | M2 | Home with today's data | Built, merged; partly rig-checked |
+| 1 | M3 | Rig health card and daemon `/health` | Built, merged; rig-checked |
+| 1 | M4 | Phone-side Log | Built, merged; rig-checked |
+| 1 | M5 | Fork: per-line logs | Built, deployed to the Pi; Capture, Focus, Guide and Mount lines unseen |
+| 1 | M6 | Phone notifications | Built, merged; not seen delivering an alert |
+| 2 | C1 | Controls menu and page shell | Built on `controls-revision`; rig-checked |
+| 2 | C2 | Live menu: one-liners, pinning, mount STOP | Built; one-liners and pinning rig-checked, STOP card not |
+| 2 | C3 | Page upgrades (frames, backlash, chart, coordinates) | Built; mount layout, backlash and align frame rig-checked, focus frame and guide chart not |
+| 2 | C4 | Polar alignment page with pinned Start/Stop | Built; page and settings rig-checked, the run itself not |
+| 3 | R0 | USB automount (Pi tool) | Not started |
+| 3 | R1 | Fork: drives and listings | Not started |
+| 3 | R2 | App: Rig storage, read-only | Not started |
+| 3 | R3 | Fork: preview and header | Not started |
+| 3 | R4 | App: file page | Not started |
+| 3 | R5 | Fork: file operations and eject | Not started |
+| 3 | R6 | App: manage (selection, paste, progress, delete) | Not started |
+
+**Next:** the user's night test of plan 2 (then merge `controls-revision` into `main`); after that R0.
 
 ---
 
