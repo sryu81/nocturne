@@ -254,10 +254,36 @@ orientation (rotation is never changed); on the connected rig, Preview Main Cam 
 EXP, gain, BIN and FILTER changes reach Ekos; Cooler ON/OFF, Fan, Set and the sensor readout work;
 Back, the header switcher and tab re-entry behave as decided; portrait fits about one screen.
 
+## Focuser page (decided 2026-10-25; not built)
+
+Order, top to bottom:
+
+1. Header `Focuser ▾` (module switcher) with a button for the existing Focus settings sheet. The
+   "Focus settings" tile goes away; the sheet stays.
+2. **Focuser card**, as today: position and range bar, the Focus module's EXP / gain / BIN / FILTER,
+   Focus In / Out (step shown on the buttons, disabled at the end stops), hint line, autofocus
+   status with Start / Stop.
+3. **Focus frame with HFR** (new, read-only): the latest focus frame (`latestFocusFrame`) directly
+   above the V-curve, so focus can be watched while stepping and during autofocus. Shown while
+   autofocus runs or a focus frame exists; "no frame yet" otherwise.
+4. **V-curve**, as today (while focusing or once samples exist).
+
+- **Backlash hint:** the hint line's fixed text `backlash 90 out` is replaced by the real
+  `focusBacklash` from the Focus settings, "N/A" while unknown (no placeholders).
+- **Menu one-liner:** position and focus status, e.g. `12 450 · idle`; pinned as active while
+  autofocus runs (`12 450 · autofocus running`). Without a focuser: "N/A".
+- **No other behaviour change:** same commands and state; the frame adds no commands.
+
+**Test plan (after building):** build, unit tests, install; on the rig Focus In/Out moves by the
+step on the buttons, the position and range bar follow and the buttons disable at the end stops;
+autofocus Start/Stop works, the frame updates and the V-curve fills; the Focus settings sheet opens
+from the header; the backlash text matches the settings value; portrait fit checked on the phone
+(frame plus curve may pass one screen, which is accepted).
+
 ## To be added
 
-The other module pages (Focuser, Mount, Guide, Align, Polar alignment) and the menu one-liners for
-them; the remembered camera/cooler settings.
+The other module pages (Mount, Guide, Align, Polar alignment) and their menu one-liners; the
+remembered camera/cooler settings.
 
 ---
 
