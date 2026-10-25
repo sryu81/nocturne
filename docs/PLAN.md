@@ -5,7 +5,7 @@
 | # | Plan | State |
 |---|---|---|
 | 1 | Home tab and tab layout revision | M1–M6 built, installed and merged into `main` (2026-10-25); rig checks left, listed in `docs/STATUS.md` |
-| 2 | Controls tab revision | layout, pages and milestones C1–C4 decided; not built |
+| 2 | Controls tab revision | C1–C4 built and installed on branch `controls-revision`; rig checks left, listed in `docs/STATUS.md` |
 | 3 | Frames tab revision | proposal written, open decisions below |
 
 The three are independent: plan 1 only reorders the tabs and moves the old Session content;
@@ -425,6 +425,16 @@ the tab, so the status row and bottom bar stay visible (unlike the Log, an overl
 **Testing.** Every milestone: build, unit tests, install, screenshots. C1 and C3 are also checked on
 the connected rig with the non-moving checks (Preview, cooler, EXP / gain / BIN, Focus In/Out, Plate
 solve); moving the mount, guiding and the PAH run are checked under the sky.
+
+**Built, 2026-10-25** — C1 to C4 are compiled, unit-tested and installed (branch
+`controls-revision`, not yet merged). Seen on the rig: the menu and every page, the one-liners, the
+header switcher, Back (a sheet first, then the page, then the tab), a Main Cam preview, a real Plate
+solve with its align frame and the pinned card while it ran, a PAH direction round trip. Not seen:
+the focus frame (needs a focus capture), the guide chart (needs guide data), the mount STOP card,
+and the polar alignment steps that drive the mount. Differences from the plan: the Camera header has
+no settings button (the sheet it would open is "File settings", which stays on the Frames tab);
+the pier side shows only when it is East or West; and Back now closes an open sheet before leaving
+the screen, for every sheet.
 
 ---
 

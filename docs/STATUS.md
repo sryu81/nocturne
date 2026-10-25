@@ -30,12 +30,17 @@ Anything the rig hasn't reported yet shows "N/A" — there are no demo values or
 **Frames** — captured previews stored on the phone (Room + JPEG files), keep/discard, HFR across
 the run. HFR shows "—" when Ekos measured no star.
 
-**Controls** — main camera preview with exposure/gain/bin/filter and the **real output size**
-(warns on a cropped capture frame, "Set full frame" fixes and saves it); cooler, fan, enforce
-temperature; focuser jog + autofocus with live V-curve; mount motion, goto abort guard, tracking,
-park; guiding start/stop/loop/clear-calibration with live RMS and drift chart; plate solve, target
-accuracy trend, rotator control; polar alignment (stages, refresh, crosshair); module settings
-sheets for Mount, Camera, Align, Guide, Focus.
+**Controls** — a menu of module pages: Imaging (Mount, Camera, Focuser, Plate solve, Guide) and
+Setup (Polar alignment). A card's one-liner says what its module is doing; a working module is pinned
+under ACTIVE, and a moving mount (or a running polar alignment) is in the warning colour with its own
+STOP. Each page has a back arrow, a title switcher to the other modules and, where the module has
+one, its settings sheet. Camera: preview with exposure/gain/bin/filter, the **real output size**
+(warns on a cropped capture frame, "Set full frame" fixes and saves it), cooler, fan, enforce
+temperature. Focuser: jog, the latest focus frame with HFR, autofocus with the live V-curve, the real
+backlash. Plate solve: solve here, the align frame, target accuracy trend, rotator control. Mount:
+motion, STOP, goto abort guard, tracking, park, go home, full-width coordinates. Guide: preview,
+start/stop/loop/clear-calibration, live RMS and a 140 dp drift chart. Polar alignment: stages, frame,
+errors, settings, with Start/Stop pinned under the page.
 
 ## Pi-side tools (`pi-tools/`)
 
@@ -88,6 +93,15 @@ maintenance); the Pi keeps orders 0–5 on the SD card for KStars' offline HiPS.
   Alerts → "Push to this phone" switches it off. Still to check on the rig: an alert actually
   arriving on the locked phone, and the service surviving a night on battery (Doze, battery
   optimisation); swiping the app away from recents ends the connection and the service.
+- Controls revision (2026-10-25, compiled, unit-tested, installed; menu, pages, one-liners, the
+  header switcher, Back and a PAH direction round trip seen on the rig). Still to see: the focus
+  frame with HFR (after a focus capture or autofocus), the 140 dp guide chart (with guide data), the
+  mount card's STOP while a slew runs, and the polar alignment run itself (Start, Done rotating,
+  Start adjusting, Done, Stop, which drive the mount) with the pinned bar and the menu Stop.
+- Plate solve here can leave Ekos in `ALIGN_PROGRESS` after "Astrometry alignment failed"
+  (2026-10-25, daytime): the card stays pinned as `solving…` and the app has no way to abort it (no
+  align abort on the wire; Ekos' own Stop, or DBus `Align.abort`, clears it). A fork command and a
+  Stop button on the Plate solve page would fix it.
 - Home layout (2026-10-25, compiled and unit-tested, installed, seen on the phone): Night arc, Ekos,
   a compact Rig health card that opens a Rig health sheet, Session, Alerts, Log, maintenance. The
   "Rig" box (mount/cooler line) is folded into the health card. The cooler set point reads N/A until
@@ -127,8 +141,8 @@ maintenance); the Pi keeps orders 0–5 on the SD card for KStars' offline HiPS.
 
 - **Future plan** (`docs/PLAN.md`, draft) has three plans: (1) Home tab and tab layout revision —
   built (M1–M6) and merged into `main`, rig checks above;
-  (2) Controls tab revision — to be planned; (3) Frames tab revision, the Pi file manager — open
-  decisions.
+  (2) Controls tab revision — built (C1–C4) on branch `controls-revision`, rig checks above, merge
+  pending; (3) Frames tab revision, the Pi file manager — open decisions.
 - New sequence blocks start at 300 s × 10, gain 100, offset 50, dither every 2 — could start from
   Ekos's current capture settings instead. `TabPlaceholder` is unused.
 - Warn when a second client takes over the connection.
