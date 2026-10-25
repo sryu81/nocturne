@@ -333,10 +333,32 @@ phone (a little scrolling is accepted). Start / Stop, Loop and Clear calibration
 mount and a star in the guide camera, so they are verified under the sky and listed as not verified
 in `docs/STATUS.md` until then.
 
+## Align page (decided 2026-10-25; not built)
+
+Order, top to bottom:
+
+1. Header `Align ▾` (module switcher) with a button for the existing Align settings sheet. The
+   "Align settings" tile goes away; the sheet stays.
+2. **Plate solve here** button with the Align status line, unchanged.
+3. **Align frame** (new, read-only): the latest align frame (`latestAlignFrame`, already received)
+   under the button, so you see what the solver was given; "no frame yet" until a solve has run.
+   Same pattern as the Focuser page's frame.
+4. **Target accuracy** trend, unchanged (still hidden until the first solve of the connection).
+5. **Rotator** card, unchanged, including the running-sequence warning.
+
+- **Menu one-liner:** align status and last accuracy, e.g. `Complete · 3.2″`, `solving…`, `Failed`;
+  pinned as active while a solve runs. Before the first solve: the status only, or "N/A".
+- **No behaviour change:** same commands and rotator logic; the frame adds no commands.
+
+**Test plan (after building).** Build, unit tests, install; Plate solve here on the connected rig
+(a real exposure, the mount does not move; a daylight solve may fail, which still exercises the
+status line and the frame); the frame appears after a solve; the accuracy trend and the settings
+sheet work; the Rotator switch behaves as today; the menu one-liner and pinning follow the align
+state; portrait fit checked on the phone (a little over one screen is accepted).
+
 ## To be added
 
-The other module pages (Align, Polar alignment) and their menu one-liners; the remembered
-camera/cooler settings.
+The Polar alignment page and its menu one-liner; the remembered camera/cooler settings.
 
 ---
 
