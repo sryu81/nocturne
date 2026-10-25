@@ -1,5 +1,6 @@
 package com.nocturne.ui.controls
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,6 +22,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.runtime.Composable
 import kotlinx.coroutines.delay
 import androidx.compose.runtime.LaunchedEffect
@@ -36,6 +39,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.unit.dp
 import com.nocturne.session.CaptureProgress
+import com.nocturne.session.ControlsModule
 import com.nocturne.session.SessionController
 import com.nocturne.session.SheetType
 import com.nocturne.session.AppState
@@ -88,7 +92,8 @@ private val GUIDE_BIN_OPTIONS = listOf("1x1", "2x2", "3x3", "4x4")
 private const val DEFAULT_BIN = "1x1"
 
 /**
- * Live control and per-module settings for Camera, Focus, Align, Mount, Guide and polar alignment.
+ * The Controls tab: a menu of module pages (Imaging, Setup); each page is full-screen with a header
+ * (back, a switcher to the other modules, the module's settings sheet) over that module's cards.
  * Rig topology (profile, devices, scopes, trains) lives in Gear. Each card gates itself.
  */
 @Composable
@@ -98,128 +103,248 @@ fun ControlsScreen(
     landscape: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    TabPane(
-        landscape = landscape,
-        modifier = modifier,
-        items = buildList {
-            add(TabItem(full = true) { SectionHeader("PRIMARY CAMERA") })
-            add(
-                TabItem(full = true) {
-                    val real = state.wireDevices != null
-                    val cam = state.wireCaptureSettings
-                    val progress = if (real) state.captureProgress(state.primaryTrain.camera, cam?.captureExposureN ?: 2.0) else null
-                    // FilterPosCombo is the Capture module's loaded filter, like exposure/gain/bin.
-                    SnapPanel(
-                        tag = if (cam != null) "${"%.0f".format(cam.captureExposureN)} s · bin ${cam.captureBinHN} · ${cam.FilterPosCombo}" else "main cam",
-                        label = benchSnapLabel(real, state.snappedMain, state.wireCaptureStatus, "★ 1 482 · HFR 2.31 · ADU 1 093"),
-                        // "Preview" matches Ekos's own label for this action (camera.ui previewB).
-                        snapLabel = "Preview Main Cam",
-                        onSnap = ctrl::snapMain,
-                        progress = progress,
-                        onStop = { ctrl.setIndiSwitch(state.primaryTrain.camera, "CCD_ABORT_EXPOSURE", 0) },
-                        pendingNote = if (real) capturePendingNote(state) else null,
-                        onCancelPending = ctrl::cancelPendingCapture,
-                        // Focus frames come from the same camera, so they show here too.
-                        frame = state.latestCaptureFrame ?: state.latestFocusFrame,
-                        // One row; BIN/FILTER get labels so all four boxes line up.
-                        previewControls = cam?.let {
-                            {
-                                val cc = NocturneTheme.colors
-                                val tt = NocturneTheme.type
-                                Row(Modifier.fillMaxWidth()) {
-                                    MiniField("EXP", it.captureExposureN, "s", Modifier.weight(1f), ctrl::setCapturePreviewExposure)
-                                    Spacer(Modifier.width(8.dp))
-                                    GainField(it.captureGainN, state.gainSpecialValue(state.primaryTrain.camera), Modifier.weight(1f), ctrl::setCapturePreviewGain)
-                                    Spacer(Modifier.width(8.dp))
-                                    Column(Modifier.weight(1f)) {
-                                        TextC("BIN", style = tt.MonoMicro, color = cc.textMuted)
-                                        Spacer(Modifier.height(3.dp))
-                                        BinCycleChip(it.captureBinHN, BIN_OPTIONS, labelOf = { "${it}x$it" }, modifier = Modifier.fillMaxWidth()) { ctrl.setCapturePreviewBinning(it) }
-                                    }
-                                    Spacer(Modifier.width(8.dp))
-                                    Column(Modifier.weight(1f)) {
-                                        TextC("FILTER", style = tt.MonoMicro, color = cc.textMuted)
-                                        Spacer(Modifier.height(3.dp))
-                                        val filterNames = state.realFilterNames.orEmpty()
-                                        FilterCycleChip(it.FilterPosCombo, filterNames, modifier = Modifier.fillMaxWidth()) { ctrl.setCameraFilter(it) }
-                                    }
-                                }
-                                ImageSizeLine(state, ctrl::setCaptureFullFrame)
-                            }
-                        },
-                    )
-                },
-            )
-            add(TabItem(full = true) { CoolerCard(state, ctrl) })
-            add(TabItem(full = true) { FocuserCard(state, ctrl) })
-            add(TabItem { FocusSettingsCard(state, ctrl) })
-            // Plate solving is grouped under the primary camera, marked by a sub-label.
-            add(TabItem(full = true) { SectionHeader("PLATE SOLVE", sub = true) })
-            add(TabItem(full = true) { AlignSolveCard(state, ctrl) })
-            add(TabItem(full = true) { AlignAccuracyCard(state) })
-            add(TabItem(full = true) { RotatorControlCard(state, ctrl) })
-            add(TabItem { AlignSettingsCard(state, ctrl) })
+    val module = state.controlsModule
+    // Polar alignment still opens its sheet (it becomes a page in a later step).
+    fun open(m: ControlsModule) {
+        if (m == ControlsModule.POLAR_ALIGNMENT) ctrl.openSheet(SheetType.PA) else ctrl.openControlsModule(m)
+    }
+    BackHandler(enabled = module != null) { ctrl.openControlsModule(null) }
 
-            add(TabItem(full = true) { SectionHeader("MOUNT") })
-            add(TabItem(full = true) { MountControlCard(state, ctrl) })
-            add(TabItem { MountSettingsCard(state, ctrl) })
+    if (module == null) {
+        TabPane(
+            landscape = landscape,
+            modifier = modifier,
+            items = buildList {
+                var group: Boolean? = null
+                ControlsModule.entries.forEach { m ->
+                    if (group != m.setup) {
+                        group = m.setup
+                        add(TabItem(full = true) { GroupLabel(if (m.setup) "SETUP" else "IMAGING") })
+                    }
+                    add(TabItem { ModuleCard(m, summary = menuSummary(state, m), onClick = { open(m) }) })
+                }
+            },
+        )
+        return
+    }
+    Column(modifier.fillMaxSize()) {
+        ModuleHeader(module, settings = module.settingsSheet(), ctrl = ctrl, onSelect = ::open)
+        TabPane(
+            landscape = landscape,
+            modifier = Modifier.weight(1f),
+            items = when (module) {
+                ControlsModule.MOUNT -> mountItems(state, ctrl)
+                ControlsModule.CAMERA -> cameraItems(state, ctrl)
+                ControlsModule.FOCUSER -> focuserItems(state, ctrl)
+                ControlsModule.PLATE_SOLVE -> plateSolveItems(state, ctrl)
+                ControlsModule.GUIDE -> guideItems(state, ctrl)
+                ControlsModule.POLAR_ALIGNMENT -> emptyList()
+            },
+        )
+    }
+}
 
-            add(TabItem(full = true) { SectionHeader("GUIDE") })
-            add(
-                TabItem(full = true) {
-                    val real = state.wireDevices != null
-                    val guide = state.wireGuideSettings
-                    val guideCam = state.guideCameraDevice
-                    val progress = if (real) state.captureProgress(guideCam, guide?.guideExposure ?: 1.0) else null
-                    SnapPanel(
-                        tag = if (guide != null) "${"%.0f".format(guide.guideExposure)} s · bin ${guide.guideBinning.ifBlank { DEFAULT_BIN }}" else "guide cam",
-                        label = benchSnapLabel(real, state.snappedGuide, state.wireGuideStatus, "★ 214 · SNR 18.4"),
-                        snapLabel = "Preview Guide Cam",
-                        onSnap = ctrl::snapGuide,
-                        progress = progress,
-                        onStop = guideCam?.let { cam -> { ctrl.setIndiSwitch(cam, "CCD_ABORT_EXPOSURE", 0) } },
-                        frame = state.latestGuideFrame,
-                        // No filter chip: Guide settings have no FilterPosCombo equivalent.
-                        previewControls = guide?.let {
-                            {
-                                val cc = NocturneTheme.colors
-                                val tt = NocturneTheme.type
-                                Row(Modifier.fillMaxWidth()) {
-                                    MiniField("EXP", it.guideExposure, "s", Modifier.weight(1f), ctrl::setGuidePreviewExposure)
-                                    Spacer(Modifier.width(8.dp))
-                                    GainField(it.guideGain, state.gainSpecialValue(guideCam), Modifier.weight(1f), ctrl::setGuidePreviewGain)
-                                    Spacer(Modifier.width(8.dp))
-                                    Column(Modifier.weight(1f)) {
-                                        TextC("BIN", style = tt.MonoMicro, color = cc.textMuted)
-                                        Spacer(Modifier.height(3.dp))
-                                        BinCycleChip(it.guideBinning.ifBlank { DEFAULT_BIN }, GUIDE_BIN_OPTIONS, labelOf = { it }, modifier = Modifier.fillMaxWidth()) { ctrl.setGuidePreviewBinning(it) }
-                                    }
-                                }
-                            }
-                        },
-                    )
-                },
-            )
-            add(TabItem(full = true) { GuideControlCard(state, ctrl) })
-            add(TabItem { GuideSettingsCard(state, ctrl) })
+/** The settings sheet a module's page header opens; null when the module has none. */
+private fun ControlsModule.settingsSheet(): SheetType? = when (this) {
+    ControlsModule.MOUNT -> SheetType.MOUNT_SETTINGS
+    ControlsModule.FOCUSER -> SheetType.FOCUS_SETTINGS
+    ControlsModule.PLATE_SOLVE -> SheetType.ALIGN_SETTINGS
+    ControlsModule.GUIDE -> SheetType.GUIDE_SETTINGS
+    ControlsModule.CAMERA, ControlsModule.POLAR_ALIGNMENT -> null
+}
 
-            add(TabItem(full = true) { SectionHeader("POLAR ALIGNMENT") })
-            add(TabItem { PaCard(state, ctrl) })
-        },
-    )
+private fun ControlsModule.icon() = when (this) {
+    ControlsModule.MOUNT -> Phosphor.CompassTool
+    ControlsModule.CAMERA -> Phosphor.Camera
+    ControlsModule.FOCUSER -> Phosphor.ArrowsInLineHorizontal
+    ControlsModule.PLATE_SOLVE -> Phosphor.Target
+    ControlsModule.GUIDE -> Phosphor.CrosshairSimple
+    ControlsModule.POLAR_ALIGNMENT -> Phosphor.Crosshair
+}
+
+/** What a menu card says under its name. */
+private fun menuSummary(state: AppState, module: ControlsModule): String? = when (module) {
+    ControlsModule.POLAR_ALIGNMENT -> state.wirePolarStage ?: if (state.polarRunning) "running…" else "not started"
+    else -> null
 }
 
 @Composable
-private fun SectionHeader(text: String, sub: Boolean = false) {
+private fun GroupLabel(text: String) {
+    TextC(text, style = NocturneTheme.type.MicroLabel, color = NocturneTheme.colors.textMuted, modifier = Modifier.padding(top = 4.dp))
+}
+
+@Composable
+private fun ModuleCard(module: ControlsModule, summary: String?, onClick: () -> Unit) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
-    if (sub) {
-        // Sub-label within a section, styled like card headers so it doesn't read as a new section.
-        TextC(text, style = t.MicroLabel, color = c.textMuted, modifier = Modifier.padding(top = 8.dp))
-        return
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(c.surface, RoundedCornerShape(14.dp))
+            .border(1.dp, c.divider, RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+            .padding(12.dp),
+    ) {
+        Phosphor.Icon(module.icon(), size = 20.dp, tint = c.accent400)
+        Spacer(Modifier.height(5.dp))
+        TextC(module.label, style = t.Body135, color = c.text)
+        if (summary != null) TextC(summary, style = t.MonoMicro, color = c.textFaint)
     }
-    TextC(text, style = t.Body135, color = c.text, modifier = Modifier.padding(top = 4.dp))
 }
+
+/**
+ * Back arrow, the module's name as a switcher (a vertical list of every module), and the module's
+ * settings sheet when it has one.
+ */
+@Composable
+private fun ModuleHeader(
+    module: ControlsModule,
+    settings: SheetType?,
+    ctrl: SessionController,
+    onSelect: (ControlsModule) -> Unit,
+) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    var switching by remember { mutableStateOf(false) }
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier.size(44.dp).clickable { ctrl.openControlsModule(null) },
+            contentAlignment = Alignment.Center,
+        ) {
+            Phosphor.Icon(Phosphor.CaretLeft, size = 22.dp, tint = c.text)
+        }
+        Box {
+            Row(
+                Modifier.height(44.dp).clickable { switching = true }.padding(horizontal = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextC(module.label, style = t.Body135, color = c.text)
+                Spacer(Modifier.width(6.dp))
+                Phosphor.Icon(Phosphor.CaretDown, size = 16.dp, tint = c.textMuted)
+            }
+            DropdownMenu(expanded = switching, onDismissRequest = { switching = false }, containerColor = c.surfaceRaised) {
+                ControlsModule.entries.forEach { m ->
+                    DropdownMenuItem(
+                        text = { TextC(m.label, style = t.Body135, color = if (m == module) c.accent400 else c.text) },
+                        onClick = { switching = false; if (m != module) onSelect(m) },
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.weight(1f))
+        if (settings != null) {
+            Box(
+                Modifier.size(44.dp).clickable { ctrl.openSheet(settings) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Phosphor.Icon(Phosphor.SlidersHorizontal, size = 22.dp, tint = c.accent400)
+            }
+        }
+    }
+}
+
+private fun cameraItems(state: AppState, ctrl: SessionController): List<TabItem> = listOf(
+    TabItem(full = true) {
+        val real = state.wireDevices != null
+        val cam = state.wireCaptureSettings
+        val progress = if (real) state.captureProgress(state.primaryTrain.camera, cam?.captureExposureN ?: 2.0) else null
+        // FilterPosCombo is the Capture module's loaded filter, like exposure/gain/bin.
+        SnapPanel(
+            tag = if (cam != null) "${"%.0f".format(cam.captureExposureN)} s · bin ${cam.captureBinHN} · ${cam.FilterPosCombo}" else "main cam",
+            label = benchSnapLabel(real, state.snappedMain, state.wireCaptureStatus, "★ 1 482 · HFR 2.31 · ADU 1 093"),
+            // "Preview" matches Ekos's own label for this action (camera.ui previewB).
+            snapLabel = "Preview Main Cam",
+            onSnap = ctrl::snapMain,
+            progress = progress,
+            onStop = { ctrl.setIndiSwitch(state.primaryTrain.camera, "CCD_ABORT_EXPOSURE", 0) },
+            pendingNote = if (real) capturePendingNote(state) else null,
+            onCancelPending = ctrl::cancelPendingCapture,
+            // Focus frames come from the same camera, so they show here too.
+            frame = state.latestCaptureFrame ?: state.latestFocusFrame,
+            // One row; BIN/FILTER get labels so all four boxes line up.
+            previewControls = cam?.let {
+                {
+                    val cc = NocturneTheme.colors
+                    val tt = NocturneTheme.type
+                    Row(Modifier.fillMaxWidth()) {
+                        MiniField("EXP", it.captureExposureN, "s", Modifier.weight(1f), ctrl::setCapturePreviewExposure)
+                        Spacer(Modifier.width(8.dp))
+                        GainField(it.captureGainN, state.gainSpecialValue(state.primaryTrain.camera), Modifier.weight(1f), ctrl::setCapturePreviewGain)
+                        Spacer(Modifier.width(8.dp))
+                        Column(Modifier.weight(1f)) {
+                            TextC("BIN", style = tt.MonoMicro, color = cc.textMuted)
+                            Spacer(Modifier.height(3.dp))
+                            BinCycleChip(it.captureBinHN, BIN_OPTIONS, labelOf = { "${it}x$it" }, modifier = Modifier.fillMaxWidth()) { ctrl.setCapturePreviewBinning(it) }
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Column(Modifier.weight(1f)) {
+                            TextC("FILTER", style = tt.MonoMicro, color = cc.textMuted)
+                            Spacer(Modifier.height(3.dp))
+                            val filterNames = state.realFilterNames.orEmpty()
+                            FilterCycleChip(it.FilterPosCombo, filterNames, modifier = Modifier.fillMaxWidth()) { ctrl.setCameraFilter(it) }
+                        }
+                    }
+                    ImageSizeLine(state, ctrl::setCaptureFullFrame)
+                }
+            },
+        )
+    },
+    TabItem(full = true) { CoolerCard(state, ctrl) },
+)
+
+private fun focuserItems(state: AppState, ctrl: SessionController): List<TabItem> = listOf(
+    TabItem(full = true) { FocuserCard(state, ctrl) },
+)
+
+private fun plateSolveItems(state: AppState, ctrl: SessionController): List<TabItem> = listOf(
+    TabItem(full = true) { AlignSolveCard(state, ctrl) },
+    TabItem(full = true) { AlignAccuracyCard(state) },
+    TabItem(full = true) { RotatorControlCard(state, ctrl) },
+)
+
+private fun mountItems(state: AppState, ctrl: SessionController): List<TabItem> = listOf(
+    TabItem(full = true) { MountControlCard(state, ctrl) },
+)
+
+private fun guideItems(state: AppState, ctrl: SessionController): List<TabItem> = listOf(
+    TabItem(full = true) {
+        val real = state.wireDevices != null
+        val guide = state.wireGuideSettings
+        val guideCam = state.guideCameraDevice
+        val progress = if (real) state.captureProgress(guideCam, guide?.guideExposure ?: 1.0) else null
+        SnapPanel(
+            tag = if (guide != null) "${"%.0f".format(guide.guideExposure)} s · bin ${guide.guideBinning.ifBlank { DEFAULT_BIN }}" else "guide cam",
+            label = benchSnapLabel(real, state.snappedGuide, state.wireGuideStatus, "★ 214 · SNR 18.4"),
+            snapLabel = "Preview Guide Cam",
+            onSnap = ctrl::snapGuide,
+            progress = progress,
+            onStop = guideCam?.let { cam -> { ctrl.setIndiSwitch(cam, "CCD_ABORT_EXPOSURE", 0) } },
+            frame = state.latestGuideFrame,
+            // No filter chip: Guide settings have no FilterPosCombo equivalent.
+            previewControls = guide?.let {
+                {
+                    val cc = NocturneTheme.colors
+                    val tt = NocturneTheme.type
+                    Row(Modifier.fillMaxWidth()) {
+                        MiniField("EXP", it.guideExposure, "s", Modifier.weight(1f), ctrl::setGuidePreviewExposure)
+                        Spacer(Modifier.width(8.dp))
+                        GainField(it.guideGain, state.gainSpecialValue(guideCam), Modifier.weight(1f), ctrl::setGuidePreviewGain)
+                        Spacer(Modifier.width(8.dp))
+                        Column(Modifier.weight(1f)) {
+                            TextC("BIN", style = tt.MonoMicro, color = cc.textMuted)
+                            Spacer(Modifier.height(3.dp))
+                            BinCycleChip(it.guideBinning.ifBlank { DEFAULT_BIN }, GUIDE_BIN_OPTIONS, labelOf = { it }, modifier = Modifier.fillMaxWidth()) { ctrl.setGuidePreviewBinning(it) }
+                        }
+                    }
+                }
+            },
+        )
+    },
+    TabItem(full = true) { GuideControlCard(state, ctrl) },
+)
 
 /**
  * Capture states in which a requested capture is held before exposing (`ekos.h` captureStates).
@@ -1072,129 +1197,5 @@ private fun RotatorControlCard(state: AppState, ctrl: SessionController) {
                 style = t.Caption, color = c.textFaint,
             )
         }
-    }
-}
-
-/** Opens the Align settings sheet (exposure, gain, filter, binning, solver accuracy). */
-@Composable
-private fun AlignSettingsCard(state: AppState, ctrl: SessionController) {
-    val c = NocturneTheme.colors
-    val t = NocturneTheme.type
-    val a = state.wireAlignSettings
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .background(c.surface, RoundedCornerShape(14.dp))
-            .border(1.dp, c.divider, RoundedCornerShape(14.dp))
-            .clickable { ctrl.openSheet(SheetType.ALIGN_SETTINGS) }
-            .padding(12.dp),
-    ) {
-        Phosphor.Icon(Phosphor.Target, size = 20.dp, tint = c.accent400)
-        Spacer(Modifier.height(5.dp))
-        TextC("Align settings", style = t.Body135, color = c.text)
-        TextC(
-            if (a == null) "loading…" else "${a.alignFilter} · ${a.alignBinning} · ${"%.0f".format(a.alignExposure)}s",
-            style = t.MonoMicro, color = c.textFaint,
-        )
-    }
-}
-
-/** Opens the Guide settings sheet (accuracy threshold, dither, reuse calibration). */
-@Composable
-private fun GuideSettingsCard(state: AppState, ctrl: SessionController) {
-    val c = NocturneTheme.colors
-    val t = NocturneTheme.type
-    val g = state.wireGuideSettings
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .background(c.surface, RoundedCornerShape(14.dp))
-            .border(1.dp, c.divider, RoundedCornerShape(14.dp))
-            .clickable { ctrl.openSheet(SheetType.GUIDE_SETTINGS) }
-            .padding(12.dp),
-    ) {
-        Phosphor.Icon(Phosphor.CrosshairSimple, size = 20.dp, tint = c.accent400)
-        Spacer(Modifier.height(5.dp))
-        TextC("Guide settings", style = t.Body135, color = c.text)
-        TextC(
-            if (g == null) "loading…" else "±${"%.0f".format(g.guiderAccuracyThreshold)}\" · ${if (g.kcfg_DitherEnabled) "dither on" else "dither off"}",
-            style = t.MonoMicro, color = c.textFaint,
-        )
-    }
-}
-
-/** Opens the Focus settings sheet (exposure, gain, filter, backlash, autofocus algorithm). */
-@Composable
-private fun FocusSettingsCard(state: AppState, ctrl: SessionController) {
-    val c = NocturneTheme.colors
-    val t = NocturneTheme.type
-    val f = state.wireFocusSettings
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .background(c.surface, RoundedCornerShape(14.dp))
-            .border(1.dp, c.divider, RoundedCornerShape(14.dp))
-            .clickable { ctrl.openSheet(SheetType.FOCUS_SETTINGS) }
-            .padding(12.dp),
-    ) {
-        Phosphor.Icon(Phosphor.ArrowsInLineHorizontal, size = 20.dp, tint = c.accent400)
-        Spacer(Modifier.height(5.dp))
-        TextC("Focus settings", style = t.Body135, color = c.text)
-        TextC(
-            if (f == null) "loading…" else "${f.focusFilter} · ${f.focusAlgorithm}",
-            style = t.MonoMicro, color = c.textFaint,
-        )
-    }
-}
-
-/** Opens the Mount settings sheet (meridian flip, limits, auto-park). */
-@Composable
-private fun MountSettingsCard(state: AppState, ctrl: SessionController) {
-    val c = NocturneTheme.colors
-    val t = NocturneTheme.type
-    val m = state.wireMountSettings
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .background(c.surface, RoundedCornerShape(14.dp))
-            .border(1.dp, c.divider, RoundedCornerShape(14.dp))
-            .clickable { ctrl.openSheet(SheetType.MOUNT_SETTINGS) }
-            .padding(12.dp),
-    ) {
-        Phosphor.Icon(Phosphor.CompassTool, size = 20.dp, tint = c.accent400)
-        Spacer(Modifier.height(5.dp))
-        TextC("Mount settings", style = t.Body135, color = c.text)
-        TextC(
-            if (m == null) "loading…" else {
-                val flip = if (m.executeMeridianFlip) "flip on" else "flip off"
-                val limits = if (m.enableAltitudeLimits || m.enableHaLimit) "limits on" else "no limits"
-                "$flip · $limits"
-            },
-            style = t.MonoMicro, color = c.textFaint,
-        )
-    }
-}
-
-
-/** Opens the polar alignment sheet; shows Ekos's current polar-align stage. */
-@Composable
-private fun PaCard(state: AppState, ctrl: SessionController) {
-    val c = NocturneTheme.colors
-    val t = NocturneTheme.type
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .background(c.surface, RoundedCornerShape(14.dp))
-            .border(1.dp, c.divider, RoundedCornerShape(14.dp))
-            .clickable { ctrl.openSheet(SheetType.PA) }
-            .padding(12.dp),
-    ) {
-        Phosphor.Icon(Phosphor.Target, size = 20.dp, tint = c.accent400)
-        Spacer(Modifier.height(5.dp))
-        TextC("Polar align", style = t.Body135, color = c.text)
-        TextC(
-            state.wirePolarStage ?: if (state.polarRunning) "running…" else "not started",
-            style = t.MonoMicro, color = if (state.polarRunning) c.warn else c.textFaint,
-        )
     }
 }

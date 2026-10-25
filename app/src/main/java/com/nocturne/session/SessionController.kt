@@ -23,6 +23,8 @@ interface SessionController {
     /** The full-screen Log on top of the current tab; see [AppState.logOpen]. */
     fun openLog()
     fun closeLog()
+    /** Opens a module page on the Controls tab; null returns to the module menu. */
+    fun openControlsModule(module: ControlsModule?)
     fun expandFrame(id: String)
     fun closeFrameExpand()
     /** Frames tab top-level nav; null returns to the Preview/Plan picker. */

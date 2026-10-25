@@ -3,6 +3,7 @@ package com.nocturne.ui.session
 import android.Manifest
 import android.content.pm.PackageManager
 import android.location.LocationManager
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
@@ -142,6 +143,8 @@ private fun alertStyle(a: com.nocturne.session.Alert): AlertStyle = when (a.seve
 @Composable
 fun SheetHost(state: AppState, ctrl: SessionController, landscape: Boolean) {
     val sheet = state.sheet ?: return
+    // Back closes the sheet, not the screen behind it.
+    BackHandler(onBack = ctrl::closeSheet)
     val full = sheet == SheetType.PA || sheet == SheetType.SETUP
     val (title, meta) = when (sheet) {
         SheetType.GUIDE -> "Guiding" to "RMS, drift + live frame"

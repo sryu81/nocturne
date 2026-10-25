@@ -48,6 +48,7 @@ abstract class AbstractLocalSessionController : SessionController {
     override open fun setPushNotifications(enabled: Boolean) = update { it.copy(pushNotificationsEnabled = enabled) }
     override fun openLog() = update { it.copy(logOpen = true) }
     override fun closeLog() = update { it.copy(logOpen = false) }
+    override fun openControlsModule(module: ControlsModule?) = update { it.copy(controlsModule = module) }
     override fun expandFrame(id: String) = update { it.copy(expandedFrameId = id) }
     override fun closeFrameExpand() = update { it.copy(expandedFrameId = null) }
     // Changing category also clears the drilled-into target so the picker never keeps a stale one.

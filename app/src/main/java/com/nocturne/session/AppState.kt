@@ -38,6 +38,19 @@ enum class SheetType {
 }
 
 /**
+ * The pages of the Controls tab, in menu order (the night's order; docs/PLAN.md plan 2). [setup]
+ * marks the Setup group; the rest are Imaging.
+ */
+enum class ControlsModule(val label: String, val setup: Boolean = false) {
+    MOUNT("Mount"),
+    CAMERA("Camera"),
+    FOCUSER("Focuser"),
+    PLATE_SOLVE("Plate solve"),
+    GUIDE("Guide"),
+    POLAR_ALIGNMENT("Polar alignment", setup = true),
+}
+
+/**
  * Progress of a [SessionController.rebootRig]/[SessionController.shutdownRig] request. Both go
  * over a separate HTTP daemon (`pi-tools/reboot-daemon/`); the EkosRemote wire has no OS-level
  * reboot or power-off command.
@@ -368,6 +381,8 @@ data class AppState(
     val schedulerStatus: Int? = null,
     /** The full-screen Log (opened from Home). */
     val logOpen: Boolean = false,
+    /** The module page open on the Controls tab; null shows the module menu. */
+    val controlsModule: ControlsModule? = null,
     /**
      * When each module's status last changed, wall-clock ms, keyed by the status row's label
      * ("Sched", "Mount", "Cam", "Focus", "Guide", "Align"); see [stampModuleChanges]. Lets Home

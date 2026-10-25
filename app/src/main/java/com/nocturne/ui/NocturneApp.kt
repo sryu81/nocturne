@@ -194,6 +194,9 @@ private fun NocturneShell(
     val landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
     fun navigate(tab: NocturneTab) {
+        // Controls reopens on its menu, not on the module page left open; tapping its tab again
+        // while on a module page also returns to the menu.
+        if (tab != NocturneTab.Controls || currentTab == NocturneTab.Controls) ctrl.openControlsModule(null)
         navController.navigate(tab.route) {
             popUpTo(navController.graph.startDestinationId) { saveState = true }
             launchSingleTop = true
