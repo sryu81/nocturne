@@ -42,7 +42,7 @@ Rollback builds: `~/cc/deb/kstars-custom_3.8.3_arm64.deb.prev-2026-07-27`, `.pre
 
 1. **Per-line log push** — each module's `log` field resends the whole history on every line;
    push one line at a time (`{module, time, level, text}`) plus a `get_logs` snapshot, and forward
-   the Ekos main log, the Mount log and INDI driver messages. See `docs/STATUS-AND-LOGS-PLAN.md`.
+   the Ekos main log, the Mount log and INDI driver messages. See `docs/PLAN.md`.
 2. **Preview size** — captures reach the app at 1920 px, focus/align/guide frames at 960 px with
    fast scaling (`media.cpp`). Raise the cap (e.g. 3112 px / smooth scaling) or let the client
    choose.

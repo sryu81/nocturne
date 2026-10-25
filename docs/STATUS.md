@@ -63,9 +63,11 @@ maintenance); the Pi keeps orders 0–5 on the SD card for KStars' offline HiPS.
 
 ## Open — app
 
-- **Rig status and logs** — plan in `docs/STATUS-AND-LOGS-PLAN.md` (rig health chain, merged log
-  screen stored on the phone, Android notifications). Still being discussed.
-- **Tab layout** — to be discussed (decides where the log screen lives).
+- **Future plan** (`docs/PLAN.md`, draft, still being discussed): rig status and logs (rig
+  health chain, merged log screen stored on the phone, Android notifications); Frames tab as a
+  file manager for the Pi's SD card and USB drives (browse, FITS previews, copy/move/delete on the
+  Pi).
+- **Tab layout** — to be discussed (decides where the log screen and file manager live).
 - New sequence blocks start at 300 s × 10, gain 100, offset 50, dither every 2 — could start from
   Ekos's current capture settings instead. `TabPlaceholder` is unused.
 - Warn when a second client takes over the connection.

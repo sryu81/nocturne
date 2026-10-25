@@ -52,7 +52,7 @@ Put the phone on the rig's network. The connect screen lists rigs it hears (UDP 
 | `docs/STATUS.md` | What works, what's unverified, what's open |
 | `docs/PROTOCOL.md` | EkosRemote wire protocol as the app uses it |
 | `docs/FORK.md` | The KStars fork: changes, build/deploy, backlog |
-| `docs/STATUS-AND-LOGS-PLAN.md` | Draft plan: rig status and logs in the app |
+| `docs/PLAN.md` | Draft future plan: rig status and logs, rig file manager, tab layout |
 | `docs/emulator-troubleshooting.md` | Emulator gotchas |
 | `pi-tools/*/README.md` | Pi-side tools |
 

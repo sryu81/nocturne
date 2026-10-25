@@ -76,7 +76,7 @@ Each binary frame is a 512-byte null-padded JSON header followed by JPEG bytes.
 null and is merged into state, never replaced wholesale, or one shape wipes another.
 
 Each module's `log` field carries the module's **entire** log text on every new line (never
-trimmed) — see `docs/STATUS-AND-LOGS-PLAN.md`.
+trimmed) — see `docs/PLAN.md`.
 
 ## Commands the app sends
 
