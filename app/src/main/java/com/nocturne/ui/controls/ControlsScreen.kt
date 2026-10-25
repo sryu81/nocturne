@@ -39,6 +39,7 @@ import com.nocturne.session.AppState
 import com.nocturne.session.primaryImageSize
 import com.nocturne.session.benchFocPos
 import com.nocturne.session.captureProgress
+import com.nocturne.session.coolerIsOn
 import com.nocturne.session.focRange
 import com.nocturne.session.guideCameraDevice
 import com.nocturne.session.indiSwitchElements
@@ -484,7 +485,7 @@ private fun CoolerCard(state: AppState, ctrl: SessionController) {
     val target = state.coolTarget
     val atSet = if (liveTemp != null && target != null) abs(liveTemp - target) < 0.5 else null
     // CCD_COOLER / fan switches; null = property not seen yet.
-    val coolerOn = if (cameraConnected) state.indiSwitchElement(camera, "CCD_COOLER")?.let { it == "COOLER_ON" } else null
+    val coolerOn = if (cameraConnected) state.coolerIsOn(camera) else null
     val fanElements = if (cameraConnected) state.indiSwitchElements(camera, CAMERA_FAN_PROP) else emptyList()
     val fanNow = if (cameraConnected) state.indiSwitchElement(camera, CAMERA_FAN_PROP) else null
     val enforce = state.wireCaptureSettings?.cameraTemperatureS

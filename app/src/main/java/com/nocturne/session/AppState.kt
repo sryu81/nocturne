@@ -146,6 +146,12 @@ data class AppState(
     val deviceOrigin: SheetType? = null,
     val focPos: Int? = null,
     val coolTarget: Double? = null,
+    /**
+     * The cooler switch as the user last set it, null until they do (and again after Ekos
+     * restarts). Some cameras (ToupTek) expose no readable `CCD_COOLER`, so the reading goes stale
+     * the moment it is written; see [coolerIsOn].
+     */
+    val coolerCommandedOn: Boolean? = null,
     val coolNow: Double? = null,
     val snappedMain: Boolean = false,
     val snappedGuide: Boolean = false,
@@ -859,6 +865,18 @@ fun AppState.indiNumber(deviceName: String, propName: String): Double? {
 fun AppState.indiSwitchElement(deviceName: String, propName: String): String? {
     val prop = indiProps[deviceName]?.firstOrNull { it.name == propName } as? IndiProperty.SwitchProp ?: return null
     return prop.elementNames.getOrNull(prop.selected)
+}
+
+/**
+ * Whether [camera]'s cooler is on. Cooling power is the evidence that can't be stale; failing
+ * that, what the user last commanded; failing that, the `CCD_COOLER` reading from when the camera
+ * was fetched (a write-only property on ToupTek, so it never updates).
+ */
+fun AppState.coolerIsOn(camera: String): Boolean? {
+    val power = indiNumber(camera, "CCD_COOLER_POWER")
+    if (power != null && power > 1.0) return true
+    coolerCommandedOn?.let { return it }
+    return indiSwitchElement(camera, "CCD_COOLER")?.let { it == "COOLER_ON" }
 }
 
 /** A switch property's element names (all choices), empty if unknown. */

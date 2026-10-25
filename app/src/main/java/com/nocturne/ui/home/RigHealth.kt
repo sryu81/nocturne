@@ -30,7 +30,7 @@ import com.nocturne.session.AppState
 import com.nocturne.session.MODULE_STATUS_LABELS
 import com.nocturne.session.SessionController
 import com.nocturne.session.SheetType
-import com.nocturne.session.indiSwitchElement
+import com.nocturne.session.coolerIsOn
 import com.nocturne.session.isOn
 import com.nocturne.session.mountParkedReal
 import com.nocturne.session.mountTrackingOn
@@ -161,7 +161,7 @@ internal fun RigHealthSummaryCard(state: AppState, ctrl: SessionController) {
     ).joinToString(" · ")
     val camera = state.primaryTrain.camera
     val cameraConnected = state.wireDevices?.any { it.name == camera && it.connected } == true
-    val cooler = if (cameraConnected) state.indiSwitchElement(camera, "CCD_COOLER")?.let { if (it == "COOLER_ON") "cooler on" else "cooler off" } else null
+    val cooler = if (cameraConnected) state.coolerIsOn(camera)?.let { if (it) "cooler on" else "cooler off" } else null
     val mount = when {
         !state.isOn("mount") -> null
         state.mountParkedReal -> "mount parked"

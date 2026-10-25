@@ -64,6 +64,15 @@ maintenance); the Pi keeps orders 0–5 on the SD card for KStars' offline HiPS.
   device list only once, before the wheel existed; fixed by probing with `get_profiles`, not
   `get_connection`); the module log pushes (Capture/Focus/Guide/Align/Scheduler) now decode as
   state events with a `log`; the Log fills while connected and survives an app restart.
+- Cooler/fan/sensor wrong after Ekos starts (2026-10-25): a client is pushed updates only for the
+  properties that existed when it subscribed, and the camera defines its cooler, fan and
+  temperature after that, so those readings stayed N/A or stale; and ToupTek exposes no readable
+  `CCD_COOLER`, so the label froze and every press re-sent OFF. App: the cooler state is what the
+  user last commanded (cooling power overrides it), and the camera is re-read 1.5 s after any
+  cooler or fan write; verified on the rig (Cooler pressed ON: label, power 79%, sensor followed).
+  Fork (commit pending, build running, not yet deployed): a whole-device subscription now stays
+  whole, so later properties are pushed too. Until it is deployed, reconnecting the app re-reads
+  everything.
 - M6 phone notifications (compiled, unit-tested, installed; not seen delivering an alert): a
   foreground service (`monitor/RigMonitorService`, type specialUse, persistent "Nocturne is watching
   the rig" notification) keeps the connection alive with the screen off, with a CPU and a Wi-Fi lock;

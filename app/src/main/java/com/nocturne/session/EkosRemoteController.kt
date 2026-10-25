@@ -300,6 +300,8 @@ class EkosRemoteController(
         is EkosEvent.NewConnectionState -> s.copy(
             ekosRunning = event.online,
             activeProfile = if (event.online) s.selectedProfile else null,
+            // Ekos restarting reconnects the camera, whose cooler comes up in its own default.
+            coolerCommandedOn = if (event.online == s.ekosRunning) s.coolerCommandedOn else null,
         )
         is EkosEvent.NewCaptureState -> s.copy(wireCaptureStatus = event.status ?: s.wireCaptureStatus)
         // Merge non-null fields: the frequent coordinate-shaped push carries none of these and
@@ -962,11 +964,32 @@ class EkosRemoteController(
         super.setTemperatureEnforced(enabled)
     }
 
-    override fun setCoolerEnabled(enabled: Boolean) =
-        sendSwitchElement(_state.value.primaryTrain.camera, "CCD_COOLER", if (enabled) "COOLER_ON" else "COOLER_OFF")
+    override fun setCoolerEnabled(enabled: Boolean) {
+        val camera = _state.value.primaryTrain.camera
+        _state.update { it.copy(coolerCommandedOn = enabled) }
+        log?.record("App", "Cooler ${if (enabled) "on" else "off"} requested for $camera")
+        sendSwitchElement(camera, "CCD_COOLER", if (enabled) "COOLER_ON" else "COOLER_OFF")
+        refreshDeviceSoon(camera)
+    }
 
-    override fun setCameraFan(element: String) =
-        sendSwitchElement(_state.value.primaryTrain.camera, CAMERA_FAN_PROP, element)
+    override fun setCameraFan(element: String) {
+        val camera = _state.value.primaryTrain.camera
+        sendSwitchElement(camera, CAMERA_FAN_PROP, element)
+        refreshDeviceSoon(camera)
+    }
+
+    /**
+     * Re-reads [device]'s properties a moment after writing one. A client is pushed updates only for
+     * the properties that existed when it subscribed, and a camera defines its cooler, fan and
+     * temperature later, so the fan and sensor readings would otherwise stay as they were.
+     */
+    private fun refreshDeviceSoon(device: String) {
+        if (device.isBlank() || device == "None") return
+        scope.launch {
+            delay(DEVICE_REFRESH_DELAY_MS)
+            client.sendCommand(Commands.DEVICE_GET, buildJsonObject { put("device", device) })
+        }
+    }
 
     override fun cancelPendingCapture() {
         client.sendCommand(Commands.CAPTURE_STOP)
@@ -2599,6 +2622,7 @@ private const val RECENT_GOTO_MS = 5_000L
 private const val PREFERRED_PIER_SIDE = "Preferred Pier Side"
 private const val PIER_SIDE_EAST = "2" // lx200_OnStep.cpp: "1" West, "2" East, "3" Best
 private const val SETTINGS_REFRESH_DELAY_MS = 1_500L
+private const val DEVICE_REFRESH_DELAY_MS = 1_500L
 private const val DEFAULT_BINNING = "1x1"
 private const val PIER_SIDE_RESEND_MS = 10_000L
 
