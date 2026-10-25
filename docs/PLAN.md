@@ -226,10 +226,38 @@ the Log screen opened from Home (a page with a back arrow, not a sheet).
 - **Back** returns to the menu, even after jumping between modules.
 - **Tab re-entry** opens the menu, not the last module page, because the menu shows what is active.
 
+## Camera page (decided 2026-10-25; not built)
+
+Order, top to bottom:
+
+1. Header `Camera ▾` (module switcher) with a button for the existing Camera settings sheet.
+2. **Preview card**, unchanged: frame, status, EXP / gain / BIN / FILTER, image size line with "Set
+   full frame", Preview / Stop / Cancel.
+3. **Cooler card**, unchanged: sensor temperature, set point and Set, Cooler and Fan buttons,
+   Enforce temperature.
+
+The preview stays first (it is used more often than the cooler once cooling runs).
+
+- **Menu one-liner:** sensor temperature, cooler power, loaded exposure and bin, e.g.
+  `−5.0 °C · 79% · 300 s · bin 1`; with the cooler off, `cooler off · 12.3 °C`. Unknown values show
+  "N/A".
+- **Scope:** only the preview and the cooler. Focuser, plate solve, align accuracy and rotator leave
+  the camera section for their own pages (Focuser; Align).
+- **No behaviour change.** The existing `SnapPanel` and `CoolerCard` are reused as they are, with
+  the same commands; only the container, the menu, the module state and the header switcher are new.
+  Landscape keeps the same grid.
+- **Not in this step:** remembering camera and cooler settings on the phone (it changes behaviour;
+  later).
+
+**Test plan (run after building):** build, unit tests, install; screenshots in the phone's current
+orientation (rotation is never changed); on the connected rig, Preview Main Cam shows a frame, and
+EXP, gain, BIN and FILTER changes reach Ekos; Cooler ON/OFF, Fan, Set and the sensor readout work;
+Back, the header switcher and tab re-entry behave as decided; portrait fits about one screen.
+
 ## To be added
 
-Per-page contents and behaviour (what sits on each module page and in what order), the remembered
-camera/cooler settings, and the menu's one-line summaries.
+The other module pages (Focuser, Mount, Guide, Align, Polar alignment) and the menu one-liners for
+them; the remembered camera/cooler settings.
 
 ---
 
