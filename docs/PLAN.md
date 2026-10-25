@@ -193,7 +193,7 @@ Stop Ekos stays locked until every device reports disconnected. App only, no for
 Layout decided, page contents still to be planned. Inputs so far:
 
 - Controls is one very long scroll (about 7,000 px in portrait): Primary camera, Cooler, Focuser,
-  Plate solve, Align accuracy, Rotator, Align settings, Mount, Guide, Polar alignment.
+  Plate solve, Align accuracy, Rotator, Align settings, Mount, Guide, Polar alignment (the section names today).
 - Collapsible sections and a pinned active module were the first ideas; both are replaced by the
   menu and module pages below (the active module is pinned in the menu).
 - Idea: remember the last cooler set point, cooler/fan state and exposure/gain/bin on the phone (the
@@ -214,8 +214,10 @@ the Log screen opened from Home (a page with a back arrow, not a sheet).
   `Guiding · 0.6″`. Unknown values show "N/A", as everywhere else.
 - **Pinned active module.** The module doing something (Guide while guiding, Focuser while focusing,
   and so on) is pinned to the top of the menu and highlighted.
-- **Module pages:** Camera (with cooler), Focuser, Mount, Guide, Align (plate solve, align accuracy,
-  rotator, align settings) and Polar alignment. Each page is full-screen, never a sheet.
+- **Module pages:** an **Imaging** group (Camera with cooler, Focuser, Guide, Plate solve, Mount) and
+  a **Setup** group (Polar alignment). Each page is full-screen, never a sheet. "Plate solve" is the
+  old Align section (solve, accuracy, rotator); polar alignment is one-time setup and a different
+  job, so it has its own entry despite Ekos filing both under Align.
 - **Settings stay sheets.** Each module keeps its settings sheet (Mount, Camera, Align, Guide,
   Focus), opened from the module's page. Only the main page of a module is not a sheet.
 - **Header switcher.** Each page's title is a switcher, e.g. `Focuser ▾`; tapping it opens a short
@@ -242,7 +244,7 @@ The preview stays first (it is used more often than the cooler once cooling runs
   `−5.0 °C · 79% · 300 s · bin 1`; with the cooler off, `cooler off · 12.3 °C`. Unknown values show
   "N/A".
 - **Scope:** only the preview and the cooler. Focuser, plate solve, align accuracy and rotator leave
-  the camera section for their own pages (Focuser; Align).
+  the camera section for their own pages (Focuser; Plate solve).
 - **No behaviour change.** The existing `SnapPanel` and `CoolerCard` are reused as they are, with
   the same commands; only the container, the menu, the module state and the header switcher are new.
   Landscape keeps the same grid.
@@ -333,11 +335,11 @@ phone (a little scrolling is accepted). Start / Stop, Loop and Clear calibration
 mount and a star in the guide camera, so they are verified under the sky and listed as not verified
 in `docs/STATUS.md` until then.
 
-## Align page (decided 2026-10-25; not built)
+## Plate solve page (decided 2026-10-25; not built)
 
 Order, top to bottom:
 
-1. Header `Align ▾` (module switcher) with a button for the existing Align settings sheet. The
+1. Header `Plate solve ▾` (module switcher) with a button for the existing Align settings sheet. The
    "Align settings" tile goes away; the sheet stays.
 2. **Plate solve here** button with the Align status line, unchanged.
 3. **Align frame** (new, read-only): the latest align frame (`latestAlignFrame`, already received)
@@ -356,9 +358,48 @@ status line and the frame); the frame appears after a solve; the accuracy trend 
 sheet work; the Rotator switch behaves as today; the menu one-liner and pinning follow the align
 state; portrait fit checked on the phone (a little over one screen is accepted).
 
+## Polar alignment page (decided 2026-10-25; not built)
+
+Polar alignment is initial setup, plate solving is imaging work: different jobs that Ekos files
+under one Align module. Here they are separate. Polar alignment is the only entry of the **Setup**
+group in the Controls menu and opens as a full-screen drill-down, not a sheet (today it is the
+full-height `PaRealSheet` behind a tile). The switcher list shows both groups, so any module is one
+tap away; Back returns to the menu.
+
+Content, the same as the sheet and in its order, with the same stage logic and commands:
+
+1. Header `Polar alignment ▾`.
+2. Stage title and the 3-step bar while measuring; Ekos' prompt message.
+3. The align frame: pinch-zoom, double-tap reset, tap to pick a star (Ekos paints the correction
+   triangle on it).
+4. Total / az / alt error.
+5. Settings (direction, rotation, mount speed, manual slew, refresh exposure and method), shown only
+   while idle or at Select Star, as on the desktop.
+6. The warning that PAH drives the mount by itself.
+7. **Sticky action bar** (new): the primary action (Start, Done rotating, Start adjusting, Done) and
+   Stop pinned at the bottom of the page so they never scroll away. Same buttons, same rules as
+   the sheet's. Built only if it fits the page container cleanly.
+
+- **While it runs:** its menu card is pinned to the top in the warning colour with a **Stop** button
+  (the same `polar_stop`) and the stage as its one-liner; no auto-stop on leaving the page, as with
+  Mount.
+- **Menu one-liner:** stage and error, e.g. `measuring · image 2 of 3`, `refreshing · total 0.12°`,
+  `not started`.
+- **Pure move:** no logic change. `PaRealSheet` and `PaImage` (in `Sheets.kt`) become reusable by the
+  page; the "Polar align" tile and `SheetType.PA` go once the page works. This is the riskiest move:
+  PAH drives the mount and its full run is not yet verified under the sky.
+
+**Test plan (after building).** Build, unit tests, install. Without moving the mount: the page opens
+from the Setup entry, the stage text and settings load, the settings chips write to Ekos, the frame
+shows with pinch-zoom and reset, the sticky bar shows the right buttons per stage, the menu
+one-liner and pinning follow the stage. Start, Done rotating, Start adjusting, Done and Stop move
+the mount: only under the sky with the user's go-ahead, listed as not verified in `docs/STATUS.md`
+until then.
+
 ## To be added
 
-The Polar alignment page and its menu one-liner; the remembered camera/cooler settings.
+The remembered camera/cooler settings; the order of the modules in the menu; the build plan
+(milestones) for the Controls revision.
 
 ---
 
