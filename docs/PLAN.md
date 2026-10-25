@@ -5,7 +5,7 @@
 | # | Plan | State |
 |---|---|---|
 | 1 | Home tab and tab layout revision | M1–M6 built, installed and merged into `main` (2026-10-25); rig checks left, listed in `docs/STATUS.md` |
-| 2 | Controls tab revision | to be planned |
+| 2 | Controls tab revision | layout decided (menu + module pages); page contents still to be planned |
 | 3 | Frames tab revision | proposal written, open decisions below |
 
 The three are independent: plan 1 only reorders the tabs and moves the old Session content;
@@ -190,13 +190,12 @@ Stop Ekos stays locked until every device reports disconnected. App only, no for
 
 # 2. Controls tab revision
 
-To be planned. Inputs so far:
+Layout decided, page contents still to be planned. Inputs so far:
 
 - Controls is one very long scroll (about 7,000 px in portrait): Primary camera, Cooler, Focuser,
   Plate solve, Align accuracy, Rotator, Align settings, Mount, Guide, Polar alignment.
-- Idea: collapsible per-module sections, remembering which are open. No horizontal tab bar (the
-  landscape rule: vertical rail only), so any jump list must be vertical.
-- Idea: pin the active module (Guide while guiding, Focuser while focusing) to the top.
+- Collapsible sections and a pinned active module were the first ideas; both are replaced by the
+  menu and module pages below (the active module is pinned in the menu).
 - Idea: remember the last cooler set point, cooler/fan state and exposure/gain/bin on the phone (the
   app keeps none of them today; it re-reads Ekos at connect, and the camera forgets its cooler on a
   restart). Re-sending the cooler settings would need a confirm, since it changes the rig.
@@ -205,9 +204,32 @@ To be planned. Inputs so far:
 - The 2026-10-24 screenshot fixes already covered the smaller Controls defects (EXP box following
   Ekos, blank bin chip, cooler state); see `docs/STATUS.md`.
 
+## Layout (decided in discussion 2026-10-25; not built)
+
+The long scroll is replaced by a menu and one full-screen page per module, the same drill-down as
+the Log screen opened from Home (a page with a back arrow, not a sheet).
+
+- **Controls tab = module menu.** One compact card per module with a live one-line summary, e.g.
+  Camera `−5 °C · 79% · 300 s`, Focuser `12 450 · HFR 2.1`, Mount `Tracking · HA +1:20`, Guide
+  `Guiding · 0.6″`. Unknown values show "N/A", as everywhere else.
+- **Pinned active module.** The module doing something (Guide while guiding, Focuser while focusing,
+  and so on) is pinned to the top of the menu and highlighted.
+- **Module pages:** Camera (with cooler), Focuser, Mount, Guide, Align (plate solve, align accuracy,
+  rotator, align settings) and Polar alignment. Each page is full-screen, never a sheet.
+- **Settings stay sheets.** Each module keeps its settings sheet (Mount, Camera, Align, Guide,
+  Focus), opened from the module's page. Only the main page of a module is not a sheet.
+- **Header switcher.** Each page's title is a switcher, e.g. `Focuser ▾`; tapping it opens a short
+  vertical list of the modules with their one-liners and the active one marked, so you jump straight
+  to another module without going back to the menu. The list is vertical to respect the landscape
+  rule (vertical rail only). No swipe between pages (it would clash with sliders, charts and PAH
+  pinch-zoom) and no prev/next arrows (modules have no natural sequence).
+- **Back** returns to the menu, even after jumping between modules.
+- **Tab re-entry** opens the menu, not the last module page, because the menu shows what is active.
+
 ## To be added
 
-(Contents, order and per-section behaviour from upcoming discussions.)
+Per-page contents and behaviour (what sits on each module page and in what order), the remembered
+camera/cooler settings, and the menu's one-line summaries.
 
 ---
 
