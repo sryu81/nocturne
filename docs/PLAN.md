@@ -7,6 +7,7 @@
 | 1 | Home tab: rig overview, status and logs | decided layout, open decisions below |
 | 2 | Frames tab → file manager for the Pi | proposal written, open decisions below |
 | 3 | Tab layout | decided in discussion, not built; Home tab, Session merged into Sequence |
+| 4 | Milestones for 1 and 3 | proposed, to be confirmed |
 
 ---
 
@@ -204,3 +205,37 @@ Home after connecting (today it opens on Session).
   designed separately (no horizontal tabs, to respect the landscape rule).
 - Controls and Sequence end up two tabs apart; if jumping between them at night is awkward, add a
   shortcut from the Sequence progress card to Controls.
+
+---
+
+# 4. Milestones for sections 1 and 3
+
+Sections 1 and 3 are built together because Home is both: the tab-layout change creates the page
+that the status and log work fills. Ordered so each milestone is usable on its own and the
+fork-dependent work comes last. Every milestone ends compiled, unit-tested and installed on the
+phone; "rig check" items are verified on the rig and noted in `docs/STATUS.md` until then.
+
+| # | Milestone | Needs | Done when |
+|---|---|---|---|
+| M1 | **Tab shell** | app only | Order is Home \| Gear \| Controls \| Plan \| Sequence \| Frames and the app opens on Home. Sequence shows the running job's progress card (preview, stats, flip banner, End session) above the queue. Notification taps and "Back to session" go to Sequence/Home. The old Session tab is gone. |
+| M2 | **Home with today's data** | app only | Home shows the Ekos card (start/stop, profile, "Ekos not running → Start" with Ekos down), the session one-liner, night arc and sky site, alert count with the latest lines, and rig maintenance (reboot, shut down, time and GPS sync). Gear has only profile editing, devices, scopes and trains. |
+| M3 | **Rig health** | app + daemon | Home shows the connection chain (Wi-Fi, beacon, EkosRemote, media, daemon) with per-module state and "last change" times. The daemon's `/health` is extended with CPU temperature, throttling, SD/USB free space, uptime and clock; reinstalled on the Pi. |
+| M4 | **Log, phone-side** | app only | Per-module log pushes (full history each time) are diffed to new lines only; with alerts and connection events they go into a Room-backed, timestamped store. Home shows the latest lines; the full Log screen has module filters, warnings-only, search, pause/follow, copy/share. Retention per the open decision. |
+| M5 | **Fork: per-line logs** | fork build + rig deploy | One-line-at-a-time log push, a `get_logs` snapshot on connect, and the Ekos main log, Mount module log and INDI driver messages with levels. The app prefers the new push and falls back to M4's diffing on the old fork. |
+| M6 | **Notifications** | app + foreground service | Alerts and errors (flip failed, slew stuck, guiding lost, undervoltage, disk low) reach the phone while it is in a pocket. Only if approved in the open decisions. |
+| M7 | **Controls sections** | app only | Collapsible per-module sections on Controls (no horizontal tabs). Designed separately; listed here because the new order makes Controls the second most-used tab. |
+
+## Order and dependencies
+
+- M1 → M2 → M3 are sequential: each fills the page the previous one created. M4 can start once M2
+  exists; it doesn't wait for M3.
+- M5 is the only milestone that needs a fork build (about 15 minutes) and a KStars restart on the
+  Pi, so it waits for an idle rig and your go-ahead. M1–M4 and M7 touch the phone and the daemon
+  only.
+- M6 depends on the notification decision; M7 is independent and can slot in anywhere.
+
+## Decisions needed before the later milestones
+
+- Before M4: log retention on the phone (last N nights, or until deleted).
+- Before M5: fork changes OK (new per-line push alongside the old one).
+- Before M6: Android background notifications, yes or no.
