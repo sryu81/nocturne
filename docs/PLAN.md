@@ -280,10 +280,37 @@ autofocus Start/Stop works, the frame updates and the V-curve fills; the Focus s
 from the header; the backlash text matches the settings value; portrait fit checked on the phone
 (frame plus curve may pass one screen, which is accepted).
 
+## Mount page (decided 2026-10-25; not built)
+
+Order, top to bottom:
+
+1. Header `Mount ▾` (module switcher) with a button for the existing Mount settings sheet. The
+   "Mount settings" tile goes away; the sheet stays.
+2. **Mount card**, as today: status line, D-pad with STOP in the centre, slew-rate chips beside it,
+   Park / Unpark, Go home, Tracking.
+3. **Coordinates full-width** under the D-pad and rate chips (RA, Dec, HA, Alt, Az, ZA with the
+   JNow/J2000 toggle and the "not updating" dimming), instead of squeezed beside the D-pad. Layout
+   only; the readouts are unchanged.
+
+- **Manual slew safety (decided: no auto-stop).** A direction button starts a slew that runs until
+  STOP, and leaving the page does not stop the mount (a goto or park in progress must keep going).
+  So while the mount moves, its menu card is pinned to the top in the warning colour with a **STOP**
+  button on the card itself, the same `mount_abort` as the D-pad's STOP.
+- **Menu one-liner:** state, pier side and hour angle, e.g. `Tracking · East · HA +1:20`; or
+  `parked`, `slewing N`, `tracking off`. Pier side uses the existing label (East/West only where the
+  rig confirmed it); unknown values show "N/A".
+- **No other behaviour change:** same commands and state.
+
+**Test plan (after building).** Without moving the mount: build, unit tests, install; coordinates
+update, rate chips switch, JNow/J2000 toggle, Tracking toggle, header switcher, Back, the settings
+sheet opens, the menu card turns to the warning colour with STOP while a slew state is shown.
+Moving the mount only with the user's go-ahead and the rig safe: a short N/S nudge then STOP (also
+from the menu card), Park / Unpark, Go home.
+
 ## To be added
 
-The other module pages (Mount, Guide, Align, Polar alignment) and their menu one-liners; the
-remembered camera/cooler settings.
+The other module pages (Guide, Align, Polar alignment) and their menu one-liners; the remembered
+camera/cooler settings.
 
 ---
 
