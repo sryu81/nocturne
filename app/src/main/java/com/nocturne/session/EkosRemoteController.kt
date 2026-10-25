@@ -2639,8 +2639,6 @@ private fun AppState.withConnectionState(device: String, property: WireProperty)
 }
 
 private const val CAMERA_FAN_PROP = "TC_FAN_SPEED" // ToupTek-family drivers (indi_toupbase)
-/** `new_mount_state.status` values while the mount is moving (ISD::Mount status text). */
-private val MOUNT_MOVING_STATES = setOf("Slewing", "Moving", "Parking")
 
 /** `new_align_state.status` values (`ekos.h` `alignStates`) that end an Align run. "Successful"
  *  is not one: with `slewR` it's followed by a re-slew and another solve. */

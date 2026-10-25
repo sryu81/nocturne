@@ -85,6 +85,8 @@ val GUIDE_IDLE_STATES = setOf("Idle", "Aborted", "Connected", "Disconnected", "C
  * "Framing" is the plain focus loop, not an autofocus run, so it counts as idle.
  */
 val FOCUS_IDLE_STATES = setOf("Idle", "Complete", "Failed", "Aborted", "Framing")
+/** `new_mount_state.status` values while the mount is moving (ISD::Mount status text). */
+val MOUNT_MOVING_STATES = setOf("Slewing", "Moving", "Parking")
 
 /**
  * `new_polar_state.stage` strings: `PolarAlignmentAssistant::PAHStages`

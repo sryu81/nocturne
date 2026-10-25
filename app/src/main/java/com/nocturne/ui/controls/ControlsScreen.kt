@@ -115,13 +115,23 @@ fun ControlsScreen(
             landscape = landscape,
             modifier = modifier,
             items = buildList {
+                fun card(m: ControlsModule) = TabItem {
+                    val summary = controlsSummary(state, m)
+                    ModuleCard(m, summary, onClick = { open(m) }, onStop = if (summary.stoppable) ctrl::stopSlew else null)
+                }
+                // Modules doing something sit above the rest, which keep the night's order.
+                val active = activeModules(state)
+                if (active.isNotEmpty()) {
+                    add(TabItem(full = true) { GroupLabel("ACTIVE") })
+                    active.forEach { add(card(it)) }
+                }
                 var group: Boolean? = null
-                ControlsModule.entries.forEach { m ->
+                ControlsModule.entries.filter { it !in active }.forEach { m ->
                     if (group != m.setup) {
                         group = m.setup
                         add(TabItem(full = true) { GroupLabel(if (m.setup) "SETUP" else "IMAGING") })
                     }
-                    add(TabItem { ModuleCard(m, summary = menuSummary(state, m), onClick = { open(m) }) })
+                    add(card(m))
                 }
             },
         )
@@ -162,33 +172,39 @@ private fun ControlsModule.icon() = when (this) {
     ControlsModule.POLAR_ALIGNMENT -> Phosphor.Crosshair
 }
 
-/** What a menu card says under its name. */
-private fun menuSummary(state: AppState, module: ControlsModule): String? = when (module) {
-    ControlsModule.POLAR_ALIGNMENT -> state.wirePolarStage ?: if (state.polarRunning) "running…" else "not started"
-    else -> null
-}
-
 @Composable
 private fun GroupLabel(text: String) {
     TextC(text, style = NocturneTheme.type.MicroLabel, color = NocturneTheme.colors.textMuted, modifier = Modifier.padding(top = 4.dp))
 }
 
+/**
+ * A module's menu card. An active module is outlined in the accent colour, one that is moving the
+ * rig in the warning colour; [onStop] adds a STOP button that does not open the page.
+ */
 @Composable
-private fun ModuleCard(module: ControlsModule, summary: String?, onClick: () -> Unit) {
+private fun ModuleCard(module: ControlsModule, summary: ModuleSummary, onClick: () -> Unit, onStop: (() -> Unit)? = null) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
-    Column(
+    val outline = when { summary.warn -> c.warn; summary.active -> c.accent; else -> c.divider }
+    Row(
         Modifier
             .fillMaxWidth()
             .background(c.surface, RoundedCornerShape(14.dp))
-            .border(1.dp, c.divider, RoundedCornerShape(14.dp))
+            .border(1.dp, outline, RoundedCornerShape(14.dp))
             .clickable(onClick = onClick)
             .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Phosphor.Icon(module.icon(), size = 20.dp, tint = c.accent400)
-        Spacer(Modifier.height(5.dp))
-        TextC(module.label, style = t.Body135, color = c.text)
-        if (summary != null) TextC(summary, style = t.MonoMicro, color = c.textFaint)
+        Column(Modifier.weight(1f)) {
+            Phosphor.Icon(module.icon(), size = 20.dp, tint = if (summary.warn) c.warn else c.accent400)
+            Spacer(Modifier.height(5.dp))
+            TextC(module.label, style = t.Body135, color = c.text)
+            TextC(summary.line, style = t.MonoMicro, color = if (summary.warn) c.warn else c.textFaint)
+        }
+        if (onStop != null) {
+            Spacer(Modifier.width(8.dp))
+            NocturneButton(text = "STOP", onClick = onStop, style = BtnStyle.DANGER, modifier = Modifier.height(40.dp))
+        }
     }
 }
 
