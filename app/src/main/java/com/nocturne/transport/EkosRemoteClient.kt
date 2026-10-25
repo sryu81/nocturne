@@ -98,13 +98,16 @@ class EkosRemoteClient(
             mediaChannel.frames.collect { link.lastMediaAtMs = System.currentTimeMillis() }
         }
         scope.launch {
-            // `get_connection` is answered with a cheap `new_connection_state`; its round trip is the link's latency.
+            // `get_profiles` is answered even while Ekos is stopped and is not a `new_connection_state`,
+            // whose every `online: true` re-fetches the rig's state. Its round trip is the link's latency.
+            // Not sent while the last probe is unanswered: a busy KStars (Ekos starting) would queue them.
             while (true) {
                 delay(PROBE_INTERVAL_MS)
                 val state = _connectionStatus.value.state
-                if (userDisconnected || (state != ConnectionState.ONLINE && state != ConnectionState.SOCKET_OPEN)) continue
+                if (userDisconnected || probeSentAtMs != 0L) continue
+                if (state != ConnectionState.ONLINE && state != ConnectionState.SOCKET_OPEN) continue
                 probeSentAtMs = System.currentTimeMillis()
-                sendCommand(Commands.GET_CONNECTION)
+                sendCommand(Commands.GET_PROFILES)
             }
         }
         scope.launch {
@@ -150,6 +153,7 @@ class EkosRemoteClient(
             return
         }
         backoffAttempt = 0
+        probeSentAtMs = 0L // a probe sent on the dead socket will never be answered
         _connectionStatus.update { it.copy(state = ConnectionState.SOCKET_OPEN, lastError = null) }
         sendCommand(Commands.SET_CLIENT_STATE, buildJsonObject { put("state", true) })
         sendCommand(Commands.GET_CONNECTION)
@@ -162,18 +166,12 @@ class EkosRemoteClient(
 
     private fun onEvent(event: EkosEvent) {
         if (event is EkosEvent.NewConnectionState) {
-            if (probeSentAtMs != 0L) {
-                val now = System.currentTimeMillis()
-                link.rttMs = now - probeSentAtMs
-                link.rttAtMs = now
-                probeSentAtMs = 0L
-            }
-            // Probe answers repeat `online: true`; the fetch below must run only on the way up.
-            val wasOnline = _connectionStatus.value.state == ConnectionState.ONLINE
             _connectionStatus.update {
                 it.copy(state = if (event.online) ConnectionState.ONLINE else ConnectionState.SOCKET_OPEN)
             }
-            if (event.online && !wasOnline) {
+            // Every `online: true` push re-fetches, on purpose: devices come up one by one while
+            // Ekos starts (the filter wheel after the focuser, say) and the first fetch can't see them.
+            if (event.online) {
                 val now = System.currentTimeMillis()
                 pendingSettings.clear()
                 listOf(
@@ -209,6 +207,12 @@ class EkosRemoteClient(
                     }
                 })
             }
+        }
+        if (event is EkosEvent.Profiles && probeSentAtMs != 0L) {
+            val now = System.currentTimeMillis()
+            link.rttMs = now - probeSentAtMs
+            link.rttAtMs = now
+            probeSentAtMs = 0L
         }
         retryPendingSettings(event)
         _events.tryEmit(event)
