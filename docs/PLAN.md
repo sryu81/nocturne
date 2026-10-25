@@ -426,16 +426,6 @@ the tab, so the status row and bottom bar stay visible (unlike the Log, an overl
 the connected rig with the non-moving checks (Preview, cooler, EXP / gain / BIN, Focus In/Out, Plate
 solve); moving the mount, guiding and the PAH run are checked under the sky.
 
-## Later
-
-**Remembered camera and cooler settings** (not in this plan: it changes what is sent to the camera).
-The app keeps none today: it re-reads Ekos at connect, and after an Ekos or camera restart the
-camera comes back with its own defaults. The idea: store the last cooler set point, cooler and fan
-state, and exposure / gain / bin on the phone, and offer "last used: −5 °C, cooler ON, 300 s,
-gain 100" with a restore button after a restart. Restoring writes to the camera (starts cooling), so
-it needs an explicit button with a confirm, never automatic; and Ekos can change the same values (a
-scheduler job, the desktop), so it needs a rule for which side wins. Needs its own design and test.
-
 ---
 
 # 3. Frames tab revision: file manager for the Pi
