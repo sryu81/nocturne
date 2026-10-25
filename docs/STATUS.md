@@ -101,7 +101,7 @@ maintenance); the Pi keeps orders 0–5 on the SD card for KStars' offline HiPS.
 - Plate solve here can leave Ekos in `ALIGN_PROGRESS` after "Astrometry alignment failed"
   (2026-10-25, daytime): the card stays pinned as `solving…` and the app has no way to abort it (no
   align abort on the wire; Ekos' own Stop, or DBus `Align.abort`, clears it). A fork command and a
-  Stop button on the Plate solve page would fix it.
+  Stop button on the Plate solve page would fix it. Details and the plan: `docs/BUGS.md` B1.
 - Home layout (2026-10-25, compiled and unit-tested, installed, seen on the phone): Night arc, Ekos,
   a compact Rig health card that opens a Rig health sheet, Session, Alerts, Log, maintenance. The
   "Rig" box (mount/cooler line) is folded into the health card. The cooler set point reads N/A until
