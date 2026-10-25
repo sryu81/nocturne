@@ -15,7 +15,7 @@ import kotlin.coroutines.resume
 
 /**
  * Client for the companion daemon on the Pi (`pi-tools/reboot-daemon/`), a plain unauthenticated
- * HTTP channel separate from EkosRemote. A reboot must work when Ekos itself is hung, so it can't
+ * HTTP channel separate from EkosRemote. A reboot or shutdown must work when Ekos itself is hung, so it can't
  * go through the websocket.
  */
 class RigRebootClient(private val host: String, private val port: Int) {
@@ -24,9 +24,14 @@ class RigRebootClient(private val host: String, private val port: Int) {
 
     /** POSTs `/reboot`. The daemon replies before rebooting, so success means the request was
      *  accepted; the connection drops shortly after and [EkosRemoteClient] reconnects. */
-    suspend fun reboot(): Result<Unit> = suspendCancellableCoroutine { cont ->
+    suspend fun reboot(): Result<Unit> = post("reboot")
+
+    /** POSTs `/shutdown`: powers the Pi off after replying. It stays off until power is cycled. */
+    suspend fun shutdown(): Result<Unit> = post("shutdown")
+
+    private suspend fun post(path: String): Result<Unit> = suspendCancellableCoroutine { cont ->
         val request = Request.Builder()
-            .url("http://$host:$port/reboot")
+            .url("http://$host:$port/$path")
             .post(ByteArray(0).toRequestBody(null))
             .build()
         val call = http.newCall(request)

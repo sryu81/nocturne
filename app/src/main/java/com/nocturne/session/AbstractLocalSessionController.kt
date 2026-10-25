@@ -263,6 +263,10 @@ abstract class AbstractLocalSessionController : SessionController {
         s.copy(rigRebootState = RigRebootState.FAILED, rigRebootError = "No real rig connected — nothing to reboot")
     }
 
+    override open fun shutdownRig() = update { s ->
+        s.copy(rigShutdownState = RigRebootState.FAILED, rigShutdownError = "No real rig connected — nothing to shut down")
+    }
+
     // The sky atlas comes from the rig; EkosRemoteController overrides these.
     override open fun refreshSkyAtlas() {}
     override open fun copySkyAtlasFromRig() = update { s ->

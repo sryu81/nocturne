@@ -14,11 +14,11 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
-echo "== Checking passwordless sudo for 'reboot'/'date'/'hwclock' as $RUN_USER =="
+echo "== Checking passwordless sudo for 'reboot'/'poweroff'/'date'/'hwclock' as $RUN_USER =="
 if ! sudo -n -u "$RUN_USER" sudo -n true 2>/dev/null; then
     echo "warning: $RUN_USER doesn't have passwordless sudo yet." >&2
     echo "Add a sudoers rule, e.g.:" >&2
-    echo "  echo '$RUN_USER ALL=(ALL) NOPASSWD: /sbin/reboot, /usr/sbin/reboot, /bin/date, /usr/bin/date, /sbin/hwclock, /usr/sbin/hwclock' | sudo tee /etc/sudoers.d/nocturne-reboot" >&2
+    echo "  echo '$RUN_USER ALL=(ALL) NOPASSWD: /sbin/reboot, /usr/sbin/reboot, /sbin/poweroff, /usr/sbin/poweroff, /bin/date, /usr/bin/date, /sbin/hwclock, /usr/sbin/hwclock' | sudo tee /etc/sudoers.d/nocturne-reboot" >&2
     echo "then re-run this script." >&2
     exit 1
 fi

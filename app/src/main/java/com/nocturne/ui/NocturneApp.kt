@@ -92,6 +92,8 @@ fun NocturneApp() {
                 onConnect = vm::connect,
                 onCancel = vm::disconnect,
                 notice = vm.connectNotice,
+                power = vm.rigPower,
+                onPower = vm::powerRig,
             )
             // SOCKET_OPEN: the socket is up but Ekos isn't running. Show the shell with a banner
             // so Gear's Start Ekos (profile_start) is reachable; only the dial phase keeps
@@ -110,6 +112,8 @@ fun NocturneApp() {
                     savedPort = vm.savedPort,
                     onConnect = vm::connect,
                     onCancel = vm::disconnect,
+                    power = vm.rigPower,
+                    onPower = vm::powerRig,
                 )
             }
             is ConnectionMode.Connected -> NocturneShell(
@@ -145,9 +149,12 @@ private fun NocturneShell(
     val state by vm.ctrl.state.collectAsState()
     val ctrl = vm.ctrl
 
-    // Reboot accepted by the Pi — leave the shell entirely (closes every sheet/dialog with it).
+    // Reboot or shutdown accepted by the Pi — leave the shell entirely (closes every sheet/dialog with it).
     LaunchedEffect(state.rigRebootState) {
         if (state.rigRebootState == RigRebootState.SENT) vm.disconnectAfterReboot()
+    }
+    LaunchedEffect(state.rigShutdownState) {
+        if (state.rigShutdownState == RigRebootState.SENT) vm.disconnectAfterShutdown()
     }
 
     val configuration = LocalConfiguration.current

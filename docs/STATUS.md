@@ -57,6 +57,10 @@ maintenance); the Pi keeps orders 0–5 on the SD card for KStars' offline HiPS.
 - 2026-10-24 screenshot fixes (compiled and unit-tested, not run on the phone): signed PAH az/alt
   readout, pinch-zoom on the PAH frame, FOV box sized to the DSS cutout, outline-button border,
   header outline and alert badge, EXP boxes following Ekos, `1000000"` accuracy sentinel.
+- Shut down Pi (compiled, not run on the rig): `POST /shutdown` on the maintenance daemon, a "Shut
+  down Pi" button in Rig maintenance, and a "Rig power" section (reboot + shut down) on the Connect
+  screen that works with Ekos down. The daemon on the Pi must be reinstalled
+  (`pi-tools/reboot-daemon/install.sh`) before the new endpoint exists.
 - End session / Finish (compiled, not run on the rig): End session stops the Scheduler when Ekos
   reports it RUNNING and removes the job Ekos is busy with, even if no local job is synced (the
   2026-10-25 field test left the job and capture running because the app's queue had no synced

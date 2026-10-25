@@ -375,7 +375,7 @@ private fun MaintenanceCard(state: AppState, ctrl: SessionController) {
         Spacer(Modifier.height(5.dp))
         TextC("Rig maintenance", style = t.Body135, color = c.text)
         TextC(
-            "reboot · time sync · GPS",
+            "reboot · shutdown · time sync · GPS",
             style = t.MonoMicro, color = c.textFaint,
         )
     }

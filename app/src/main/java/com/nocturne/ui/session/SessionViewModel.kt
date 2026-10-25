@@ -31,6 +31,16 @@ sealed interface ConnectionMode {
     data class Connected(val status: ConnectionStatus) : ConnectionMode
 }
 
+/** Result of a reboot/shutdown sent from the Connect screen, where there is no controller yet. */
+sealed interface RigPowerUi {
+    data object Idle : RigPowerUi
+    data class Sending(val action: RigPowerAction) : RigPowerUi
+    data class Sent(val action: RigPowerAction) : RigPowerUi
+    data class Failed(val action: RigPowerAction, val message: String) : RigPowerUi
+}
+
+enum class RigPowerAction { REBOOT, SHUTDOWN }
+
 /**
  * Owns the [EkosRemoteController] connection. [ctrl] is set only by [connect], before
  * [connectionMode] leaves [ConnectionMode.NeedsConnect], which is when [NocturneApp] starts
@@ -58,6 +68,11 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var savedPort: Int by mutableStateOf(9000)
         private set
+    var savedRebootPort: Int by mutableStateOf(9001)
+        private set
+    /** Reboot/shutdown requested from ConnectScreen; works with Ekos down because it only needs the daemon. */
+    var rigPower: RigPowerUi by mutableStateOf(RigPowerUi.Idle)
+        private set
     /** One-line note for ConnectScreen after a rig reboot sent us back there; cleared on [connect]. */
     var connectNotice: String? by mutableStateOf(null)
         private set
@@ -67,6 +82,7 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
             val settings = repo.current()
             savedHost = settings.host
             savedPort = settings.port
+            savedRebootPort = settings.rebootPort
             // A saved host only pre-fills ConnectScreen; it never auto-dials.
             _connectionMode.value = ConnectionMode.NeedsConnect
         }
@@ -76,6 +92,7 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
         client?.disconnect()
         reachedOnline = false
         connectNotice = null
+        rigPower = RigPowerUi.Idle
         viewModelScope.launch { repo.save(host, port) }
 
         val newClient = EkosRemoteClient(host, port, viewModelScope)
@@ -115,6 +132,33 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
     fun disconnectAfterReboot() {
         disconnect()
         connectNotice = "Rig is rebooting — reconnect once it shows up again (about a minute)."
+    }
+
+    /** After an accepted shutdown: back to ConnectScreen, saying the Pi won't return by itself. */
+    fun disconnectAfterShutdown() {
+        disconnect()
+        connectNotice = "Rig is shutting down — it stays off until its power is cycled."
+    }
+
+    /**
+     * Reboot or power off the Pi at [host] through the maintenance daemon (port from the last
+     * saved setting), without an Ekos connection: the reason to use it is often that Ekos or
+     * KStars is down, which also leaves the Gear tab unreachable.
+     */
+    fun powerRig(action: RigPowerAction, host: String) {
+        if (rigPower is RigPowerUi.Sending) return
+        rigPower = RigPowerUi.Sending(action)
+        viewModelScope.launch {
+            val client = com.nocturne.transport.RigRebootClient(host, savedRebootPort)
+            val result = when (action) {
+                RigPowerAction.REBOOT -> client.reboot()
+                RigPowerAction.SHUTDOWN -> client.shutdown()
+            }
+            rigPower = result.fold(
+                onSuccess = { RigPowerUi.Sent(action) },
+                onFailure = { RigPowerUi.Failed(action, it.message ?: "request failed") },
+            )
+        }
     }
 
     override fun onCleared() {

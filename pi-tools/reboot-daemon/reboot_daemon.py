@@ -12,12 +12,13 @@ Endpoints:
   GET  /hips/<path>   -> one file of that copy: properties, Norder3/Allsky.jpg or
                          Norder<k>/Dir<d>/Npix<n>.jpg (nothing else is served)
   POST /reboot        -> 202, then `sudo reboot`
+  POST /shutdown      -> 202, then `sudo poweroff` (the Pi stays off until power is cycled)
   POST /set-time      -> body {"iso": "YYYY-MM-DDTHH:MM:SS"}, a LOCAL wall-clock time (phone and
                          rig share a timezone); runs `sudo date -s`, then `hwclock -w` if an RTC
                          exists so the time survives a power loss
 
 No auth: same trusted-LAN model as port 9000, which already lets any LAN client drive the rig.
-The app's typed "REBOOT" confirmation guards against accidental taps.
+The app's typed "REBOOT"/"SHUTDOWN" confirmations guard against accidental taps.
 """
 import http.server
 import json
@@ -95,15 +96,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # always drain the body: with keep-alive an unread body would be parsed as the next request
         length = int(self.headers.get("Content-Length", "0"))
         raw = self.rfile.read(length) if length > 0 else b""
-        if self.path not in ("/reboot", "/set-time"):
+        if self.path not in ("/reboot", "/shutdown", "/set-time"):
             self._respond(404, "not found")
             return
-        if self.path == "/reboot":
-            self._respond(202, "rebooting")
-            # Respond first — `sudo reboot` tears down networking almost
-            # immediately, and the app should see this 202, not a dropped
-            # connection that looks like a failure.
-            threading.Timer(0.3, lambda: subprocess.run(["sudo", "reboot"])).start()
+        if self.path in ("/reboot", "/shutdown"):
+            command, status = ("reboot", "rebooting") if self.path == "/reboot" else ("poweroff", "shutting down")
+            self._respond(202, status)
+            # Respond first — both tear down networking almost immediately, and the app should
+            # see this 202, not a dropped connection that looks like a failure.
+            threading.Timer(0.3, lambda: subprocess.run(["sudo", command])).start()
             return
         # /set-time
         try:

@@ -7,6 +7,7 @@ do, or can't do when KStars is hung:
 |---|---|
 | `GET /health` | `{"status": "ok"}` |
 | `POST /reboot` | Reboots the Pi (replies 202 first) |
+| `POST /shutdown` | Powers the Pi off (replies 202 first); it stays off until power is cycled |
 | `POST /set-time` | `{"iso": "YYYY-MM-DDTHH:MM:SS"}` local time → `sudo date -s` (+ `hwclock -w` if an RTC exists). The Pi has no RTC, so its clock is wrong after every power loss |
 | `GET /hips/status` | Sky-atlas tiles present per order |
 | `GET /hips/<path>` | One sky-atlas tile (`Norder<k>/Dir<d>/Npix<n>.jpg`, `properties`, `Norder3/Allsky.jpg`); nothing else is served |
@@ -24,7 +25,7 @@ cd reboot-daemon && sudo ./install.sh
 ```
 
 Installs to `/opt/nocturne-reboot/` with the systemd unit `nocturne-reboot.service` (starts on
-boot). Needs passwordless `sudo reboot`/`date`/`hwclock`; the script prints the sudoers line if
+boot). Needs passwordless `sudo reboot`/`poweroff`/`date`/`hwclock`; the script prints the sudoers line if
 missing. Re-running is safe.
 
 ## Security

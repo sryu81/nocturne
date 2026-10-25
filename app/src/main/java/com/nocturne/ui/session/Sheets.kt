@@ -157,7 +157,7 @@ fun SheetHost(state: AppState, ctrl: SessionController, landscape: Boolean) {
         SheetType.OPTICAL_TRAIN -> "Optical train" to "primary + secondary roles"
         SheetType.MODULE_ASSIGNMENTS -> "Module assignments" to "which train each Ekos module uses"
         SheetType.SCOPES -> "Scopes" to "add, edit, remove"
-        SheetType.MAINTENANCE -> "Rig maintenance" to "reboot the Pi if Ekos hangs"
+        SheetType.MAINTENANCE -> "Rig maintenance" to "reboot or shut down the Pi"
         SheetType.MOUNT_SETTINGS -> "Mount settings" to "flip, limits, auto-park"
         SheetType.CAMERA_SETTINGS -> "File settings" to "save path, filename template"
         SheetType.ALIGN_SETTINGS -> "Align settings" to "exposure, gain, filter, accuracy"
@@ -1761,6 +1761,7 @@ private fun MaintenanceSheet(state: AppState, ctrl: SessionController) {
 
     var portText by remember { mutableStateOf(state.rigRebootPort.toString()) }
     var showConfirm by remember { mutableStateOf(false) }
+    var showShutdownConfirm by remember { mutableStateOf(false) }
 
     // Location sync goes over the EkosRemote wire, not the daemon.
     val context = LocalContext.current
@@ -1785,8 +1786,9 @@ private fun MaintenanceSheet(state: AppState, ctrl: SessionController) {
             Phosphor.Icon(Phosphor.Warning, size = 16.dp, tint = c.warn)
             Spacer(Modifier.width(10.dp))
             TextC(
-                "Reboots the Pi itself, not just Ekos — cuts power to any in-progress " +
-                    "slew, capture, or guiding. The app reconnects on its own once the Pi's back.",
+                "Reboot and shut down act on the Pi itself, not just Ekos — they cut power to any " +
+                    "in-progress slew, capture, or guiding. After a reboot, reconnect once the Pi is back; " +
+                    "after a shutdown it stays off until you cycle its power.",
                 style = t.Caption, color = c.warn,
             )
         }
@@ -1847,6 +1849,25 @@ private fun MaintenanceSheet(state: AppState, ctrl: SessionController) {
             RigRebootState.FAILED -> {
                 Spacer(Modifier.height(10.dp))
                 TextC("Couldn't reboot: ${state.rigRebootError}", style = t.Caption, color = c.danger)
+            }
+            else -> {}
+        }
+        Spacer(Modifier.height(12.dp))
+        NocturneButton(
+            text = if (state.rigShutdownState == RigRebootState.SENDING) "Sending…" else "Shut down Pi",
+            onClick = { showShutdownConfirm = true },
+            enabled = state.rigShutdownState != RigRebootState.SENDING,
+            style = com.nocturne.ui.components.BtnStyle.DANGER,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        when (state.rigShutdownState) {
+            RigRebootState.SENT -> {
+                Spacer(Modifier.height(10.dp))
+                TextC("Shutdown sent — the Pi powers off in a few seconds.", style = t.Caption, color = c.ok)
+            }
+            RigRebootState.FAILED -> {
+                Spacer(Modifier.height(10.dp))
+                TextC("Couldn't shut down: ${state.rigShutdownError}", style = t.Caption, color = c.danger)
             }
             else -> {}
         }
@@ -1920,6 +1941,20 @@ private fun MaintenanceSheet(state: AppState, ctrl: SessionController) {
                 ctrl.rebootRig()
             },
             onDismiss = { showConfirm = false },
+        )
+    }
+    if (showShutdownConfirm) {
+        com.nocturne.ui.components.TypedConfirmDialog(
+            title = "Shut down the rig?",
+            message = "This powers the Pi off. It will not come back until its power is cycled, and " +
+                "anything mid-slew, mid-capture, or mid-guide will be cut off ungracefully.",
+            requiredText = "SHUTDOWN",
+            confirmText = "Shut down",
+            onConfirm = {
+                showShutdownConfirm = false
+                ctrl.shutdownRig()
+            },
+            onDismiss = { showShutdownConfirm = false },
         )
     }
 }

@@ -38,8 +38,9 @@ enum class SheetType {
 }
 
 /**
- * Progress of a [SessionController.rebootRig] request. Reboot goes over a separate HTTP daemon
- * (`pi-tools/reboot-daemon/`); the EkosRemote wire has no OS-level reboot command.
+ * Progress of a [SessionController.rebootRig]/[SessionController.shutdownRig] request. Both go
+ * over a separate HTTP daemon (`pi-tools/reboot-daemon/`); the EkosRemote wire has no OS-level
+ * reboot or power-off command.
  */
 enum class RigRebootState { IDLE, SENDING, SENT, FAILED }
 
@@ -428,6 +429,8 @@ data class AppState(
     val rigRebootPort: Int = 9001,
     val rigRebootState: RigRebootState = RigRebootState.IDLE,
     val rigRebootError: String? = null,
+    val rigShutdownState: RigRebootState = RigRebootState.IDLE,
+    val rigShutdownError: String? = null,
     /** [SessionController.syncTimeToRig]'s progress. Separate from [rigRebootState] (same daemon)
      *  so one action's result doesn't show under the other button. */
     val piTimeSyncState: RigRebootState = RigRebootState.IDLE,

@@ -1348,6 +1348,20 @@ class EkosRemoteController(
         }
     }
 
+    /** Same daemon and channel as [rebootRig]; success only means the Pi accepted the request. */
+    override fun shutdownRig() {
+        _state.update { it.copy(rigShutdownState = RigRebootState.SENDING, rigShutdownError = null) }
+        scope.launch {
+            val result = RigRebootClient(client.host, rigRebootPort).shutdown()
+            _state.update { s ->
+                result.fold(
+                    onSuccess = { s.copy(rigShutdownState = RigRebootState.SENT, rigShutdownError = null) },
+                    onFailure = { e -> s.copy(rigShutdownState = RigRebootState.FAILED, rigShutdownError = e.message ?: "request failed") },
+                )
+            }
+        }
+    }
+
     private suspend fun rescanSkyAtlas() {
         val local = skyAtlas?.scanLocal() ?: return
         _state.update { it.copy(skyAtlas = it.skyAtlas.copy(localTiles = local.tiles, completeOrder = local.completeOrder)) }

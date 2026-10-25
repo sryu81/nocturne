@@ -194,6 +194,9 @@ interface SessionController {
     /** Sends the actual reboot request. See [AppState.rigRebootState] for the result. */
     fun rebootRig()
 
+    /** Powers the Pi off through the same daemon; it stays off until power is cycled. See [AppState.rigShutdownState]. */
+    fun shutdownRig()
+
     /** Re-reads the offline sky atlas on the phone and asks the rig how much it can serve. */
     fun refreshSkyAtlas()
 

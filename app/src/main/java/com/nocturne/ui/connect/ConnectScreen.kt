@@ -37,6 +37,9 @@ import com.nocturne.transport.rigBeacons
 import com.nocturne.ui.components.NocturneButton
 import com.nocturne.ui.components.BtnStyle
 import com.nocturne.ui.components.TextC
+import com.nocturne.ui.components.TypedConfirmDialog
+import com.nocturne.ui.session.RigPowerAction
+import com.nocturne.ui.session.RigPowerUi
 import com.nocturne.ui.components.VSpacer
 import com.nocturne.ui.icons.Phosphor
 import com.nocturne.ui.theme.NocturneTheme
@@ -57,6 +60,9 @@ fun ConnectScreen(
     onCancel: () -> Unit,
     /** Optional status line under the subtitle, e.g. after a rig reboot. */
     notice: String? = null,
+    /** Reboot/shutdown of the Pi through its maintenance daemon; usable with Ekos down. */
+    power: RigPowerUi = RigPowerUi.Idle,
+    onPower: (RigPowerAction, host: String) -> Unit = { _, _ -> },
 ) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
@@ -70,6 +76,7 @@ fun ConnectScreen(
     }
 
     val connecting = status.state == ConnectionState.CONNECTING || status.state == ConnectionState.SOCKET_OPEN
+    var confirmAction by remember { mutableStateOf<RigPowerAction?>(null) }
 
     // LAN discovery via the Pi's astro-beacon broadcast (transport/RigBeacon.kt), only while
     // this screen is composed. It pre-fills an empty HOST once and lists rigs; it never dials.
@@ -225,6 +232,69 @@ fun ConnectScreen(
                 style = t.Caption, color = c.textMuted,
             )
         }
+
+        VSpacer(32)
+        TextC("RIG POWER", style = t.MicroUppercase, color = c.textMuted)
+        VSpacer(6)
+        TextC(
+            "Reboot or shut down the Pi at the host above. Uses its maintenance daemon, so it works " +
+                "when Ekos or KStars is down. A shut-down Pi stays off until its power is cycled.",
+            style = t.Caption, color = c.textMuted,
+        )
+        VSpacer(10)
+        val powerBusy = power is RigPowerUi.Sending
+        Row(modifier = Modifier.fillMaxWidth()) {
+            NocturneButton(
+                text = if (power is RigPowerUi.Sending && power.action == RigPowerAction.REBOOT) "Sending…" else "Reboot Pi",
+                onClick = { confirmAction = RigPowerAction.REBOOT },
+                enabled = host.isNotBlank() && !powerBusy && !connecting,
+                style = BtnStyle.OUTLINE,
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(8.dp))
+            NocturneButton(
+                text = if (power is RigPowerUi.Sending && power.action == RigPowerAction.SHUTDOWN) "Sending…" else "Shut down Pi",
+                onClick = { confirmAction = RigPowerAction.SHUTDOWN },
+                enabled = host.isNotBlank() && !powerBusy && !connecting,
+                style = BtnStyle.DANGER,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        when (power) {
+            is RigPowerUi.Sent -> {
+                VSpacer(10)
+                TextC(
+                    if (power.action == RigPowerAction.REBOOT) "Reboot sent — the rig shows up above again in about a minute."
+                    else "Shutdown sent — the Pi powers off in a few seconds.",
+                    style = t.Caption, color = c.ok,
+                )
+            }
+            is RigPowerUi.Failed -> {
+                VSpacer(10)
+                TextC(
+                    "Couldn't ${if (power.action == RigPowerAction.REBOOT) "reboot" else "shut down"}: ${power.message}",
+                    style = t.Caption, color = c.danger,
+                )
+            }
+            else -> {}
+        }
+        VSpacer(24)
+    }
+
+    confirmAction?.let { action ->
+        val reboot = action == RigPowerAction.REBOOT
+        TypedConfirmDialog(
+            title = if (reboot) "Reboot the rig?" else "Shut down the rig?",
+            message = (if (reboot) "This power-cycles the Pi at ${host.trim()}. " else "This powers off the Pi at ${host.trim()}; it will not come back until its power is cycled. ") +
+                "Anything mid-slew, mid-capture, or mid-guide will be cut off ungracefully.",
+            requiredText = if (reboot) "REBOOT" else "SHUTDOWN",
+            confirmText = if (reboot) "Reboot" else "Shut down",
+            onConfirm = {
+                confirmAction = null
+                onPower(action, host.trim())
+            },
+            onDismiss = { confirmAction = null },
+        )
     }
 }
 
