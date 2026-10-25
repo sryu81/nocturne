@@ -18,6 +18,26 @@ replaces that client with **EkosRemote**, a server inside KStars that listens on
 | `25cc0cd4e` | Meridian flip timeout: a flip slew still running after max(300 s, MinFlipDuration + 120 s) aborts the mount, raises a `MeridianFlipFailed` alert and ends in `MOUNT_FLIP_ERROR` (capture aborts, scheduler error policy takes over) |
 | `15de51474` | Tracking off without the confirmation dialog (remote `mount_set_tracking` used to wait on a modal box on the Pi) |
 
+## Divergence from upstream (checked 2026-10-24)
+
+- **Base**: `stable-3.8.3` (`61d849b04`, 2026-06-14). The fork is 7 commits ahead, 0 behind:
+  34 files, +898 / −2,139 lines, of which ~1,830 deleted lines are the old EkosLive cloud client.
+- **Upstream `master`** (KDE/kstars) is 420 commits ahead of that base; `stable-3.8.3` branched
+  from master at `5ea17ac58` (2026-06-01) and carries 3 release-only commits.
+- **Trial merge with `master`** (`git merge-tree`, in a scratch clone): 11 conflicting files caused
+  by the fork, all from the EkosRemote server commit — the deleted `ekoslive/ekosliveclient.*` and
+  `nodemanager.*` (upstream still edits them; port by hand into `ekosremote/`), `message.cpp`,
+  `commands.h`, `media.cpp`, `manager.h` (4 blocks), `manager.cpp`, `org.kde.kstars.Ekos.xml`,
+  `.gitignore`. Four more conflicts (`indidrivers.xml`, `schedulermodulestate.*`, `fitsdata.cpp`)
+  also occur for stock `stable-3.8.3` vs `master`.
+- The small fixes (flip timeout, stale flip state, tracking dialog; edits to `camerastate`,
+  `cameraprocess`, `meridianflipstate`, `mount.cpp`, `focus.cpp`, `kstars.kcfg`) merge cleanly.
+- **So**: staying on 3.8.x (rebase onto a later 3.8.x tag, cherry-pick fixes) is cheap; moving to
+  `master` means redoing the EkosRemote commit against ~70 upstream commits in `ekoslive/` and
+  `manager.cpp`.
+- Re-check: `git remote add upstream https://github.com/KDE/kstars.git`, fetch with
+  `--filter=blob:none` in a scratch clone, `git merge-tree --write-tree --name-only <fork> upstream/master`.
+
 ## Build and deploy
 
 ```bash
