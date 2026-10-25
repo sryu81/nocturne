@@ -345,6 +345,8 @@ data class AppState(
      * optimistically from a tap: an optimistic flip races the push and can show the wrong state.
      */
     val schedulerRunning: Boolean = false,
+    /** Raw `Ekos::SchedulerState` from the same push; only [SCHEDULER_STATE_RUNNING] can be stopped by the toggle. */
+    val schedulerStatus: Int? = null,
     /**
      * Target name of a refused "Push to Ekos". Ekos refuses duplicate job names
      * (`"A job with name '...' already exists"`), so [EkosRemoteController.pushJob] checks
@@ -1216,6 +1218,9 @@ val Alert.severityLabel: String get() = ALERT_SEVERITY_LABELS.getOrNull(severity
 
 /** Cap on [AppState.wireNotifications]; enough for the Alerts sheet and the Summary event log. */
 const val MAX_NOTIFICATIONS = 100
+
+/** `Ekos::SchedulerState::SCHEDULER_RUNNING` (`ekos.h`). */
+const val SCHEDULER_STATE_RUNNING = 2
 
 /** `targetDiff` Ekos sends when a solve had no target (`m_TargetDiffTotal`'s 1e6 initial value). */
 const val ALIGN_TARGET_DIFF_UNSET = 1e6

@@ -27,6 +27,10 @@ import androidx.compose.ui.unit.dp
 import com.nocturne.session.guideRmsTotal
 import com.nocturne.session.SessionController
 import com.nocturne.session.AppState
+import com.nocturne.session.mountTrackingOn
+import com.nocturne.session.mountParkedReal
+import com.nocturne.session.isOn
+import com.nocturne.session.indiSwitchElement
 import com.nocturne.session.SheetType
 import com.nocturne.session.contractJob
 import com.nocturne.session.doneHM
@@ -92,9 +96,22 @@ private fun IdleSessionCard(state: AppState, modifier: Modifier) {
     Column(modifier.fillMaxWidth().padding(NocturneTheme.spacing.s4)) {
         Card {
             TextC("No job running — add a target to the sequence from the Plan tab.", style = t.Body13, color = c.textMuted)
-            if (state.mountParked) {
+            // Only what the rig reports: nothing until the mount/camera properties arrive.
+            val camera = state.primaryTrain.camera
+            val cameraConnected = state.wireDevices?.any { it.name == camera && it.connected } == true
+            val coolerOn = if (cameraConnected) state.indiSwitchElement(camera, "CCD_COOLER")?.let { it == "COOLER_ON" } else null
+            val mount = when {
+                !state.isOn("mount") -> null
+                state.mountParkedReal -> "Mount parked"
+                state.mountTrackingOn == true -> "Mount tracking"
+                state.mountTrackingOn == false -> "Mount idle"
+                else -> null
+            }
+            val cooler = coolerOn?.let { if (it) "cooler on" else "cooler off" }
+            val line = listOfNotNull(mount, cooler).joinToString(" · ")
+            if (line.isNotEmpty()) {
                 Spacer(Modifier.height(6.dp))
-                TextC("Mount parked · cooler off", style = t.MonoMicro, color = c.textFaint)
+                TextC(line, style = t.MonoMicro, color = c.textFaint)
             }
         }
     }

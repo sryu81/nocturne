@@ -57,6 +57,12 @@ maintenance); the Pi keeps orders 0–5 on the SD card for KStars' offline HiPS.
 - 2026-10-24 screenshot fixes (compiled and unit-tested, not run on the phone): signed PAH az/alt
   readout, pinch-zoom on the PAH frame, FOV box sized to the DSS cutout, outline-button border,
   header outline and alert badge, EXP boxes following Ekos, `1000000"` accuracy sentinel.
+- End session / Finish (compiled, not run on the rig): End session stops the Scheduler when Ekos
+  reports it RUNNING and removes the job Ekos is busy with, even if no local job is synced (the
+  2026-10-25 field test left the job and capture running because the app's queue had no synced
+  job). Finish also stops guiding, sends `mount_park` and turns the cooler off; Ekos' own
+  pre-shutdown queue stays off (`SchedulerShutdownEnabled=false`) and a manual Scheduler stop never
+  runs it.
 - Cooler reads 0% power at 9.9 °C with Cooler ON and a −5 °C set point (screenshot 20:29): the
   card now says "not cooling" in that state, but whether the camera really isn't cooling is a rig
   question.

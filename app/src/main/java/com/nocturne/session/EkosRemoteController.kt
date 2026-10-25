@@ -375,7 +375,7 @@ class EkosRemoteController(
         // ignored. Ekos::SchedulerState: IDLE=0/STARTUP=1/RUNNING=2/PAUSED=3/SHUTDOWN=4/
         // ABORTED=5/LOADING=6 — running for everything except IDLE/ABORTED.
         is EkosEvent.NewSchedulerState ->
-            event.status?.let { s.copy(schedulerRunning = it != 0 && it != 5) } ?: s
+            event.status?.let { s.copy(schedulerRunning = it != 0 && it != 5, schedulerStatus = it) } ?: s
 
         is EkosEvent.Devices -> s.copy(wireDevices = event.devices.map { it.toLiveDevice() })
         is EkosEvent.DeviceProperties -> event.properties.fold(s) { acc, prop ->
@@ -2352,35 +2352,65 @@ class EkosRemoteController(
     }
 
     /**
-     * Resolves the index by name against the latest `scheduler_get_jobs` reply rather than
-     * caching it (`WireSchedulerJob` has no server-assigned id). Re-fetches the job list
-     * afterwards: removing a job that never started causes no `new_scheduler_state` push, and a
-     * stale list would show the removed job again as "unmanaged".
+     * Resolves indices by name against the latest `scheduler_get_jobs` reply rather than
+     * caching them (`WireSchedulerJob` has no server-assigned id). Removes highest index first
+     * so one removal doesn't shift the next. Re-fetches the job list afterwards: removing a job
+     * that never started causes no `new_scheduler_state` push, and a stale list would show the
+     * removed job again as "unmanaged".
      */
-    private fun removeRealJobByName(targetName: String) {
-        val idx = _state.value.wireSchedulerJobs.orEmpty().indexOfLast { it.name == targetName }
-        if (idx >= 0) {
-            client.sendCommand(Commands.SCHEDULER_REMOVE_JOBS, buildJsonObject { put("index", idx) })
-            client.sendCommand(Commands.SCHEDULER_GET_JOBS)
-        }
+    private fun removeRealJobsByName(targetNames: Collection<String>) {
+        val jobs = _state.value.wireSchedulerJobs.orEmpty()
+        val indices = targetNames.mapNotNull { name -> jobs.indexOfLast { it.name == name }.takeIf { it >= 0 } }
+            .distinct().sortedDescending()
+        if (indices.isEmpty()) return
+        indices.forEach { client.sendCommand(Commands.SCHEDULER_REMOVE_JOBS, buildJsonObject { put("index", it) }) }
+        client.sendCommand(Commands.SCHEDULER_GET_JOBS)
     }
+
+    private fun removeRealJobByName(targetName: String) = removeRealJobsByName(listOf(targetName))
 
     /**
      * Ekos has no session concept; the base `endSession()`/`finishNight()` only move local
-     * navigation. These whole-night lifecycle actions deliberately stop+remove (or push+start)
-     * the Scheduler jobs, unlike ordinary pushes.
+     * navigation. These whole-night lifecycle actions deliberately stop+remove the Scheduler
+     * jobs, unlike ordinary pushes.
+     *
+     * A Scheduler stop (`SchedulerProcess::stop`) aborts the active job's capture/focus/align/slew
+     * and guiding and marks unfinished jobs aborted, but runs no shutdown: no park, no cooler.
+     * The job Ekos is actually running counts even when no local job claims it (queue lost on
+     * reinstall, job added in KStars), so the stop doesn't depend on the local `synced` flag.
      */
     override fun endSession() {
-        val contract = _state.value.contractJob
-        if (contract != null && contract.synced) stopThenRemove(_state.value.targetNameFor(contract))
+        val s = _state.value
+        val names = endingJobNames(s)
+        stopSchedulerIfRunning()
+        removeRealJobsByName(names)
         super.endSession()
     }
 
-    /** See [endSession]'s doc. */
+    /** [endSession], then park the mount and turn the cooler off. Ekos' own shutdown queue stays disabled on the rig. */
     override fun finishNight() {
         val s = _state.value
-        s.jobs.filter { it.synced }.forEach { job -> stopThenRemove(s.targetNameFor(job)) }
+        val names = endingJobNames(s) + s.jobs.filter { it.synced }.map { s.targetNameFor(it) }
+        stopSchedulerIfRunning()
+        removeRealJobsByName(names)
+        if (s.guiding) client.sendCommand(Commands.GUIDE_STOP)
+        client.sendCommand(Commands.MOUNT_PARK)
+        setCoolerEnabled(false)
         super.finishNight()
+    }
+
+    /** The contract job if pushed, plus whatever Ekos' Scheduler is busy with. */
+    private fun endingJobNames(s: AppState): Set<String> = buildSet {
+        s.contractJob?.takeIf { it.synced }?.let { add(s.targetNameFor(it)) }
+        s.wireSchedulerJobs.orEmpty().filter { it.state == SchedulerJobStatus.BUSY }.forEach { add(it.name) }
+    }
+
+    /**
+     * `scheduler_start_job` toggles: only RUNNING turns it off, any other state (paused, startup,
+     * shutdown) would start it. Server-side the stop is synchronous, so a remove sent right after lands.
+     */
+    private fun stopSchedulerIfRunning() {
+        if (_state.value.schedulerStatus == SCHEDULER_STATE_RUNNING) client.sendCommand(Commands.SCHEDULER_START_JOB)
     }
 
     /**
@@ -2397,12 +2427,6 @@ class EkosRemoteController(
         val next = _state.value.jobs.firstOrNull { it.id != _state.value.lastEndedJobId }
         super.startNextJob()
         if (next != null) pushRealJob(next.id, alsoStart = true)
-    }
-
-    /** A running Scheduler must be toggled off before a remove can land (see [AppState.schedulerRunning]). */
-    private fun stopThenRemove(targetName: String) {
-        if (_state.value.schedulerRunning) client.sendCommand(Commands.SCHEDULER_START_JOB) // toggle: stops it, since it's running
-        removeRealJobByName(targetName)
     }
 }
 

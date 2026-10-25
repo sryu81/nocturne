@@ -119,7 +119,7 @@ abstract class AbstractLocalSessionController : SessionController {
     }
 
     override fun finishNight() = update { s ->
-        s.copy(jobs = emptyList(), coolTarget = 20.0, mountParked = true, sheet = null, lastEndedJobId = null, lastActiveJobId = null)
+        s.copy(jobs = emptyList(), sheet = null, lastEndedJobId = null, lastActiveJobId = null)
     }
 
     override fun toggleBlock(jobId: String, blockId: String) = update { s ->
