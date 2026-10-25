@@ -1,10 +1,10 @@
 # Future plan (draft)
 
-**Draft, still being discussed** — nothing here is built yet; items are added as discussions go.
+**Draft, still being discussed** — plan 1 is built (branch `home-tab-revision`), plans 2 and 3 are not; items are added as discussions go.
 
 | # | Plan | State |
 |---|---|---|
-| 1 | Home tab and tab layout revision | decided; milestones M1–M6 below, ready to build |
+| 1 | Home tab and tab layout revision | M1–M6 built and installed on branch `home-tab-revision` (pushed); rig checks left, listed in `docs/STATUS.md` |
 | 2 | Controls tab revision | to be planned |
 | 3 | Frames tab revision | proposal written, open decisions below |
 
@@ -165,6 +165,18 @@ verified on the rig and noted in `docs/STATUS.md` until then.
 | M5 | **Fork: per-line logs** | fork build + rig deploy | One-line-at-a-time log push, a `get_logs` snapshot on connect, and the Ekos main log, Mount module log and INDI driver messages with levels. The app prefers the new push and falls back to M4's diffing on the old fork. |
 | M6 | **Notifications** | app + foreground service | Alerts and errors (flip failed, slew stuck, guiding lost, undervoltage, disk low) reach the phone while it is in a pocket, with a small persistent notification while the service runs and an on/off switch in the app. |
 
+**Built, 2026-10-25** — all six are compiled, unit-tested and installed; M5's fork build is deployed
+on the Pi. Not yet seen on the rig: a real running job on Sequence, an alert arriving on a locked
+phone, a night on battery for M6. Found while building them and fixed on the same branch: filter
+wheel after an Ekos stop/start, camera properties defined late (cooler, fan, sensor), the cooler
+button, the End session/Finish procedure, and Stop Ekos (below). Open: merge `home-tab-revision`
+into `main` (a PR, when you decide).
+
+**Stop Ekos (added after M6).** Ekos' Stop kills the INDI drivers without disconnecting the devices,
+so a camera is never closed and its cooler keeps running; Ekos' own screen locks Stop until
+Disconnect is done. Home now has a "Disconnect devices" button (CONNECTION=DISCONNECT per device) and
+Stop Ekos stays locked until every device reports disconnected. App only, no fork change.
+
 ## Order and dependencies
 
 - M1 → M2 → M3 are sequential: each fills the page the previous one created. M4 can start once M2
@@ -185,6 +197,11 @@ To be planned. Inputs so far:
 - Idea: collapsible per-module sections, remembering which are open. No horizontal tab bar (the
   landscape rule: vertical rail only), so any jump list must be vertical.
 - Idea: pin the active module (Guide while guiding, Focuser while focusing) to the top.
+- Idea: remember the last cooler set point, cooler/fan state and exposure/gain/bin on the phone (the
+  app keeps none of them today; it re-reads Ekos at connect, and the camera forgets its cooler on a
+  restart). Re-sending the cooler settings would need a confirm, since it changes the rig.
+- Cooler card: the caption under "Enforce temperature" and the unlabelled power bar were removed
+  (2026-10-25); the power % stays in the card header.
 - The 2026-10-24 screenshot fixes already covered the smaller Controls defects (EXP box following
   Ekos, blank bin chip, cooler state); see `docs/STATUS.md`.
 

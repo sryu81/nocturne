@@ -1,6 +1,6 @@
 # Nocturne — status
 
-Current state of the app, the Pi-side tools and the rig. Updated 2026-10-24.
+Current state of the app, the Pi-side tools and the rig. Updated 2026-10-25.
 History lives in git; this file only says what is true now and what is left.
 
 ## What works
@@ -70,9 +70,14 @@ maintenance); the Pi keeps orders 0–5 on the SD card for KStars' offline HiPS.
   `CCD_COOLER`, so the label froze and every press re-sent OFF. App: the cooler state is what the
   user last commanded (cooling power overrides it), and the camera is re-read 1.5 s after any
   cooler or fan write; verified on the rig (Cooler pressed ON: label, power 79%, sensor followed).
-  Fork (commit pending, build running, not yet deployed): a whole-device subscription now stays
-  whole, so later properties are pushed too. Until it is deployed, reconnecting the app re-reads
-  everything.
+  Fork (commit `60f8bb5bd`, deployed to the Pi 2026-10-25 09:35): a whole-device subscription now
+  stays whole, so later properties are pushed too. Verified: Ekos started from the app without
+  reconnecting, and the sensor, cooler, power and fan all appeared and followed; Set at 0 °C took
+  the sensor from 32.5 to 8.3 °C (97%).
+- Stop Ekos (compiled, installed; not run on the rig): Ekos' Stop kills the drivers without
+  disconnecting, so a camera's cooler kept running. Home has "Disconnect devices", and Stop Ekos is
+  locked until every device reports disconnected, like Ekos' own screen. To check: cooler on →
+  Disconnect devices → Stop Ekos → the cooler stops.
 - M6 phone notifications (compiled, unit-tested, installed; not seen delivering an alert): a
   foreground service (`monitor/RigMonitorService`, type specialUse, persistent "Nocturne is watching
   the rig" notification) keeps the connection alive with the screen off, with a CPU and a Wi-Fi lock;
@@ -121,9 +126,9 @@ maintenance); the Pi keeps orders 0–5 on the SD card for KStars' offline HiPS.
 ## Open — app
 
 - **Future plan** (`docs/PLAN.md`, draft) has three plans: (1) Home tab and tab layout revision —
-  decided, milestones M1–M6, order Home | Gear | Controls | Plan | Sequence | Frames, Session
-  becomes Home and its job progress moves to Sequence; (2) Controls tab revision — to be planned;
-  (3) Frames tab revision, the Pi file manager — open decisions. Nothing built yet.
+  built on branch `home-tab-revision` (M1–M6), rig checks above, merge into `main` pending;
+  (2) Controls tab revision — to be planned; (3) Frames tab revision, the Pi file manager — open
+  decisions.
 - New sequence blocks start at 300 s × 10, gain 100, offset 50, dither every 2 — could start from
   Ekos's current capture settings instead. `TabPlaceholder` is unused.
 - Warn when a second client takes over the connection.
