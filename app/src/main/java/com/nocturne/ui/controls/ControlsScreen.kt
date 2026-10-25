@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
@@ -794,7 +795,10 @@ private fun FocuserCard(state: AppState, ctrl: SessionController) {
             )
         }
         Spacer(Modifier.height(9.dp))
-        TextC("rough focus by eye, then run autofocus · backlash 90 out", style = t.MonoMicro, color = c.textMuted)
+        TextC(
+            "rough focus by eye, then run autofocus · backlash " + (state.wireFocusSettings?.focusBacklash?.toString() ?: "N/A"),
+            style = t.MonoMicro, color = c.textMuted,
+        )
         Spacer(Modifier.height(9.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextC(
@@ -808,6 +812,12 @@ private fun FocuserCard(state: AppState, ctrl: SessionController) {
                 style = if (state.focusRunning) BtnStyle.SOLID else BtnStyle.SUBTLE,
                 modifier = Modifier.height(34.dp),
             )
+        }
+        // The latest focus frame, so focus can be watched while stepping and during autofocus.
+        val frame = state.latestFocusFrame
+        if (frame != null || state.focusRunning) {
+            Spacer(Modifier.height(9.dp))
+            FramePanel(frame, caption = "HFR " + (frame?.header?.hfr?.let { "%.2f".format(it) } ?: "N/A"))
         }
         if (state.focusRunning || state.focusSamples.isNotEmpty()) {
             Spacer(Modifier.height(9.dp))
@@ -885,7 +895,8 @@ private fun MountControlCard(state: AppState, ctrl: SessionController) {
         Row(verticalAlignment = Alignment.Top) {
             DPad(state, ctrl)
             Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
+            // Centred against the D-pad's height; the coordinates sit full-width below both.
+            Column(Modifier.weight(1f).height(152.dp), verticalArrangement = Arrangement.Center) {
                 // Scrollable fixed-width chips: the number of slew rates varies by driver.
                 Row(
                     Modifier
@@ -908,14 +919,14 @@ private fun MountControlCard(state: AppState, ctrl: SessionController) {
                     }
                 }
                 Spacer(Modifier.height(6.dp))
-                MountCoordsGrid(state, ctrl)
-                Spacer(Modifier.height(4.dp))
                 TextC(
                     if (state.mountSolved) "solved — re-solve after moving" else "not solved",
                     style = t.Mono115, color = c.neutral500,
                 )
             }
         }
+        Spacer(Modifier.height(9.dp))
+        MountCoordsGrid(state, ctrl)
         Spacer(Modifier.height(9.dp))
         Row(Modifier.fillMaxWidth()) {
             NocturneButton(
@@ -1089,7 +1100,7 @@ private fun GuideControlCard(state: AppState, ctrl: SessionController) {
             // Tap for the full Guide sheet (bigger chart + guide frame) — its only other entry
             // point is the Sequence tab's RMS tile, which is hidden when no job is running.
             GuideTelemetry(
-                state, chartHeight = 64.dp,
+                state, chartHeight = 140.dp,
                 modifier = Modifier.clickable { ctrl.openSheet(SheetType.GUIDE) },
             )
         }
@@ -1115,6 +1126,31 @@ private fun AlignSolveCard(state: AppState, ctrl: SessionController) {
             Spacer(Modifier.height(6.dp))
             TextC(it, style = t.Caption, color = c.textMuted)
         }
+        // What the solver was given; empty until a solve has run.
+        Spacer(Modifier.height(8.dp))
+        FramePanel(state.latestAlignFrame, caption = null)
+    }
+}
+
+/** A read-only frame from Ekos (focus, align), 4:3 and capped in height like [SnapPanel]'s, with an optional caption. */
+@Composable
+private fun FramePanel(frame: com.nocturne.protocol.MediaFrame?, caption: String?) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    Column {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .aspectRatio(4f / 3f)
+                .heightIn(max = 260.dp)
+                .background(c.surfaceDeep, RoundedCornerShape(4.dp)),
+        ) {
+            MediaFramePreview(frame, Modifier.fillMaxSize(), hatchColor = c.surfaceRaised)
+            if (frame == null) {
+                TextC("no frame yet", style = t.Caption, color = c.textFaint, modifier = Modifier.align(Alignment.Center))
+            }
+        }
+        if (caption != null) TextC(caption, style = t.MonoSmall, color = c.text, modifier = Modifier.padding(top = 5.dp))
     }
 }
 
