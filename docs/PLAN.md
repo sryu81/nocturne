@@ -307,9 +307,35 @@ sheet opens, the menu card turns to the warning colour with STOP while a slew st
 Moving the mount only with the user's go-ahead and the rig safe: a short N/S nudge then STOP (also
 from the menu card), Park / Unpark, Go home.
 
+## Guide page (decided 2026-10-25; not built)
+
+Order, top to bottom:
+
+1. Header `Guide ▾` (module switcher) with a button for the existing Guide settings sheet. The
+   "Guide settings" tile goes away; the sheet stays.
+2. **Preview card**, unchanged: guide frame, status, EXP / gain / BIN (no filter), Preview Guide Cam
+   with Stop. First, as on the Camera page: see the star before anything else.
+3. **Control card**, unchanged: status line, Start guiding / Stop, Loop and Clear calibration
+   (idle-only), RA / Dec / Total RMS.
+4. **Drift chart inline at about 140 dp** (64 dp today), so it reads without opening a sheet.
+   `GuideTelemetry` already takes a chart height, so this is layout only. Tapping it still opens the
+   Guide sheet, which stays reachable from the Sequence RMS tile.
+
+- **Menu one-liner:** status and total RMS, e.g. `Guiding · 0.62″ RMS`, `looping`, `calibrating`,
+  `idle`; pinned as active while guiding or calibrating. Unknown values show "N/A".
+- **No behaviour change:** same commands; Stop stays an abort, not a pause; Clear calibration stays
+  without a confirmation (a dialog would change behaviour, later if wanted).
+
+**Test plan (after building).** Build, unit tests, install; Preview Guide Cam shows a frame; EXP,
+gain and BIN changes reach Ekos; the settings sheet opens from the header; tapping the chart opens
+the Guide sheet; the menu one-liner and pinning follow the guide state; portrait fit checked on the
+phone (a little scrolling is accepted). Start / Stop, Loop and Clear calibration need a tracking
+mount and a star in the guide camera, so they are verified under the sky and listed as not verified
+in `docs/STATUS.md` until then.
+
 ## To be added
 
-The other module pages (Guide, Align, Polar alignment) and their menu one-liners; the remembered
+The other module pages (Align, Polar alignment) and their menu one-liners; the remembered
 camera/cooler settings.
 
 ---
