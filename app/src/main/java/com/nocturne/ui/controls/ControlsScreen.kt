@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,10 +22,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -43,6 +46,11 @@ import com.nocturne.session.coolerIsOn
 import com.nocturne.session.focRange
 import com.nocturne.session.guideCameraDevice
 import com.nocturne.session.indiSwitchElements
+import com.nocturne.session.zenithAngle
+import com.nocturne.session.formatDegrees
+import com.nocturne.session.formatHa
+import com.nocturne.session.formatDec
+import com.nocturne.session.formatRa
 import com.nocturne.session.indiSwitchElement
 import com.nocturne.session.focusCameraDevice
 import com.nocturne.session.gainSpecialValue
@@ -759,10 +767,10 @@ private fun MountControlCard(state: AppState, ctrl: SessionController) {
                     }
                 }
                 Spacer(Modifier.height(6.dp))
+                MountCoordsGrid(state, ctrl)
+                Spacer(Modifier.height(4.dp))
                 TextC(
-                    "alt " + (state.mountAlt?.let { "%.1f°".format(it) } ?: "N/A") +
-                        " · az " + (state.mountAz?.let { "%.1f°".format(it) } ?: "N/A") +
-                        if (state.mountSolved) "\nsolved — re-solve after moving" else "\nnot solved",
+                    if (state.mountSolved) "solved — re-solve after moving" else "not solved",
                     style = t.Mono115, color = c.neutral500,
                 )
             }
@@ -841,6 +849,49 @@ private fun DPad(state: AppState, ctrl: SessionController) {
         ) {
             TextC("STOP", style = t.Button12, color = c.danger)
         }
+    }
+}
+
+/**
+ * RA/Dec, HA, Alt/Az and ZA from the mount's ~1/s coordinate telemetry. RA/Dec are of date (JNow,
+ * like Ekos) unless toggled to J2000; the toggle is remembered. Values dim when the pushes stop
+ * (parked mount, link lost) so a stale position is not read as live.
+ */
+@Composable
+private fun MountCoordsGrid(state: AppState, ctrl: SessionController) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    val now by produceState(System.currentTimeMillis()) {
+        while (true) { delay(1_000); value = System.currentTimeMillis() }
+    }
+    val live = state.mountCoordsAt?.let { now - it < 5_000 } == true
+    val j2000 = state.mountJ2000
+    val color = if (live) c.text else c.neutral500
+    @Composable
+    fun RowScope.cell(label: String, value: String, weight: Float = 1f) {
+        Column(Modifier.weight(weight)) {
+            TextC(label, style = t.MonoMicro, color = c.textFaint)
+            TextC(value, style = t.MonoSmall, color = if (value == "N/A") c.textMuted else color, maxLines = 1)
+        }
+    }
+    Column(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth()) {
+            cell("RA", formatRa(if (j2000) state.mountRa0 else state.mountRa), 1.0f)
+            cell("DEC", formatDec(if (j2000) state.mountDec0 else state.mountDec), 1.15f)
+            cell("HA", formatHa(state.mountHa), 0.9f)
+        }
+        Spacer(Modifier.height(5.dp))
+        Row(Modifier.fillMaxWidth()) {
+            cell("ALT", formatDegrees(state.mountAlt), 1.0f)
+            cell("AZ", formatDegrees(state.mountAz), 1.15f)
+            cell("ZA", formatDegrees(zenithAngle(state.mountAlt)), 0.9f)
+        }
+        Spacer(Modifier.height(3.dp))
+        TextC(
+            (if (j2000) "J2000" else "JNow") + " · tap to switch" + if (!live && state.mountCoordsAt != null) " · not updating" else "",
+            style = t.MonoMicro, color = c.textFaint,
+            modifier = Modifier.clickable { ctrl.setMountJ2000(!j2000) },
+        )
     }
 }
 

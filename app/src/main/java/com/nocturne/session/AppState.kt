@@ -225,9 +225,19 @@ data class AppState(
     val quietHoursEnabled: Boolean = true,
     /** Phone notifications while locked, via the foreground service in monitor/; persisted. */
     val pushNotificationsEnabled: Boolean = true,
-    /** Bench sheet mount pointing. `new_mount_state` has no alt/az, so these keep their defaults. */
+    /** Mount pointing from the ~1/s coordinate telemetry in `new_mount_state`, all degrees. */
     val mountAlt: Double? = null,
     val mountAz: Double? = null,
+    /** Of date (JNow, what Ekos shows) and J2000. */
+    val mountRa: Double? = null,
+    val mountDec: Double? = null,
+    val mountRa0: Double? = null,
+    val mountDec0: Double? = null,
+    val mountHa: Double? = null,
+    /** Wall-clock time of the last coordinate push; the card dims values that stop updating. */
+    val mountCoordsAt: Long? = null,
+    /** Mount card shows RA/Dec as J2000 instead of JNow; persisted. */
+    val mountJ2000: Boolean = false,
     /** Cleared whenever the mount slews — a solve is only valid until the mount moves again. */
     val mountSolved: Boolean = false,
     /**

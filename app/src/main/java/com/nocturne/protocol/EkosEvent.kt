@@ -26,7 +26,7 @@ sealed interface EkosEvent {
     /**
      * `new_mount_state` push. Two disjoint shapes: `{status, target, slewRate, pierSide}` on a
      * mount status transition, and a ~1/s coordinate telemetry shape (`{at, az, de, de0, ha, ra,
-     * ra0}`, ignored here). Fields default so the telemetry shape still decodes.
+     * ra0}`, degrees). Fields default so each shape decodes.
      */
     @Serializable
     data class NewMountState(
@@ -34,6 +34,14 @@ sealed interface EkosEvent {
         val target: String? = null,
         val slewRate: Int? = null,
         val pierSide: Int? = null,
+        /** Coordinate telemetry, all degrees: `ra`/`de` of date (JNow), `ra0`/`de0` J2000, `at` is altitude. */
+        val ra: Double? = null,
+        val de: Double? = null,
+        val ra0: Double? = null,
+        val de0: Double? = null,
+        val az: Double? = null,
+        val at: Double? = null,
+        val ha: Double? = null,
     ) : EkosEvent
 
     /**

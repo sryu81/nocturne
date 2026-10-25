@@ -454,4 +454,18 @@ class EkosEventCodecTest {
         val plotInit = EkosEventCodec.decode("""{"payload":{"focusinitHFRPlot":true},"type":"new_focus_state"}""")
         assertTrue(plotInit is EkosEvent.NewFocusState)
     }
+
+    @Test
+    fun `decodes the mount coordinate telemetry`() {
+        val event = EkosEventCodec.decode(
+            """{"payload":{"ra":91.0,"de":90.0,"ra0":90.5,"de0":89.9,"az":12.5,"at":40.25,"ha":337.5},"type":"new_mount_state"}""",
+        )
+        assertTrue(event is EkosEvent.NewMountState)
+        event as EkosEvent.NewMountState
+        assertEquals(91.0, event.ra!!, 1e-9)
+        assertEquals(89.9, event.de0!!, 1e-9)
+        assertEquals(40.25, event.at!!, 1e-9)
+        assertEquals(337.5, event.ha!!, 1e-9)
+        assertEquals(null, event.status)
+    }
 }

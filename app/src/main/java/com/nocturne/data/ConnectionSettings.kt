@@ -24,6 +24,7 @@ data class ConnectionSettings(
     val rebootPort: Int = 9001,
     /** Phone notifications and the foreground service that keeps the connection alive (monitor/). */
     val pushNotifications: Boolean = true,
+    val mountJ2000: Boolean = false,
 )
 
 /**
@@ -38,6 +39,7 @@ class ConnectionRepository(private val context: Context) {
         val LAST_CONNECTED_AT = longPreferencesKey("last_connected_at")
         val REBOOT_PORT = intPreferencesKey("reboot_port")
         val PUSH_NOTIFICATIONS = booleanPreferencesKey("push_notifications")
+        val MOUNT_J2000 = booleanPreferencesKey("mount_j2000")
         /** Left over from the removed daemon token — only read to delete it. */
         val LEGACY_REBOOT_TOKEN = stringPreferencesKey("reboot_token")
     }
@@ -49,6 +51,7 @@ class ConnectionRepository(private val context: Context) {
             lastConnectedAt = prefs[Keys.LAST_CONNECTED_AT],
             rebootPort = prefs[Keys.REBOOT_PORT] ?: 9001,
             pushNotifications = prefs[Keys.PUSH_NOTIFICATIONS] ?: true,
+            mountJ2000 = prefs[Keys.MOUNT_J2000] ?: false,
         )
     }
 
@@ -67,6 +70,10 @@ class ConnectionRepository(private val context: Context) {
 
     suspend fun savePushNotifications(enabled: Boolean) {
         context.connectionDataStore.edit { prefs -> prefs[Keys.PUSH_NOTIFICATIONS] = enabled }
+    }
+
+    suspend fun saveMountJ2000(enabled: Boolean) {
+        context.connectionDataStore.edit { prefs -> prefs[Keys.MOUNT_J2000] = enabled }
     }
 
     suspend fun saveRebootPort(port: Int) {

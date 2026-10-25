@@ -253,7 +253,7 @@ class EkosRemoteController(
             scope.launch {
                 val saved = repo.current()
                 rigRebootPort = saved.rebootPort
-                _state.update { it.copy(rigRebootPort = saved.rebootPort, pushNotificationsEnabled = saved.pushNotifications) }
+                _state.update { it.copy(rigRebootPort = saved.rebootPort, pushNotificationsEnabled = saved.pushNotifications, mountJ2000 = saved.mountJ2000) }
             }
         }
 
@@ -311,6 +311,14 @@ class EkosRemoteController(
             wireMountTarget = event.target ?: s.wireMountTarget,
             wireMountSlewRate = event.slewRate ?: s.wireMountSlewRate,
             wireMountPierSide = event.pierSide ?: s.wireMountPierSide,
+            mountRa = event.ra ?: s.mountRa,
+            mountDec = event.de ?: s.mountDec,
+            mountRa0 = event.ra0 ?: s.mountRa0,
+            mountDec0 = event.de0 ?: s.mountDec0,
+            mountAz = event.az ?: s.mountAz,
+            mountAlt = event.at ?: s.mountAlt,
+            mountHa = event.ha ?: s.mountHa,
+            mountCoordsAt = if (event.ra != null || event.at != null) System.currentTimeMillis() else s.mountCoordsAt,
         )
         is EkosEvent.NewFocusState -> {
             // Wire status wins over the optimistic Start/Stop flag (scheduler/desktop-started
@@ -1475,6 +1483,11 @@ class EkosRemoteController(
                 )
             }
         }
+    }
+
+    override fun setMountJ2000(enabled: Boolean) {
+        super.setMountJ2000(enabled)
+        scope.launch { connectionRepo?.saveMountJ2000(enabled) }
     }
 
     override fun setPushNotifications(enabled: Boolean) {
