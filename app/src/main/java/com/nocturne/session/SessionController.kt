@@ -158,6 +158,9 @@ interface SessionController {
     fun stopProfile()
     fun selectProfile(name: String)
     fun toggleEkos()
+    /** Ekos' Disconnect button: every connected INDI device is told to disconnect (closes the
+     *  cameras properly, so a cooler stops). Stop Ekos is only offered once all have reported it. */
+    fun disconnectDevices()
     fun deleteProfile(name: String)
     fun editProfile(name: String)
     /** Plan tab's `RotatorRow` slider: `align_set_target_pa` in [EkosRemoteController]; a local

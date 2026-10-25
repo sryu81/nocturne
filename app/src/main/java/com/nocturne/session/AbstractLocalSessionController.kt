@@ -773,6 +773,10 @@ abstract class AbstractLocalSessionController : SessionController {
 
     override fun selectProfile(name: String) = update { it.copy(selectedProfile = name) }
 
+    override open fun disconnectDevices() = update { s ->
+        s.copy(wireDevices = s.wireDevices?.map { it.copy(connected = false) })
+    }
+
     override fun toggleEkos() {
         val name = _state.value.selectedProfile
         if (_state.value.ekosRunning) stopProfile() else name?.let { startProfile(it) }

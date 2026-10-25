@@ -1349,6 +1349,17 @@ class EkosRemoteController(
         super.startProfile(name) // optimistic; new_connection_state.online confirms
     }
 
+    /** No optimistic update: Stop Ekos unlocks only when each device's CONNECTION push says so. */
+    override fun disconnectDevices() {
+        _state.value.wireDevices.orEmpty().filter { it.connected }.forEach { device ->
+            client.sendCommand(Commands.DEVICE_PROPERTY_SET, buildJsonObject {
+                put("device", device.name)
+                put("property", "CONNECTION")
+                putJsonArray("elements") { addJsonObject { put("name", "DISCONNECT"); put("state", 1) } }
+            })
+        }
+    }
+
     override fun stopProfile() {
         client.sendCommand(Commands.PROFILE_STOP)
         super.stopProfile()

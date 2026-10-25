@@ -123,11 +123,22 @@ internal fun EkosCard(state: AppState, ctrl: SessionController) {
             }
         }
         Spacer(Modifier.height(8.dp))
+        // Like Ekos: Stop is locked until every device has disconnected, so cameras close cleanly.
+        val devicesUp = state.ekosRunning && state.wireDevices.orEmpty().any { it.connected }
+        if (devicesUp) {
+            NocturneButton(
+                text = "Disconnect devices",
+                onClick = ctrl::disconnectDevices,
+                style = BtnStyle.OUTLINE,
+                modifier = Modifier.fillMaxWidth().height(40.dp),
+            )
+            Spacer(Modifier.height(8.dp))
+        }
         NocturneButton(
             text = if (state.ekosRunning) "Stop Ekos" else "Start Ekos",
             onClick = ctrl::toggleEkos,
             style = BtnStyle.OUTLINE,
-            enabled = state.ekosRunning || state.selectedProfile != null,
+            enabled = if (state.ekosRunning) !devicesUp else state.selectedProfile != null,
             modifier = Modifier.fillMaxWidth().height(40.dp),
         )
     }
