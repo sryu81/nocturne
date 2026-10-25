@@ -54,6 +54,27 @@ class RigRebootClient(private val host: String, private val port: Int) {
         })
     }
 
+    /** GETs `/health`: the Pi's own health, answered even when KStars is down. Null when the daemon is unreachable or too old. */
+    suspend fun health(): PiHealth? = suspendCancellableCoroutine { cont ->
+        val request = Request.Builder().url("http://$host:$port/health").get().build()
+        val call = http.newCall(request)
+        val startedAt = System.currentTimeMillis()
+        cont.invokeOnCancellation { call.cancel() }
+        call.enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                if (cont.isActive) cont.resume(null)
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use {
+                    val now = System.currentTimeMillis()
+                    val body = if (it.isSuccessful) it.body?.string() else null
+                    if (cont.isActive) cont.resume(body?.let { b -> parsePiHealth(b, now - startedAt, now) })
+                }
+            }
+        })
+    }
+
     /**
      * POSTs `/set-time`; the daemon runs `date -s` + `hwclock -w`. Nothing on the EkosRemote wire
      * sets the Pi's system clock (KStars' own clock is set separately, see

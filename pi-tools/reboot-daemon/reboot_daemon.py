@@ -6,7 +6,10 @@ KStars/Ekos is hung — the case a reboot exists for. (The service is named "noc
 because reboot was its first job.)
 
 Endpoints:
-  GET  /health        -> 200 {"status": "ok"}
+  GET  /health        -> 200 {"status": "ok", ...} plus Pi health: cpu_temp_c, throttled (raw
+                         `vcgencmd get_throttled`), uptime_s, load1, time (epoch seconds, to check
+                         the clock), sd {free,total} and usb [{path,free,total}] in bytes. A field
+                         the Pi can't read is left out.
   GET  /hips/status   -> tiles present per order in the offline DSS2 colour HiPS copy, e.g.
                          {"status":"ok","orders":{"0":12,...},"complete":{"0":true,...}}
   GET  /hips/<path>   -> one file of that copy: properties, Norder3/Allsky.jpg or
@@ -32,6 +35,8 @@ PORT = int(os.environ.get("NOCTURNE_REBOOT_PORT", "9001"))
 # on the SD card, next to KStars' data: the USB stick is not always attached
 HIPS_DIR = os.environ.get("NOCTURNE_HIPS_DIR", os.path.expanduser("~/.local/share/kstars/hips/DSSColor"))
 HIPS_PATH = re.compile(r"^(properties|Norder3/Allsky\.jpg|Norder\d{1,2}/Dir\d+/Npix\d+\.jpg)$")
+
+STORAGE_DIRS = ("/mnt/", "/media/")
 
 _hips_status = {"at": 0.0, "body": None}
 _hips_lock = threading.Lock()
@@ -61,6 +66,54 @@ def hips_status():
         return _hips_status["body"]
 
 
+def _read(path):
+    try:
+        with open(path) as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+def _space(path):
+    try:
+        st = os.statvfs(path)
+    except OSError:
+        return None
+    return {"free": st.f_bavail * st.f_frsize, "total": st.f_blocks * st.f_frsize}
+
+
+def pi_health():
+    """Cheap, read-only facts about the Pi itself; each is optional so a missing tool never fails /health."""
+    body = {"status": "ok", "time": int(time.time())}
+    temp = _read("/sys/class/thermal/thermal_zone0/temp")
+    if temp and temp.strip().lstrip("-").isdigit():
+        body["cpu_temp_c"] = int(temp) / 1000.0
+    uptime = _read("/proc/uptime")
+    if uptime:
+        body["uptime_s"] = int(float(uptime.split()[0]))
+    load = _read("/proc/loadavg")
+    if load:
+        body["load1"] = float(load.split()[0])
+    try:
+        out = subprocess.run(["vcgencmd", "get_throttled"], capture_output=True, text=True, timeout=2).stdout
+        if "=" in out:
+            body["throttled"] = out.split("=", 1)[1].strip()
+    except (OSError, subprocess.SubprocessError):
+        pass
+    sd = _space("/")
+    if sd:
+        body["sd"] = sd
+    usb = []
+    for line in (_read("/proc/mounts") or "").splitlines():
+        parts = line.split()
+        if len(parts) > 1 and parts[1].startswith(STORAGE_DIRS):
+            space = _space(parts[1])
+            if space:
+                usb.append({"path": parts[1], **space})
+    body["usb"] = usb
+    return body
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     # keep-alive, so the app's sky-atlas copy (16k tiles) reuses connections
     protocol_version = "HTTP/1.1"
@@ -73,7 +126,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/health":
-            self._respond(200, "ok")
+            self._send(200, "application/json", json.dumps(pi_health()).encode())
         elif self.path == "/hips/status":
             self._send(200, "application/json", json.dumps(hips_status()).encode())
         elif self.path.startswith("/hips/"):

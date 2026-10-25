@@ -5,7 +5,7 @@ do, or can't do when KStars is hung:
 
 | Endpoint | Does |
 |---|---|
-| `GET /health` | `{"status": "ok"}` |
+| `GET /health` | `{"status": "ok"}` plus the Pi's health: `cpu_temp_c`, `throttled` (raw `vcgencmd get_throttled`), `uptime_s`, `load1`, `time` (epoch seconds), `sd` and `usb` free/total bytes. A field the Pi can't read is omitted |
 | `POST /reboot` | Reboots the Pi (replies 202 first) |
 | `POST /shutdown` | Powers the Pi off (replies 202 first); it stays off until power is cycled |
 | `POST /set-time` | `{"iso": "YYYY-MM-DDTHH:MM:SS"}` local time → `sudo date -s` (+ `hwclock -w` if an RTC exists). The Pi has no RTC, so its clock is wrong after every power loss |

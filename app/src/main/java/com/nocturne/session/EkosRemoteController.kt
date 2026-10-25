@@ -180,7 +180,7 @@ class EkosRemoteController(
         }
         scope.launch {
             client.events.collect { event ->
-                _state.update { s -> applyEvent(s, event) }
+                _state.update { s -> s.stampModuleChanges(applyEvent(s, event)) }
                 sendFollowUpCommands(event)
             }
         }

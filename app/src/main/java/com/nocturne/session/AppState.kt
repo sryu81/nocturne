@@ -349,6 +349,12 @@ data class AppState(
     /** Raw `Ekos::SchedulerState` from the same push; only [SCHEDULER_STATE_RUNNING] can be stopped by the toggle. */
     val schedulerStatus: Int? = null,
     /**
+     * When each module's status last changed, wall-clock ms, keyed by the status row's label
+     * ("Sched", "Mount", "Cam", "Focus", "Guide", "Align"); see [stampModuleChanges]. Lets Home
+     * say "Guide: Guiding · 2 min ago" so a module that has gone quiet stands out.
+     */
+    val moduleChangedAt: Map<String, Long> = emptyMap(),
+    /**
      * Target name of a refused "Push to Ekos". Ekos refuses duplicate job names
      * (`"A job with name '...' already exists"`), so [EkosRemoteController.pushJob] checks
      * [wireSchedulerJobs] before sending.
@@ -1226,6 +1232,26 @@ val Alert.severityLabel: String get() = ALERT_SEVERITY_LABELS.getOrNull(severity
 
 /** Cap on [AppState.wireNotifications]; enough for the Alerts sheet and the Summary event log. */
 const val MAX_NOTIFICATIONS = 100
+
+/** The module status row's labels, in display order: Scheduler, Mount, Camera, Focus, Guide, Align. */
+val MODULE_STATUS_LABELS = listOf("Sched", "Mount", "Cam", "Focus", "Guide", "Align")
+
+/** A module's status as the status row and Home show it; null before its first push. */
+fun AppState.moduleStatus(label: String): String? = when (label) {
+    "Sched" -> if (schedulerStatus == null) null else if (schedulerRunning) "Running" else "Idle"
+    "Mount" -> wireMountStatus
+    "Cam" -> wireCaptureStatus
+    "Focus" -> wireFocusStatus
+    "Guide" -> wireGuideStatus
+    "Align" -> wireAlignStatus
+    else -> null
+}
+
+/** [new] with [moduleChangedAt] stamped for every module whose status differs from [this] (the state before). */
+fun AppState.stampModuleChanges(new: AppState, nowMs: Long = System.currentTimeMillis()): AppState {
+    val changed = MODULE_STATUS_LABELS.filter { moduleStatus(it) != new.moduleStatus(it) }
+    return if (changed.isEmpty()) new else new.copy(moduleChangedAt = new.moduleChangedAt + changed.associateWith { nowMs })
+}
 
 /** `Ekos::SchedulerState::SCHEDULER_RUNNING` (`ekos.h`). */
 const val SCHEDULER_STATE_RUNNING = 2

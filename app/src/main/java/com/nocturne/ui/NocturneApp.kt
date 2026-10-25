@@ -143,6 +143,12 @@ private fun NocturneShell(
     val currentTab = NocturneTab.entries.firstOrNull { it.route == backStackEntry?.destination?.route } ?: NocturneTab.Home
 
     val state by vm.ctrl.state.collectAsState()
+    val connectionMode by vm.connectionMode.collectAsState()
+    val connectionStatus = when (val m = connectionMode) {
+        is ConnectionMode.Connected -> m.status
+        is ConnectionMode.Connecting -> m.status
+        else -> null
+    }
     val ctrl = vm.ctrl
 
     // Reboot or shutdown accepted by the Pi — leave the shell entirely (closes every sheet/dialog with it).
@@ -229,7 +235,12 @@ private fun NocturneShell(
                             .fillMaxWidth(),
                     ) {
                         composable(NocturneTab.Home.route) {
-                            HomeScreen(state, ctrl, landscape, onGoToSequence = { navigate(NocturneTab.Sequence) }, onDisconnect = vm::disconnect)
+                            HomeScreen(
+                                state, ctrl, landscape,
+                                onGoToSequence = { navigate(NocturneTab.Sequence) },
+                                onDisconnect = vm::disconnect,
+                                status = connectionStatus, link = vm.link, host = vm.host, daemonPort = state.rigRebootPort,
+                            )
                         }
                         composable(NocturneTab.Plan.route) {
                             PlanScreen(state, ctrl, landscape, onGoToSequence = { navigate(NocturneTab.Sequence) })

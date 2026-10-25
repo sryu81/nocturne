@@ -27,6 +27,7 @@ import java.time.Duration
 import kotlin.math.min
 
 private const val SETTINGS_RETRY_MS = 2_000L
+private const val PROBE_INTERVAL_MS = 10_000L
 
 /**
  * Owns the Message and Media channels and their shared reconnect logic. The server only accepts
@@ -47,6 +48,9 @@ class EkosRemoteClient(
     private val messageChannel = MessageChannel(okHttpClient, "ws://$host:$port/message/ekos")
     private val mediaChannel = MediaChannel(okHttpClient, "ws://$host:$port/media/ekos")
 
+    /** Read by the Home health card; see [LinkStats]. */
+    val link = LinkStats()
+
     private val _connectionStatus = MutableStateFlow(ConnectionStatus(ConnectionState.DISCONNECTED, host))
     val connectionStatus: StateFlow<ConnectionStatus> = _connectionStatus.asStateFlow()
 
@@ -62,6 +66,8 @@ class EkosRemoteClient(
     // close and a dropped connection, so without this disconnect()'s own close() would schedule
     // a reconnect.
     private var userDisconnected = false
+    // Send time of the `get_connection` probe still unanswered, 0 when none.
+    private var probeSentAtMs = 0L
 
     /**
      * Module `*_get_all_settings` requests still awaiting a reply this online session, command →
@@ -83,10 +89,27 @@ class EkosRemoteClient(
             }
         }
         scope.launch {
-            messageChannel.inbound.collect { text -> onEvent(EkosEventCodec.decode(text)) }
+            messageChannel.inbound.collect { text ->
+                link.lastMessageAtMs = System.currentTimeMillis()
+                onEvent(EkosEventCodec.decode(text))
+            }
+        }
+        scope.launch {
+            mediaChannel.frames.collect { link.lastMediaAtMs = System.currentTimeMillis() }
+        }
+        scope.launch {
+            // `get_connection` is answered with a cheap `new_connection_state`; its round trip is the link's latency.
+            while (true) {
+                delay(PROBE_INTERVAL_MS)
+                val state = _connectionStatus.value.state
+                if (userDisconnected || (state != ConnectionState.ONLINE && state != ConnectionState.SOCKET_OPEN)) continue
+                probeSentAtMs = System.currentTimeMillis()
+                sendCommand(Commands.GET_CONNECTION)
+            }
         }
         scope.launch {
             mediaChannel.socketEvents.collect { event ->
+                link.mediaOpen = event is MediaChannel.SocketEvent.Open
                 // set_blobs does not persist across a reconnect; re-send it on every open.
                 if (event is MediaChannel.SocketEvent.Open) {
                     mediaChannel.send(EkosEventCodec.encode(Commands.SET_BLOBS, JsonPrimitive(true)))
@@ -139,10 +162,18 @@ class EkosRemoteClient(
 
     private fun onEvent(event: EkosEvent) {
         if (event is EkosEvent.NewConnectionState) {
+            if (probeSentAtMs != 0L) {
+                val now = System.currentTimeMillis()
+                link.rttMs = now - probeSentAtMs
+                link.rttAtMs = now
+                probeSentAtMs = 0L
+            }
+            // Probe answers repeat `online: true`; the fetch below must run only on the way up.
+            val wasOnline = _connectionStatus.value.state == ConnectionState.ONLINE
             _connectionStatus.update {
                 it.copy(state = if (event.online) ConnectionState.ONLINE else ConnectionState.SOCKET_OPEN)
             }
-            if (event.online) {
+            if (event.online && !wasOnline) {
                 val now = System.currentTimeMillis()
                 pendingSettings.clear()
                 listOf(

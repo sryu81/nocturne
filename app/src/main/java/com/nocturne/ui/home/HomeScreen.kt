@@ -24,6 +24,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import com.nocturne.transport.ConnectionStatus
+import com.nocturne.transport.LinkStats
 import com.nocturne.session.guideRmsTotal
 import com.nocturne.session.SessionController
 import com.nocturne.session.AppState
@@ -65,6 +67,10 @@ fun HomeScreen(
     landscape: Boolean,
     onGoToSequence: () -> Unit,
     onDisconnect: () -> Unit,
+    status: ConnectionStatus?,
+    link: LinkStats?,
+    host: String?,
+    daemonPort: Int,
     modifier: Modifier = Modifier,
 ) {
     TabPane(
@@ -72,6 +78,7 @@ fun HomeScreen(
         modifier = modifier,
         items = listOf(
             TabItem(full = true) { EkosCard(state, ctrl) },
+            TabItem(full = true) { RigHealthCard(state, status, link, host, daemonPort) },
             TabItem(full = true) { RigSummaryCard(state) },
             TabItem(full = true) { SessionLine(state, onGoToSequence) },
             TabItem(full = true) { NightArcCard(state) },

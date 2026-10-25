@@ -58,6 +58,9 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
         private set
 
     private var client: EkosRemoteClient? = null
+    /** Link probes of the current connection, for Home's health card; null before [connect]. */
+    val link: com.nocturne.transport.LinkStats? get() = client?.link
+    val host: String? get() = client?.host
     private var reachedOnline = false
 
     private val _connectionMode = MutableStateFlow<ConnectionMode>(ConnectionMode.NeedsConnect)
