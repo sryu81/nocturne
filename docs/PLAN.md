@@ -6,7 +6,7 @@
 |---|---|---|
 | 1 | Rig status and logs | proposal written, open decisions below |
 | 2 | Frames tab → file manager for the Pi | proposal written, open decisions below |
-| 3 | Tab layout | to be discussed (decides where the Log screen and file manager live) |
+| 3 | Tab layout | decided in discussion, not built; Home tab, Session merged into Sequence |
 
 ---
 
@@ -48,7 +48,7 @@ over a night. The app should not consume it as-is.
 
 ### 1. Rig health (status)
 
-A sheet opened from the status row, laid out as a chain, so it is clear where it breaks:
+Shown on the Home tab (section 3), laid out as a chain, so it is clear where it breaks:
 
 **Phone ↔ Pi link → KStars → Ekos profile → indiserver → each driver → each module**
 
@@ -90,8 +90,8 @@ background (foreground service, small persistent notification).
 
 ## Open decisions (status and logs)
 
-1. Log screen as its own tab or a sheet from the status row — **deferred to the tab-layout
-   discussion**.
+1. ~~Log screen as its own tab or a sheet~~ — decided: a section of the Home tab, full timeline one
+   tap away (section 3).
 2. Fork changes OK (new per-line log push alongside the old one)?
 3. Android background notifications: yes / no?
 4. Log retention on the phone: last N nights (e.g. 7) or until deleted?
@@ -149,17 +149,52 @@ to see, organise or clean it up from the app: everything needs SSH today.
 
 1. Confirm: no image transfer to the phone over the network (on-Pi copy/move only)?
 2. File operations in the fork, the daemon, or split (daemon for files, fork for previews)?
-3. Where it lives in the app — part of the tab-layout discussion (Frames tab with "Phone" and
-   "Rig storage" views, or a separate screen).
+3. ~~Where it lives in the app~~ — decided: the Frames tab, last in the order, with a "Phone" and
+   a "Rig storage" view (section 3).
 4. FITS header summary in listings: read on the Pi per file (cost on large folders) or on demand?
 
 ---
 
 # 3. Tab layout
 
-To be discussed. Inputs so far: a Log screen (section 1) and a rig file manager (section 2) both
-need a home; the landscape layout must keep the vertical tab rail.
+Decided in discussion; not built. Constraints: six tabs already fill the portrait bottom bar, so no
+seventh tab; the landscape layout keeps the vertical tab rail (no horizontal tab bar).
 
-## To be added
+## Tab order
 
-(More items from upcoming discussions.)
+**Home | Gear | Controls | Plan | Sequence | Frames** — the order of a night: connect and check the
+rig, set it up, test it, choose the target, run, review. The label stays **Gear**. The app opens on
+Home after connecting (today it opens on Session).
+
+## What changes
+
+- **Session tab becomes Home** — the first page after connecting, a glanceable rig overview that
+  never needs a long scroll (deeper views sit one tap away):
+  - Connection chain (Wi-Fi, Pi, KStars, Ekos, devices) with each state — this is the rig-health
+    view from section 1, so it is a page, not a sheet.
+  - **Ekos control**: start/stop Ekos and the active profile (moved from Gear). It must work with
+    Ekos not running, the state you land in at the rig.
+  - Session one-liner: target, subs done/planned, ETA, guide RMS; tap opens Sequence.
+  - **Night arc** and sky-site card (moved to stay with Home; they describe the night, not a job).
+  - Alerts: count and latest lines, with a link to the full Log timeline (section 1).
+  - Pi health from the maintenance daemon: CPU temperature, undervoltage, free disk, uptime, clock.
+  - **Rig maintenance**: reboot, shut down, time and GPS sync (moved from Gear). The Connect
+    screen keeps its own reboot/shut-down section for when there is no connection yet.
+- **Sequence absorbs the rest of the old Session tab**: a running job's progress card on top
+  (preview, stats, flip banner, End session), the queue below. Idle, the queue comes first and the
+  progress card is absent.
+- **Gear** keeps rig setup only: profile editing, devices, scopes, optical trains.
+- **Frames** gets a "Phone" view (stored previews, keep/discard, as today) and a "Rig storage"
+  view (the Pi file manager, section 2).
+- **Log** is not a tab: a section of Home with the full timeline one tap away.
+- Plan is unchanged.
+
+## Consequences to handle when building
+
+- Notification taps and the "Back to session" flow after End session point at Sequence/Home, not
+  the old Session tab; the Summary sheet stays.
+- Controls is a very long single scroll (about 7,000 px) — collapsible per-module sections, to be
+  designed separately (no horizontal tabs, to respect the landscape rule).
+- Controls and Sequence end up two tabs apart; if jumping between them at night is awkward, add a
+  shortcut from the Sequence progress card to Controls.
+- Home needs a clear "Ekos not running → Start" card for the connected-but-no-Ekos state.
