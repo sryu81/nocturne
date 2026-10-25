@@ -553,20 +553,6 @@ private fun CoolerCard(state: AppState, ctrl: SessionController) {
             checked = enforce == true,
             onToggle = { ctrl.setTemperatureEnforced(enforce != true) },
         )
-        Spacer(Modifier.height(6.dp))
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(4.dp)
-                .background(c.text.copy(alpha = 0.1f), RoundedCornerShape(2.dp)),
-        ) {
-            Box(
-                Modifier
-                    .fillMaxWidth((powerPct ?: 0).coerceIn(0, 100) / 100f)
-                    .height(4.dp)
-                    .background(c.accent, RoundedCornerShape(2.dp)),
-            )
-        }
     }
 }
 
