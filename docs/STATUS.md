@@ -57,6 +57,15 @@ maintenance); the Pi keeps orders 0–5 on the SD card for KStars' offline HiPS.
 - 2026-10-24 screenshot fixes (compiled and unit-tested, not run on the phone): signed PAH az/alt
   readout, pinch-zoom on the PAH frame, FOV box sized to the DSS cutout, outline-button border,
   header outline and alert badge, EXP boxes following Ekos, `1000000"` accuracy sentinel.
+- Home tab rework on branch `home-tab-revision` (compiled and unit-tested, not viewed on a screen or
+  run on the rig): tab order and Home/Sequence (M1–M2), the Rig health card and the daemon's
+  extended `/health` (M3, daemon deployed), and the phone-side Log (M4). Things to check at the rig:
+  after Ekos stop/start every device incl. the filter wheel must show (a first M3 build fetched the
+  device list only once, before the wheel existed; fixed by probing with `get_profiles`, not
+  `get_connection`); the module log pushes (Capture/Focus/Guide/Align/Scheduler) now decode as
+  state events with a `log`; the Log fills while connected and survives an app restart.
+- The Pi reported `throttled 0x50000` on 2026-10-25: under-voltage and throttling since boot.
+  Probably the power supply or cable; the Home health card now shows it.
 - Shut down Pi (compiled, not run on the rig): `POST /shutdown` on the maintenance daemon, a "Shut
   down Pi" button in Rig maintenance, and a "Rig power" section (reboot + shut down) on the Connect
   screen that works with Ekos down. The daemon on the Pi must be reinstalled

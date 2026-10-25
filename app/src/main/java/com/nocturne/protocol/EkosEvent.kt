@@ -21,7 +21,7 @@ sealed interface EkosEvent {
     data class NewConnectionState(val connected: Boolean, val online: Boolean) : EkosEvent
 
     @Serializable
-    data class NewCaptureState(val status: String) : EkosEvent
+    data class NewCaptureState(val status: String? = null, val log: String? = null) : EkosEvent
 
     /**
      * `new_mount_state` push. Two disjoint shapes: `{status, target, slewRate, pierSide}` on a
@@ -50,6 +50,7 @@ sealed interface EkosEvent {
         val hfr: Double? = null,
         val pos: Int? = null,
         val title: String? = null,
+        val log: String? = null,
     ) : EkosEvent
 
     /**
@@ -73,6 +74,7 @@ sealed interface EkosEvent {
         val numStars: Int? = null,
         val rmsRA: Double? = null,
         val rmsDE: Double? = null,
+        val log: String? = null,
     ) : EkosEvent
 
     /**
@@ -84,6 +86,7 @@ sealed interface EkosEvent {
     data class NewAlignState(
         val status: String? = null,
         val solution: WireAlignSolution? = null,
+        val log: String? = null,
     ) : EkosEvent
 
     /**

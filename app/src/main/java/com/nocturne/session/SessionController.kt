@@ -15,6 +15,9 @@ interface SessionController {
     fun selectTab()
     fun openSubPreview()
     fun closeSubPreview()
+    /** The full-screen Log on top of the current tab; see [AppState.logOpen]. */
+    fun openLog()
+    fun closeLog()
     fun expandFrame(id: String)
     fun closeFrameExpand()
     /** Frames tab top-level nav; null returns to the Preview/Plan picker. */

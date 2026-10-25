@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import com.nocturne.data.LogRepository
 import com.nocturne.transport.ConnectionStatus
 import com.nocturne.transport.LinkStats
 import com.nocturne.session.guideRmsTotal
@@ -71,6 +72,7 @@ fun HomeScreen(
     link: LinkStats?,
     host: String?,
     daemonPort: Int,
+    logRepo: LogRepository,
     modifier: Modifier = Modifier,
 ) {
     TabPane(
@@ -83,6 +85,7 @@ fun HomeScreen(
             TabItem(full = true) { SessionLine(state, onGoToSequence) },
             TabItem(full = true) { NightArcCard(state) },
             TabItem(full = true) { AlertsCard(state, ctrl) },
+            TabItem(full = true) { LogCard(logRepo, ctrl) },
             TabItem { MaintenanceCard(state, ctrl) },
             TabItem { DisconnectCard(onDisconnect) },
         ),

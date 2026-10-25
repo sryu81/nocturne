@@ -53,6 +53,8 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
     private val frameRepo = FrameRepository(app.applicationContext)
     private val skyAtlas = com.nocturne.hips.SkyAtlas(app.applicationContext)
     private val targetRepo = TargetRepository(app.applicationContext)
+    /** The phone's log; shared by every connection so history outlives reconnects. */
+    val logRepo = com.nocturne.data.LogRepository(app.applicationContext)
 
     lateinit var ctrl: SessionController
         private set
@@ -105,6 +107,7 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
         ctrl = EkosRemoteController(
             newClient, viewModelScope, repo, sequenceRepo, frameRepo, targetRepo, skyAtlas,
             allowOptionalInternet = { com.nocturne.transport.RigNetwork.allowOptionalInternet(getApplication(), host) },
+            logRepo = logRepo,
         )
 
         viewModelScope.launch {

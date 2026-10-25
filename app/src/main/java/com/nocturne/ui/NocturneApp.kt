@@ -239,7 +239,7 @@ private fun NocturneShell(
                                 state, ctrl, landscape,
                                 onGoToSequence = { navigate(NocturneTab.Sequence) },
                                 onDisconnect = vm::disconnect,
-                                status = connectionStatus, link = vm.link, host = vm.host, daemonPort = state.rigRebootPort,
+                                status = connectionStatus, link = vm.link, host = vm.host, daemonPort = state.rigRebootPort, logRepo = vm.logRepo,
                             )
                         }
                         composable(NocturneTab.Plan.route) {
@@ -264,6 +264,10 @@ private fun NocturneShell(
 
         if (state.subPreviewExpanded) {
             SubPreviewOverlay(state = state, onDismiss = ctrl::closeSubPreview)
+        }
+
+        if (state.logOpen) {
+            com.nocturne.ui.home.LogScreen(repo = vm.logRepo, onClose = ctrl::closeLog)
         }
 
         if (state.expandedFrameId != null) {

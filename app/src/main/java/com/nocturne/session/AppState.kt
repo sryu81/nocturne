@@ -348,6 +348,8 @@ data class AppState(
     val schedulerRunning: Boolean = false,
     /** Raw `Ekos::SchedulerState` from the same push; only [SCHEDULER_STATE_RUNNING] can be stopped by the toggle. */
     val schedulerStatus: Int? = null,
+    /** The full-screen Log (opened from Home). */
+    val logOpen: Boolean = false,
     /**
      * When each module's status last changed, wall-clock ms, keyed by the status row's label
      * ("Sched", "Mount", "Cam", "Focus", "Guide", "Align"); see [stampModuleChanges]. Lets Home

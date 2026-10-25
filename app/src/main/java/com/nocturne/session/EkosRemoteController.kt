@@ -2,6 +2,8 @@ package com.nocturne.session
 
 import com.nocturne.data.ConnectionRepository
 import com.nocturne.data.FrameRepository
+import com.nocturne.transport.ConnectionState
+import com.nocturne.data.LogRepository
 import com.nocturne.data.SequenceRepository
 import com.nocturne.data.TargetRepository
 import com.nocturne.data.UserCatalogSnapshot
@@ -70,7 +72,11 @@ class EkosRemoteController(
     /** Asked before optional internet use (online framing cutout) — false on the rig's own,
      *  possibly SIM-metered network; see [com.nocturne.transport.RigNetwork]. */
     private val allowOptionalInternet: () -> Boolean = { true },
+    /** The phone's log of what Ekos and the app did (see [LogCollector]). Null = not kept. */
+    logRepo: LogRepository? = null,
 ) : AbstractLocalSessionController() {
+
+    private val log = logRepo?.let { LogCollector(it, scope) }
 
     /** Name a `profile_delete` was just sent for — checked against the next [EkosEvent.Profiles]. */
     private var pendingProfileDelete: String? = null
@@ -181,7 +187,24 @@ class EkosRemoteController(
         scope.launch {
             client.events.collect { event ->
                 _state.update { s -> s.stampModuleChanges(applyEvent(s, event)) }
+                log?.onEvent(event)
                 sendFollowUpCommands(event)
+            }
+        }
+        scope.launch {
+            var previous: ConnectionState? = null
+            client.connectionStatus.collect { status ->
+                if (status.state == previous) return@collect
+                previous = status.state
+                when (status.state) {
+                    ConnectionState.ONLINE -> log?.record("Link", "Ekos is online")
+                    ConnectionState.SOCKET_OPEN -> log?.record("Link", "Connected to KStars, Ekos is not running")
+                    ConnectionState.CONNECTING -> log?.record(
+                        "Link", status.lastError?.let { "Lost the KStars connection ($it), reconnecting" } ?: "Connecting to KStars",
+                        if (status.lastError != null) LogLevel.WARN else LogLevel.INFO,
+                    )
+                    ConnectionState.DISCONNECTED -> log?.record("Link", "Disconnected from the rig")
+                }
             }
         }
         // `/media/ekos` binary frames, routed by header uuid to the matching AppState field
@@ -269,7 +292,7 @@ class EkosRemoteController(
             ekosRunning = event.online,
             activeProfile = if (event.online) s.selectedProfile else null,
         )
-        is EkosEvent.NewCaptureState -> s.copy(wireCaptureStatus = event.status)
+        is EkosEvent.NewCaptureState -> s.copy(wireCaptureStatus = event.status ?: s.wireCaptureStatus)
         // Merge non-null fields: the frequent coordinate-shaped push carries none of these and
         // must not clear a known status/pierSide.
         is EkosEvent.NewMountState -> s.copy(
@@ -1336,6 +1359,7 @@ class EkosRemoteController(
      * [EkosRemoteClient]'s reconnect picks the session back up.
      */
     override fun rebootRig() {
+        log?.record("App", "Reboot of the Pi requested")
         _state.update { it.copy(rigRebootState = RigRebootState.SENDING, rigRebootError = null) }
         scope.launch {
             val result = RigRebootClient(client.host, rigRebootPort).reboot()
@@ -1350,6 +1374,7 @@ class EkosRemoteController(
 
     /** Same daemon and channel as [rebootRig]; success only means the Pi accepted the request. */
     override fun shutdownRig() {
+        log?.record("App", "Shutdown of the Pi requested")
         _state.update { it.copy(rigShutdownState = RigRebootState.SENDING, rigShutdownError = null) }
         scope.launch {
             val result = RigRebootClient(client.host, rigRebootPort).shutdown()
@@ -2396,6 +2421,7 @@ class EkosRemoteController(
     override fun endSession() {
         val s = _state.value
         val names = endingJobNames(s)
+        log?.record("App", "End session: Scheduler status ${s.schedulerStatus ?: "unknown"}, removing ${names.ifEmpty { setOf("no job") }.joinToString()}")
         stopSchedulerIfRunning()
         removeRealJobsByName(names)
         super.endSession()
@@ -2405,6 +2431,7 @@ class EkosRemoteController(
     override fun finishNight() {
         val s = _state.value
         val names = endingJobNames(s) + s.jobs.filter { it.synced }.map { s.targetNameFor(it) }
+        log?.record("App", "Finish: stopping the Scheduler, parking the mount, cooler off; removing ${names.ifEmpty { setOf("no job") }.joinToString()}")
         stopSchedulerIfRunning()
         removeRealJobsByName(names)
         if (s.guiding) client.sendCommand(Commands.GUIDE_STOP)

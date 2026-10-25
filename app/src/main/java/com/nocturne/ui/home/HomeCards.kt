@@ -58,6 +58,8 @@ import com.nocturne.ui.theme.NocturneTheme
 
 
 import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.collectAsState
+import com.nocturne.data.LogRepository
 import com.nocturne.session.Alert
 import com.nocturne.session.missing
 import com.nocturne.session.ready
@@ -161,6 +163,33 @@ internal fun SessionLine(state: AppState, onOpen: () -> Unit) {
                 "sub ${job.totalDone}/${job.totalSubs} · ${remainingSec / 3600}h ${remainingSec % 3600 / 60}m left$rms",
                 style = t.MonoSmall, color = c.accent400,
             )
+        }
+    }
+}
+
+/** The newest few lines of the phone's log; tap opens the full Log. */
+@Composable
+internal fun LogCard(repo: LogRepository, ctrl: SessionController) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    val latest by remember { repo.observe(limit = 5) }.collectAsState(emptyList())
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(c.surface, RoundedCornerShape(14.dp))
+            .border(1.dp, c.divider, RoundedCornerShape(14.dp))
+            .clickable { ctrl.openLog() }
+            .padding(12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TextC("LOG", style = t.MicroLabel, color = c.textFaint, modifier = Modifier.weight(1f))
+            TextC("open", style = t.CaptionMedium, color = c.accent)
+        }
+        if (latest.isEmpty()) {
+            Spacer(Modifier.height(4.dp))
+            TextC("Nothing logged yet.", style = t.Body13, color = c.textMuted)
+        } else {
+            latest.forEach { LogRow(it) }
         }
     }
 }
