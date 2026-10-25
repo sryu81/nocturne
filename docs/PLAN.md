@@ -7,7 +7,7 @@ waiting for a night test, plan 3 is planned but not started; items are added as 
 |---|---|---|
 | 1 | Home tab and tab layout revision | M1–M6 built, installed and merged into `main` (2026-10-25); rig checks left, listed in `docs/STATUS.md` |
 | 2 | Controls tab revision | C1–C4 built and installed on branch `controls-revision`; rig checks left, listed in `docs/STATUS.md` |
-| 3 | Frames tab revision | decisions, screens and milestones R0–R6 written (2026-10-25); not built |
+| 3 | Frames tab revision | decisions, screens and milestones R0–R6 written (2026-10-25); deferred until the plan 2 test is closed |
 
 The three are independent: plan 1 only reorders the tabs and moves the old Session content;
 Controls and Frames keep their content until their own plans are built.
@@ -37,7 +37,8 @@ rig; what is still unchecked is in `docs/STATUS.md`. Details of each milestone a
 | 3 | R5 | Fork: file operations and eject | Not started |
 | 3 | R6 | App: manage (selection, paste, progress, delete) | Not started |
 
-**Next:** the user's night test of plan 2 (then merge `controls-revision` into `main`); after that R0.
+**Next:** the user's night test of plan 2, then closing it (merge `controls-revision` into `main`).
+Plan 3 (R0–R6) is deferred until the plan 2 test is finished and closed; nothing of it is started.
 
 ---
 
