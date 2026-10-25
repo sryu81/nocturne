@@ -11,18 +11,17 @@ class RigBeaconTest {
 
     @Test fun parsesRealBeacon() {
         val rig = parseBeacon(real, "10.0.0.184", nowMs = 42L)!!
-        assertEquals(DiscoveredRig("astros2", "10.0.0.184", 4337, "0x50000", 42L), rig)
+        assertEquals(DiscoveredRig("astros2", "10.0.0.184", 4337, 42L), rig)
     }
 
     @Test fun usesSourceAddressNotIpsMap() {
         assertEquals("192.168.4.1", parseBeacon(real, "192.168.4.1")!!.address)
     }
 
-    @Test fun nullThrottledAndMissingFieldsTolerated() {
+    @Test fun missingFieldsTolerated() {
         val rig = parseBeacon("""{"magic":"rpi5_astro","throttled":null}""", "10.0.0.9")!!
         assertEquals("10.0.0.9", rig.hostname)
         assertNull(rig.uptimeSec)
-        assertNull(rig.throttled)
     }
 
     @Test fun rejectsWrongMagicAndGarbage() {

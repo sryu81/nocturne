@@ -44,6 +44,7 @@ abstract class AbstractLocalSessionController : SessionController {
 
     override fun openSubPreview() = update { it.copy(subPreviewExpanded = true) }
     override fun closeSubPreview() = update { it.copy(subPreviewExpanded = false) }
+    override open fun setPushNotifications(enabled: Boolean) = update { it.copy(pushNotificationsEnabled = enabled) }
     override fun openLog() = update { it.copy(logOpen = true) }
     override fun closeLog() = update { it.copy(logOpen = false) }
     override fun expandFrame(id: String) = update { it.copy(expandedFrameId = id) }

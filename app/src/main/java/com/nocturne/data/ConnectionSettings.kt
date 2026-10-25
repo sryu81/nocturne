@@ -3,6 +3,7 @@ package com.nocturne.data
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
@@ -21,6 +22,8 @@ data class ConnectionSettings(
     val lastConnectedAt: Long? = null,
     /** Reboot-daemon port (`pi-tools/reboot-daemon/`) on the same host; separate from [port]. */
     val rebootPort: Int = 9001,
+    /** Phone notifications and the foreground service that keeps the connection alive (monitor/). */
+    val pushNotifications: Boolean = true,
 )
 
 /**
@@ -34,6 +37,7 @@ class ConnectionRepository(private val context: Context) {
         val PORT = intPreferencesKey("port")
         val LAST_CONNECTED_AT = longPreferencesKey("last_connected_at")
         val REBOOT_PORT = intPreferencesKey("reboot_port")
+        val PUSH_NOTIFICATIONS = booleanPreferencesKey("push_notifications")
         /** Left over from the removed daemon token — only read to delete it. */
         val LEGACY_REBOOT_TOKEN = stringPreferencesKey("reboot_token")
     }
@@ -44,6 +48,7 @@ class ConnectionRepository(private val context: Context) {
             port = prefs[Keys.PORT] ?: 9000,
             lastConnectedAt = prefs[Keys.LAST_CONNECTED_AT],
             rebootPort = prefs[Keys.REBOOT_PORT] ?: 9001,
+            pushNotifications = prefs[Keys.PUSH_NOTIFICATIONS] ?: true,
         )
     }
 
@@ -58,6 +63,10 @@ class ConnectionRepository(private val context: Context) {
 
     suspend fun markConnectedNow() {
         context.connectionDataStore.edit { prefs -> prefs[Keys.LAST_CONNECTED_AT] = System.currentTimeMillis() }
+    }
+
+    suspend fun savePushNotifications(enabled: Boolean) {
+        context.connectionDataStore.edit { prefs -> prefs[Keys.PUSH_NOTIFICATIONS] = enabled }
     }
 
     suspend fun saveRebootPort(port: Int) {

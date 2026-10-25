@@ -253,7 +253,7 @@ class EkosRemoteController(
             scope.launch {
                 val saved = repo.current()
                 rigRebootPort = saved.rebootPort
-                _state.update { it.copy(rigRebootPort = saved.rebootPort) }
+                _state.update { it.copy(rigRebootPort = saved.rebootPort, pushNotificationsEnabled = saved.pushNotifications) }
             }
         }
 
@@ -1432,6 +1432,11 @@ class EkosRemoteController(
                 )
             }
         }
+    }
+
+    override fun setPushNotifications(enabled: Boolean) {
+        super.setPushNotifications(enabled)
+        scope.launch { connectionRepo?.savePushNotifications(enabled) }
     }
 
     /** Same daemon and channel as [rebootRig]; success only means the Pi accepted the request. */

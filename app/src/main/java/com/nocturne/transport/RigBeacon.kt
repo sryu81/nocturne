@@ -25,8 +25,6 @@ data class DiscoveredRig(
      *  necessarily the first entry of the beacon's own `ips` map on a multi-homed Pi. */
     val address: String,
     val uptimeSec: Int?,
-    /** Raw `vcgencmd get_throttled` value, e.g. "0x50000"; null if the Pi couldn't read it. */
-    val throttled: String?,
     val seenAtMs: Long,
 )
 
@@ -80,7 +78,6 @@ internal fun parseBeacon(text: String, sourceAddress: String, nowMs: Long = Syst
         hostname = obj["hostname"]?.jsonPrimitive?.contentOrNull ?: sourceAddress,
         address = sourceAddress,
         uptimeSec = obj["uptime"]?.jsonPrimitive?.intOrNull,
-        throttled = obj["throttled"]?.jsonPrimitive?.contentOrNull,
         seenAtMs = nowMs,
     )
 }

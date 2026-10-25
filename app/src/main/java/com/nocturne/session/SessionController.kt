@@ -15,6 +15,9 @@ interface SessionController {
     fun selectTab()
     fun openSubPreview()
     fun closeSubPreview()
+    /** Turns phone notifications (and the foreground service behind them) on or off; persisted. */
+    fun setPushNotifications(enabled: Boolean)
+
     /** The full-screen Log on top of the current tab; see [AppState.logOpen]. */
     fun openLog()
     fun closeLog()

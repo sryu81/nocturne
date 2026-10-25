@@ -3,6 +3,13 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Push notifications while the phone is locked (monitor/RigMonitorService): the alerts
+         themselves, the foreground service that keeps the connection alive, and the CPU and Wi-Fi
+         locks that keep the socket served with the screen off. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Wi-Fi signal strength for the Home health card. Normal permission. -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <!-- ConnectScreen's rig auto-discovery (transport/RigBeacon.kt) — Wi-Fi drivers drop
@@ -32,6 +39,15 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".monitor.RigMonitorService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps the connection to the user's own telescope rig alive and raises alerts while the phone is locked during a long imaging session." />
+        </service>
 
         <provider
             android:name="androidx.core.content.FileProvider"

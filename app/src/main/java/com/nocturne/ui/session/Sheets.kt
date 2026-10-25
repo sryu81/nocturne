@@ -401,10 +401,23 @@ private fun PrefsSheet(state: AppState, ctrl: SessionController) {
         Spacer(Modifier.height(16.dp))
         HDivider()
         Spacer(Modifier.height(16.dp))
+        // App-side only: the phone's own notifications, not Ekos' alert stream above.
+        SwitchRow(
+            label = "Push to this phone",
+            sub = "alerts, a failing module, a lost link and a full disk while the phone is locked; " +
+                "keeps the connection alive with a notification (needs Android's notification permission)",
+            checked = state.pushNotificationsEnabled,
+            onToggle = { ctrl.setPushNotifications(!state.pushNotificationsEnabled) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(c.bg, RoundedCornerShape(4.dp))
+                .padding(horizontal = 11.2.dp),
+        )
+        Spacer(Modifier.height(8.4.dp))
         // Quiet hours are app-side only; Ekos has no matching setting.
         SwitchRow(
             label = "Quiet hours",
-            sub = "mute non-critical push while imaging (local only, doesn't affect the Pi)",
+            sub = "while on, only critical pushes (failures, a lost link) reach the phone; local only, doesn't affect the Pi",
             checked = state.quietHoursEnabled,
             onToggle = ctrl::toggleQuietHours,
             modifier = Modifier

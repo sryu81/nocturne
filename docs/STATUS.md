@@ -64,6 +64,16 @@ maintenance); the Pi keeps orders 0–5 on the SD card for KStars' offline HiPS.
   device list only once, before the wheel existed; fixed by probing with `get_profiles`, not
   `get_connection`); the module log pushes (Capture/Focus/Guide/Align/Scheduler) now decode as
   state events with a `log`; the Log fills while connected and survives an app restart.
+- M6 phone notifications (compiled, unit-tested, installed; not seen delivering an alert): a
+  foreground service (`monitor/RigMonitorService`, type specialUse, persistent "Nocturne is watching
+  the rig" notification) keeps the connection alive with the screen off, with a CPU and a Wi-Fi lock;
+  checked: with the screen off the Pi still received the phone's probe every 10 s for 75 s (USB
+  connected, so Doze was not in play). `NotificationRules` decides what to post: Ekos alerts of
+  warning level and up, a module aborting or failing while a job runs, a broken link held 30 s (and
+  its recovery), a volume under 5% free. Quiet hours keep only the critical ones. Settings →
+  Alerts → "Push to this phone" switches it off. Still to check on the rig: an alert actually
+  arriving on the locked phone, and the service surviving a night on battery (Doze, battery
+  optimisation); swiping the app away from recents ends the connection and the service.
 - Home layout (2026-10-25, compiled and unit-tested, installed, seen on the phone): Night arc, Ekos,
   a compact Rig health card that opens a Rig health sheet, Session, Alerts, Log, maintenance. The
   "Rig" box (mount/cooler line) is folded into the health card. The cooler set point reads N/A until
@@ -76,8 +86,9 @@ maintenance); the Pi keeps orders 0–5 on the SD card for KStars' offline HiPS.
   binning are empty until their camera defines `CCD_BINNING`: the app shows 1x1, sets 1x1 once, and
   re-reads the settings when the camera's property arrives. Still to check at the rig: all of that
   after an Ekos stop/start, and that older forks fall back to the per-module log pushes.
-- The Pi reported `throttled 0x50000` on 2026-10-25: under-voltage and throttling since boot.
-  Probably the power supply or cable; the Home health card now shows it.
+- Under-voltage: a Pi 5 sets its throttle bits on a harmless supply, so the app no longer shows or
+  alerts on them (Home card, health sheet, Connect screen's rig row). The daemon still sends the raw
+  `vcgencmd get_throttled` in `/health`; the app ignores it.
 - Shut down Pi (compiled, not run on the rig): `POST /shutdown` on the maintenance daemon, a "Shut
   down Pi" button in Rig maintenance, and a "Rig power" section (reboot + shut down) on the Connect
   screen that works with Ekos down. The daemon on the Pi must be reinstalled

@@ -12,7 +12,7 @@ class RigVerdictTest {
     private val now = 1_000_000L
     private fun status(state: ConnectionState) = ConnectionStatus(state, "192.168.8.40")
     private fun link(lastMessageAgoMs: Long) = LinkStats().apply { lastMessageAtMs = now - lastMessageAgoMs }
-    private val daemon = PiHealth(45.0, "0x0", 100, 0.1, 1, null, emptyList(), rttMs = 10, receivedAtMs = now)
+    private val daemon = PiHealth(45.0, 100, 0.1, 1, null, emptyList(), rttMs = 10, receivedAtMs = now)
 
     @Test
     fun everythingAnsweringIsGreen() {

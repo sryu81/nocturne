@@ -159,6 +159,37 @@ private fun NocturneShell(
         if (state.rigShutdownState == RigRebootState.SENT) vm.disconnectAfterShutdown()
     }
 
+    // Phone notifications: the foreground service keeps the connection alive and speaks up while
+    // the phone is locked. It runs only while this shell is up (connected) and the user wants it.
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var notificationsAllowed by remember {
+        mutableStateOf(
+            android.os.Build.VERSION.SDK_INT < 33 ||
+                androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) ==
+                android.content.pm.PackageManager.PERMISSION_GRANTED,
+        )
+    }
+    val askForNotifications = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+    ) { notificationsAllowed = it }
+    LaunchedEffect(state.pushNotificationsEnabled) {
+        if (state.pushNotificationsEnabled && !notificationsAllowed) askForNotifications.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+    }
+    val monitoring = state.pushNotificationsEnabled && notificationsAllowed
+    androidx.compose.runtime.DisposableEffect(monitoring) {
+        val service = android.content.Intent(context, com.nocturne.monitor.RigMonitorService::class.java)
+        if (monitoring) {
+            com.nocturne.monitor.MonitorBridge.source = vm.monitorSource()
+            androidx.core.content.ContextCompat.startForegroundService(context, service)
+        }
+        onDispose {
+            if (monitoring) {
+                com.nocturne.monitor.MonitorBridge.source = null
+                context.stopService(service)
+            }
+        }
+    }
+
     val configuration = LocalConfiguration.current
     val landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 

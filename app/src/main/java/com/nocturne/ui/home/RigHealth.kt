@@ -170,7 +170,6 @@ internal fun RigHealthSummaryCard(state: AppState, ctrl: SessionController) {
         else -> null
     }
     val rig = listOfNotNull(mount, cooler).joinToString(" · ")
-    val pi = snap.daemon
 
     Column(
         Modifier
@@ -191,11 +190,6 @@ internal fun RigHealthSummaryCard(state: AppState, ctrl: SessionController) {
             TextC(figures, style = t.MonoSmall, color = c.textMuted)
         }
         if (rig.isNotEmpty()) TextC(rig, style = t.MonoSmall, color = c.textMuted)
-        if (pi?.underVoltageNow == true) {
-            TextC("Pi under-voltage now", style = t.MonoSmall, color = c.danger)
-        } else if (pi?.throttledSinceBoot == true) {
-            TextC("Pi throttled since boot", style = t.MonoSmall, color = c.warn)
-        }
     }
 }
 
@@ -293,17 +287,6 @@ fun RigHealthSheet(state: AppState) {
             pi.cpuTempC?.let {
                 HealthRow("CPU", "%.0f °C".format(it) + (pi.load1?.let { l -> " · load %.2f".format(l) } ?: ""),
                     if (it >= 80) Health.BAD else if (it >= 70) Health.WARN else Health.OK)
-            }
-            pi.throttled?.let {
-                HealthRow(
-                    "Power",
-                    when {
-                        pi.underVoltageNow -> "under-voltage now ($it)"
-                        pi.throttledSinceBoot -> "throttled since boot ($it)"
-                        else -> "no under-voltage"
-                    },
-                    if (pi.underVoltageNow) Health.BAD else if (pi.throttledSinceBoot) Health.WARN else Health.OK,
-                )
             }
             pi.sd?.let { HealthRow("SD card", "${gb(it.free)} free of ${gb(it.total)}", space(it.free, it.total)) }
             pi.usb.forEach { HealthRow("USB ${it.path}", "${gb(it.free)} free of ${gb(it.total)}", space(it.free, it.total)) }

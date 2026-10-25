@@ -15,12 +15,11 @@ data class PiVolume(val path: String, val free: Long, val total: Long)
 /**
  * The maintenance daemon's `GET /health` (`pi-tools/reboot-daemon/`). Every field but [rttMs] is
  * null when the Pi couldn't read it, so an older daemon that answers only `{"status":"ok"}`
- * still parses.
+ * still parses. The daemon also sends `vcgencmd get_throttled`, which the app ignores: a Pi 5 sets
+ * its under-voltage bits on a harmless supply.
  */
 data class PiHealth(
     val cpuTempC: Double?,
-    /** Raw `vcgencmd get_throttled`, e.g. "0x50000". */
-    val throttled: String?,
     val uptimeSec: Long?,
     val load1: Double?,
     /** The Pi's clock, epoch seconds, to compare with the phone's. */
@@ -31,13 +30,6 @@ data class PiHealth(
     val rttMs: Long,
     val receivedAtMs: Long,
 ) {
-    /** `vcgencmd` bit 0: under-voltage right now. */
-    val underVoltageNow: Boolean get() = throttleBits()?.and(0x1L) == 0x1L
-    /** Bits 16–19: under-voltage, throttling, frequency cap or soft temperature limit has happened since boot. */
-    val throttledSinceBoot: Boolean get() = throttleBits()?.and(0xF0000L)?.let { it != 0L } == true
-
-    private fun throttleBits(): Long? = throttled?.removePrefix("0x")?.toLongOrNull(16)
-
     /** Phone clock minus the Pi's, seconds (the request's own delay is under a second). */
     fun clockSkewSec(phoneNowMs: Long): Long? = timeEpochSec?.let { phoneNowMs / 1000 - it }
 }
@@ -54,7 +46,6 @@ internal fun parsePiHealth(body: String, rttMs: Long, nowMs: Long): PiHealth? {
     }
     return PiHealth(
         cpuTempC = obj["cpu_temp_c"]?.jsonPrimitive?.doubleOrNull,
-        throttled = obj["throttled"]?.jsonPrimitive?.contentOrNull,
         uptimeSec = obj["uptime_s"]?.jsonPrimitive?.longOrNull,
         load1 = obj["load1"]?.jsonPrimitive?.doubleOrNull,
         timeEpochSec = obj["time"]?.jsonPrimitive?.longOrNull,

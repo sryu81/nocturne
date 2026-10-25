@@ -317,11 +317,6 @@ private fun DiscoveredRigRow(rig: DiscoveredRig, enabled: Boolean, onClick: () -
                 listOfNotNull(rig.address, rig.uptimeSec?.let { "up ${formatUptime(it)}" }).joinToString(" · "),
                 style = t.MonoSmall, color = c.textMuted,
             )
-            // vcgencmd get_throttled bit 0 = under-voltage now (risks USB dropouts, SD
-            // corruption); worth seeing before connecting.
-            if (rig.throttled?.removePrefix("0x")?.toLongOrNull(16)?.and(1L) == 1L) {
-                TextC("Under-voltage now", style = t.Caption, color = c.warn)
-            }
         }
         TextC("Connect", style = t.CaptionMedium, color = if (enabled) c.accent else c.textMuted)
     }

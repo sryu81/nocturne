@@ -1,7 +1,6 @@
 package com.nocturne.transport
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -32,19 +31,6 @@ class PiHealthTest {
         assertNull(h.cpuTempC)
         assertNull(h.sd)
         assertTrue(h.usb.isEmpty())
-        assertFalse(h.underVoltageNow)
-    }
-
-    @Test
-    fun throttleBitsSeparateNowFromSinceBoot() {
-        val h = parsePiHealth(full, 0, 0)!! // 0x50005: bit0 (under-voltage now) + bit2, bits 16 and 18 since boot
-        assertTrue(h.underVoltageNow)
-        assertTrue(h.throttledSinceBoot)
-        val past = parsePiHealth("""{"status":"ok","throttled":"0x50000"}""", 0, 0)!!
-        assertFalse(past.underVoltageNow)
-        assertTrue(past.throttledSinceBoot)
-        val clean = parsePiHealth("""{"status":"ok","throttled":"0x0"}""", 0, 0)!!
-        assertFalse(clean.underVoltageNow || clean.throttledSinceBoot)
     }
 
     @Test

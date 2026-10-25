@@ -217,6 +217,8 @@ data class AppState(
     val focusLastAfAt: Int = 0,
     val focusTempAtLastAf: Double? = null,
     val quietHoursEnabled: Boolean = true,
+    /** Phone notifications while locked, via the foreground service in monitor/; persisted. */
+    val pushNotificationsEnabled: Boolean = true,
     /** Bench sheet mount pointing. `new_mount_state` has no alt/az, so these keep their defaults. */
     val mountAlt: Double? = null,
     val mountAz: Double? = null,

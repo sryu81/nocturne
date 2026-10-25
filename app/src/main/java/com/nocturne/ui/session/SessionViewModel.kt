@@ -18,6 +18,7 @@ import com.nocturne.transport.EkosRemoteClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -63,6 +64,12 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
     private var client: EkosRemoteClient? = null
     /** Link probes of the current connection, for Home's health card; null before [connect]. */
     val link: com.nocturne.transport.LinkStats? get() = client?.link
+    /** What the foreground service watches; null before [connect]. */
+    fun monitorSource(): com.nocturne.monitor.MonitorSource? {
+        val c = client ?: return null
+        return com.nocturne.monitor.MonitorSource(c.host, ctrl.state, connectionStatus, c.link, rigHealth)
+    }
+
     /** Wi-Fi, beacon and daemon polls of the current connection; they run only while Home or the health sheet collects. */
     var rigHealth: StateFlow<com.nocturne.ui.home.RigHealthSnapshot>? = null
         private set
@@ -70,6 +77,15 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _connectionMode = MutableStateFlow<ConnectionMode>(ConnectionMode.NeedsConnect)
     val connectionMode: StateFlow<ConnectionMode> = _connectionMode.asStateFlow()
+
+    /** The live connection's status, for the foreground service's link verdicts. */
+    val connectionStatus: StateFlow<com.nocturne.transport.ConnectionStatus?> = _connectionMode.map { mode ->
+        when (mode) {
+            is ConnectionMode.Connected -> mode.status
+            is ConnectionMode.Connecting -> mode.status
+            else -> null
+        }
+    }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, null)
 
     // Compose State so ConnectScreen recomposes when init's coroutine loads the saved values.
     var savedHost: String? by mutableStateOf(null)
@@ -173,6 +189,7 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     override fun onCleared() {
+        com.nocturne.monitor.MonitorBridge.source = null
         client?.disconnect()
     }
 }
