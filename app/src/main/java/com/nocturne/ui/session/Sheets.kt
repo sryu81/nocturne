@@ -158,6 +158,7 @@ fun SheetHost(state: AppState, ctrl: SessionController, landscape: Boolean) {
         SheetType.MODULE_ASSIGNMENTS -> "Module assignments" to "which train each Ekos module uses"
         SheetType.SCOPES -> "Scopes" to "add, edit, remove"
         SheetType.MAINTENANCE -> "Rig maintenance" to "reboot or shut down the Pi"
+        SheetType.RIG_HEALTH -> "Rig health" to "links, modules and the Pi"
         SheetType.MOUNT_SETTINGS -> "Mount settings" to "flip, limits, auto-park"
         SheetType.CAMERA_SETTINGS -> "File settings" to "save path, filename template"
         SheetType.ALIGN_SETTINGS -> "Align settings" to "exposure, gain, filter, accuracy"
@@ -196,6 +197,7 @@ fun SheetHost(state: AppState, ctrl: SessionController, landscape: Boolean) {
                 SheetType.MODULE_ASSIGNMENTS -> ModuleAssignmentsSheet(state, ctrl)
                 SheetType.SCOPES -> ScopesSheet(state, ctrl)
                 SheetType.MAINTENANCE -> MaintenanceSheet(state, ctrl)
+                SheetType.RIG_HEALTH -> com.nocturne.ui.home.RigHealthSheet(state)
                 SheetType.MOUNT_SETTINGS -> MountSettingsSheet(state, ctrl)
                 SheetType.CAMERA_SETTINGS -> CameraSettingsSheet(state, ctrl)
                 SheetType.ALIGN_SETTINGS -> AlignSettingsSheet(state, ctrl)

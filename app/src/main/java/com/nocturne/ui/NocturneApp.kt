@@ -170,126 +170,129 @@ private fun NocturneShell(
         }
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(colors.bg),
-    ) {
-        Column(
-            Modifier
+    val health = vm.rigHealth?.let { com.nocturne.ui.home.RigHealthSource(connectionStatus, vm.link, it) }
+    androidx.compose.runtime.CompositionLocalProvider(com.nocturne.ui.home.LocalRigHealth provides health) {
+        Box(
+            modifier = Modifier
                 .fillMaxSize()
-                // System-bar insets applied once for the whole stack (banner, header, rail, nav
-                // bar); the nav bar is at the bottom in portrait, at a side in landscape.
-                .statusBarsPadding()
-                .navigationBarsPadding(),
+                .background(colors.bg),
         ) {
-            // Banner and header are compact in landscape so all 6 tabs fit the vertical rail.
-            if (banner != null) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(colors.warn.copy(alpha = 0.14f))
-                        .padding(horizontal = NocturneTheme.spacing.s4, vertical = if (landscape) 3.dp else 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Phosphor.Icon(Phosphor.Warning, size = 13.dp, tint = colors.warn)
-                    Spacer(Modifier.width(7.dp))
-                    Text(
-                        banner,
-                        style = NocturneTheme.type.Caption,
-                        color = colors.warn,
-                    )
-                }
-            }
-            // Shown even with a banner: last-known module status is still useful context.
-            ModuleStatusRow(state, landscape, onOpen = ctrl::openSheet)
-            // The header lives inside this Row, beside the rail, so the rail spans the full
-            // height up to the status row.
-            Row(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    // System-bar insets applied once for the whole stack (banner, header, rail, nav
+                    // bar); the nav bar is at the bottom in portrait, at a side in landscape.
+                    .statusBarsPadding()
+                    .navigationBarsPadding(),
             ) {
-                if (landscape) {
-                    NavRail(
-                        selected = currentTab,
-                        onSelect = ::navigate,
-                    )
-                }
-
-                Column(Modifier.weight(1f).fillMaxHeight()) {
-                    NocturneHeader(
-                        tab = currentTab,
-                        redMode = redMode,
-                        landscape = landscape,
-                        onToggleRed = onToggleRed,
-                        alertCount = state.wireNotifications.size,
-                        onOpenAlerts = { ctrl.openSheet(SheetType.ALERTS) },
-                    )
-
-                    NavHost(
-                        navController = navController,
-                        startDestination = NocturneTab.Home.route,
+                // Banner and header are compact in landscape so all 6 tabs fit the vertical rail.
+                if (banner != null) {
+                    Row(
                         modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth(),
+                            .fillMaxWidth()
+                            .background(colors.warn.copy(alpha = 0.14f))
+                            .padding(horizontal = NocturneTheme.spacing.s4, vertical = if (landscape) 3.dp else 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        composable(NocturneTab.Home.route) {
-                            HomeScreen(
-                                state, ctrl, landscape,
-                                onGoToSequence = { navigate(NocturneTab.Sequence) },
-                                onDisconnect = vm::disconnect,
-                                status = connectionStatus, link = vm.link, host = vm.host, daemonPort = state.rigRebootPort, logRepo = vm.logRepo,
-                            )
-                        }
-                        composable(NocturneTab.Plan.route) {
-                            PlanScreen(state, ctrl, landscape, onGoToSequence = { navigate(NocturneTab.Sequence) })
-                        }
-                        composable(NocturneTab.Sequence.route) {
-                            SequenceScreen(state, ctrl, landscape, onFixInGear = { navigate(NocturneTab.Gear) })
-                        }
-                        composable(NocturneTab.Frames.route) { FramesScreen(state, ctrl, landscape) }
-                        composable(NocturneTab.Gear.route) { GearScreen(state, ctrl, landscape) }
-                        composable(NocturneTab.Controls.route) { ControlsScreen(state, ctrl, landscape) }
+                        Phosphor.Icon(Phosphor.Warning, size = 13.dp, tint = colors.warn)
+                        Spacer(Modifier.width(7.dp))
+                        Text(
+                            banner,
+                            style = NocturneTheme.type.Caption,
+                            color = colors.warn,
+                        )
                     }
                 }
+                // Shown even with a banner: last-known module status is still useful context.
+                ModuleStatusRow(state, landscape, onOpen = ctrl::openSheet)
+                // The header lives inside this Row, beside the rail, so the rail spans the full
+                // height up to the status row.
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                ) {
+                    if (landscape) {
+                        NavRail(
+                            selected = currentTab,
+                            onSelect = ::navigate,
+                        )
+                    }
+
+                    Column(Modifier.weight(1f).fillMaxHeight()) {
+                        NocturneHeader(
+                            tab = currentTab,
+                            redMode = redMode,
+                            landscape = landscape,
+                            onToggleRed = onToggleRed,
+                            alertCount = state.wireNotifications.size,
+                            onOpenAlerts = { ctrl.openSheet(SheetType.ALERTS) },
+                        )
+
+                        NavHost(
+                            navController = navController,
+                            startDestination = NocturneTab.Home.route,
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
+                        ) {
+                            composable(NocturneTab.Home.route) {
+                                HomeScreen(
+                                    state, ctrl, landscape,
+                                    onGoToSequence = { navigate(NocturneTab.Sequence) },
+                                    onDisconnect = vm::disconnect,
+                                    logRepo = vm.logRepo,
+                                )
+                            }
+                            composable(NocturneTab.Plan.route) {
+                                PlanScreen(state, ctrl, landscape, onGoToSequence = { navigate(NocturneTab.Sequence) })
+                            }
+                            composable(NocturneTab.Sequence.route) {
+                                SequenceScreen(state, ctrl, landscape, onFixInGear = { navigate(NocturneTab.Gear) })
+                            }
+                            composable(NocturneTab.Frames.route) { FramesScreen(state, ctrl, landscape) }
+                            composable(NocturneTab.Gear.route) { GearScreen(state, ctrl, landscape) }
+                            composable(NocturneTab.Controls.route) { ControlsScreen(state, ctrl, landscape) }
+                        }
+                    }
+                }
+
+                if (!landscape) {
+                    TabBar(selected = currentTab, onSelect = ::navigate)
+                }
             }
 
-            if (!landscape) {
-                TabBar(selected = currentTab, onSelect = ::navigate)
+            SheetHost(state = state, ctrl = ctrl, landscape = landscape)
+
+            if (state.subPreviewExpanded) {
+                SubPreviewOverlay(state = state, onDismiss = ctrl::closeSubPreview)
             }
-        }
 
-        SheetHost(state = state, ctrl = ctrl, landscape = landscape)
+            if (state.logOpen) {
+                com.nocturne.ui.home.LogScreen(repo = vm.logRepo, onClose = ctrl::closeLog)
+            }
 
-        if (state.subPreviewExpanded) {
-            SubPreviewOverlay(state = state, onDismiss = ctrl::closeSubPreview)
-        }
+            if (state.expandedFrameId != null) {
+                com.nocturne.ui.frames.FrameExpandOverlay(state = state, ctrl = ctrl)
+            }
 
-        if (state.logOpen) {
-            com.nocturne.ui.home.LogScreen(repo = vm.logRepo, onClose = ctrl::closeLog)
-        }
-
-        if (state.expandedFrameId != null) {
-            com.nocturne.ui.frames.FrameExpandOverlay(state = state, ctrl = ctrl)
-        }
-
-        // Currently unreachable: FlipBanner's FLIP NOW/DEFER are disabled (no wire command), so
-        // pendingFlipConfirm is never set. Kept for when a trigger exists.
-        state.pendingFlipConfirm?.let { pending ->
-            val isNow = pending == FlipConfirm.NOW
-            com.nocturne.ui.components.ConfirmDialog(
-                title = if (isNow) "Flip now?" else "Defer flip by 10 min?",
-                message = if (isNow) {
-                    "Triggers the meridian flip immediately."
-                } else {
-                    "Pushes the flip deadline back 10 minutes."
-                },
-                confirmText = if (isNow) "Flip now" else "Defer",
-                confirmStyle = if (isNow) com.nocturne.ui.components.BtnStyle.DANGER else com.nocturne.ui.components.BtnStyle.SOLID,
-                onConfirm = ctrl::confirmFlipAction,
-                onDismiss = ctrl::cancelFlipConfirm,
-            )
+            // Currently unreachable: FlipBanner's FLIP NOW/DEFER are disabled (no wire command), so
+            // pendingFlipConfirm is never set. Kept for when a trigger exists.
+            state.pendingFlipConfirm?.let { pending ->
+                val isNow = pending == FlipConfirm.NOW
+                com.nocturne.ui.components.ConfirmDialog(
+                    title = if (isNow) "Flip now?" else "Defer flip by 10 min?",
+                    message = if (isNow) {
+                        "Triggers the meridian flip immediately."
+                    } else {
+                        "Pushes the flip deadline back 10 minutes."
+                    },
+                    confirmText = if (isNow) "Flip now" else "Defer",
+                    confirmStyle = if (isNow) com.nocturne.ui.components.BtnStyle.DANGER else com.nocturne.ui.components.BtnStyle.SOLID,
+                    onConfirm = ctrl::confirmFlipAction,
+                    onDismiss = ctrl::cancelFlipConfirm,
+                )
+            }
         }
     }
 }

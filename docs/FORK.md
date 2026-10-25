@@ -17,10 +17,11 @@ replaces that client with **EkosRemote**, a server inside KStars that listens on
 | `4b199d984` | Guide stats/RMS in `new_guide_state`; `guide_calibrate` / `guide_dither` / `guide_suspend` / `guide_resume`; `guide_set_calibration_settings` max-move fix |
 | `25cc0cd4e` | Meridian flip timeout: a flip slew still running after max(300 s, MinFlipDuration + 120 s) aborts the mount, raises a `MeridianFlipFailed` alert and ends in `MOUNT_FLIP_ERROR` (capture aborts, scheduler error policy takes over) |
 | `15de51474` | Tracking off without the confirmation dialog (remote `mount_set_tracking` used to wait on a modal box on the Pi) |
+| `9259d6e48` | `new_log` (one log line, sent once, with a per-run id) and `get_logs` (last 2,000 lines); fed by the Capture/Align/Focus/Guide/Scheduler/Mount module logs, the Ekos main log and INDI driver messages with their level; the older `{"log"}` pushes and `device_message` stay |
 
 ## Divergence from upstream (checked 2026-10-24)
 
-- **Base**: `stable-3.8.3` (`61d849b04`, 2026-06-14). The fork is 7 commits ahead, 0 behind:
+- **Base**: `stable-3.8.3` (`61d849b04`, 2026-06-14). The fork is 8 commits ahead, 0 behind:
   34 files, +898 / −2,139 lines, of which ~1,830 deleted lines are the old EkosLive cloud client.
 - **Upstream `master`** (KDE/kstars) is 420 commits ahead of that base; `stable-3.8.3` branched
   from master at `5ea17ac58` (2026-06-01) and carries 3 release-only commits.

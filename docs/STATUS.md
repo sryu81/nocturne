@@ -64,6 +64,10 @@ maintenance); the Pi keeps orders 0–5 on the SD card for KStars' offline HiPS.
   device list only once, before the wheel existed; fixed by probing with `get_profiles`, not
   `get_connection`); the module log pushes (Capture/Focus/Guide/Align/Scheduler) now decode as
   state events with a `log`; the Log fills while connected and survives an app restart.
+- Home layout (2026-10-25, compiled and unit-tested, installed, seen on the phone): Night arc, Ekos,
+  a compact Rig health card that opens a Rig health sheet, Session, Alerts, Log, maintenance. The
+  "Rig" box (mount/cooler line) is folded into the health card. The cooler set point reads N/A until
+  the camera's `CCD_TEMPERATURE` exists and Capture's settings are re-read.
 - M5 (fork per-line logs, deployed to the Pi 2026-10-25 02:15): `new_log` and `get_logs` work end to
   end (INDI driver messages, the Ekos main log, Scheduler/Align lines arrive with `fork:` ids and no
   duplicates); Capture, Focus, Guide and Mount lines are unseen so far. Cooler N/A after an Ekos

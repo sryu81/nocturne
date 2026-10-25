@@ -1,7 +1,9 @@
 package com.nocturne.ui.home
 
+import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,122 +16,224 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.nocturne.session.AppState
 import com.nocturne.session.MODULE_STATUS_LABELS
+import com.nocturne.session.SessionController
+import com.nocturne.session.SheetType
+import com.nocturne.session.indiSwitchElement
+import com.nocturne.session.isOn
+import com.nocturne.session.mountParkedReal
+import com.nocturne.session.mountTrackingOn
 import com.nocturne.session.moduleStatus
 import com.nocturne.transport.ConnectionState
 import com.nocturne.transport.ConnectionStatus
 import com.nocturne.transport.LinkStats
 import com.nocturne.transport.PiHealth
 import com.nocturne.transport.RigRebootClient
+import com.nocturne.transport.WifiSignal
 import com.nocturne.transport.rigBeacons
 import com.nocturne.transport.wifiSignal
 import com.nocturne.ui.components.TextC
 import com.nocturne.ui.theme.NocturneTheme
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
 private const val BEACON_FRESH_MS = 16_000L
 private const val SILENT_AFTER_MS = 30_000L
 private const val DAEMON_POLL_MS = 15_000L
+private const val WIFI_POLL_MS = 3_000L
 
-private enum class Health { OK, WARN, BAD, NEUTRAL }
+internal enum class Health { OK, WARN, BAD, NEUTRAL }
+
+/** What the polled sources (not the EkosRemote socket) last said. */
+data class RigHealthSnapshot(
+    val wifi: WifiSignal? = null,
+    /** Wall-clock ms of the Pi's last beacon; 0 = none heard. */
+    val beaconAtMs: Long = 0,
+    val daemon: PiHealth? = null,
+    val daemonChecked: Boolean = false,
+)
 
 /**
- * Where the chain from the phone to the rig breaks: Wi-Fi, the Pi's beacon, the EkosRemote socket,
- * Ekos, the media socket and the maintenance daemon each answer independently, so the card can
- * tell a phone out of range from a dead Pi from a frozen KStars. Below it the module states with
- * their last change, and the Pi's own health from the daemon. Everything here is polled only
- * while Home is on screen.
+ * Polls what the EkosRemote socket can't tell: the phone's Wi-Fi, the Pi's UDP beacon and the
+ * maintenance daemon's `/health`. [snapshots] only runs while collected, so the multicast lock, the
+ * socket and the polling exist only while Home or the health sheet is on screen.
  */
-@Composable
-internal fun RigHealthCard(
-    state: AppState,
-    status: ConnectionStatus?,
-    link: LinkStats?,
-    host: String?,
-    daemonPort: Int,
-) {
-    val c = NocturneTheme.colors
-    val t = NocturneTheme.type
-    val context = LocalContext.current
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    var wifi by remember { mutableStateOf(wifiSignal(context)) }
-    var beaconAt by remember { mutableLongStateOf(0L) }
-    var daemon by remember { mutableStateOf<PiHealth?>(null) }
-    var daemonChecked by remember { mutableStateOf(false) }
+class RigHealthMonitor(private val context: Context, private val host: String, private val daemonPort: Int) {
+    fun snapshots(): Flow<RigHealthSnapshot> = channelFlow {
+        val state = MutableStateFlow(RigHealthSnapshot())
+        launch {
+            while (true) {
+                state.update { it.copy(wifi = wifiSignal(context)) }
+                delay(WIFI_POLL_MS)
+            }
+        }
+        launch {
+            // Best effort, like ConnectScreen's discovery: a bind failure just leaves it "not heard".
+            runCatching { rigBeacons(context).collect { if (it.address == host) state.update { s -> s.copy(beaconAtMs = it.seenAtMs) } } }
+        }
+        launch {
+            val client = RigRebootClient(host, daemonPort)
+            while (true) {
+                val health = client.health()
+                state.update { it.copy(daemon = health, daemonChecked = true) }
+                delay(DAEMON_POLL_MS)
+            }
+        }
+        state.collect { send(it) }
+    }
+}
 
+/** Everything the health views read, handed down with a composition local so sheets can reach it. */
+class RigHealthSource(
+    val status: ConnectionStatus?,
+    val link: LinkStats?,
+    val snapshot: StateFlow<RigHealthSnapshot>,
+)
+
+val LocalRigHealth = compositionLocalOf<RigHealthSource?> { null }
+
+internal data class Verdict(val text: String, val health: Health)
+
+/**
+ * Names the likeliest failure from independent sources: a socket that answers or not, a Pi that
+ * beacons or not, a daemon that answers or not. [nowMs] ages the last message and beacon.
+ */
+internal fun rigVerdict(status: ConnectionStatus?, link: LinkStats?, snap: RigHealthSnapshot, nowMs: Long): Verdict {
+    val socketUp = status?.state == ConnectionState.ONLINE || status?.state == ConnectionState.SOCKET_OPEN
+    val msgAge = link?.lastMessageAtMs?.takeIf { it > 0 }?.let { nowMs - it }
+    val beaconFresh = snap.beaconAtMs > 0 && nowMs - snap.beaconAtMs < BEACON_FRESH_MS
+    val daemonOk = snap.daemon != null
+    return when {
+        socketUp && msgAge != null && msgAge > SILENT_AFTER_MS ->
+            Verdict("KStars is connected but has been silent for ${age(msgAge)}: it may be frozen.", Health.BAD)
+        !socketUp && daemonOk -> Verdict("The Pi is up but KStars isn't answering: restart KStars, not the Pi.", Health.BAD)
+        !socketUp && snap.daemonChecked && !beaconFresh -> Verdict("The Pi isn't reachable: out of Wi-Fi range, or it lost power.", Health.BAD)
+        socketUp && snap.daemonChecked && !daemonOk -> Verdict("KStars answers, but the Pi's maintenance daemon doesn't.", Health.WARN)
+        else -> Verdict("Every link is answering.", Health.OK)
+    }
+}
+
+@Composable
+private fun rememberNow(): Long {
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) {
             now = System.currentTimeMillis()
-            wifi = wifiSignal(context)
             delay(1_000)
         }
     }
-    LaunchedEffect(host) {
-        if (host == null) return@LaunchedEffect
-        // Best effort, like ConnectScreen's discovery: a bind failure just leaves the row "not heard".
-        runCatching { rigBeacons(context).collect { if (it.address == host) beaconAt = it.seenAtMs } }
-    }
-    LaunchedEffect(host, daemonPort) {
-        if (host == null) return@LaunchedEffect
-        val client = RigRebootClient(host, daemonPort)
-        while (true) {
-            daemon = client.health()
-            daemonChecked = true
-            delay(DAEMON_POLL_MS)
-        }
-    }
+    return now
+}
 
-    val socketUp = status?.state == ConnectionState.ONLINE || status?.state == ConnectionState.SOCKET_OPEN
-    val msgAge = link?.lastMessageAtMs?.takeIf { it > 0 }?.let { now - it }
-    val beaconFresh = beaconAt > 0 && now - beaconAt < BEACON_FRESH_MS
-    val daemonOk = daemon != null
-    val silent = socketUp && msgAge != null && msgAge > SILENT_AFTER_MS
+/**
+ * Home's compact health card: the verdict, a line of link figures, the mount and cooler state, and a
+ * power warning when the Pi reports one. Tap opens [RigHealthSheet].
+ */
+@Composable
+internal fun RigHealthSummaryCard(state: AppState, ctrl: SessionController) {
+    val source = LocalRigHealth.current
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    val snap by (source?.snapshot ?: remember { MutableStateFlow(RigHealthSnapshot()) }).collectAsState()
+    val now = rememberNow()
+    val verdict = rigVerdict(source?.status, source?.link, snap, now)
 
-    // The verdict names the likeliest failure; the rows below are the evidence.
-    val verdict: Pair<String, Health> = when {
-        silent -> "KStars is connected but has been silent for ${age(msgAge!!)} — it may be frozen." to Health.BAD
-        !socketUp && daemonOk -> "The Pi is up but KStars isn't answering — restart KStars, not the Pi." to Health.BAD
-        !socketUp && daemonChecked && !beaconFresh -> "The Pi isn't reachable — out of Wi-Fi range, or it lost power." to Health.BAD
-        socketUp && daemonChecked && !daemonOk -> "KStars answers, but the Pi's maintenance daemon doesn't." to Health.WARN
-        else -> "Every link is answering." to Health.OK
+    val figures = listOfNotNull(
+        snap.wifi?.let { "Wi-Fi ${it.rssiDbm} dBm" },
+        source?.link?.rttMs?.let { "KStars $it ms" },
+        snap.daemon?.let { "daemon ${it.rttMs} ms" },
+    ).joinToString(" · ")
+    val camera = state.primaryTrain.camera
+    val cameraConnected = state.wireDevices?.any { it.name == camera && it.connected } == true
+    val cooler = if (cameraConnected) state.indiSwitchElement(camera, "CCD_COOLER")?.let { if (it == "COOLER_ON") "cooler on" else "cooler off" } else null
+    val mount = when {
+        !state.isOn("mount") -> null
+        state.mountParkedReal -> "mount parked"
+        state.mountTrackingOn == true -> "mount tracking"
+        state.mountTrackingOn == false -> "mount idle"
+        else -> null
     }
+    val rig = listOfNotNull(mount, cooler).joinToString(" · ")
+    val pi = snap.daemon
 
     Column(
         Modifier
             .fillMaxWidth()
             .background(c.surface, RoundedCornerShape(14.dp))
             .border(1.dp, c.divider, RoundedCornerShape(14.dp))
+            .clickable { ctrl.openSheet(SheetType.RIG_HEALTH) }
             .padding(12.dp),
     ) {
-        TextC("RIG HEALTH", style = t.MicroLabel, color = c.textFaint)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TextC("RIG HEALTH", style = t.MicroLabel, color = c.textFaint, modifier = Modifier.weight(1f))
+            TextC("details", style = t.CaptionMedium, color = c.accent)
+        }
         Spacer(Modifier.height(4.dp))
-        TextC(verdict.first, style = t.Body13, color = color(verdict.second))
-        Spacer(Modifier.height(10.dp))
+        TextC(verdict.text, style = t.Body13, color = color(verdict.health))
+        if (figures.isNotEmpty()) {
+            Spacer(Modifier.height(4.dp))
+            TextC(figures, style = t.MonoSmall, color = c.textMuted)
+        }
+        if (rig.isNotEmpty()) TextC(rig, style = t.MonoSmall, color = c.textMuted)
+        if (pi?.underVoltageNow == true) {
+            TextC("Pi under-voltage now", style = t.MonoSmall, color = c.danger)
+        } else if (pi?.throttledSinceBoot == true) {
+            TextC("Pi throttled since boot", style = t.MonoSmall, color = c.warn)
+        }
+    }
+}
+
+/** The long form: every link, every module with its last change, and the Pi's own health. */
+@Composable
+fun RigHealthSheet(state: AppState) {
+    val source = LocalRigHealth.current
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    val status = source?.status
+    val link = source?.link
+    val snap by (source?.snapshot ?: remember { MutableStateFlow(RigHealthSnapshot()) }).collectAsState()
+    val now = rememberNow()
+    val verdict = rigVerdict(status, link, snap, now)
+    val socketUp = status?.state == ConnectionState.ONLINE || status?.state == ConnectionState.SOCKET_OPEN
+    val msgAge = link?.lastMessageAtMs?.takeIf { it > 0 }?.let { now - it }
+    val beaconFresh = snap.beaconAtMs > 0 && now - snap.beaconAtMs < BEACON_FRESH_MS
+    val silent = socketUp && msgAge != null && msgAge > SILENT_AFTER_MS
+    val wifi = snap.wifi
+    val daemon = snap.daemon
+
+    Column {
+        TextC(verdict.text, style = t.Body135, color = color(verdict.health))
+        Spacer(Modifier.height(12.dp))
 
         HealthRow(
             "Wi-Fi",
             wifi?.let { "${bars(it.level)} ${it.rssiDbm} dBm" } ?: "not on Wi-Fi",
             when {
                 wifi == null -> Health.NEUTRAL
-                wifi!!.level >= 3 -> Health.OK
-                wifi!!.level == 2 -> Health.WARN
+                wifi.level >= 3 -> Health.OK
+                wifi.level == 2 -> Health.WARN
                 else -> Health.BAD
             },
         )
         HealthRow(
             "Pi beacon",
-            if (beaconAt > 0) "heard ${age(now - beaconAt)} ago" else "not heard",
+            if (snap.beaconAtMs > 0) "heard ${age(now - snap.beaconAtMs)} ago" else "not heard",
             if (beaconFresh) Health.OK else Health.WARN,
         )
         HealthRow(
@@ -143,11 +247,7 @@ internal fun RigHealthCard(
                 ConnectionState.CONNECTING -> "reconnecting…"
                 else -> "not connected"
             },
-            when {
-                silent -> Health.BAD
-                socketUp -> Health.OK
-                else -> Health.BAD
-            },
+            if (silent || !socketUp) Health.BAD else Health.OK,
         )
         HealthRow(
             "Ekos",
@@ -166,14 +266,14 @@ internal fun RigHealthCard(
         HealthRow(
             "Daemon (9001)",
             when {
-                daemon != null -> "answers · ${daemon!!.rttMs} ms"
-                daemonChecked -> "not answering"
+                daemon != null -> "answers · ${daemon.rttMs} ms"
+                snap.daemonChecked -> "not answering"
                 else -> "checking…"
             },
-            if (daemon != null) Health.OK else if (daemonChecked) Health.WARN else Health.NEUTRAL,
+            if (daemon != null) Health.OK else if (snap.daemonChecked) Health.WARN else Health.NEUTRAL,
         )
 
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(16.dp))
         TextC("MODULES", style = t.MicroLabel, color = c.textFaint)
         Spacer(Modifier.height(4.dp))
         MODULE_STATUS_LABELS.forEach { label ->
@@ -187,7 +287,7 @@ internal fun RigHealthCard(
         }
 
         daemon?.let { pi ->
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(16.dp))
             TextC("PI", style = t.MicroLabel, color = c.textFaint)
             Spacer(Modifier.height(4.dp))
             pi.cpuTempC?.let {
@@ -212,7 +312,7 @@ internal fun RigHealthCard(
                 val abs = kotlin.math.abs(skew)
                 HealthRow(
                     "Clock",
-                    if (abs <= 5) "in sync with the phone" else "off by ${age(abs * 1000)} — sync it in Rig maintenance",
+                    if (abs <= 5) "in sync with the phone" else "off by ${age(abs * 1000)}: sync it in Rig maintenance",
                     if (abs <= 5) Health.OK else if (abs <= 60) Health.WARN else Health.BAD,
                 )
             }
@@ -238,7 +338,7 @@ private fun HealthRow(label: String, value: String, health: Health) {
 }
 
 @Composable
-private fun color(health: Health): Color {
+internal fun color(health: Health): Color {
     val c = NocturneTheme.colors
     return when (health) {
         Health.OK -> c.ok
@@ -262,10 +362,10 @@ private fun space(free: Long, total: Long): Health {
 
 private fun gb(bytes: Long): String = if (bytes >= 1L shl 40) "%.1f TB".format(bytes / 1099511627776.0) else "%.1f GB".format(bytes / 1073741824.0)
 
-private fun bars(level: Int): String = "▂▄▆█".take(level.coerceIn(0, 4)).padEnd(4, '·')
+internal fun bars(level: Int): String = "▂▄▆█".take(level.coerceIn(0, 4)).padEnd(4, '·')
 
 /** "12s", "4m", "2h 5m", "3d 4h": coarse, since it is shown to a person watching a rig. */
-private fun age(ms: Long): String {
+internal fun age(ms: Long): String {
     val s = (ms / 1000).coerceAtLeast(0)
     return when {
         s < 60 -> "${s}s"

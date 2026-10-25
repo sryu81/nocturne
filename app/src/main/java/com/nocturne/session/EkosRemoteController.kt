@@ -475,7 +475,12 @@ class EkosRemoteController(
         is EkosEvent.MountSettings -> s.copy(wireMountSettings = event.settings)
         // Seed coolTarget from the Capture module's setpoint. This reply arrives only once (the
         // eager fetch at connect), so it can't overwrite a later optimistic coolUp/coolDown.
-        is EkosEvent.CaptureSettings -> s.copy(wireCaptureSettings = event.settings, coolTarget = event.settings.cameraTemperatureN)
+        is EkosEvent.CaptureSettings -> s.copy(
+            wireCaptureSettings = event.settings,
+            // Before the camera defines CCD_TEMPERATURE, Ekos' spin box is clamped and reports 0:
+            // not a set point. Keep what we had (N/A) until the settings are re-read after it appears.
+            coolTarget = if (s.indiNumber(s.primaryTrain.camera, "CCD_TEMPERATURE") != null) event.settings.cameraTemperatureN else s.coolTarget,
+        )
         is EkosEvent.AlignSettings -> s.copy(wireAlignSettings = event.settings)
         is EkosEvent.GuideSettings -> s.copy(wireGuideSettings = event.settings)
         // Seed focPos from Ekos's tracked position (absTicksSpin; see WireFocusSettings). Arrives
@@ -680,6 +685,7 @@ class EkosRemoteController(
                 enforcePreferredPierSide(event.property.device, event.property)
             }
             is EkosEvent.DeviceProperties -> event.properties.forEach {
+                refreshModuleSettingsForCamera(it)
                 fetchFullDeviceIfNewlyConnected(event.device, it)
                 enforcePreferredPierSide(event.device, it)
             }
@@ -813,18 +819,24 @@ class EkosRemoteController(
      * camera's property arrives, after Ekos has had a moment to apply it.
      */
     private fun refreshModuleSettingsForCamera(property: WireProperty) {
-        if (property.name != "CCD_BINNING" && property.name != "CCD_INFO") return
         val s = _state.value
         val modules = buildList {
-            if (property.device == s.focusCameraDevice) add(Commands.FOCUS_GET_ALL_SETTINGS)
-            if (property.device == s.guideCameraDevice) add(Commands.GUIDE_GET_ALL_SETTINGS)
+            if (property.name == "CCD_BINNING" || property.name == "CCD_INFO") {
+                if (property.device == s.focusCameraDevice) add(Commands.FOCUS_GET_ALL_SETTINGS)
+                if (property.device == s.guideCameraDevice) add(Commands.GUIDE_GET_ALL_SETTINGS)
+            }
+            // Capture's cooler set point is only meaningful once the camera can cool.
+            if (property.name == "CCD_TEMPERATURE" && property.device == s.primaryTrain.camera) add(Commands.CAPTURE_GET_ALL_SETTINGS)
         }
         modules.forEach { command ->
             if (!settingsRefreshPending.add(command)) return@forEach
             scope.launch {
                 delay(SETTINGS_REFRESH_DELAY_MS)
                 settingsRefreshPending -= command
-                binningDefaulted -= if (command == Commands.FOCUS_GET_ALL_SETTINGS) "focus" else "guide"
+                when (command) {
+                    Commands.FOCUS_GET_ALL_SETTINGS -> binningDefaulted -= "focus"
+                    Commands.GUIDE_GET_ALL_SETTINGS -> binningDefaulted -= "guide"
+                }
                 client.sendCommand(command)
             }
         }

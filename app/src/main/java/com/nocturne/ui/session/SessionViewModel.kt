@@ -18,6 +18,7 @@ import com.nocturne.transport.EkosRemoteClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /**
@@ -62,7 +63,9 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
     private var client: EkosRemoteClient? = null
     /** Link probes of the current connection, for Home's health card; null before [connect]. */
     val link: com.nocturne.transport.LinkStats? get() = client?.link
-    val host: String? get() = client?.host
+    /** Wi-Fi, beacon and daemon polls of the current connection; they run only while Home or the health sheet collects. */
+    var rigHealth: StateFlow<com.nocturne.ui.home.RigHealthSnapshot>? = null
+        private set
     private var reachedOnline = false
 
     private val _connectionMode = MutableStateFlow<ConnectionMode>(ConnectionMode.NeedsConnect)
@@ -102,6 +105,8 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
 
         val newClient = EkosRemoteClient(host, port, viewModelScope)
         client = newClient
+        rigHealth = com.nocturne.ui.home.RigHealthMonitor(getApplication(), host, savedRebootPort).snapshots()
+            .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000), com.nocturne.ui.home.RigHealthSnapshot())
         // Set ctrl before connectionMode flips to Connecting/Connected — NocturneShell
         // only composes once connectionMode says so, and must see the final ctrl then.
         ctrl = EkosRemoteController(

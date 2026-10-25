@@ -25,8 +25,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.nocturne.data.LogRepository
-import com.nocturne.transport.ConnectionStatus
-import com.nocturne.transport.LinkStats
 import com.nocturne.session.guideRmsTotal
 import com.nocturne.session.SessionController
 import com.nocturne.session.AppState
@@ -68,10 +66,6 @@ fun HomeScreen(
     landscape: Boolean,
     onGoToSequence: () -> Unit,
     onDisconnect: () -> Unit,
-    status: ConnectionStatus?,
-    link: LinkStats?,
-    host: String?,
-    daemonPort: Int,
     logRepo: LogRepository,
     modifier: Modifier = Modifier,
 ) {
@@ -79,41 +73,16 @@ fun HomeScreen(
         landscape = landscape,
         modifier = modifier,
         items = listOf(
-            TabItem(full = true) { EkosCard(state, ctrl) },
-            TabItem(full = true) { RigHealthCard(state, status, link, host, daemonPort) },
-            TabItem(full = true) { RigSummaryCard(state) },
-            TabItem(full = true) { SessionLine(state, onGoToSequence) },
             TabItem(full = true) { NightArcCard(state) },
+            TabItem(full = true) { EkosCard(state, ctrl) },
+            TabItem(full = true) { RigHealthSummaryCard(state, ctrl) },
+            TabItem(full = true) { SessionLine(state, onGoToSequence) },
             TabItem(full = true) { AlertsCard(state, ctrl) },
             TabItem(full = true) { LogCard(logRepo, ctrl) },
             TabItem { MaintenanceCard(state, ctrl) },
             TabItem { DisconnectCard(onDisconnect) },
         ),
     )
-}
-
-/** What the rig reports about itself; nothing until the mount/camera properties arrive. */
-@Composable
-private fun RigSummaryCard(state: AppState) {
-    val c = NocturneTheme.colors
-    val t = NocturneTheme.type
-    Card {
-        val camera = state.primaryTrain.camera
-        val cameraConnected = state.wireDevices?.any { it.name == camera && it.connected } == true
-        val coolerOn = if (cameraConnected) state.indiSwitchElement(camera, "CCD_COOLER")?.let { it == "COOLER_ON" } else null
-        val mount = when {
-            !state.isOn("mount") -> null
-            state.mountParkedReal -> "Mount parked"
-            state.mountTrackingOn == true -> "Mount tracking"
-            state.mountTrackingOn == false -> "Mount idle"
-            else -> null
-        }
-        val cooler = coolerOn?.let { if (it) "cooler on" else "cooler off" }
-        val line = listOfNotNull(mount, cooler).joinToString(" · ")
-        TextC("RIG", style = t.MicroLabel, color = c.textFaint)
-        Spacer(Modifier.height(4.dp))
-        TextC(line.ifEmpty { "Nothing reported yet." }, style = t.Body13, color = c.textMuted)
-    }
 }
 
 /**

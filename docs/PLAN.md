@@ -80,16 +80,20 @@ The first page after connecting: a glanceable rig overview that never needs a lo
 views sit one tap away. The old Session tab becomes Home (its job progress moves to Sequence, see
 "Tab layout" above).
 
-1. **Connection chain and Ekos control** — Wi-Fi, Pi, KStars, Ekos, devices with each state (rig
-   health, below), plus start/stop Ekos and the active profile (moved from Gear). Must work with
-   Ekos not running, the state you land in at the rig: a clear "Ekos not running → Start" card.
-2. **Session one-liner** — target, subs done/planned, ETA, guide RMS; tap opens Sequence.
-3. **Night arc**, the first card on Home (it describes the night, not a job). A sky-and-site card (roof, ambient, dew, SQM, cloud) is dropped: nothing on the wire supplies those values.
-4. **Alerts and log** — count and latest lines, link to the full Log screen.
-5. **Pi health** — CPU temperature, undervoltage, free disk, uptime, clock (from the maintenance
-   daemon).
-6. **Rig maintenance** — reboot, shut down, time and GPS sync (moved from Gear). The Connect screen
-   keeps its own reboot/shut-down section for when there is no connection yet.
+Top to bottom:
+
+1. **Night arc** — dusk to dawn with the "now" dot; it describes the night, not a job, so it comes
+   first. A sky-and-site card (roof, ambient, dew, SQM, cloud) is dropped: nothing on the wire
+   supplies those values.
+2. **Ekos** — start/stop Ekos, the profile picker when it is stopped, readiness when it runs (moved
+   from Gear). Must work with Ekos not running, the state you land in at the rig.
+3. **Rig health** — a compact card: the verdict naming the likeliest failure, a line of link
+   figures, mount and cooler state, a Pi power warning. Tap opens the **Rig health sheet** with every
+   link, module and Pi figure (the long form is too long for Home).
+4. **Session** — target, subs done/planned, time left, guide RMS; tap opens Sequence.
+5. **Alerts** and **Log** — counts and latest lines; the Log card opens the full Log screen.
+6. **Rig maintenance** (reboot, shut down, time and GPS sync; moved from Gear) and **Disconnect**.
+   The Connect screen keeps its own reboot/shut-down section for when there is no connection yet.
 
 ## What it needs
 
