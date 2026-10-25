@@ -550,7 +550,6 @@ private fun CoolerCard(state: AppState, ctrl: SessionController) {
         Spacer(Modifier.height(6.dp))
         SwitchRow(
             label = "Enforce temperature",
-            sub = "captures and previews wait until the sensor reaches the set point",
             checked = enforce == true,
             onToggle = { ctrl.setTemperatureEnforced(enforce != true) },
         )
