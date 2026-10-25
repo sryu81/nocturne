@@ -66,6 +66,7 @@ import com.nocturne.session.paTotal
 import com.nocturne.session.realFilterNames
 import com.nocturne.session.realSlewRateProp
 import com.nocturne.ui.components.GainField
+import com.nocturne.ui.components.HDivider
 import com.nocturne.ui.components.FocusCurve
 import com.nocturne.ui.components.GuideTelemetry
 import com.nocturne.ui.components.BtnStyle
@@ -78,6 +79,8 @@ import com.nocturne.ui.components.TabItem
 import com.nocturne.ui.components.TabPane
 import com.nocturne.ui.components.TextC
 import com.nocturne.ui.icons.Phosphor
+import com.nocturne.ui.session.PolarAlignmentActions
+import com.nocturne.ui.session.PolarAlignmentBody
 import com.nocturne.ui.theme.NocturneTheme
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -105,10 +108,7 @@ fun ControlsScreen(
     modifier: Modifier = Modifier,
 ) {
     val module = state.controlsModule
-    // Polar alignment still opens its sheet (it becomes a page in a later step).
-    fun open(m: ControlsModule) {
-        if (m == ControlsModule.POLAR_ALIGNMENT) ctrl.openSheet(SheetType.PA) else ctrl.openControlsModule(m)
-    }
+    fun open(m: ControlsModule) = ctrl.openControlsModule(m)
     BackHandler(enabled = module != null) { ctrl.openControlsModule(null) }
 
     if (module == null) {
@@ -118,7 +118,13 @@ fun ControlsScreen(
             items = buildList {
                 fun card(m: ControlsModule) = TabItem {
                     val summary = controlsSummary(state, m)
-                    ModuleCard(m, summary, onClick = { open(m) }, onStop = if (summary.stoppable) ctrl::stopSlew else null)
+                    // A moving mount stops like the D-pad's STOP; a polar alignment run like its page's Stop.
+                    val stop = when {
+                        !summary.stoppable -> null
+                        m == ControlsModule.POLAR_ALIGNMENT -> ctrl::stopPolarAlign
+                        else -> ctrl::stopSlew
+                    }
+                    ModuleCard(m, summary, onClick = { open(m) }, onStop = stop)
                 }
                 // Modules doing something sit above the rest, which keep the night's order.
                 val active = activeModules(state)
@@ -149,9 +155,17 @@ fun ControlsScreen(
                 ControlsModule.FOCUSER -> focuserItems(state, ctrl)
                 ControlsModule.PLATE_SOLVE -> plateSolveItems(state, ctrl)
                 ControlsModule.GUIDE -> guideItems(state, ctrl)
-                ControlsModule.POLAR_ALIGNMENT -> emptyList()
+                ControlsModule.POLAR_ALIGNMENT -> listOf(TabItem(full = true) { PolarAlignmentBody(state, ctrl) })
             },
         )
+        // Pinned under the scrolling page so Start / Stop never scroll away.
+        if (module == ControlsModule.POLAR_ALIGNMENT) {
+            val c = NocturneTheme.colors
+            Column(Modifier.fillMaxWidth().background(c.bg)) {
+                HDivider()
+                Column(Modifier.padding(horizontal = 16.8.dp, vertical = 10.dp)) { PolarAlignmentActions(state, ctrl) }
+            }
+        }
     }
 }
 

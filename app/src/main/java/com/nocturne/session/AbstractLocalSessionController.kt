@@ -23,7 +23,6 @@ abstract class AbstractLocalSessionController : SessionController {
     override fun openSheet(sheet: SheetType) {
         update { s ->
             when (sheet) {
-                SheetType.PA -> s.copy(sheet = sheet, paStep = 0)
                 SheetType.SETUP -> if (s.ekosRunning) s else s.copy(sheet = sheet)
                 else -> s.copy(sheet = sheet)
             }
@@ -762,9 +761,6 @@ abstract class AbstractLocalSessionController : SessionController {
         s.copy(wireAlignSettings = s.wireAlignSettings?.copy(pAHRefreshAlgorithm = algorithm))
     }
 
-    override fun openPa() = update { it.copy(sheet = SheetType.PA, paStep = 0) }
-    override fun paNext() = update { it.copy(paStep = minOf(2, it.paStep + 1)) }
-    override fun setPaRate(index: Int) = update { it.copy(paRate = index) }
 
     override open fun startProfile(name: String) = update { s ->
         if (s.profiles.none { it.name == name }) return@update s

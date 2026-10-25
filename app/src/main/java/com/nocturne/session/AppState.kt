@@ -32,7 +32,7 @@ import kotlin.math.sin
 
 /** Which detail sheet is open. */
 enum class SheetType {
-    GUIDE, FOCUS, ALERTS, PREFS, SETUP, PA, DEVICE, SUMMARY,
+    GUIDE, FOCUS, ALERTS, PREFS, SETUP, DEVICE, SUMMARY,
     OPTICAL_TRAIN, SCOPES, MODULE_ASSIGNMENTS, MAINTENANCE, MOUNT_SETTINGS, CAMERA_SETTINGS, ALIGN_SETTINGS,
     GUIDE_SETTINGS, FOCUS_SETTINGS, SCHEDULER_SETTINGS, RIG_HEALTH,
 }
@@ -172,10 +172,8 @@ data class AppState(
     val snappedGuide: Boolean = false,
     val rate: Int? = null,
     val slewDir: String? = null,
-    val paStep: Int = 0,
     val paAlt: Double? = null,
     val paAz: Double? = null,
-    val paRate: Int = 1,
     val query: String = "",
     val chips: List<Int> = listOf(0),
     /** `astro_search_objects`' `type`: a `SkyObject::TYPE` value, one of [SEARCH_TYPES].

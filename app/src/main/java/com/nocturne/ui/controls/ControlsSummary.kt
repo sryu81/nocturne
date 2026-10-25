@@ -20,7 +20,7 @@ import kotlin.math.roundToInt
  * What a Controls menu card says under a module's name, and whether the module is doing something
  * right now. [active] modules are pinned to the top of the menu; [warn] ones are in the warning
  * colour (the mount or polar alignment is moving the rig); [stoppable] ones get a STOP button on
- * the card.
+ * the card (the mount's abort, or polar alignment's stop).
  */
 data class ModuleSummary(
     val line: String,
@@ -115,7 +115,7 @@ private fun polarSummary(s: AppState): ModuleSummary {
         s.polarRunning -> "running…"
         else -> "not started"
     }
-    return ModuleSummary(line, active = s.polarRunning, warn = s.polarRunning)
+    return ModuleSummary(line, active = s.polarRunning, warn = s.polarRunning, stoppable = s.polarRunning)
 }
 
 /** `300` for a whole number of seconds, `0.5` otherwise. */

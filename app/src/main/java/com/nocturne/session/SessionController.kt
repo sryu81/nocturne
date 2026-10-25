@@ -180,9 +180,6 @@ interface SessionController {
     /** [elementName] picks which element of the vector to write — a text vector can hold several (e.g. `FILTER_NAME`, one per filter-wheel slot). */
     fun setIndiText(deviceKey: String, propName: String, elementName: String, value: String)
 
-    fun openPa()
-    fun paNext()
-    fun setPaRate(index: Int)
     fun openSetup()
     fun setupBack()
     fun finishSetup()

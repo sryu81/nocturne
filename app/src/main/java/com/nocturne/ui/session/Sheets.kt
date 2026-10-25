@@ -145,7 +145,7 @@ fun SheetHost(state: AppState, ctrl: SessionController, landscape: Boolean) {
     val sheet = state.sheet ?: return
     // Back closes the sheet, not the screen behind it.
     BackHandler(onBack = ctrl::closeSheet)
-    val full = sheet == SheetType.PA || sheet == SheetType.SETUP
+    val full = sheet == SheetType.SETUP
     val (title, meta) = when (sheet) {
         SheetType.GUIDE -> "Guiding" to "RMS, drift + live frame"
         SheetType.FOCUS -> "Focus" to "status + live frame"
@@ -156,7 +156,6 @@ fun SheetHost(state: AppState, ctrl: SessionController, landscape: Boolean) {
                 "${state.formatSiteTime(it.first)} → ${state.formatSiteTime(it.second)}"
             } ?: "night N/A"
         )
-        SheetType.PA -> "Polar alignment" to "live status"
         SheetType.PREFS -> "Alert rules" to "push + on-screen"
         SheetType.SETUP -> (if (state.setupEditingName != null) "Edit rig profile" else "New rig profile") to "name + device connections"
         SheetType.OPTICAL_TRAIN -> "Optical train" to "primary + secondary roles"
@@ -195,7 +194,6 @@ fun SheetHost(state: AppState, ctrl: SessionController, landscape: Boolean) {
                 SheetType.FOCUS -> FocusSheet(state, ctrl)
                 SheetType.ALERTS -> AlertsSheet(state, ctrl)
                 SheetType.SUMMARY -> SummarySheet(state, ctrl)
-                SheetType.PA -> PaRealSheet(state, ctrl)
                 SheetType.PREFS -> PrefsSheet(state, ctrl)
                 SheetType.SETUP -> SetupBody(state, ctrl)
                 SheetType.OPTICAL_TRAIN -> OpticalTrainSheet(state, ctrl)
@@ -2240,9 +2238,12 @@ private fun ReducerField(value: Double, onChange: (Double) -> Unit) {
  * sheet branches on them: image progress while measuring, Done rotating (manual slew), Select
  * Star → Start adjusting, Refreshing → Done. Settings are the assistant's own widgets via
  * `align_set_all_settings`, editable only when the desktop enables them.
+ *
+ * Shown on the Controls tab's Polar alignment page: this is the scrolling body, and
+ * [PolarAlignmentActions] is the button bar pinned under it.
  */
 @Composable
-private fun PaRealSheet(state: AppState, ctrl: SessionController) {
+internal fun PolarAlignmentBody(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val stage = state.wirePolarStage
@@ -2251,7 +2252,6 @@ private fun PaRealSheet(state: AppState, ctrl: SessionController) {
     val manualSlew = pah?.pAHManualSlew == true
     val algorithm = pah?.pAHRefreshAlgorithm
     val starSelect = stage == PAH_STAGE_SELECT_STAR
-    val refreshing = stage == PAH_STAGE_REFRESHING
     // Move Star methods need a star picked on the image; Plate Solve doesn't.
     val canPickStar = starSelect && algorithm != null && algorithm != PAH_REFRESH_ALGORITHMS[0]
 
@@ -2379,14 +2379,30 @@ private fun PaRealSheet(state: AppState, ctrl: SessionController) {
                 style = t.MonoMicro, color = c.warn,
             )
         }
-        Spacer(Modifier.height(14.dp))
-        val primary: Pair<String, () -> Unit>? = when {
-            !running -> "Start" to ctrl::startPolarAlign
-            stage in PAH_ROTATE_STAGES && manualSlew -> "Done rotating" to ctrl::polarSlewDone
-            starSelect -> "Start adjusting" to ctrl::polarRefresh
-            refreshing -> "Done" to ctrl::polarRefreshDone
-            else -> null
-        }
+    }
+}
+
+/**
+ * The buttons for the current stage: the primary action (Start, Done rotating, Start adjusting,
+ * Done) and Stop while a run is going; every stage has at least one.
+ */
+@Composable
+internal fun PolarAlignmentActions(state: AppState, ctrl: SessionController) {
+    val stage = state.wirePolarStage
+    val running = state.polarRunning
+    val manualSlew = state.wireAlignSettings?.pAHManualSlew == true
+    val starSelect = stage == PAH_STAGE_SELECT_STAR
+    val refreshing = stage == PAH_STAGE_REFRESHING
+    val primary: Pair<String, () -> Unit>? = when {
+        !running -> "Start" to ctrl::startPolarAlign
+        stage in PAH_ROTATE_STAGES && manualSlew -> "Done rotating" to ctrl::polarSlewDone
+        starSelect -> "Start adjusting" to ctrl::polarRefresh
+        refreshing -> "Done" to ctrl::polarRefreshDone
+        else -> null
+    }
+    // Refreshing's "Done" already ends the run (same server call as Stop).
+    val showStop = running && !refreshing
+    Column {
         primary?.let { (label, action) ->
             com.nocturne.ui.components.NocturneButton(
                 text = label,
@@ -2395,8 +2411,7 @@ private fun PaRealSheet(state: AppState, ctrl: SessionController) {
                 modifier = Modifier.fillMaxWidth().height(44.dp),
             )
         }
-        // Refreshing's "Done" already ends the run (same server call as Stop).
-        if (running && !refreshing) {
+        if (showStop) {
             if (primary != null) Spacer(Modifier.height(8.dp))
             com.nocturne.ui.components.NocturneButton(
                 text = "Stop",
@@ -2408,7 +2423,7 @@ private fun PaRealSheet(state: AppState, ctrl: SessionController) {
     }
 }
 
-/** Ekos's PAH prompts name its desktop buttons; point them at this sheet's. */
+/** Ekos's PAH prompts name its desktop buttons; point them at this page's. */
 private fun appPahMessage(message: String): String = message
     .replace("Click Stop", "Tap Done")
     .replace("click Stop", "tap Done")

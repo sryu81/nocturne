@@ -154,7 +154,7 @@ class ControlsSummaryTest {
     fun polarAlignmentNotStartedIsQuiet() {
         val p = summary(idle, ControlsModule.POLAR_ALIGNMENT)
         assertEquals("not started", p.line)
-        assertFalse(p.active)
+        assertFalse(p.active || p.stoppable)
         assertEquals("not started", summary(idle.copy(wirePolarStage = "Idle"), ControlsModule.POLAR_ALIGNMENT).line)
     }
 
@@ -162,8 +162,7 @@ class ControlsSummaryTest {
     fun polarMeasuringShowsTheImageAndIsWarned() {
         val p = summary(idle.copy(polarRunning = true, wirePolarStage = "Second Capture"), ControlsModule.POLAR_ALIGNMENT)
         assertEquals("measuring · image 2 of 3", p.line)
-        assertTrue(p.active && p.warn)
-        assertFalse(p.stoppable)
+        assertTrue(p.active && p.warn && p.stoppable)
     }
 
     @Test
