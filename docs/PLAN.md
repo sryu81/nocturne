@@ -1,10 +1,10 @@
 # Future plan (draft)
 
-**Draft, still being discussed** — plan 1 is built (branch `home-tab-revision`), plans 2 and 3 are not; items are added as discussions go.
+**Draft, still being discussed** — plan 1 is built and merged into `main`, plans 2 and 3 are not; items are added as discussions go.
 
 | # | Plan | State |
 |---|---|---|
-| 1 | Home tab and tab layout revision | M1–M6 built and installed on branch `home-tab-revision` (pushed); rig checks left, listed in `docs/STATUS.md` |
+| 1 | Home tab and tab layout revision | M1–M6 built, installed and merged into `main` (2026-10-25); rig checks left, listed in `docs/STATUS.md` |
 | 2 | Controls tab revision | to be planned |
 | 3 | Frames tab revision | proposal written, open decisions below |
 
@@ -169,8 +169,8 @@ verified on the rig and noted in `docs/STATUS.md` until then.
 on the Pi. Not yet seen on the rig: a real running job on Sequence, an alert arriving on a locked
 phone, a night on battery for M6. Found while building them and fixed on the same branch: filter
 wheel after an Ekos stop/start, camera properties defined late (cooler, fan, sensor), the cooler
-button, the End session/Finish procedure, and Stop Ekos (below). Open: merge `home-tab-revision`
-into `main` (a PR, when you decide).
+button, the End session/Finish procedure, and Stop Ekos (below). Merged into `main`
+(fast-forward) on 2026-10-25.
 
 **Stop Ekos (added after M6).** Ekos' Stop kills the INDI drivers without disconnecting the devices,
 so a camera is never closed and its cooler keeps running; Ekos' own screen locks Stop until

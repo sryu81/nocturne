@@ -57,7 +57,7 @@ maintenance); the Pi keeps orders 0–5 on the SD card for KStars' offline HiPS.
 - 2026-10-24 screenshot fixes (compiled and unit-tested, not run on the phone): signed PAH az/alt
   readout, pinch-zoom on the PAH frame, FOV box sized to the DSS cutout, outline-button border,
   header outline and alert badge, EXP boxes following Ekos, `1000000"` accuracy sentinel.
-- Home tab rework on branch `home-tab-revision` (compiled and unit-tested, not viewed on a screen or
+- Home tab rework (merged into `main`; compiled and unit-tested, not viewed on a screen or
   run on the rig): tab order and Home/Sequence (M1–M2), the Rig health card and the daemon's
   extended `/health` (M3, daemon deployed), and the phone-side Log (M4). Things to check at the rig:
   after Ekos stop/start every device incl. the filter wheel must show (a first M3 build fetched the
@@ -126,7 +126,7 @@ maintenance); the Pi keeps orders 0–5 on the SD card for KStars' offline HiPS.
 ## Open — app
 
 - **Future plan** (`docs/PLAN.md`, draft) has three plans: (1) Home tab and tab layout revision —
-  built on branch `home-tab-revision` (M1–M6), rig checks above, merge into `main` pending;
+  built (M1–M6) and merged into `main`, rig checks above;
   (2) Controls tab revision — to be planned; (3) Frames tab revision, the Pi file manager — open
   decisions.
 - New sequence blocks start at 300 s × 10, gain 100, offset 50, dither every 2 — could start from
