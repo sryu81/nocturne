@@ -5,7 +5,7 @@
 | # | Plan | State |
 |---|---|---|
 | 1 | Home tab and tab layout revision | M1–M6 built, installed and merged into `main` (2026-10-25); rig checks left, listed in `docs/STATUS.md` |
-| 2 | Controls tab revision | layout decided (menu + module pages); page contents still to be planned |
+| 2 | Controls tab revision | layout, pages and milestones C1–C4 decided; not built |
 | 3 | Frames tab revision | proposal written, open decisions below |
 
 The three are independent: plan 1 only reorders the tabs and moves the old Session content;
@@ -190,7 +190,7 @@ Stop Ekos stays locked until every device reports disconnected. App only, no for
 
 # 2. Controls tab revision
 
-Layout decided, page contents still to be planned. Inputs so far:
+Layout, pages and build plan decided (sections below); not built. Inputs so far:
 
 - Controls is one very long scroll (about 7,000 px in portrait): Primary camera, Cooler, Focuser,
   Plate solve, Align accuracy, Rotator, Align settings, Mount, Guide, Polar alignment (the section names today).
@@ -396,10 +396,45 @@ one-liner and pinning follow the stage. Start, Done rotating, Start adjusting, D
 the mount: only under the sky with the user's go-ahead, listed as not verified in `docs/STATUS.md`
 until then.
 
-## To be added
+## Menu order (decided 2026-10-25)
 
-The remembered camera/cooler settings; the order of the modules in the menu; the build plan
-(milestones) for the Controls revision.
+The night's order. **Imaging:** Mount, Camera, Focuser, Plate solve, Guide. **Setup:** Polar
+alignment. The active module is pinned above this order while it runs.
+
+## Milestones
+
+Each ends compiled, unit-tested, installed on the phone and screenshotted in the phone's current
+orientation (rotation is never changed). Rig checks are listed in `docs/STATUS.md` until verified.
+Anything that moves the mount or starts guiding waits for the user's go-ahead or the sky.
+
+| # | Milestone | Done when |
+|---|---|---|
+| C1 | **Menu and page shell** | Controls opens on a module menu (Imaging group, Setup group). Mount, Camera, Focuser, Plate solve and Guide each open as a full-screen page holding their **existing cards unchanged**. The header has a back arrow, the title switcher `▾` and the settings button; the four settings tiles are gone (their sheets stay). Back returns to the menu; re-entering the tab opens the menu. Polar alignment still opens its sheet, from a Setup entry. No command or logic change. |
+| C2 | **Live menu** | Each menu card shows its one-liner. The active module is pinned and highlighted. A moving Mount is in the warning colour with its own STOP. The one-liner and pinning rules are pure functions with unit tests. |
+| C3 | **Small page upgrades** | Focuser: focus frame above the V-curve and the real backlash instead of the fixed `90`. Plate solve: align frame under the button. Guide: chart at about 140 dp. Mount: coordinates full-width. |
+| C4 | **Polar alignment page** | The sheet's content moves to the Setup drill-down page with the sticky Start/Stop bar; the pinned menu card gets a Stop button; the old tile and `SheetType.PA` are removed. |
+
+**Why this order.** C1 is a pure move, so it is the safest to verify against today's screens. C2 and
+C3 add to pages that already work. C4 is last because it is the riskiest move (PAH drives the mount
+and its full run is not yet verified under the sky) and can ship on its own.
+
+**Shape.** A `ControlsModule` choice (none = the menu) decides what Controls shows; it renders inside
+the tab, so the status row and bottom bar stay visible (unlike the Log, an overlay driven by
+`state.logOpen`). Module pages reuse the existing card composables.
+
+**Testing.** Every milestone: build, unit tests, install, screenshots. C1 and C3 are also checked on
+the connected rig with the non-moving checks (Preview, cooler, EXP / gain / BIN, Focus In/Out, Plate
+solve); moving the mount, guiding and the PAH run are checked under the sky.
+
+## Later
+
+**Remembered camera and cooler settings** (not in this plan: it changes what is sent to the camera).
+The app keeps none today: it re-reads Ekos at connect, and after an Ekos or camera restart the
+camera comes back with its own defaults. The idea: store the last cooler set point, cooler and fan
+state, and exposure / gain / bin on the phone, and offer "last used: −5 °C, cooler ON, 300 s,
+gain 100" with a restore button after a restart. Restoring writes to the camera (starts cooling), so
+it needs an explicit button with a confirm, never automatic; and Ekos can change the same values (a
+scheduler job, the desktop), so it needs a rule for which side wins. Needs its own design and test.
 
 ---
 
