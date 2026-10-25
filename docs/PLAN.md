@@ -6,7 +6,7 @@
 |---|---|---|
 | 1 | Home tab and tab layout revision | M1–M6 built, installed and merged into `main` (2026-10-25); rig checks left, listed in `docs/STATUS.md` |
 | 2 | Controls tab revision | C1–C4 built and installed on branch `controls-revision`; rig checks left, listed in `docs/STATUS.md` |
-| 3 | Frames tab revision | proposal and decisions settled (2026-10-25); build plan still to write |
+| 3 | Frames tab revision | decisions, screens and milestones R0–R6 written (2026-10-25); not built |
 
 The three are independent: plan 1 only reorders the tabs and moves the old Session content;
 Controls and Frames keep their content until their own plans are built.
@@ -504,7 +504,9 @@ Drill-downs with a back arrow, the same pattern as the Controls pages, never she
    `SD 412 GB free · USB 1`. Preview and Plan stay as the phone side; File settings stays.
 2. **Drives (root):** one card per drive: the SD card (`/home/soo`) and each attached USB drive, with
    label, filesystem, a free-space bar and `free / total`. A running copy or move shows its progress
-   card on top. With KStars down the screen says "Needs KStars running" instead of listing anything.
+   card on top. A USB drive card has an **Eject** button that unmounts it safely before it is pulled
+   (not offered while a copy or move uses it). With KStars down the screen says "Needs KStars
+   running" instead of listing anything.
 3. **Folders:** the contents of a drive or folder, newest first, under a breadcrumb such as
    `SD › M31_2026-10-24 › Light`. Rows show name, file count, size and date. The folder a running
    capture is writing to shows an "in use" lock and has no actions.
@@ -524,6 +526,36 @@ Drill-downs with a back arrow, the same pattern as the Controls pages, never she
 9. **Drive removed mid-operation:** the operation fails cleanly and the progress card names the
    drive that disappeared.
 
-## To be added
+## USB sticks on the Pi
 
-The milestones (fork commands first, then the app), in the same form as plans 1 and 2.
+State on the Pi (checked 2026-10-25, no stick attached): one stick is configured, in `/etc/fstab`
+(`UUID=824F-1D2E` at `/mnt/astro`, FAT32, `nofail`), a plain boot-time mount with no
+`x-systemd.automount`; `udisks2` is inactive, `/media` is empty and there are no USB udev rules. So
+that stick is mounted only if it was in at boot, and any other stick is seen by the kernel but never
+mounted: a stick plugged in at the rig would not appear in the file manager.
+
+Fix, with nothing installed over the SIM uplink: a small tool in `pi-tools/` (like the pier guard) —
+a udev rule plus `systemd-mount`, already on the Pi — that mounts any USB stick at `/media/<label>`
+owned by the user when it is plugged in, and unmounts it when it is pulled. FAT32 and exFAT come from
+the kernel; NTFS depends on the Pi's kernel driver, to be checked. The old stick keeps working at
+`/mnt/astro`; the fork's allowed roots cover `/mnt/*` and `/media/*`. The fork's drive list then
+shows whatever is mounted, and its `eject` command (below) unmounts a stick before it is pulled.
+
+## Milestones
+
+Each ends built, tested and installed; fork steps need a fork build (about 15 minutes) and a KStars
+restart on the Pi, so they wait for an idle rig and the user's go-ahead. The read-only steps (R0–R4)
+are safe on the rig; R5 can lose files, so it is tested on a scratch folder first.
+
+| # | Milestone | Done when |
+|---|---|---|
+| R0 | **USB automount (Pi tool)** | `pi-tools/usb-automount` mounts a stick plugged into the running Pi at `/media/<label>` and unmounts it when pulled; the Pi kernel's filesystem support (FAT32, exFAT, NTFS) is checked and noted; the old `/mnt/astro` mount is untouched. Verified by plugging a stick in and out (needs the user). |
+| R1 | **Fork: drives and listings** | A command lists the mounted volumes (SD, USB) with label, filesystem and free/total, and a folder listing returns name, size, date, file count and an "in use" flag for the folder a capture is writing to; paths are checked against the allowed roots. |
+| R2 | **App: Rig storage, read-only** | The `Rig storage` card in the Frames picker; drives, folders and files drill-downs with the breadcrumb and the "needs KStars running" state; falls back cleanly on an older fork. |
+| R3 | **Fork: preview and header** | `file_preview` (a JPEG made by KStars from the FITS, via `Media::sendFile`) and a header-summary command read on demand. |
+| R4 | **App: file page** | The preview, the header summary (filter, exposure, gain, bin, frame type, HFR) and the action buttons (disabled until R6). |
+| R5 | **Fork: file operations** | Copy, move, delete and rename on the Pi with the allowed-roots check, a free-space check before a copy, progress pushes and cancel, clean failure when a drive disappears, and `eject`. Tested on a scratch folder before any real capture folder. |
+| R6 | **App: manage** | Long-press selection with the pinned action bar, browse and Paste here, the progress card with Cancel, the plain delete dialog, rename, and the Eject button on USB drive cards. |
+
+R0 has no fork build, so it can start first and gives R1 real USB volumes to list. R1, R3 and R5 could
+share one fork build if they are written together, at the cost of testing later.
