@@ -50,6 +50,7 @@ Put the phone on the rig's network. The connect screen lists rigs it hears (UDP 
 | Doc | What |
 |---|---|
 | `docs/STATUS.md` | What works, what's unverified, what's open |
+| `docs/BUGS.md` | Bug reports and their fixes |
 | `docs/PROTOCOL.md` | EkosRemote wire protocol as the app uses it |
 | `docs/FORK.md` | The KStars fork: changes, build/deploy, backlog |
 | `docs/PLAN.md` | Draft future plan: rig status and logs, rig file manager, tab layout |

@@ -1,15 +1,48 @@
 # Future plan (draft)
 
-**Draft, still being discussed** — plan 1 is built and merged into `main`, plans 2 and 3 are not; items are added as discussions go.
+**Draft, still being discussed** — plan 1 is built and merged into `main`, plan 2 is built on a branch
+waiting for a night test, plan 3 is planned but not started; items are added as discussions go.
 
 | # | Plan | State |
 |---|---|---|
 | 1 | Home tab and tab layout revision | M1–M6 built, installed and merged into `main` (2026-10-25); rig checks left, listed in `docs/STATUS.md` |
-| 2 | Controls tab revision | layout, pages and milestones C1–C4 decided; not built |
-| 3 | Frames tab revision | proposal written, open decisions below |
+| 2 | Controls tab revision | C1–C4 built and installed on branch `controls-revision`; rig checks left, listed in `docs/STATUS.md` |
+| 3 | Frames tab revision | decisions, screens and milestones R0–R6 written (2026-10-25); deferred until the plan 2 test is closed |
+| 4 | Night 2026-10-26 fixes | cooler at session start (N1) and guiding tuning (N2) written; not started, N2 waits for the Pi |
 
 The three are independent: plan 1 only reorders the tabs and moves the old Session content;
 Controls and Frames keep their content until their own plans are built.
+
+## Milestone tracker (updated 2026-10-25)
+
+"Built" = compiled, unit-tested and installed on the phone. "Rig-checked" = also seen working on the
+rig; what is still unchecked is in `docs/STATUS.md`. Details of each milestone are in its plan below.
+
+| Plan | Milestone | What | State |
+|---|---|---|---|
+| 1 | M1 | Tab shell (Home \| Gear \| Controls \| Plan \| Sequence \| Frames) | Built, merged; partly rig-checked |
+| 1 | M2 | Home with today's data | Built, merged; partly rig-checked |
+| 1 | M3 | Rig health card and daemon `/health` | Built, merged; rig-checked |
+| 1 | M4 | Phone-side Log | Built, merged; rig-checked |
+| 1 | M5 | Fork: per-line logs | Built, deployed to the Pi; Capture, Focus, Guide and Mount lines unseen |
+| 1 | M6 | Phone notifications | Built, merged; not seen delivering an alert |
+| 2 | C1 | Controls menu and page shell | Built on `controls-revision`; rig-checked |
+| 2 | C2 | Live menu: one-liners, pinning, mount STOP | Built; one-liners and pinning rig-checked, STOP card not |
+| 2 | C3 | Page upgrades (frames, backlash, chart, coordinates) | Built; mount layout, backlash and align frame rig-checked, focus frame and guide chart not |
+| 2 | C4 | Polar alignment page with pinned Start/Stop | Built; page and settings rig-checked, the run itself not |
+| 3 | R0 | USB automount (Pi tool) | Not started |
+| 3 | R1 | Fork: drives and listings | Not started |
+| 3 | R2 | App: Rig storage, read-only | Not started |
+| 3 | R3 | Fork: preview and header | Not started |
+| 3 | R4 | App: file page | Not started |
+| 3 | R5 | Fork: file operations and eject | Not started |
+| 3 | R6 | App: manage (selection, paste, progress, delete) | Not started |
+| 4 | N1 | Cooler on at session start, hold first sub | Built, installed, start step rig-checked 2026-10-27; first-sub hold not seen |
+| 4 | N2 | Guiding tuning (gain, pulse, axes) | Built and installed; sheet values rig-checked 2026-10-27, live write not yet |
+| 4 | N3 | Polar alignment: bigger, vivid triangle and target circle | Built and unit-tested (2026-10-27); not installed or seen on the rig |
+
+**Next:** the user's night test of plan 2, then closing it (merge `controls-revision` into `main`).
+Plan 3 (R0–R6) is deferred until the plan 2 test is finished and closed; nothing of it is started.
 
 ---
 
@@ -426,15 +459,15 @@ the tab, so the status row and bottom bar stay visible (unlike the Log, an overl
 the connected rig with the non-moving checks (Preview, cooler, EXP / gain / BIN, Focus In/Out, Plate
 solve); moving the mount, guiding and the PAH run are checked under the sky.
 
-## Later
-
-**Remembered camera and cooler settings** (not in this plan: it changes what is sent to the camera).
-The app keeps none today: it re-reads Ekos at connect, and after an Ekos or camera restart the
-camera comes back with its own defaults. The idea: store the last cooler set point, cooler and fan
-state, and exposure / gain / bin on the phone, and offer "last used: −5 °C, cooler ON, 300 s,
-gain 100" with a restore button after a restart. Restoring writes to the camera (starts cooling), so
-it needs an explicit button with a confirm, never automatic; and Ekos can change the same values (a
-scheduler job, the desktop), so it needs a rule for which side wins. Needs its own design and test.
+**Built, 2026-10-25** — C1 to C4 are compiled, unit-tested and installed (branch
+`controls-revision`, not yet merged). Seen on the rig: the menu and every page, the one-liners, the
+header switcher, Back (a sheet first, then the page, then the tab), a Main Cam preview, a real Plate
+solve with its align frame and the pinned card while it ran, a PAH direction round trip. Not seen:
+the focus frame (needs a focus capture), the guide chart (needs guide data), the mount STOP card,
+and the polar alignment steps that drive the mount. Differences from the plan: the Camera header has
+no settings button (the sheet it would open is "File settings", which stays on the Frames tab);
+the pier side shows only when it is East or West; and Back now closes an open sheet before leaving
+the screen, for every sheet.
 
 ---
 
@@ -463,8 +496,9 @@ to see, organise or clean it up from the app: everything needs SSH today.
 ## Proposal
 
 - **Browse** the Pi's storage: SD capture folder and every attached USB drive (with free space),
-  folders by target/job, files with size, date and FITS header summary (filter, exposure, gain,
-  frame type, HFR when present).
+  folders by target/job, files with size and date. The FITS header summary (filter, exposure, gain,
+  frame type, HFR when present) is read **on demand**, when a file is opened, not for every row of a
+  listing.
 - **Preview** any FITS file as a small JPEG, generated by KStars on the Pi (`Media::sendFile`).
 - **Manage on the Pi**: copy and move between the SD card and USB drives, rename, delete
   (files or folders), create folders; long copies with progress and cancel; a free-space check
@@ -473,22 +507,247 @@ to see, organise or clean it up from the app: everything needs SSH today.
 - **Safety**: operations limited to allowed roots (capture folder, `/mnt/*`, `/media/*`) — the
   stock `remove` would delete any path; never touch a folder the running capture is writing to;
   USB drives that disappear mid-operation fail cleanly.
-- **No bulk image transfer over the network**: copies and moves run on the Pi itself; only
-  listings, metadata and small preview JPEGs travel to the phone. *(Assumed reading of
-  "now allowed to copy over network" as "not allowed" — to confirm.)*
+- **No bulk image transfer over the network** (confirmed): copies and moves run on the Pi itself;
+  only listings, metadata and small preview JPEGs travel to the phone.
 
-## Where it could live
+## Where it lives: the fork (decided)
 
-- **Fork (EkosRemote)**: `file_*` commands for copy/move/delete-file/rename with progress pushes,
-  a drive list (`QStorageInfo`), allowed-roots check, and a `file_preview` command wrapping
-  `Media::sendFile`. Keeps everything on one connection and gets FITS decoding for free.
-- **Or the maintenance daemon (9001)**: file listing/copy/move/delete in Python (stdlib), works
-  even when KStars is down; previews would still need KStars (no FITS decoding in stdlib).
+All of it goes in the fork (EkosRemote), on the one connection the app already has: `file_*`
+commands for copy/move/delete-file/rename with progress pushes, a drive list (`QStorageInfo`), the
+allowed-roots check, a header-summary command (read on demand) and a `file_preview` command wrapping
+`Media::sendFile`, which gets FITS decoding for free. The maintenance daemon (9001) is not used.
 
-## Open decisions (file manager)
+Consequence: the file manager needs KStars running. With KStars down (the daemon still answers) the
+Rig storage view says so instead of listing anything; files on the Pi stay reachable over SSH as
+today.
 
-1. Confirm: no image transfer to the phone over the network (on-Pi copy/move only)?
-2. File operations in the fork, the daemon, or split (daemon for files, fork for previews)?
-3. ~~Where it lives in the app~~ — decided: the Frames tab (last in the tab order), with a "Phone"
-   view (stored previews, keep/discard, as today) and a "Rig storage" view (the Pi file manager).
-4. FITS header summary in listings: read on the Pi per file (cost on large folders) or on demand?
+## Decisions (file manager), settled 2026-10-25
+
+1. No image transfer to the phone over the network: copy and move run on the Pi.
+2. File operations live in the fork (not the daemon, not split).
+3. In the app: the Frames tab (last in the tab order), with a "Phone" view (stored previews,
+   keep/discard, as today) and a "Rig storage" view (the Pi file manager).
+4. FITS header summary: read on demand, not per row of a listing.
+
+## Rig storage screens (decided 2026-10-25; not built)
+
+Drill-downs with a back arrow, the same pattern as the Controls pages, never sheets.
+
+1. **Entry:** a fourth card in the Frames picker, `Rig storage`, with a one-liner such as
+   `SD 412 GB free · USB 1`. Preview and Plan stay as the phone side; File settings stays.
+2. **Drives (root):** one card per drive: the SD card (`/home/soo`) and each attached USB drive, with
+   label, filesystem, a free-space bar and `free / total`. A running copy or move shows its progress
+   card on top. A USB drive card has an **Eject** button that unmounts it safely before it is pulled
+   (not offered while a copy or move uses it). With KStars down the screen says "Needs KStars
+   running" instead of listing anything.
+3. **Folders:** the contents of a drive or folder, newest first, under a breadcrumb such as
+   `SD › M31_2026-10-24 › Light`. Rows show name, file count, size and date. The folder a running
+   capture is writing to shows an "in use" lock and has no actions.
+4. **Files:** rows with name, size and time; a tap opens the file page.
+5. **File page:** the preview JPEG (generated by KStars from the FITS), the header summary read on
+   demand (filter, exposure, gain, bin, frame type, HFR), and the actions Copy, Move, Rename, Delete.
+6. **Selecting several:** a long-press starts selection; a bar pinned at the bottom (like polar
+   alignment's) shows `3 selected · 1.2 GB` with Copy, Move and Delete.
+7. **Copy and move:** browse to the destination, then tap **Paste here** on a pinned bar, like a file
+   manager. Before it starts, a free-space check blocks it when there is not enough room ("needs
+   3.4 GB, 1.1 GB free"). While it runs, a progress card shows `8/24 files · 1.2 / 3.4 GB` with
+   Cancel; it stays visible from the root, and the transfer carries on if the user leaves the
+   screen (it runs on the Pi).
+8. **Delete:** one plain confirm dialog for files and folders alike. It says what goes ("Delete
+   folder M31_2026-10-24 with 124 files, 18 GB? This cannot be undone."). The fork enforces the
+   allowed roots, so nothing outside the capture folder and the drives can be touched.
+9. **Drive removed mid-operation:** the operation fails cleanly and the progress card names the
+   drive that disappeared.
+
+## USB sticks on the Pi
+
+State on the Pi (checked 2026-10-25, no stick attached): one stick is configured, in `/etc/fstab`
+(`UUID=824F-1D2E` at `/mnt/astro`, FAT32, `nofail`), a plain boot-time mount with no
+`x-systemd.automount`; `udisks2` is inactive, `/media` is empty and there are no USB udev rules. So
+that stick is mounted only if it was in at boot, and any other stick is seen by the kernel but never
+mounted: a stick plugged in at the rig would not appear in the file manager.
+
+Fix, with nothing installed over the SIM uplink: a small tool in `pi-tools/` (like the pier guard) —
+a udev rule plus `systemd-mount`, already on the Pi — that mounts any USB stick at `/media/<label>`
+owned by the user when it is plugged in, and unmounts it when it is pulled. FAT32 and exFAT come from
+the kernel; NTFS depends on the Pi's kernel driver, to be checked. The old stick keeps working at
+`/mnt/astro`; the fork's allowed roots cover `/mnt/*` and `/media/*`. The fork's drive list then
+shows whatever is mounted, and its `eject` command (below) unmounts a stick before it is pulled.
+
+## Milestones
+
+Each ends built, tested and installed; fork steps need a fork build (about 15 minutes) and a KStars
+restart on the Pi, so they wait for an idle rig and the user's go-ahead. The read-only steps (R0–R4)
+are safe on the rig; R5 can lose files, so it is tested on a scratch folder first.
+
+| # | Milestone | Done when |
+|---|---|---|
+| R0 | **USB automount (Pi tool)** | `pi-tools/usb-automount` mounts a stick plugged into the running Pi at `/media/<label>` and unmounts it when pulled; the Pi kernel's filesystem support (FAT32, exFAT, NTFS) is checked and noted; the old `/mnt/astro` mount is untouched. Verified by plugging a stick in and out (needs the user). |
+| R1 | **Fork: drives and listings** | A command lists the mounted volumes (SD, USB) with label, filesystem and free/total, and a folder listing returns name, size, date, file count and an "in use" flag for the folder a capture is writing to; paths are checked against the allowed roots. |
+| R2 | **App: Rig storage, read-only** | The `Rig storage` card in the Frames picker; drives, folders and files drill-downs with the breadcrumb and the "needs KStars running" state; falls back cleanly on an older fork. |
+| R3 | **Fork: preview and header** | `file_preview` (a JPEG made by KStars from the FITS, via `Media::sendFile`) and a header-summary command read on demand. |
+| R4 | **App: file page** | The preview, the header summary (filter, exposure, gain, bin, frame type, HFR) and the action buttons (disabled until R6). |
+| R5 | **Fork: file operations** | Copy, move, delete and rename on the Pi with the allowed-roots check, a free-space check before a copy, progress pushes and cancel, clean failure when a drive disappears, and `eject`. Tested on a scratch folder before any real capture folder. |
+| R6 | **App: manage** | Long-press selection with the pinned action bar, browse and Paste here, the progress card with Cancel, the plain delete dialog, rename, and the Eject button on USB drive cards. |
+
+R0 has no fork build, so it can start first and gives R1 real USB volumes to list. R1, R3 and R5 could
+share one fork build if they are written together, at the cost of testing later.
+
+---
+
+# 4. Night 2026-10-26 fixes
+
+Two problems from the M31 night (bugs B6 and B7 in `docs/BUGS.md`). Independent of plans 2 and 3;
+N1 can land on `controls-revision` or its own branch, as the user prefers.
+
+## N1 · Cooler at session start (B6)
+
+**What happened.** After an abort the user started a new session; the cooler was off and the app did
+not say so, so job 2 took 180 s H subs at 15 °C.
+
+**Decided approach.** The app owns the cooler state around a session:
+
+- **On Start sequence**, when the camera can cool (`CCD_TEMPERATURE` defined) and the cooler is off,
+  switch it on at the set point (the Camera page's, default the last commanded `coolTarget`), as
+  `setCoolerEnabled(true)` does today; the start is not blocked.
+- **Hold the first sub** until the sensor is within about 2 °C of the set point. Ekos' own
+  "enforce temperature" can do the wait (`cameraTemperatureS` plus `cameraTemperatureN`), so the
+  app sets those two with the cooler on rather than building its own wait. A hard timeout (the
+  Camera page's note says how long) then lets imaging start with a visible warning instead of
+  stalling.
+- **Say it.** The Sequence header and the Home Session card show "cooling to −X °C" while it waits,
+  and a warning line "cooler off" if the cooler is still off at the first sub. The held-Preview
+  note (B2) gets the same wording: "cooling to X °C started".
+- **Remember it.** `coolerCommandedOn` is kept across an Ekos restart (or re-read from
+  `CCD_COOLER` once the camera defines it) so a reconnect does not look like "never asked".
+- **Finish.** Cause confirmed: Summary → **Finish** runs `finishNight()` (stop, park, cooler off) by
+  design, and the next start never undid it. The Finish button already says "park mount, cooler off";
+  the cooler-on-Start step above is what makes a restart safe.
+- **As built.** `AppState.coolerStartPlan()` decides (camera present and able to cool, cooler not
+  known on, a set point known: the app's `coolTarget`, else Ekos' `cameraTemperatureN`; an unknown
+  cooler state counts as off). `ensureCoolingBeforeStart()` in `EkosRemoteController` runs it before
+  every Scheduler start (Start Scheduler, Resume, Next job; not when the toggle would stop a running
+  Scheduler): cooler on, set point written, "Enforce temperature" switched on if Ekos did not have
+  it, and a Log line "Cooler was off at start: cooling … first sub waits for it". Not built: the
+  Sequence-header "cooling to X °C" note and keeping `coolerCommandedOn` across an Ekos restart (an
+  unknown state is treated as off, so it is not needed). Enforce stays on afterwards; it is the
+  user's usual setting.
+- **Rig-checked 2026-10-27** (rig idle indoors, mount parked, no job queued, cooler off, Enforce
+  off): Sequence → Start Scheduler. The Pi's KStars log shows `CCD_COOLER COOLER_ON`, the set point
+  `cameraTemperatureN 0.0` and `CCD_TEMPERATURE 0.0`, `cameraTemperatureS true`, then
+  `scheduler_start_job`; Ekos answered "No executable jobs found. Stopping scheduler." and moved
+  nothing. The Camera page then read "ramping · 80%" and the sensor fell from 22 °C to 3.7 °C in
+  about five minutes. Undone afterwards: cooler off, Enforce off. Not seen: Ekos holding the first
+  sub of a real job until the sensor reaches the set point (needs a real start; it slews the mount).
+
+**Not decided.** Whether the cooler should come on at "Connect" for a night plan, not only at
+Start; whether Cancel of a held Preview switches the cooler off (B2).
+
+**Done when.** Unit tests cover the start decision (cooler off, on, unknown, no cooling camera);
+installed; on the rig, an aborted-then-restarted session shows the cooler on and the first sub waiting
+for the set point. Cooler tests change real rig state: tell, then undo.
+
+## N2 · Guiding tuning (B7)
+
+**What happened.** RA guiding oscillated (±7–10″, RMS 3–4″) and the sheet had no control for it.
+
+**Today.** The Guide settings sheet has accuracy threshold, dither, frame and calibration; the
+guide exposure, gain and binning are on the Guide page. The rig uses the internal guider.
+
+**Decided approach.** A **Guiding tuning** section in the Guide settings sheet (not on the page;
+tuning is rare), applied live, with one plain line of help per control:
+
+- **RA and DEC aggressiveness** (proportional gain), the main control for this oscillation.
+- **Integral gain**, **hysteresis**, **minimum and maximum pulse** (ms or arcsec as Ekos has them).
+- **RA and DEC guiding on/off** (so DEC can be left off or one axis tested alone).
+- **Guide algorithm** choice, only if the wire exposes it.
+- The guide **exposure** stays on the page; a note says that a longer exposure also calms a loop.
+
+Because the guide settings are saved by Ekos, the sheet shows a **Reset to defaults** and the
+values at the time the sheet opened, so a wrong change is one tap back.
+
+**Findings so far (2026-10-26 logs).** Job 1 guided at RA 2–3.7″ with Ekos' RA P 0.70 / DEC P 0.55 /
+1 s exposure; job 2 with the same gains ran at 0.7–1.4″ after a fresh calibration, so the guiding
+page also needs to show the calibration (and the exposure it was done at) before gain is the knob.
+See B7.
+
+**As built (2026-10-27).** Keys confirmed from the fork source (`opsguide.ui`, `cgmath::configureInParams`,
+`KSUtils::setGlobalSettings`), not from a live reply: `kcfg_RAProportionalGain`,
+`kcfg_DECProportionalGain`, `kcfg_RAIntegralGain`, `kcfg_DECIntegralGain` (doubles, 0..1),
+`kcfg_RAMinimumPulseArcSec`, `kcfg_DECMinimumPulseArcSec` (doubles, 0..1000) and
+`kcfg_RAMaximumPulseArcSec`, `kcfg_DECMaximumPulseArcSec` (ints, 0..3600, arcsec), plus the axis
+checkboxes `rAGuideEnabled`, `dECGuideEnabled` (no prefix). `setGlobalSettings` strips `kcfg_` and
+writes `Options`, which `configureInParams` re-reads every guide cycle, so a change acts on the
+running guider. Rig `kstarsrc` on 2026-10-26: RA P 0.70, DEC P 0.55, max pulse 35. `GuideTuning` /
+`GuideAxis` (`EkosEvent.kt`) carry key and range; `setGuideTuning` clamps and sends; the Guide sheet
+has a **Guiding tuning** section (axis switches, eight fields, **Revert to values when opened**).
+Left out on purpose: `kcfg_GuideAlgorithm` is the star-detection method (SEP, Smart…), not the control
+algorithm; the pulse algorithm (`RAGuidePulseAlgorithm`) has no widget, so the reply never carries it;
+the calibration readout and who changed the guide exposure (still open). Rig-checked 2026-10-27 (rig idle, mount
+parked): the live reply carries all of them; the sheet showed RA 0.70, DEC 0.55, integral 0.00,
+minimum pulse 0.20″, maximum pulse 35″ and both axes on, i.e. the rig's saved values and not the
+defaults (RA default 0.75). Not yet checked: that a write changes the running guider (needs a
+guiding session under the sky).
+
+**Needs the Pi first (was blocking the build).** `guide_get_all_settings` returns 84 fields; the exact
+wire key names, types and the unit of the pulse limits are read from a real reply (read-only: the
+probe in `tools/ekos_probe.py` or a DBus read), not guessed from the `kstars.kcfg` names. Together with that, the guide log
+and analyze file from the night are read to confirm that the over-correction is RA gain and not
+the flip or the guide exposure (0.5 s → 2.0 s → 1.0 s during the night is also odd and is
+checked: who changed the exposure).
+
+**Done when.** The keys are confirmed and added to `WireGuideSettings` with defaults; the sheet
+section, setters in the controller and unit tests (codec, setters) exist; installed; under the
+sky, lowering RA aggressiveness on a running guide settles the trace. Until then it is listed as not
+verified in `docs/STATUS.md`.
+
+## N3 · Polar alignment overlay too small and faint
+
+**What the user saw (2026-10-26, Polar alignment, "Refreshing", total 0.44°).** The target circle
+(green, at the right edge) and the correction triangle (green, yellow, magenta edges) are hairlines
+on the align frame, hard to see on a phone and under the red night filter.
+
+**Why.** Ekos paints both into the frame JPEG at frame scale, about 1 px wide (see the `PaImage`
+comment, `Sheets.kt`); the frame is then scaled down to the phone width, so the lines shrink further.
+The app draws only its own tap ring (`polarSelectStar`). The wire also sends the correction line
+(`new_polar_state.vector`: centre, length, angle), but not the triangle corners or the target circle,
+so the app cannot redraw them itself.
+
+**Options.**
+- **A. App only, recolour the frame.** In `PaImage`, after decoding the JPEG, find the overlay pixels
+  (the frame is grey, the overlay is saturated), widen them by 2–3 px, and give them a stronger,
+  night-mode-safe colour; draw the result instead of the raw frame. Works on any fork, costs a
+  per-frame pixel pass (a 1–2 MP JPEG; done once per frame off the main thread). Risk: picks up
+  coloured stars or noise in a colour frame; the Ekos align frame is mono, so it should be clean.
+- **B. Fork: thicker pen.** `PolarAlignmentAssistant` draws with a fixed pen; make its width and
+  radius scale with the frame size. Cleanest result, but needs a fork build (about 15 minutes) and a
+  KStars restart, so it waits for an idle rig.
+- **C. App draws its own.** Needs the triangle and target geometry on the wire (a fork change as
+  well as B), so it costs more than B for the same picture.
+
+**Recommended.** A now (app only, testable at the desk against the saved align frames), B later if A
+is not enough. Size target: lines at least 3 dp on screen, the target circle at least 24 dp across,
+colours with enough contrast on the dark frame (the screenshots show the lines vanish into noise).
+
+**As built (option A).** `OverlayBoost` (`ui/components`) runs on the align frame in `PaImage`
+(`MediaFramePreview(..., boostOverlay = true)`, decoded off the main thread like every frame): pixels
+with a channel spread of at least 14 count as overlay (a mono frame is exactly grey), are widened by
+`width/300` px (1–6, about 3 dp) and repainted fully saturated at full brightness in their own hue.
+Tried on the real overlay in the 2026-10-26 21:52 phone screenshot: the dark magenta edge and the
+green circle (spread under 32) need the low threshold, and plain brightening washes them to pastel,
+hence the saturation rebuild. Not changed: the circle's size (Ekos draws it; only its line gets
+thicker); that needs option B if it is still too small. The 24 dp circle target above is dropped for
+that reason.
+
+**Done when.** The overlay is clearly visible at 1× on the phone in the red night mode, still shows
+when zoomed, tap-to-pick still maps correctly (the recolour keeps the image size), and a unit test
+covers the overlay-pixel detection on a sample frame. Only the visual check needs the sky or a
+Polar alignment run; the run drives the mount, so it waits for the user's go-ahead.
+
+## Order
+
+1. Logs read 2026-10-26 (cooler: Finish; guiding: see B7). Still open: who changed the guide
+   exposure, and the `guide_get_all_settings` key names. Read-only; fork and KStars untouched.
+2. N1 (no Pi dependency beyond that).
+3. N2 after the key names are confirmed.
+4. N3 can go any time (option A is app only).

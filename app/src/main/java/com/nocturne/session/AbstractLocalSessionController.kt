@@ -1,5 +1,8 @@
 package com.nocturne.session
 
+import com.nocturne.protocol.GuideAxis
+import com.nocturne.protocol.GuideTuning
+import com.nocturne.protocol.withTuning
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,7 +26,6 @@ abstract class AbstractLocalSessionController : SessionController {
     override fun openSheet(sheet: SheetType) {
         update { s ->
             when (sheet) {
-                SheetType.PA -> s.copy(sheet = sheet, paStep = 0)
                 SheetType.SETUP -> if (s.ekosRunning) s else s.copy(sheet = sheet)
                 else -> s.copy(sheet = sheet)
             }
@@ -48,6 +50,7 @@ abstract class AbstractLocalSessionController : SessionController {
     override open fun setPushNotifications(enabled: Boolean) = update { it.copy(pushNotificationsEnabled = enabled) }
     override fun openLog() = update { it.copy(logOpen = true) }
     override fun closeLog() = update { it.copy(logOpen = false) }
+    override fun openControlsModule(module: ControlsModule?) = update { it.copy(controlsModule = module) }
     override fun expandFrame(id: String) = update { it.copy(expandedFrameId = id) }
     override fun closeFrameExpand() = update { it.copy(expandedFrameId = null) }
     // Changing category also clears the drilled-into target so the picker never keeps a stale one.
@@ -391,6 +394,14 @@ abstract class AbstractLocalSessionController : SessionController {
         update { it.copy(rotatorAutoControl = enabled, wireAstrometryUseRotator = enabled) }
 
     // Guide settings.
+    override open fun setGuideTuning(param: GuideTuning, value: Double) = update { s ->
+        s.copy(wireGuideSettings = s.wireGuideSettings?.withTuning(param, value))
+    }
+    override open fun setGuideAxisEnabled(axis: GuideAxis, enabled: Boolean) = update { s ->
+        s.copy(wireGuideSettings = s.wireGuideSettings?.let {
+            if (axis == GuideAxis.RA) it.copy(rAGuideEnabled = enabled) else it.copy(dECGuideEnabled = enabled)
+        })
+    }
     override open fun setGuideAccuracyThreshold(arcsec: Double) = update { s ->
         s.copy(wireGuideSettings = s.wireGuideSettings?.copy(guiderAccuracyThreshold = arcsec))
     }
@@ -761,9 +772,6 @@ abstract class AbstractLocalSessionController : SessionController {
         s.copy(wireAlignSettings = s.wireAlignSettings?.copy(pAHRefreshAlgorithm = algorithm))
     }
 
-    override fun openPa() = update { it.copy(sheet = SheetType.PA, paStep = 0) }
-    override fun paNext() = update { it.copy(paStep = minOf(2, it.paStep + 1)) }
-    override fun setPaRate(index: Int) = update { it.copy(paRate = index) }
 
     override open fun startProfile(name: String) = update { s ->
         if (s.profiles.none { it.name == name }) return@update s

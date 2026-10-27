@@ -3,6 +3,7 @@ package com.nocturne.ui.session
 import android.Manifest
 import android.content.pm.PackageManager
 import android.location.LocationManager
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
@@ -89,6 +90,11 @@ import com.nocturne.session.medHfr
 import com.nocturne.ui.components.BtnStyle
 import com.nocturne.ui.components.GainField
 import com.nocturne.protocol.GUIDE_BOX_SIZES
+import com.nocturne.protocol.GuideAxis
+import com.nocturne.protocol.GuideTuning
+import com.nocturne.protocol.WireGuideSettings
+import com.nocturne.protocol.axisEnabled
+import com.nocturne.protocol.tuning
 import com.nocturne.ui.components.FocusCurve
 import com.nocturne.ui.components.GuideTelemetry
 import com.nocturne.ui.components.HDivider
@@ -142,7 +148,9 @@ private fun alertStyle(a: com.nocturne.session.Alert): AlertStyle = when (a.seve
 @Composable
 fun SheetHost(state: AppState, ctrl: SessionController, landscape: Boolean) {
     val sheet = state.sheet ?: return
-    val full = sheet == SheetType.PA || sheet == SheetType.SETUP
+    // Back closes the sheet, not the screen behind it.
+    BackHandler(onBack = ctrl::closeSheet)
+    val full = sheet == SheetType.SETUP
     val (title, meta) = when (sheet) {
         SheetType.GUIDE -> "Guiding" to "RMS, drift + live frame"
         SheetType.FOCUS -> "Focus" to "status + live frame"
@@ -153,7 +161,6 @@ fun SheetHost(state: AppState, ctrl: SessionController, landscape: Boolean) {
                 "${state.formatSiteTime(it.first)} → ${state.formatSiteTime(it.second)}"
             } ?: "night N/A"
         )
-        SheetType.PA -> "Polar alignment" to "live status"
         SheetType.PREFS -> "Alert rules" to "push + on-screen"
         SheetType.SETUP -> (if (state.setupEditingName != null) "Edit rig profile" else "New rig profile") to "name + device connections"
         SheetType.OPTICAL_TRAIN -> "Optical train" to "primary + secondary roles"
@@ -192,7 +199,6 @@ fun SheetHost(state: AppState, ctrl: SessionController, landscape: Boolean) {
                 SheetType.FOCUS -> FocusSheet(state, ctrl)
                 SheetType.ALERTS -> AlertsSheet(state, ctrl)
                 SheetType.SUMMARY -> SummarySheet(state, ctrl)
-                SheetType.PA -> PaRealSheet(state, ctrl)
                 SheetType.PREFS -> PrefsSheet(state, ctrl)
                 SheetType.SETUP -> SetupBody(state, ctrl)
                 SheetType.OPTICAL_TRAIN -> OpticalTrainSheet(state, ctrl)
@@ -864,10 +870,14 @@ private fun MountSettingsSheet(state: AppState, ctrl: SessionController) {
  * `"-"`, a trailing `"."`) survives recomposition; [onChange] fires only when the text parses.
  */
 @Composable
-private fun DegreeField(value: Double, unit: String, onChange: (Double) -> Unit) {
+private fun DegreeField(value: Double, unit: String, onChange: (Double) -> Unit) = DecimalField(value, unit, 1, onChange)
+
+/** [DegreeField] with a chosen number of decimals shown (the guide gains need two). */
+@Composable
+private fun DecimalField(value: Double, unit: String, decimals: Int, onChange: (Double) -> Unit) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
-    var text by remember { mutableStateOf("%.1f".format(value)) }
+    var text by remember { mutableStateOf("%.${decimals}f".format(value)) }
     Row(
         Modifier
             .fillMaxWidth()
@@ -1109,6 +1119,11 @@ private fun GuideSettingsSheet(state: AppState, ctrl: SessionController) {
         HDivider()
         Spacer(Modifier.height(16.dp))
 
+        GuideTuningSection(g, ctrl)
+        Spacer(Modifier.height(16.dp))
+        HDivider()
+        Spacer(Modifier.height(16.dp))
+
         SwitchRow(
             label = "Dither",
             sub = "nudge the mount slightly between subs to average out fixed-pattern noise",
@@ -1206,6 +1221,61 @@ private fun GuideSettingsSheet(state: AppState, ctrl: SessionController) {
         Spacer(Modifier.height(5.dp))
         IntField(g.kcfg_CalibrationMaxMove, ctrl::setGuideCalibrationMaxMove)
     }
+}
+
+/** Label, unit and decimals of each [GuideTuning] row, in the order they are shown. */
+private val GUIDE_TUNING_ROWS = listOf(
+    Triple(GuideTuning.RA_GAIN, "RA aggressiveness", "" to 2),
+    Triple(GuideTuning.DEC_GAIN, "DEC aggressiveness", "" to 2),
+    Triple(GuideTuning.RA_INTEGRAL, "RA integral gain", "" to 2),
+    Triple(GuideTuning.DEC_INTEGRAL, "DEC integral gain", "" to 2),
+    Triple(GuideTuning.RA_MIN_PULSE, "RA minimum pulse", "\"" to 2),
+    Triple(GuideTuning.DEC_MIN_PULSE, "DEC minimum pulse", "\"" to 2),
+    Triple(GuideTuning.RA_MAX_PULSE, "RA maximum pulse", "\"" to 0),
+    Triple(GuideTuning.DEC_MAX_PULSE, "DEC maximum pulse", "\"" to 0),
+)
+
+/**
+ * Control loop of the internal guider. Ekos re-reads these on every guide cycle, so a change acts
+ * on the running guider at once. "Revert" puts back what they were when the sheet opened.
+ */
+@Composable
+private fun GuideTuningSection(g: WireGuideSettings, ctrl: SessionController) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    val opened = remember { g }
+    TextC("GUIDING TUNING", style = t.MicroLabel, color = c.textMuted)
+    Spacer(Modifier.height(6.dp))
+    TextC(
+        "RA swinging back and forth, RMS climbing? The guider is over-correcting: lower the RA " +
+            "aggressiveness a step (0.70 → 0.50) and watch the trace settle. Max pulse caps one correction.",
+        style = t.MonoMicro, color = c.textMuted,
+    )
+    Spacer(Modifier.height(10.dp))
+    GuideAxis.values().forEach { axis ->
+        GuideSwitch("${axis.name} guiding", "correct this axis", g.axisEnabled(axis)) {
+            ctrl.setGuideAxisEnabled(axis, !g.axisEnabled(axis))
+        }
+        Spacer(Modifier.height(8.4.dp))
+    }
+    GUIDE_TUNING_ROWS.forEach { (param, label, unitDecimals) ->
+        FieldLabel(label)
+        Spacer(Modifier.height(5.dp))
+        DecimalField(g.tuning(param), unitDecimals.first, unitDecimals.second) { ctrl.setGuideTuning(param, it) }
+        Spacer(Modifier.height(8.4.dp))
+    }
+    val changed = GuideTuning.values().any { opened.tuning(it) != g.tuning(it) } ||
+        GuideAxis.values().any { opened.axisEnabled(it) != g.axisEnabled(it) }
+    NocturneButton(
+        text = "Revert to values when opened",
+        onClick = {
+            GuideTuning.values().forEach { if (opened.tuning(it) != g.tuning(it)) ctrl.setGuideTuning(it, opened.tuning(it)) }
+            GuideAxis.values().forEach { if (opened.axisEnabled(it) != g.axisEnabled(it)) ctrl.setGuideAxisEnabled(it, opened.axisEnabled(it)) }
+        },
+        style = com.nocturne.ui.components.BtnStyle.OUTLINE,
+        enabled = changed,
+        modifier = Modifier.fillMaxWidth().height(44.dp),
+    )
 }
 
 @Composable
@@ -2237,9 +2307,12 @@ private fun ReducerField(value: Double, onChange: (Double) -> Unit) {
  * sheet branches on them: image progress while measuring, Done rotating (manual slew), Select
  * Star → Start adjusting, Refreshing → Done. Settings are the assistant's own widgets via
  * `align_set_all_settings`, editable only when the desktop enables them.
+ *
+ * Shown on the Controls tab's Polar alignment page: this is the scrolling body, and
+ * [PolarAlignmentActions] is the button bar pinned under it.
  */
 @Composable
-private fun PaRealSheet(state: AppState, ctrl: SessionController) {
+internal fun PolarAlignmentBody(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val stage = state.wirePolarStage
@@ -2248,7 +2321,6 @@ private fun PaRealSheet(state: AppState, ctrl: SessionController) {
     val manualSlew = pah?.pAHManualSlew == true
     val algorithm = pah?.pAHRefreshAlgorithm
     val starSelect = stage == PAH_STAGE_SELECT_STAR
-    val refreshing = stage == PAH_STAGE_REFRESHING
     // Move Star methods need a star picked on the image; Plate Solve doesn't.
     val canPickStar = starSelect && algorithm != null && algorithm != PAH_REFRESH_ALGORITHMS[0]
 
@@ -2376,14 +2448,30 @@ private fun PaRealSheet(state: AppState, ctrl: SessionController) {
                 style = t.MonoMicro, color = c.warn,
             )
         }
-        Spacer(Modifier.height(14.dp))
-        val primary: Pair<String, () -> Unit>? = when {
-            !running -> "Start" to ctrl::startPolarAlign
-            stage in PAH_ROTATE_STAGES && manualSlew -> "Done rotating" to ctrl::polarSlewDone
-            starSelect -> "Start adjusting" to ctrl::polarRefresh
-            refreshing -> "Done" to ctrl::polarRefreshDone
-            else -> null
-        }
+    }
+}
+
+/**
+ * The buttons for the current stage: the primary action (Start, Done rotating, Start adjusting,
+ * Done) and Stop while a run is going; every stage has at least one.
+ */
+@Composable
+internal fun PolarAlignmentActions(state: AppState, ctrl: SessionController) {
+    val stage = state.wirePolarStage
+    val running = state.polarRunning
+    val manualSlew = state.wireAlignSettings?.pAHManualSlew == true
+    val starSelect = stage == PAH_STAGE_SELECT_STAR
+    val refreshing = stage == PAH_STAGE_REFRESHING
+    val primary: Pair<String, () -> Unit>? = when {
+        !running -> "Start" to ctrl::startPolarAlign
+        stage in PAH_ROTATE_STAGES && manualSlew -> "Done rotating" to ctrl::polarSlewDone
+        starSelect -> "Start adjusting" to ctrl::polarRefresh
+        refreshing -> "Done" to ctrl::polarRefreshDone
+        else -> null
+    }
+    // Refreshing's "Done" already ends the run (same server call as Stop).
+    val showStop = running && !refreshing
+    Column {
         primary?.let { (label, action) ->
             com.nocturne.ui.components.NocturneButton(
                 text = label,
@@ -2392,8 +2480,7 @@ private fun PaRealSheet(state: AppState, ctrl: SessionController) {
                 modifier = Modifier.fillMaxWidth().height(44.dp),
             )
         }
-        // Refreshing's "Done" already ends the run (same server call as Stop).
-        if (running && !refreshing) {
+        if (showStop) {
             if (primary != null) Spacer(Modifier.height(8.dp))
             com.nocturne.ui.components.NocturneButton(
                 text = "Stop",
@@ -2405,7 +2492,7 @@ private fun PaRealSheet(state: AppState, ctrl: SessionController) {
     }
 }
 
-/** Ekos's PAH prompts name its desktop buttons; point them at this sheet's. */
+/** Ekos's PAH prompts name its desktop buttons; point them at this page's. */
 private fun appPahMessage(message: String): String = message
     .replace("Click Stop", "Tap Done")
     .replace("click Stop", "tap Done")
@@ -2415,7 +2502,7 @@ private fun appPahMessage(message: String): String = message
 /**
  * Latest align frame, box sized to the frame's own aspect (correction crops are square, a fixed
  * 4:3 box would shrink them). Pinch to zoom, drag to pan once zoomed, double-tap to reset: Ekos
- * paints the correction triangle at frame scale, so it's a few pixels wide on a phone. When
+ * paints the correction triangle at frame scale, so it's a few pixels wide on a phone ([OverlayBoost] widens it). When
  * [pickable], a tap sends its position as a fraction of the *received image* (zoom and
  * letterbox-corrected) — `polar_set_crosshair` maps that back through the crop's bounding rect
  * server-side (Message::processPolarCommands).
@@ -2488,7 +2575,7 @@ private fun PaImage(state: AppState, pickable: Boolean, ctrl: SessionController)
                 .fillMaxSize()
                 .graphicsLayer(scaleX = zoom, scaleY = zoom, translationX = pan.x, translationY = pan.y),
         ) {
-            MediaFramePreview(state.latestAlignFrame, Modifier.fillMaxSize(), hatchColor = c.surfaceRaised)
+            MediaFramePreview(state.latestAlignFrame, Modifier.fillMaxSize(), hatchColor = c.surfaceRaised, boostOverlay = true)
             picked?.takeIf { pickable }?.let { p ->
                 Canvas(Modifier.fillMaxSize()) {
                     drawCircle(c.warn, radius = 14.dp.toPx() / zoom, center = p, style = Stroke(width = 1.5.dp.toPx() / zoom))

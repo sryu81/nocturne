@@ -32,9 +32,22 @@ import kotlin.math.sin
 
 /** Which detail sheet is open. */
 enum class SheetType {
-    GUIDE, FOCUS, ALERTS, PREFS, SETUP, PA, DEVICE, SUMMARY,
+    GUIDE, FOCUS, ALERTS, PREFS, SETUP, DEVICE, SUMMARY,
     OPTICAL_TRAIN, SCOPES, MODULE_ASSIGNMENTS, MAINTENANCE, MOUNT_SETTINGS, CAMERA_SETTINGS, ALIGN_SETTINGS,
     GUIDE_SETTINGS, FOCUS_SETTINGS, SCHEDULER_SETTINGS, RIG_HEALTH,
+}
+
+/**
+ * The pages of the Controls tab, in menu order (the night's order; docs/PLAN.md plan 2). [setup]
+ * marks the Setup group; the rest are Imaging.
+ */
+enum class ControlsModule(val label: String, val setup: Boolean = false) {
+    MOUNT("Mount"),
+    CAMERA("Camera"),
+    FOCUSER("Focuser"),
+    PLATE_SOLVE("Plate solve"),
+    GUIDE("Guide"),
+    POLAR_ALIGNMENT("Polar alignment", setup = true),
 }
 
 /**
@@ -72,6 +85,8 @@ val GUIDE_IDLE_STATES = setOf("Idle", "Aborted", "Connected", "Disconnected", "C
  * "Framing" is the plain focus loop, not an autofocus run, so it counts as idle.
  */
 val FOCUS_IDLE_STATES = setOf("Idle", "Complete", "Failed", "Aborted", "Framing")
+/** `new_mount_state.status` values while the mount is moving (ISD::Mount status text). */
+val MOUNT_MOVING_STATES = setOf("Slewing", "Moving", "Parking")
 
 /**
  * `new_polar_state.stage` strings: `PolarAlignmentAssistant::PAHStages`
@@ -157,10 +172,8 @@ data class AppState(
     val snappedGuide: Boolean = false,
     val rate: Int? = null,
     val slewDir: String? = null,
-    val paStep: Int = 0,
     val paAlt: Double? = null,
     val paAz: Double? = null,
-    val paRate: Int = 1,
     val query: String = "",
     val chips: List<Int> = listOf(0),
     /** `astro_search_objects`' `type`: a `SkyObject::TYPE` value, one of [SEARCH_TYPES].
@@ -368,6 +381,8 @@ data class AppState(
     val schedulerStatus: Int? = null,
     /** The full-screen Log (opened from Home). */
     val logOpen: Boolean = false,
+    /** The module page open on the Controls tab; null shows the module menu. */
+    val controlsModule: ControlsModule? = null,
     /**
      * When each module's status last changed, wall-clock ms, keyed by the status row's label
      * ("Sched", "Mount", "Cam", "Focus", "Guide", "Align"); see [stampModuleChanges]. Lets Home
@@ -887,6 +902,25 @@ fun AppState.coolerIsOn(camera: String): Boolean? {
     if (power != null && power > 1.0) return true
     coolerCommandedOn?.let { return it }
     return indiSwitchElement(camera, "CCD_COOLER")?.let { it == "COOLER_ON" }
+}
+
+/** What to switch on before the Scheduler starts imaging, see [coolerStartPlan]. */
+data class CoolerStartPlan(val camera: String, val targetC: Double, val enforce: Boolean)
+
+/**
+ * The cooler step of a sequence start. Finish (and a camera reconnect) leave the cooler off and
+ * nothing brought it back, so a new session imaged warm. Null when there is nothing to do: no
+ * camera, a camera that cannot cool (no `CCD_TEMPERATURE`), the cooler already on, or no known set
+ * point. An unknown cooler state counts as off, since switching it on for a start is harmless.
+ * [CoolerStartPlan.enforce] asks Ekos to hold the first sub until the sensor reaches the set point.
+ */
+fun AppState.coolerStartPlan(): CoolerStartPlan? {
+    val camera = primaryTrain.camera
+    if (camera.isBlank() || camera == "None") return null
+    if (indiNumber(camera, "CCD_TEMPERATURE") == null) return null
+    if (coolerIsOn(camera) == true) return null
+    val target = coolTarget ?: wireCaptureSettings?.cameraTemperatureN ?: return null
+    return CoolerStartPlan(camera, target, enforce = wireCaptureSettings?.cameraTemperatureS != true)
 }
 
 /** A switch property's element names (all choices), empty if unknown. */

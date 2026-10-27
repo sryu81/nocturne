@@ -10,6 +10,9 @@ import com.nocturne.data.UserCatalogSnapshot
 import com.nocturne.data.SequenceSnapshot
 import com.nocturne.protocol.Commands
 import com.nocturne.protocol.EkosEvent
+import com.nocturne.protocol.GuideAxis
+import com.nocturne.protocol.GuideTuning
+import com.nocturne.protocol.clamp
 import com.nocturne.protocol.MediaFrameType
 import com.nocturne.protocol.frameType
 import com.nocturne.protocol.WireAstroObject
@@ -749,6 +752,7 @@ class EkosRemoteController(
                 if (waiting != null && event.jobs.any { it.name == waiting.name }) {
                     pendingSchedulerStart = null
                     if (waiting.alsoStart && !_state.value.schedulerRunning) {
+                        ensureCoolingBeforeStart()
                         client.sendCommand(Commands.SCHEDULER_START_JOB)
                     }
                 }
@@ -1953,6 +1957,17 @@ class EkosRemoteController(
         sendGuideSetting("kcfg_GuideLostStarTimeout", JsonPrimitive(sec))
         super.setGuideLostStarTimeout(sec)
     }
+    override fun setGuideTuning(param: GuideTuning, value: Double) {
+        val v = param.clamp(value)
+        sendGuideSetting(param.key, if (param.integer) JsonPrimitive(v.toInt()) else JsonPrimitive(v))
+        log?.record("App", "Guide ${param.key.removePrefix("kcfg_")} set to $v")
+        super.setGuideTuning(param, v)
+    }
+    override fun setGuideAxisEnabled(axis: GuideAxis, enabled: Boolean) {
+        sendGuideSetting(axis.key, JsonPrimitive(enabled))
+        log?.record("App", "Guide ${axis.name} axis ${if (enabled) "on" else "off"}")
+        super.setGuideAxisEnabled(axis, enabled)
+    }
 
     /** Focus settings (curated subset), fire-and-forget via `focus_set_all_settings`. */
     private fun sendFocusSetting(field: String, value: JsonElement) {
@@ -2444,7 +2459,22 @@ class EkosRemoteController(
 
     /** The global Scheduler toggle. Not flipped optimistically: the label follows the `new_scheduler_state` push (see [AppState.schedulerRunning]). */
     override fun toggleScheduler() {
+        if (!_state.value.schedulerRunning) ensureCoolingBeforeStart()
         client.sendCommand(Commands.SCHEDULER_START_JOB)
+    }
+
+    /**
+     * Starting imaging with the cooler off means warm subs (2026-10-26: the Finish before a new
+     * session switched it off). Switches it on at the set point and has Ekos hold the first sub
+     * until the sensor is there; says so in the Log. See [coolerStartPlan].
+     */
+    private fun ensureCoolingBeforeStart() {
+        val plan = _state.value.coolerStartPlan() ?: return
+        log?.record("App", "Cooler was off at start: cooling ${plan.camera} to ${plan.targetC} °C, first sub waits for it")
+        _state.update { it.copy(coolTarget = plan.targetC) }
+        setCoolerEnabled(true)
+        applyCoolTarget()
+        if (plan.enforce) setTemperatureEnforced(true)
     }
 
     /** The save→settings→add→get→(start) chain — see [pushJob]. [resumeSession]/[startNextJob] also request the [alsoStart] tail. */
@@ -2639,8 +2669,6 @@ private fun AppState.withConnectionState(device: String, property: WireProperty)
 }
 
 private const val CAMERA_FAN_PROP = "TC_FAN_SPEED" // ToupTek-family drivers (indi_toupbase)
-/** `new_mount_state.status` values while the mount is moving (ISD::Mount status text). */
-private val MOUNT_MOVING_STATES = setOf("Slewing", "Moving", "Parking")
 
 /** `new_align_state.status` values (`ekos.h` `alignStates`) that end an Align run. "Successful"
  *  is not one: with `slewR` it's followed by a re-slew and another solve. */
