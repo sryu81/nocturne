@@ -6,6 +6,48 @@ first within each list. Commits are on branch `controls-revision` unless noted.
 
 ## Open
 
+### B6 · A new session starts imaging with the cooler off
+
+- **Found:** 2026-10-26, night. After aborting a session, the user created a new one and started it;
+  the cooler was off and nothing said so.
+- **Symptom:** job 1 frames were `-0C`/`0C` (cooled). Job 2 (`M_31_j2_20261026_230034`, H) came out
+  as `H_180sec_15C_1.jpg`, and the Camera page at 23:08 read "not cooling · 0%", sensor 16.4 °C,
+  set point 0.0, "Cooler ON" offered.
+- **Cause (confirmed 2026-10-26 from the Pi's KStars log):** the abort went through the Summary
+  sheet's **Finish**, which runs `finishNight()`: the log shows `scheduler_start_job` (a stop),
+  `scheduler_remove_jobs`, `mount_park`, then `device_property_set CCD_COOLER COOLER_OFF` within about
+  fifteen lines, around 22:59. That is by design (Finish = stop, park, cooler off). The new session
+  then started with no cooler step, so job 2 shot warm until the user pressed Cooler ON (log:
+  `COOLER_ON`, `cameraTemperatureS true`, `cameraTemperatureN 0.0`, a few minutes after 23:05).
+  The same Finish sequence ran again near 23:48. Also: the park moved the mount, so Ekos logged
+  "Mount is moving. Resetting calibration..." and the next start calibrated again.
+- **Fix (planned):** plan 4, N1: nothing after Finish brings the cooler back, and the Finish button
+  does not say it turns the cooler off. Same family as B2 (a Preview starting the cooler by surprise).
+- **Fix state:** built 2026-10-26 (`coolerStartPlan`, unit-tested); installed and rig check pending.
+- **Check after the fix:** abort a session with the cooler on, start a new one; the cooler is on
+  (or the start says it is off) and the first sub waits for the set point.
+
+### B7 · Guiding oscillates in RA and the app has no knob for it
+
+- **Found:** 2026-10-26, night, M31, internal guider.
+- **Symptom:** at 22:41 RMS was 0.86″ (RA 0.80″, DEC 0.30″). At 22:56 it was 3.33″ (RA 3.27″,
+  DEC 0.63″) and at 22:57 4.10″ (RA 4.06″, DEC 0.62″, exposure 1.0 s), with a regular RA swing of
+  about ±7–10″; DEC stayed quiet. The Controls bar showed "Cam Suspended" at 22:57. The user reads
+  it as over-correction: the guider reacts too hard and does not settle.
+- **Evidence (Pi analyze file `ekos-2026-10-26T21-42-28.analyze`, 5-minute windows):** guiding of job 1
+  (calibrated 22:41:12, 23 s) ran at RA RMS 2.0–2.4″ from the start, 3.35–3.67″ by 22:52–22:57, mean RA
+  pulse 113 → 255 ms, with a 264″ outlier window at 22:47. Job 2 (new calibration 23:05, 30 s),
+  same Ekos gains (RA P 0.70, DEC P 0.55, max pulse 35″, exposure 1 s per `kstarsrc`), ran at RA
+  0.69″, mean pulse 35 ms, creeping to 1.1–1.4″ later. So the gains are not the whole story: the
+  bad run followed the first calibration (or the guide exposure changes the app showed that night:
+  0.5 s → 2.0 s → 1.0 s). Not yet decided between a poor calibration and loop gain at the changed
+  exposure.
+- **Gap:** `WireGuideSettings` (`EkosEvent.kt`) and the Guide settings sheet cover only threshold,
+  dither, frame and calibration; no algorithm parameters, so the user had no way to tame it from
+  the phone.
+- **Fix (planned):** plan 4, N2.
+- **Check after the fix:** lower RA gain on a running guide; the RA trace settles and RMS drops.
+
 ### B1 · Plate solve can leave Ekos "In Progress" after a failed solve
 
 - **Found:** 2026-10-25, daytime, Plate solve here on the connected rig.

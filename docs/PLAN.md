@@ -8,6 +8,7 @@ waiting for a night test, plan 3 is planned but not started; items are added as 
 | 1 | Home tab and tab layout revision | M1–M6 built, installed and merged into `main` (2026-10-25); rig checks left, listed in `docs/STATUS.md` |
 | 2 | Controls tab revision | C1–C4 built and installed on branch `controls-revision`; rig checks left, listed in `docs/STATUS.md` |
 | 3 | Frames tab revision | decisions, screens and milestones R0–R6 written (2026-10-25); deferred until the plan 2 test is closed |
+| 4 | Night 2026-10-26 fixes | cooler at session start (N1) and guiding tuning (N2) written; not started, N2 waits for the Pi |
 
 The three are independent: plan 1 only reorders the tabs and moves the old Session content;
 Controls and Frames keep their content until their own plans are built.
@@ -36,6 +37,9 @@ rig; what is still unchecked is in `docs/STATUS.md`. Details of each milestone a
 | 3 | R4 | App: file page | Not started |
 | 3 | R5 | Fork: file operations and eject | Not started |
 | 3 | R6 | App: manage (selection, paste, progress, delete) | Not started |
+| 4 | N1 | Cooler on at session start, hold first sub | Built and unit-tested (2026-10-26); not installed or rig-checked |
+| 4 | N2 | Guiding tuning (gain, pulse, hysteresis) | Not started; needs the Pi's key names |
+| 4 | N3 | Polar alignment: bigger, vivid triangle and target circle | Not started |
 
 **Next:** the user's night test of plan 2, then closing it (merge `controls-revision` into `main`).
 Plan 3 (R0–R6) is deferred until the plan 2 test is finished and closed; nothing of it is started.
@@ -588,3 +592,127 @@ are safe on the rig; R5 can lose files, so it is tested on a scratch folder firs
 
 R0 has no fork build, so it can start first and gives R1 real USB volumes to list. R1, R3 and R5 could
 share one fork build if they are written together, at the cost of testing later.
+
+---
+
+# 4. Night 2026-10-26 fixes
+
+Two problems from the M31 night (bugs B6 and B7 in `docs/BUGS.md`). Independent of plans 2 and 3;
+N1 can land on `controls-revision` or its own branch, as the user prefers.
+
+## N1 · Cooler at session start (B6)
+
+**What happened.** After an abort the user started a new session; the cooler was off and the app did
+not say so, so job 2 took 180 s H subs at 15 °C.
+
+**Decided approach.** The app owns the cooler state around a session:
+
+- **On Start sequence**, when the camera can cool (`CCD_TEMPERATURE` defined) and the cooler is off,
+  switch it on at the set point (the Camera page's, default the last commanded `coolTarget`), as
+  `setCoolerEnabled(true)` does today; the start is not blocked.
+- **Hold the first sub** until the sensor is within about 2 °C of the set point. Ekos' own
+  "enforce temperature" can do the wait (`cameraTemperatureS` plus `cameraTemperatureN`), so the
+  app sets those two with the cooler on rather than building its own wait. A hard timeout (the
+  Camera page's note says how long) then lets imaging start with a visible warning instead of
+  stalling.
+- **Say it.** The Sequence header and the Home Session card show "cooling to −X °C" while it waits,
+  and a warning line "cooler off" if the cooler is still off at the first sub. The held-Preview
+  note (B2) gets the same wording: "cooling to X °C started".
+- **Remember it.** `coolerCommandedOn` is kept across an Ekos restart (or re-read from
+  `CCD_COOLER` once the camera defines it) so a reconnect does not look like "never asked".
+- **Finish.** Cause confirmed: Summary → **Finish** runs `finishNight()` (stop, park, cooler off) by
+  design, and the next start never undid it. The Finish button already says "park mount, cooler off";
+  the cooler-on-Start step above is what makes a restart safe.
+- **As built.** `AppState.coolerStartPlan()` decides (camera present and able to cool, cooler not
+  known on, a set point known: the app's `coolTarget`, else Ekos' `cameraTemperatureN`; an unknown
+  cooler state counts as off). `ensureCoolingBeforeStart()` in `EkosRemoteController` runs it before
+  every Scheduler start (Start Scheduler, Resume, Next job; not when the toggle would stop a running
+  Scheduler): cooler on, set point written, "Enforce temperature" switched on if Ekos did not have
+  it, and a Log line "Cooler was off at start: cooling … first sub waits for it". Not built: the
+  Sequence-header "cooling to X °C" note and keeping `coolerCommandedOn` across an Ekos restart (an
+  unknown state is treated as off, so it is not needed). Enforce stays on afterwards; it is the
+  user's usual setting.
+
+**Not decided.** Whether the cooler should come on at "Connect" for a night plan, not only at
+Start; whether Cancel of a held Preview switches the cooler off (B2).
+
+**Done when.** Unit tests cover the start decision (cooler off, on, unknown, no cooling camera);
+installed; on the rig, an aborted-then-restarted session shows the cooler on and the first sub waiting
+for the set point. Cooler tests change real rig state: tell, then undo.
+
+## N2 · Guiding tuning (B7)
+
+**What happened.** RA guiding oscillated (±7–10″, RMS 3–4″) and the sheet had no control for it.
+
+**Today.** The Guide settings sheet has accuracy threshold, dither, frame and calibration; the
+guide exposure, gain and binning are on the Guide page. The rig uses the internal guider.
+
+**Decided approach.** A **Guiding tuning** section in the Guide settings sheet (not on the page;
+tuning is rare), applied live, with one plain line of help per control:
+
+- **RA and DEC aggressiveness** (proportional gain), the main control for this oscillation.
+- **Integral gain**, **hysteresis**, **minimum and maximum pulse** (ms or arcsec as Ekos has them).
+- **RA and DEC guiding on/off** (so DEC can be left off or one axis tested alone).
+- **Guide algorithm** choice, only if the wire exposes it.
+- The guide **exposure** stays on the page; a note says that a longer exposure also calms a loop.
+
+Because the guide settings are saved by Ekos, the sheet shows a **Reset to defaults** and the
+values at the time the sheet opened, so a wrong change is one tap back.
+
+**Findings so far (2026-10-26 logs).** Job 1 guided at RA 2–3.7″ with Ekos' RA P 0.70 / DEC P 0.55 /
+1 s exposure; job 2 with the same gains ran at 0.7–1.4″ after a fresh calibration, so the guiding
+page also needs to show the calibration (and the exposure it was done at) before gain is the knob.
+See B7.
+
+**Needs the Pi first (blocks the build).** `guide_get_all_settings` returns 84 fields; the exact
+wire key names, types and the unit of the pulse limits are read from a real reply (read-only: the
+probe in `tools/ekos_probe.py` or a DBus read), not guessed from the `kstars.kcfg` names. Together with that, the guide log
+and analyze file from the night are read to confirm that the over-correction is RA gain and not
+the flip or the guide exposure (0.5 s → 2.0 s → 1.0 s during the night is also odd and is
+checked: who changed the exposure).
+
+**Done when.** The keys are confirmed and added to `WireGuideSettings` with defaults; the sheet
+section, setters in the controller and unit tests (codec, setters) exist; installed; under the
+sky, lowering RA aggressiveness on a running guide settles the trace. Until then it is listed as not
+verified in `docs/STATUS.md`.
+
+## N3 · Polar alignment overlay too small and faint
+
+**What the user saw (2026-10-26, Polar alignment, "Refreshing", total 0.44°).** The target circle
+(green, at the right edge) and the correction triangle (green, yellow, magenta edges) are hairlines
+on the align frame, hard to see on a phone and under the red night filter.
+
+**Why.** Ekos paints both into the frame JPEG at frame scale, about 1 px wide (see the `PaImage`
+comment, `Sheets.kt`); the frame is then scaled down to the phone width, so the lines shrink further.
+The app draws only its own tap ring (`polarSelectStar`). The wire also sends the correction line
+(`new_polar_state.vector`: centre, length, angle), but not the triangle corners or the target circle,
+so the app cannot redraw them itself.
+
+**Options.**
+- **A. App only, recolour the frame.** In `PaImage`, after decoding the JPEG, find the overlay pixels
+  (the frame is grey, the overlay is saturated), widen them by 2–3 px, and give them a stronger,
+  night-mode-safe colour; draw the result instead of the raw frame. Works on any fork, costs a
+  per-frame pixel pass (a 1–2 MP JPEG; done once per frame off the main thread). Risk: picks up
+  coloured stars or noise in a colour frame; the Ekos align frame is mono, so it should be clean.
+- **B. Fork: thicker pen.** `PolarAlignmentAssistant` draws with a fixed pen; make its width and
+  radius scale with the frame size. Cleanest result, but needs a fork build (about 15 minutes) and a
+  KStars restart, so it waits for an idle rig.
+- **C. App draws its own.** Needs the triangle and target geometry on the wire (a fork change as
+  well as B), so it costs more than B for the same picture.
+
+**Recommended.** A now (app only, testable at the desk against the saved align frames), B later if A
+is not enough. Size target: lines at least 3 dp on screen, the target circle at least 24 dp across,
+colours with enough contrast on the dark frame (the screenshots show the lines vanish into noise).
+
+**Done when.** The overlay is clearly visible at 1× on the phone in the red night mode, still shows
+when zoomed, tap-to-pick still maps correctly (the recolour keeps the image size), and a unit test
+covers the overlay-pixel detection on a sample frame. Only the visual check needs the sky or a
+Polar alignment run; the run drives the mount, so it waits for the user's go-ahead.
+
+## Order
+
+1. Logs read 2026-10-26 (cooler: Finish; guiding: see B7). Still open: who changed the guide
+   exposure, and the `guide_get_all_settings` key names. Read-only; fork and KStars untouched.
+2. N1 (no Pi dependency beyond that).
+3. N2 after the key names are confirmed.
+4. N3 can go any time (option A is app only).
