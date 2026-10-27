@@ -2433,7 +2433,7 @@ private fun appPahMessage(message: String): String = message
 /**
  * Latest align frame, box sized to the frame's own aspect (correction crops are square, a fixed
  * 4:3 box would shrink them). Pinch to zoom, drag to pan once zoomed, double-tap to reset: Ekos
- * paints the correction triangle at frame scale, so it's a few pixels wide on a phone. When
+ * paints the correction triangle at frame scale, so it's a few pixels wide on a phone ([OverlayBoost] widens it). When
  * [pickable], a tap sends its position as a fraction of the *received image* (zoom and
  * letterbox-corrected) — `polar_set_crosshair` maps that back through the crop's bounding rect
  * server-side (Message::processPolarCommands).
@@ -2506,7 +2506,7 @@ private fun PaImage(state: AppState, pickable: Boolean, ctrl: SessionController)
                 .fillMaxSize()
                 .graphicsLayer(scaleX = zoom, scaleY = zoom, translationX = pan.x, translationY = pan.y),
         ) {
-            MediaFramePreview(state.latestAlignFrame, Modifier.fillMaxSize(), hatchColor = c.surfaceRaised)
+            MediaFramePreview(state.latestAlignFrame, Modifier.fillMaxSize(), hatchColor = c.surfaceRaised, boostOverlay = true)
             picked?.takeIf { pickable }?.let { p ->
                 Canvas(Modifier.fillMaxSize()) {
                     drawCircle(c.warn, radius = 14.dp.toPx() / zoom, center = p, style = Stroke(width = 1.5.dp.toPx() / zoom))

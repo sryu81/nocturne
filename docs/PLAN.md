@@ -39,7 +39,7 @@ rig; what is still unchecked is in `docs/STATUS.md`. Details of each milestone a
 | 3 | R6 | App: manage (selection, paste, progress, delete) | Not started |
 | 4 | N1 | Cooler on at session start, hold first sub | Built and unit-tested (2026-10-26); not installed or rig-checked |
 | 4 | N2 | Guiding tuning (gain, pulse, hysteresis) | Not started; needs the Pi's key names |
-| 4 | N3 | Polar alignment: bigger, vivid triangle and target circle | Not started |
+| 4 | N3 | Polar alignment: bigger, vivid triangle and target circle | Built and unit-tested (2026-10-27); not installed or seen on the rig |
 
 **Next:** the user's night test of plan 2, then closing it (merge `controls-revision` into `main`).
 Plan 3 (R0–R6) is deferred until the plan 2 test is finished and closed; nothing of it is started.
@@ -703,6 +703,16 @@ so the app cannot redraw them itself.
 **Recommended.** A now (app only, testable at the desk against the saved align frames), B later if A
 is not enough. Size target: lines at least 3 dp on screen, the target circle at least 24 dp across,
 colours with enough contrast on the dark frame (the screenshots show the lines vanish into noise).
+
+**As built (option A).** `OverlayBoost` (`ui/components`) runs on the align frame in `PaImage`
+(`MediaFramePreview(..., boostOverlay = true)`, decoded off the main thread like every frame): pixels
+with a channel spread of at least 14 count as overlay (a mono frame is exactly grey), are widened by
+`width/300` px (1–6, about 3 dp) and repainted fully saturated at full brightness in their own hue.
+Tried on the real overlay in the 2026-10-26 21:52 phone screenshot: the dark magenta edge and the
+green circle (spread under 32) need the low threshold, and plain brightening washes them to pastel,
+hence the saturation rebuild. Not changed: the circle's size (Ekos draws it; only its line gets
+thicker); that needs option B if it is still too small. The 24 dp circle target above is dropped for
+that reason.
 
 **Done when.** The overlay is clearly visible at 1× on the phone in the red night mode, still shows
 when zoomed, tap-to-pick still maps correctly (the recolour keeps the image size), and a unit test
