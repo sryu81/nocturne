@@ -11,6 +11,7 @@ import com.nocturne.data.SequenceSnapshot
 import com.nocturne.protocol.Commands
 import com.nocturne.protocol.EkosEvent
 import com.nocturne.protocol.GuideAxis
+import com.nocturne.protocol.WireAlignSettings
 import com.nocturne.protocol.GuideTuning
 import com.nocturne.protocol.clamp
 import com.nocturne.protocol.MediaFrameType
@@ -1112,7 +1113,20 @@ class EkosRemoteController(
 
     /** `align_solve` (`captureAndSolve()`) — no direct reply; watch new_align_state. */
     override fun plateSolveHere() {
-        client.sendCommand(Commands.ALIGN_SOLVE)
+        // "Here" must never move the mount. Ekos keeps the solver action between runs, and with
+        // `slewR` left on (or unknown) a solve slews to Align's stale target: on 2026-10-26 it was
+        // RA 16:52 Dec +90 and the mount was sent to the pole, three times.
+        val forceNothing = solverActionNeedsReset(_state.value.wireAlignSettings)
+        if (forceNothing) {
+            client.sendCommand(Commands.ALIGN_SET_ALL_SETTINGS, buildJsonObject {
+                put("nothingR", true); put("slewR", false); put("syncR", false)
+            })
+            _state.update { s -> s.copy(wireAlignSettings = s.wireAlignSettings?.copy(nothingR = true, slewR = false, syncR = false)) }
+        }
+        scope.launch {
+            if (forceNothing) delay(SOLVER_ACTION_SETTLE_MS)
+            client.sendCommand(Commands.ALIGN_SOLVE)
+        }
         super.plateSolveHere()
     }
 
@@ -1263,10 +1277,9 @@ class EkosRemoteController(
                 }?.wireAlignStatus ?: "timed out"
             } finally {
                 // Also on cancel (a newer goto replaced this one): never leave slewR switched on.
+                val (nothing, slew, sync) = restoredSolverAction(original)
                 client.sendCommand(Commands.ALIGN_SET_ALL_SETTINGS, buildJsonObject {
-                    put("nothingR", original?.nothingR ?: true)
-                    put("slewR", original?.slewR ?: false)
-                    put("syncR", original?.syncR ?: false)
+                    put("nothingR", nothing); put("slewR", slew); put("syncR", sync)
                 })
             }
             if (result == "Complete") {
@@ -2574,7 +2587,7 @@ class EkosRemoteController(
     override fun endSession() {
         val s = _state.value
         val names = endingJobNames(s)
-        log?.record("App", "End session: Scheduler status ${s.schedulerStatus ?: "unknown"}, removing ${names.ifEmpty { setOf("no job") }.joinToString()}")
+        log?.record("App", "End session: Scheduler status ${s.schedulerStatus ?: "unknown"}${if (s.schedulerStatus == null && s.schedulerIsRunning()) " (a job is busy: running)" else ""}, removing ${names.ifEmpty { setOf("no job") }.joinToString()}")
         stopSchedulerIfRunning()
         removeRealJobsByName(names)
         super.endSession()
@@ -2604,7 +2617,7 @@ class EkosRemoteController(
      * shutdown) would start it. Server-side the stop is synchronous, so a remove sent right after lands.
      */
     private fun stopSchedulerIfRunning() {
-        if (_state.value.schedulerStatus == SCHEDULER_STATE_RUNNING) client.sendCommand(Commands.SCHEDULER_START_JOB)
+        if (_state.value.schedulerIsRunning()) client.sendCommand(Commands.SCHEDULER_START_JOB)
     }
 
     /**
@@ -2673,6 +2686,7 @@ private const val CAMERA_FAN_PROP = "TC_FAN_SPEED" // ToupTek-family drivers (in
 /** `new_align_state.status` values (`ekos.h` `alignStates`) that end an Align run. "Successful"
  *  is not one: with `slewR` it's followed by a re-slew and another solve. */
 private val ALIGN_DONE_STATES = setOf("Idle", "Complete", "Failed", "Aborted")
+private const val SOLVER_ACTION_SETTLE_MS = 500L
 private const val SLEW_START_TIMEOUT_MS = 10_000L
 private const val SLEW_TIMEOUT_MS = 5 * 60_000L
 private const val SLEW_SETTLE_MS = 2_000L
@@ -2835,3 +2849,15 @@ fun formatDecDegrees(deg: Double): String {
     val sec = ((remMin - m) * 60).let { if (it < 0) 0.0 else it }
     return "$sign%02d°%02d′%02d″".format(d, m, sec.toInt())
 }
+
+/** True when a plain solve could move the mount: the solver action is `slewR`, or not known yet. */
+internal fun solverActionNeedsReset(settings: WireAlignSettings?): Boolean = settings == null || settings.slewR
+
+/**
+ * The (nothingR, slewR, syncR) to put back after goto-and-center. Never `slewR`: it is only ever
+ * wanted during the centering loop, and restoring a stale `slewR` (an interrupted run, or a read
+ * taken mid-loop) would make every later "Plate solve here" slew the mount. Sync is kept if the
+ * user had chosen it.
+ */
+internal fun restoredSolverAction(original: WireAlignSettings?): Triple<Boolean, Boolean, Boolean> =
+    if (original?.syncR == true) Triple(false, false, true) else Triple(true, false, false)

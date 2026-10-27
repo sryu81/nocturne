@@ -6,6 +6,43 @@ first within each list. Commits are on `main` (the `controls-revision` branch wa
 
 ## Open
 
+### B9 · "Plate solve here" slewed the mount to Dec +90°
+
+- **Found:** 2026-10-26, evening, from the Pi's KStars log (line of the first `align_solve`).
+- **Symptom:** a plain solve was followed by "Slewing to target coordinates: RA 16h52m Dec +90°",
+  twice more "Slewing failed" / OnStep "Already in motion", and a bogus "Syncing to RA 01h26m
+  Dec 88°" (the solve was indoors). The mount was sent to the pole.
+- **Cause:** Ekos keeps the Align solver action (`nothingR`/`slewR`/`syncR`) between runs, and it was
+  `slewR` ("slew to target"), so a solve re-slewed to Align's stale target. `plateSolveHere()` sent
+  only `align_solve`. The app sets `slewR` for goto-and-center and restores the value it read from
+  `align_get_all_settings`; an interrupted run (or a read taken mid-loop) leaves `slewR` as the
+  "original" and restores it. Not proven which of the two left it on.
+- **Fix:** `plateSolveHere()` forces `nothingR` first when the action is `slewR` or unknown (and
+  waits 500 ms for it to apply); goto-and-center never restores `slewR` (back to `nothingR`, or
+  `syncR` if that was the user's choice). `solverActionNeedsReset`/`restoredSolverAction`, unit-tested.
+- **Check after the fix:** with the Align action set to "Slew to target" on the desktop, Plate solve
+  here: the mount stays put and the action reads "Nothing" afterwards. Moving hardware if it goes
+  wrong, so only with the mount parked and the user's go-ahead.
+
+### B8 · Finish after a reconnect left the Scheduler running
+
+- **Found:** 2026-10-26, 23:47, from the Pi's KStars log and the phone Log.
+- **Symptom:** Finish sent `scheduler_remove_jobs` twice and Ekos refused ("Cannot delete currently
+  running job"). The Scheduler kept running: it restarted guiding ("attempt #1 of 5") on a parking
+  mount, so OnStep answered "Cannot guide while slewing or parking in progress" and the guider
+  logged "Lost track of the guide star" and "calibration failed" every 5–10 s. The first Finish at
+  22:59 worked (phone Log: "Scheduler status 2").
+- **Cause:** the phone Log shows `End session: Scheduler status unknown` at 23:47. `get_states` has
+  no Scheduler state (`Message::sendStates` covers Capture, Mount, Focus, Guide, Align, Polar), so after
+  the message channel reconnected (three "Websocket connection error" lines that evening) the status
+  stayed null until the next transition, and `stopSchedulerIfRunning()` only stops on a known
+  running status.
+- **Fix:** `AppState.schedulerIsRunning()`: unknown status falls back to the job list, a Busy job
+  means the Scheduler is running. End session and Finish use it. Unit-tested. Not changed: the stop is
+  still assumed synchronous before the remove (it was at 22:59).
+- **Check after the fix:** reconnect the app while a job runs, then Finish: the Scheduler stops and
+  the job is removed. Needs a running job, so under the sky or a deliberate test.
+
 ### B6 · A new session starts imaging with the cooler off
 
 - **Found:** 2026-10-26, night. After aborting a session, the user created a new one and started it;

@@ -904,6 +904,17 @@ fun AppState.coolerIsOn(camera: String): Boolean? {
     return indiSwitchElement(camera, "CCD_COOLER")?.let { it == "COOLER_ON" }
 }
 
+/**
+ * Whether Ekos' Scheduler is running, i.e. whether the `scheduler_start_job` toggle would stop it.
+ * `get_states` carries every module's state except the Scheduler's, so after a reconnect
+ * [schedulerStatus] is null until the next transition; a Finish then found "unknown", skipped the
+ * stop and left the Scheduler restarting guiding on a parking mount (2026-10-26, 23:47). Unknown
+ * status is read from the job list instead: a job Ekos is working on means the Scheduler is running.
+ */
+fun AppState.schedulerIsRunning(): Boolean =
+    schedulerStatus == SCHEDULER_STATE_RUNNING ||
+        (schedulerStatus == null && wireSchedulerJobs.orEmpty().any { it.state == com.nocturne.protocol.SchedulerJobStatus.BUSY })
+
 /** What to switch on before the Scheduler starts imaging, see [coolerStartPlan]. */
 data class CoolerStartPlan(val camera: String, val targetC: Double, val enforce: Boolean)
 
