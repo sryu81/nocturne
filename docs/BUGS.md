@@ -23,7 +23,7 @@ first within each list. Commits are on branch `controls-revision` unless noted.
   "Mount is moving. Resetting calibration..." and the next start calibrated again.
 - **Fix (planned):** plan 4, N1: nothing after Finish brings the cooler back, and the Finish button
   does not say it turns the cooler off. Same family as B2 (a Preview starting the cooler by surprise).
-- **Fix state:** built 2026-10-26 (`coolerStartPlan`, unit-tested); installed and rig check pending.
+- **Fix state:** built 2026-10-26 (`coolerStartPlan`, unit-tested), installed; the start step was rig-checked 2026-10-27 (cooler on at Start Scheduler); the first-sub hold is not yet seen.
 - **Check after the fix:** abort a session with the cooler on, start a new one; the cooler is on
   (or the start says it is off) and the first sub waits for the set point.
 

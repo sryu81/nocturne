@@ -37,7 +37,7 @@ rig; what is still unchecked is in `docs/STATUS.md`. Details of each milestone a
 | 3 | R4 | App: file page | Not started |
 | 3 | R5 | Fork: file operations and eject | Not started |
 | 3 | R6 | App: manage (selection, paste, progress, delete) | Not started |
-| 4 | N1 | Cooler on at session start, hold first sub | Built and unit-tested (2026-10-26); not installed or rig-checked |
+| 4 | N1 | Cooler on at session start, hold first sub | Built, installed, start step rig-checked 2026-10-27; first-sub hold not seen |
 | 4 | N2 | Guiding tuning (gain, pulse, axes) | Built and installed; sheet values rig-checked 2026-10-27, live write not yet |
 | 4 | N3 | Polar alignment: bigger, vivid triangle and target circle | Built and unit-tested (2026-10-27); not installed or seen on the rig |
 
@@ -632,6 +632,13 @@ not say so, so job 2 took 180 s H subs at 15 °C.
   Sequence-header "cooling to X °C" note and keeping `coolerCommandedOn` across an Ekos restart (an
   unknown state is treated as off, so it is not needed). Enforce stays on afterwards; it is the
   user's usual setting.
+- **Rig-checked 2026-10-27** (rig idle indoors, mount parked, no job queued, cooler off, Enforce
+  off): Sequence → Start Scheduler. The Pi's KStars log shows `CCD_COOLER COOLER_ON`, the set point
+  `cameraTemperatureN 0.0` and `CCD_TEMPERATURE 0.0`, `cameraTemperatureS true`, then
+  `scheduler_start_job`; Ekos answered "No executable jobs found. Stopping scheduler." and moved
+  nothing. The Camera page then read "ramping · 80%" and the sensor fell from 22 °C to 3.7 °C in
+  about five minutes. Undone afterwards: cooler off, Enforce off. Not seen: Ekos holding the first
+  sub of a real job until the sensor reaches the set point (needs a real start; it slews the mount).
 
 **Not decided.** Whether the cooler should come on at "Connect" for a night plan, not only at
 Start; whether Cancel of a held Preview switches the cooler off (B2).
