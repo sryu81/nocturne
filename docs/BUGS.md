@@ -45,7 +45,7 @@ first within each list. Commits are on branch `controls-revision` unless noted.
 - **Gap:** `WireGuideSettings` (`EkosEvent.kt`) and the Guide settings sheet cover only threshold,
   dither, frame and calibration; no algorithm parameters, so the user had no way to tame it from
   the phone.
-- **Fix (planned):** plan 4, N2.
+- **Fix state:** plan 4, N2 built 2026-10-27 (Guiding tuning in the Guide sheet); rig check pending.
 - **Check after the fix:** lower RA gain on a running guide; the RA trace settles and RMS drops.
 
 ### B1 · Plate solve can leave Ekos "In Progress" after a failed solve

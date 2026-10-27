@@ -90,6 +90,11 @@ import com.nocturne.session.medHfr
 import com.nocturne.ui.components.BtnStyle
 import com.nocturne.ui.components.GainField
 import com.nocturne.protocol.GUIDE_BOX_SIZES
+import com.nocturne.protocol.GuideAxis
+import com.nocturne.protocol.GuideTuning
+import com.nocturne.protocol.WireGuideSettings
+import com.nocturne.protocol.axisEnabled
+import com.nocturne.protocol.tuning
 import com.nocturne.ui.components.FocusCurve
 import com.nocturne.ui.components.GuideTelemetry
 import com.nocturne.ui.components.HDivider
@@ -865,10 +870,14 @@ private fun MountSettingsSheet(state: AppState, ctrl: SessionController) {
  * `"-"`, a trailing `"."`) survives recomposition; [onChange] fires only when the text parses.
  */
 @Composable
-private fun DegreeField(value: Double, unit: String, onChange: (Double) -> Unit) {
+private fun DegreeField(value: Double, unit: String, onChange: (Double) -> Unit) = DecimalField(value, unit, 1, onChange)
+
+/** [DegreeField] with a chosen number of decimals shown (the guide gains need two). */
+@Composable
+private fun DecimalField(value: Double, unit: String, decimals: Int, onChange: (Double) -> Unit) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
-    var text by remember { mutableStateOf("%.1f".format(value)) }
+    var text by remember { mutableStateOf("%.${decimals}f".format(value)) }
     Row(
         Modifier
             .fillMaxWidth()
@@ -1110,6 +1119,11 @@ private fun GuideSettingsSheet(state: AppState, ctrl: SessionController) {
         HDivider()
         Spacer(Modifier.height(16.dp))
 
+        GuideTuningSection(g, ctrl)
+        Spacer(Modifier.height(16.dp))
+        HDivider()
+        Spacer(Modifier.height(16.dp))
+
         SwitchRow(
             label = "Dither",
             sub = "nudge the mount slightly between subs to average out fixed-pattern noise",
@@ -1207,6 +1221,61 @@ private fun GuideSettingsSheet(state: AppState, ctrl: SessionController) {
         Spacer(Modifier.height(5.dp))
         IntField(g.kcfg_CalibrationMaxMove, ctrl::setGuideCalibrationMaxMove)
     }
+}
+
+/** Label, unit and decimals of each [GuideTuning] row, in the order they are shown. */
+private val GUIDE_TUNING_ROWS = listOf(
+    Triple(GuideTuning.RA_GAIN, "RA aggressiveness", "" to 2),
+    Triple(GuideTuning.DEC_GAIN, "DEC aggressiveness", "" to 2),
+    Triple(GuideTuning.RA_INTEGRAL, "RA integral gain", "" to 2),
+    Triple(GuideTuning.DEC_INTEGRAL, "DEC integral gain", "" to 2),
+    Triple(GuideTuning.RA_MIN_PULSE, "RA minimum pulse", "\"" to 2),
+    Triple(GuideTuning.DEC_MIN_PULSE, "DEC minimum pulse", "\"" to 2),
+    Triple(GuideTuning.RA_MAX_PULSE, "RA maximum pulse", "\"" to 0),
+    Triple(GuideTuning.DEC_MAX_PULSE, "DEC maximum pulse", "\"" to 0),
+)
+
+/**
+ * Control loop of the internal guider. Ekos re-reads these on every guide cycle, so a change acts
+ * on the running guider at once. "Revert" puts back what they were when the sheet opened.
+ */
+@Composable
+private fun GuideTuningSection(g: WireGuideSettings, ctrl: SessionController) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    val opened = remember { g }
+    TextC("GUIDING TUNING", style = t.MicroLabel, color = c.textMuted)
+    Spacer(Modifier.height(6.dp))
+    TextC(
+        "RA swinging back and forth, RMS climbing? The guider is over-correcting: lower the RA " +
+            "aggressiveness a step (0.70 → 0.50) and watch the trace settle. Max pulse caps one correction.",
+        style = t.MonoMicro, color = c.textMuted,
+    )
+    Spacer(Modifier.height(10.dp))
+    GuideAxis.values().forEach { axis ->
+        GuideSwitch("${axis.name} guiding", "correct this axis", g.axisEnabled(axis)) {
+            ctrl.setGuideAxisEnabled(axis, !g.axisEnabled(axis))
+        }
+        Spacer(Modifier.height(8.4.dp))
+    }
+    GUIDE_TUNING_ROWS.forEach { (param, label, unitDecimals) ->
+        FieldLabel(label)
+        Spacer(Modifier.height(5.dp))
+        DecimalField(g.tuning(param), unitDecimals.first, unitDecimals.second) { ctrl.setGuideTuning(param, it) }
+        Spacer(Modifier.height(8.4.dp))
+    }
+    val changed = GuideTuning.values().any { opened.tuning(it) != g.tuning(it) } ||
+        GuideAxis.values().any { opened.axisEnabled(it) != g.axisEnabled(it) }
+    NocturneButton(
+        text = "Revert to values when opened",
+        onClick = {
+            GuideTuning.values().forEach { if (opened.tuning(it) != g.tuning(it)) ctrl.setGuideTuning(it, opened.tuning(it)) }
+            GuideAxis.values().forEach { if (opened.axisEnabled(it) != g.axisEnabled(it)) ctrl.setGuideAxisEnabled(it, opened.axisEnabled(it)) }
+        },
+        style = com.nocturne.ui.components.BtnStyle.OUTLINE,
+        enabled = changed,
+        modifier = Modifier.fillMaxWidth().height(44.dp),
+    )
 }
 
 @Composable

@@ -314,6 +314,9 @@ interface SessionController {
     fun setGuideResetCalibration(enabled: Boolean)
     fun setGuideReverseDecOnFlip(enabled: Boolean)
     fun setGuideLostStarTimeout(sec: Int)
+    /** Control-loop gain/pulse of the internal guider; clamped to the spin box range, applied live. */
+    fun setGuideTuning(param: com.nocturne.protocol.GuideTuning, value: Double)
+    fun setGuideAxisEnabled(axis: com.nocturne.protocol.GuideAxis, enabled: Boolean)
 
     // ── Focus settings (curated subset) ──────────────────────────────────
     fun setFocusExposure(sec: Double)

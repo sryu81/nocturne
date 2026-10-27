@@ -38,7 +38,7 @@ rig; what is still unchecked is in `docs/STATUS.md`. Details of each milestone a
 | 3 | R5 | Fork: file operations and eject | Not started |
 | 3 | R6 | App: manage (selection, paste, progress, delete) | Not started |
 | 4 | N1 | Cooler on at session start, hold first sub | Built and unit-tested (2026-10-26); not installed or rig-checked |
-| 4 | N2 | Guiding tuning (gain, pulse, hysteresis) | Not started; needs the Pi's key names |
+| 4 | N2 | Guiding tuning (gain, pulse, axes) | Built and unit-tested (2026-10-27); not rig-checked |
 | 4 | N3 | Polar alignment: bigger, vivid triangle and target circle | Built and unit-tested (2026-10-27); not installed or seen on the rig |
 
 **Next:** the user's night test of plan 2, then closing it (merge `controls-revision` into `main`).
@@ -664,7 +664,23 @@ values at the time the sheet opened, so a wrong change is one tap back.
 page also needs to show the calibration (and the exposure it was done at) before gain is the knob.
 See B7.
 
-**Needs the Pi first (blocks the build).** `guide_get_all_settings` returns 84 fields; the exact
+**As built (2026-10-27).** Keys confirmed from the fork source (`opsguide.ui`, `cgmath::configureInParams`,
+`KSUtils::setGlobalSettings`), not from a live reply: `kcfg_RAProportionalGain`,
+`kcfg_DECProportionalGain`, `kcfg_RAIntegralGain`, `kcfg_DECIntegralGain` (doubles, 0..1),
+`kcfg_RAMinimumPulseArcSec`, `kcfg_DECMinimumPulseArcSec` (doubles, 0..1000) and
+`kcfg_RAMaximumPulseArcSec`, `kcfg_DECMaximumPulseArcSec` (ints, 0..3600, arcsec), plus the axis
+checkboxes `rAGuideEnabled`, `dECGuideEnabled` (no prefix). `setGlobalSettings` strips `kcfg_` and
+writes `Options`, which `configureInParams` re-reads every guide cycle, so a change acts on the
+running guider. Rig `kstarsrc` on 2026-10-26: RA P 0.70, DEC P 0.55, max pulse 35. `GuideTuning` /
+`GuideAxis` (`EkosEvent.kt`) carry key and range; `setGuideTuning` clamps and sends; the Guide sheet
+has a **Guiding tuning** section (axis switches, eight fields, **Revert to values when opened**).
+Left out on purpose: `kcfg_GuideAlgorithm` is the star-detection method (SEP, Smart…), not the control
+algorithm; the pulse algorithm (`RAGuidePulseAlgorithm`) has no widget, so the reply never carries it;
+the calibration readout and who changed the guide exposure (still open). Not rig-checked: the live
+reply is expected to carry the eight keys (the sheet shows defaults if it does not; check with the
+sheet open on the rig), and that a write changes the running guider.
+
+**Needs the Pi first (was blocking the build).** `guide_get_all_settings` returns 84 fields; the exact
 wire key names, types and the unit of the pulse limits are read from a real reply (read-only: the
 probe in `tools/ekos_probe.py` or a DBus read), not guessed from the `kstars.kcfg` names. Together with that, the guide log
 and analyze file from the night are read to confirm that the over-correction is RA gain and not

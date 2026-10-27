@@ -952,7 +952,70 @@ data class WireGuideSettings(
     val kcfg_ReverseDecOnPierSideChange: Boolean = false,
     // opsguide.ui:
     val kcfg_GuideLostStarTimeout: Int = 60,
+    // opsguide.ui control loop (internal guider). `Options::setProperty` in `setGlobalSettings` drops
+    // the `kcfg_` prefix, and `cgmath::configureInParams` re-reads them on every guide cycle, so a
+    // write takes effect on the running guider. Defaults are `kstars.kcfg`'s (gains are really 0..1).
+    val kcfg_RAProportionalGain: Double = 0.75,
+    val kcfg_DECProportionalGain: Double = 0.75,
+    val kcfg_RAIntegralGain: Double = 0.0,
+    val kcfg_DECIntegralGain: Double = 0.0,
+    val kcfg_RAMinimumPulseArcSec: Double = 0.2,
+    val kcfg_DECMinimumPulseArcSec: Double = 0.2,
+    val kcfg_RAMaximumPulseArcSec: Int = 25,
+    val kcfg_DECMaximumPulseArcSec: Int = 25,
+    // guide.ui checkboxes (no `kcfg_` prefix): the loop corrects this axis at all.
+    val rAGuideEnabled: Boolean = true,
+    val dECGuideEnabled: Boolean = true,
 )
+
+/**
+ * One tunable of the internal guider's control loop: its wire key, the `opsguide.ui` spin box range
+ * and whether the box is an integer one (`QSpinBox`, sent as a JSON int). Gains are unitless 0..1,
+ * pulses are arcseconds of correction.
+ */
+enum class GuideTuning(val key: String, val min: Double, val max: Double, val integer: Boolean = false) {
+    RA_GAIN("kcfg_RAProportionalGain", 0.0, 1.0),
+    DEC_GAIN("kcfg_DECProportionalGain", 0.0, 1.0),
+    RA_INTEGRAL("kcfg_RAIntegralGain", 0.0, 1.0),
+    DEC_INTEGRAL("kcfg_DECIntegralGain", 0.0, 1.0),
+    RA_MIN_PULSE("kcfg_RAMinimumPulseArcSec", 0.0, 1000.0),
+    DEC_MIN_PULSE("kcfg_DECMinimumPulseArcSec", 0.0, 1000.0),
+    RA_MAX_PULSE("kcfg_RAMaximumPulseArcSec", 0.0, 3600.0, integer = true),
+    DEC_MAX_PULSE("kcfg_DECMaximumPulseArcSec", 0.0, 3600.0, integer = true),
+}
+
+/** The guide axes `guide.ui` can switch off (`rAGuideEnabled` / `dECGuideEnabled`). */
+enum class GuideAxis(val key: String) { RA("rAGuideEnabled"), DEC("dECGuideEnabled") }
+
+fun WireGuideSettings.tuning(p: GuideTuning): Double = when (p) {
+    GuideTuning.RA_GAIN -> kcfg_RAProportionalGain
+    GuideTuning.DEC_GAIN -> kcfg_DECProportionalGain
+    GuideTuning.RA_INTEGRAL -> kcfg_RAIntegralGain
+    GuideTuning.DEC_INTEGRAL -> kcfg_DECIntegralGain
+    GuideTuning.RA_MIN_PULSE -> kcfg_RAMinimumPulseArcSec
+    GuideTuning.DEC_MIN_PULSE -> kcfg_DECMinimumPulseArcSec
+    GuideTuning.RA_MAX_PULSE -> kcfg_RAMaximumPulseArcSec.toDouble()
+    GuideTuning.DEC_MAX_PULSE -> kcfg_DECMaximumPulseArcSec.toDouble()
+}
+
+/** [value] clamped to the box's range (and rounded for an integer box), as Ekos' spin box would hold it. */
+fun GuideTuning.clamp(value: Double): Double = value.coerceIn(min, max).let { if (integer) Math.round(it).toDouble() else it }
+
+fun WireGuideSettings.withTuning(p: GuideTuning, value: Double): WireGuideSettings {
+    val v = p.clamp(value)
+    return when (p) {
+        GuideTuning.RA_GAIN -> copy(kcfg_RAProportionalGain = v)
+        GuideTuning.DEC_GAIN -> copy(kcfg_DECProportionalGain = v)
+        GuideTuning.RA_INTEGRAL -> copy(kcfg_RAIntegralGain = v)
+        GuideTuning.DEC_INTEGRAL -> copy(kcfg_DECIntegralGain = v)
+        GuideTuning.RA_MIN_PULSE -> copy(kcfg_RAMinimumPulseArcSec = v)
+        GuideTuning.DEC_MIN_PULSE -> copy(kcfg_DECMinimumPulseArcSec = v)
+        GuideTuning.RA_MAX_PULSE -> copy(kcfg_RAMaximumPulseArcSec = v.toInt())
+        GuideTuning.DEC_MAX_PULSE -> copy(kcfg_DECMaximumPulseArcSec = v.toInt())
+    }
+}
+
+fun WireGuideSettings.axisEnabled(axis: GuideAxis): Boolean = if (axis == GuideAxis.RA) rAGuideEnabled else dECGuideEnabled
 
 /**
  * Curated `align_get_all_settings` fields. Names are the wire keys. `alignBinning` is a combo

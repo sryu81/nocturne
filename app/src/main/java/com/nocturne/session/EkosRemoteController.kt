@@ -10,6 +10,9 @@ import com.nocturne.data.UserCatalogSnapshot
 import com.nocturne.data.SequenceSnapshot
 import com.nocturne.protocol.Commands
 import com.nocturne.protocol.EkosEvent
+import com.nocturne.protocol.GuideAxis
+import com.nocturne.protocol.GuideTuning
+import com.nocturne.protocol.clamp
 import com.nocturne.protocol.MediaFrameType
 import com.nocturne.protocol.frameType
 import com.nocturne.protocol.WireAstroObject
@@ -1953,6 +1956,17 @@ class EkosRemoteController(
     override fun setGuideLostStarTimeout(sec: Int) {
         sendGuideSetting("kcfg_GuideLostStarTimeout", JsonPrimitive(sec))
         super.setGuideLostStarTimeout(sec)
+    }
+    override fun setGuideTuning(param: GuideTuning, value: Double) {
+        val v = param.clamp(value)
+        sendGuideSetting(param.key, if (param.integer) JsonPrimitive(v.toInt()) else JsonPrimitive(v))
+        log?.record("App", "Guide ${param.key.removePrefix("kcfg_")} set to $v")
+        super.setGuideTuning(param, v)
+    }
+    override fun setGuideAxisEnabled(axis: GuideAxis, enabled: Boolean) {
+        sendGuideSetting(axis.key, JsonPrimitive(enabled))
+        log?.record("App", "Guide ${axis.name} axis ${if (enabled) "on" else "off"}")
+        super.setGuideAxisEnabled(axis, enabled)
     }
 
     /** Focus settings (curated subset), fire-and-forget via `focus_set_all_settings`. */

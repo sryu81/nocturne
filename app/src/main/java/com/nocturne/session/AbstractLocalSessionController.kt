@@ -1,5 +1,8 @@
 package com.nocturne.session
 
+import com.nocturne.protocol.GuideAxis
+import com.nocturne.protocol.GuideTuning
+import com.nocturne.protocol.withTuning
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -391,6 +394,14 @@ abstract class AbstractLocalSessionController : SessionController {
         update { it.copy(rotatorAutoControl = enabled, wireAstrometryUseRotator = enabled) }
 
     // Guide settings.
+    override open fun setGuideTuning(param: GuideTuning, value: Double) = update { s ->
+        s.copy(wireGuideSettings = s.wireGuideSettings?.withTuning(param, value))
+    }
+    override open fun setGuideAxisEnabled(axis: GuideAxis, enabled: Boolean) = update { s ->
+        s.copy(wireGuideSettings = s.wireGuideSettings?.let {
+            if (axis == GuideAxis.RA) it.copy(rAGuideEnabled = enabled) else it.copy(dECGuideEnabled = enabled)
+        })
+    }
     override open fun setGuideAccuracyThreshold(arcsec: Double) = update { s ->
         s.copy(wireGuideSettings = s.wireGuideSettings?.copy(guiderAccuracyThreshold = arcsec))
     }
