@@ -141,8 +141,11 @@ maintenance); the Pi keeps orders 0–5 on the SD card for KStars' offline HiPS.
 
 - **Future plan** (`docs/PLAN.md`, draft) has three plans: (1) Home tab and tab layout revision —
   built (M1–M6) and merged into `main`, rig checks above;
-  (2) Controls tab revision — built (C1–C4) on branch `controls-revision`, rig checks above, merge
-  pending; (3) Frames tab revision, the Pi file manager — open decisions.
+  (2) Controls tab revision — built (C1–C4), merged into `main` 2026-10-27, rig checks above;
+  (3) Frames tab revision, the Pi file manager — open decisions; (4) night 2026-10-26 fixes —
+  N1 cooler on at Start, N2 guiding tuning, N3 polar overlay, built and merged 2026-10-27. Rig-checked:
+  the cooler start step and the guide sheet values (not the first-sub hold). Not checked: a live guide
+  gain write, and the polar overlay on a live frame (needs a PAH run under the sky).
 - New sequence blocks start at 300 s × 10, gain 100, offset 50, dither every 2 — could start from
   Ekos's current capture settings instead. `TabPlaceholder` is unused.
 - Warn when a second client takes over the connection.

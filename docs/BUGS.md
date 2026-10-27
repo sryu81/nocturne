@@ -2,7 +2,7 @@
 
 Bug reports and their fixes. `docs/STATUS.md` says what works and what is unverified; this file keeps
 the detail of each defect: what happened, why, the workaround, and the fix (done or planned). Newest
-first within each list. Commits are on branch `controls-revision` unless noted.
+first within each list. Commits are on `main` (the `controls-revision` branch was merged 2026-10-27) unless noted.
 
 ## Open
 

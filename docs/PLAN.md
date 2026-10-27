@@ -1,14 +1,15 @@
 # Future plan (draft)
 
-**Draft, still being discussed** — plan 1 is built and merged into `main`, plan 2 is built on a branch
-waiting for a night test, plan 3 is planned but not started; items are added as discussions go.
+**Draft, still being discussed** — plans 1 and 2 are built and merged into `main` (plan 2 on
+2026-10-27), plan 3 is planned but not started, plan 4 (night 2026-10-26 fixes) is built; items are
+added as discussions go.
 
 | # | Plan | State |
 |---|---|---|
 | 1 | Home tab and tab layout revision | M1–M6 built, installed and merged into `main` (2026-10-25); rig checks left, listed in `docs/STATUS.md` |
-| 2 | Controls tab revision | C1–C4 built and installed on branch `controls-revision`; rig checks left, listed in `docs/STATUS.md` |
-| 3 | Frames tab revision | decisions, screens and milestones R0–R6 written (2026-10-25); deferred until the plan 2 test is closed |
-| 4 | Night 2026-10-26 fixes | cooler at session start (N1) and guiding tuning (N2) written; not started, N2 waits for the Pi |
+| 2 | Controls tab revision | C1–C4 built, installed and merged into `main` (2026-10-27); rig checks left, listed in `docs/STATUS.md` |
+| 3 | Frames tab revision | decisions, screens and milestones R0–R6 written (2026-10-25); not started; its rig checks of plan 2 are still open (`docs/STATUS.md`) |
+| 4 | Night 2026-10-26 fixes | N1 cooler, N2 guiding tuning and N3 polar overlay built, installed and merged into `main` (2026-10-27); rig checks left, see below |
 
 The three are independent: plan 1 only reorders the tabs and moves the old Session content;
 Controls and Frames keep their content until their own plans are built.
@@ -26,10 +27,10 @@ rig; what is still unchecked is in `docs/STATUS.md`. Details of each milestone a
 | 1 | M4 | Phone-side Log | Built, merged; rig-checked |
 | 1 | M5 | Fork: per-line logs | Built, deployed to the Pi; Capture, Focus, Guide and Mount lines unseen |
 | 1 | M6 | Phone notifications | Built, merged; not seen delivering an alert |
-| 2 | C1 | Controls menu and page shell | Built on `controls-revision`; rig-checked |
-| 2 | C2 | Live menu: one-liners, pinning, mount STOP | Built; one-liners and pinning rig-checked, STOP card not |
-| 2 | C3 | Page upgrades (frames, backlash, chart, coordinates) | Built; mount layout, backlash and align frame rig-checked, focus frame and guide chart not |
-| 2 | C4 | Polar alignment page with pinned Start/Stop | Built; page and settings rig-checked, the run itself not |
+| 2 | C1 | Controls menu and page shell | Built, merged; rig-checked |
+| 2 | C2 | Live menu: one-liners, pinning, mount STOP | Built, merged; one-liners and pinning rig-checked, STOP card not |
+| 2 | C3 | Page upgrades (frames, backlash, chart, coordinates) | Built, merged; mount layout, backlash and align frame rig-checked, focus frame and guide chart not |
+| 2 | C4 | Polar alignment page with pinned Start/Stop | Built, merged; page and settings rig-checked, the run itself not |
 | 3 | R0 | USB automount (Pi tool) | Not started |
 | 3 | R1 | Fork: drives and listings | Not started |
 | 3 | R2 | App: Rig storage, read-only | Not started |
@@ -41,8 +42,9 @@ rig; what is still unchecked is in `docs/STATUS.md`. Details of each milestone a
 | 4 | N2 | Guiding tuning (gain, pulse, axes) | Built and installed; sheet values rig-checked 2026-10-27, live write not yet |
 | 4 | N3 | Polar alignment: bigger, vivid triangle and target circle | Built and unit-tested (2026-10-27); not installed or seen on the rig |
 
-**Next:** the user's night test of plan 2, then closing it (merge `controls-revision` into `main`).
-Plan 3 (R0–R6) is deferred until the plan 2 test is finished and closed; nothing of it is started.
+**Next:** the remaining rig checks of plans 2 and 4 (the sky-only ones: the PAH run and overlay, a
+live guide-gain write, the first-sub temperature hold, the mount STOP card). Plan 3 (R0–R6) is
+unchanged and not started; the user decides when it goes ahead.
 
 ---
 
@@ -460,7 +462,7 @@ the connected rig with the non-moving checks (Preview, cooler, EXP / gain / BIN,
 solve); moving the mount, guiding and the PAH run are checked under the sky.
 
 **Built, 2026-10-25** — C1 to C4 are compiled, unit-tested and installed (branch
-`controls-revision`, not yet merged). Seen on the rig: the menu and every page, the one-liners, the
+`controls-revision`, merged into `main` on 2026-10-27). Seen on the rig: the menu and every page, the one-liners, the
 header switcher, Back (a sheet first, then the page, then the tab), a Main Cam preview, a real Plate
 solve with its align frame and the pinned card while it ran, a PAH direction round trip. Not seen:
 the focus frame (needs a focus capture), the guide chart (needs guide data), the mount STOP card,
@@ -598,7 +600,7 @@ share one fork build if they are written together, at the cost of testing later.
 # 4. Night 2026-10-26 fixes
 
 Two problems from the M31 night (bugs B6 and B7 in `docs/BUGS.md`). Independent of plans 2 and 3;
-N1 can land on `controls-revision` or its own branch, as the user prefers.
+N1–N3 were built on `controls-revision` and merged into `main` with plan 2 on 2026-10-27.
 
 ## N1 · Cooler at session start (B6)
 
