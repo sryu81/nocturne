@@ -749,6 +749,7 @@ class EkosRemoteController(
                 if (waiting != null && event.jobs.any { it.name == waiting.name }) {
                     pendingSchedulerStart = null
                     if (waiting.alsoStart && !_state.value.schedulerRunning) {
+                        ensureCoolingBeforeStart()
                         client.sendCommand(Commands.SCHEDULER_START_JOB)
                     }
                 }
@@ -2444,7 +2445,22 @@ class EkosRemoteController(
 
     /** The global Scheduler toggle. Not flipped optimistically: the label follows the `new_scheduler_state` push (see [AppState.schedulerRunning]). */
     override fun toggleScheduler() {
+        if (!_state.value.schedulerRunning) ensureCoolingBeforeStart()
         client.sendCommand(Commands.SCHEDULER_START_JOB)
+    }
+
+    /**
+     * Starting imaging with the cooler off means warm subs (2026-10-26: the Finish before a new
+     * session switched it off). Switches it on at the set point and has Ekos hold the first sub
+     * until the sensor is there; says so in the Log. See [coolerStartPlan].
+     */
+    private fun ensureCoolingBeforeStart() {
+        val plan = _state.value.coolerStartPlan() ?: return
+        log?.record("App", "Cooler was off at start: cooling ${plan.camera} to ${plan.targetC} °C, first sub waits for it")
+        _state.update { it.copy(coolTarget = plan.targetC) }
+        setCoolerEnabled(true)
+        applyCoolTarget()
+        if (plan.enforce) setTemperatureEnforced(true)
     }
 
     /** The save→settings→add→get→(start) chain — see [pushJob]. [resumeSession]/[startNextJob] also request the [alsoStart] tail. */

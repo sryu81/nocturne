@@ -904,6 +904,25 @@ fun AppState.coolerIsOn(camera: String): Boolean? {
     return indiSwitchElement(camera, "CCD_COOLER")?.let { it == "COOLER_ON" }
 }
 
+/** What to switch on before the Scheduler starts imaging, see [coolerStartPlan]. */
+data class CoolerStartPlan(val camera: String, val targetC: Double, val enforce: Boolean)
+
+/**
+ * The cooler step of a sequence start. Finish (and a camera reconnect) leave the cooler off and
+ * nothing brought it back, so a new session imaged warm. Null when there is nothing to do: no
+ * camera, a camera that cannot cool (no `CCD_TEMPERATURE`), the cooler already on, or no known set
+ * point. An unknown cooler state counts as off, since switching it on for a start is harmless.
+ * [CoolerStartPlan.enforce] asks Ekos to hold the first sub until the sensor reaches the set point.
+ */
+fun AppState.coolerStartPlan(): CoolerStartPlan? {
+    val camera = primaryTrain.camera
+    if (camera.isBlank() || camera == "None") return null
+    if (indiNumber(camera, "CCD_TEMPERATURE") == null) return null
+    if (coolerIsOn(camera) == true) return null
+    val target = coolTarget ?: wireCaptureSettings?.cameraTemperatureN ?: return null
+    return CoolerStartPlan(camera, target, enforce = wireCaptureSettings?.cameraTemperatureS != true)
+}
+
 /** A switch property's element names (all choices), empty if unknown. */
 fun AppState.indiSwitchElements(deviceName: String, propName: String): List<String> =
     (indiProps[deviceName]?.firstOrNull { it.name == propName } as? IndiProperty.SwitchProp)?.elementNames.orEmpty()
