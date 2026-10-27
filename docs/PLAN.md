@@ -38,7 +38,7 @@ rig; what is still unchecked is in `docs/STATUS.md`. Details of each milestone a
 | 3 | R5 | Fork: file operations and eject | Not started |
 | 3 | R6 | App: manage (selection, paste, progress, delete) | Not started |
 | 4 | N1 | Cooler on at session start, hold first sub | Built and unit-tested (2026-10-26); not installed or rig-checked |
-| 4 | N2 | Guiding tuning (gain, pulse, axes) | Built and unit-tested (2026-10-27); not rig-checked |
+| 4 | N2 | Guiding tuning (gain, pulse, axes) | Built and installed; sheet values rig-checked 2026-10-27, live write not yet |
 | 4 | N3 | Polar alignment: bigger, vivid triangle and target circle | Built and unit-tested (2026-10-27); not installed or seen on the rig |
 
 **Next:** the user's night test of plan 2, then closing it (merge `controls-revision` into `main`).
@@ -676,9 +676,11 @@ running guider. Rig `kstarsrc` on 2026-10-26: RA P 0.70, DEC P 0.55, max pulse 3
 has a **Guiding tuning** section (axis switches, eight fields, **Revert to values when opened**).
 Left out on purpose: `kcfg_GuideAlgorithm` is the star-detection method (SEP, Smart…), not the control
 algorithm; the pulse algorithm (`RAGuidePulseAlgorithm`) has no widget, so the reply never carries it;
-the calibration readout and who changed the guide exposure (still open). Not rig-checked: the live
-reply is expected to carry the eight keys (the sheet shows defaults if it does not; check with the
-sheet open on the rig), and that a write changes the running guider.
+the calibration readout and who changed the guide exposure (still open). Rig-checked 2026-10-27 (rig idle, mount
+parked): the live reply carries all of them; the sheet showed RA 0.70, DEC 0.55, integral 0.00,
+minimum pulse 0.20″, maximum pulse 35″ and both axes on, i.e. the rig's saved values and not the
+defaults (RA default 0.75). Not yet checked: that a write changes the running guider (needs a
+guiding session under the sky).
 
 **Needs the Pi first (was blocking the build).** `guide_get_all_settings` returns 84 fields; the exact
 wire key names, types and the unit of the pulse limits are read from a real reply (read-only: the
