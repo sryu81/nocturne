@@ -130,6 +130,7 @@ class ControlsSummaryTest {
         val p = summary(idle.copy(wireAlignStatus = "In Progress"), ControlsModule.PLATE_SOLVE)
         assertEquals("solving…", p.line)
         assertTrue(p.active)
+        assertTrue(p.stoppable)
     }
 
     // ── Guide ──

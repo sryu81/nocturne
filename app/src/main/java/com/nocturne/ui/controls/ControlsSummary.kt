@@ -40,7 +40,7 @@ private val CAPTURE_ACTIVE_STATES = setOf(
 )
 
 /** Align states in which a solve is under way (`ekos.h` alignStates). */
-private val ALIGN_ACTIVE_STATES = setOf("In Progress", "Syncing", "Slewing", "Rotating")
+internal val ALIGN_ACTIVE_STATES = setOf("In Progress", "Syncing", "Slewing", "Rotating")
 
 fun controlsSummary(state: AppState, module: ControlsModule): ModuleSummary = when (module) {
     ControlsModule.MOUNT -> mountSummary(state)
@@ -93,7 +93,7 @@ private fun focuserSummary(s: AppState): ModuleSummary {
 }
 
 private fun plateSolveSummary(s: AppState): ModuleSummary {
-    if (s.wireAlignStatus in ALIGN_ACTIVE_STATES) return ModuleSummary("solving…", active = true)
+    if (s.wireAlignStatus in ALIGN_ACTIVE_STATES) return ModuleSummary("solving…", active = true, stoppable = true)
     val accuracy = s.alignAccuracyHistory.lastOrNull()?.let { "%.1f″".format(it) }
     return ModuleSummary(listOfNotNull(s.wireAlignStatus, accuracy).joinToString(" · ").ifEmpty { "N/A" })
 }

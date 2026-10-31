@@ -22,7 +22,8 @@ first within each list. Commits are on `main` (the `controls-revision` branch wa
   below, that the wire has no align abort, was wrong). Built 2026-10-31: "Abort centering" under Goto &
   center on the Plan tab (`abortAlign`: align stop + mount abort, cancels the centre job) and an
   Emergency stop card on Home under Ekos (`emergencyStop`: mount abort, Scheduler stop and job removal,
-  align/capture/guide/focus/polar stop; never moves the mount; Park is a second tap). Not rig-checked.
+  align/capture/guide/focus/polar stop; never moves the mount; Park is a second tap). User checked on 2026-10-31 that the buttons work (Emergency stop on Home, Abort centering on
+  Plan); a stop during a real centre loop is still unseen.
 - **Check after the fix:** start Goto & center with the mount parked or the way clear, tap Abort
   centering mid-slew: the slew stops and Align does not re-slew. Emergency stop with a job running:
   everything stops, jobs are gone, the mount stays put.
@@ -119,8 +120,9 @@ first within each list. Commits are on `main` (the `controls-revision` branch wa
 - **Workaround:** Ekos' own Stop on the desktop, or on the Pi
   `gdbus call --session --dest org.kde.kstars --object-path /KStars/Ekos/Align --method org.kde.kstars.Ekos.Align.abort`
   (done 2026-10-25: status became `3`, `ALIGN_ABORTED`, the card showed "Aborted" and unpinned).
-- **Fix (planned):** a Stop button on the Plate solve page while a solve is active, next to "Plate solve
-  here", sending `align_stop` (see B10). The menu card then unpins by itself when the status leaves the active set. Find out why
+- **Fix:** built 2026-10-31, not rig-checked: a Stop button on the Plate solve page while a solve is
+  active (`In Progress`/`Syncing`/`Slewing`/`Rotating`), and the Plate solve card in the Controls menu has
+  its own stop while solving. Both call `abortAlign` (`align_stop` + `mount_abort`, see B10). The menu card then unpins by itself when the status leaves the active set. Find out why
   Align does not reach Failed (Align log in the fork) before deciding whether the button is enough.
 - **Check after the fix:** daytime solve, wait for the failure alert, Stop; status leaves "In
   Progress" and the menu card unpins.

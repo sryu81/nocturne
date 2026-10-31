@@ -122,6 +122,7 @@ fun ControlsScreen(
                     val stop = when {
                         !summary.stoppable -> null
                         m == ControlsModule.POLAR_ALIGNMENT -> ctrl::stopPolarAlign
+                        m == ControlsModule.PLATE_SOLVE -> ctrl::abortAlign
                         else -> ctrl::stopSlew
                     }
                     ModuleCard(m, summary, onClick = { open(m) }, onStop = stop)
@@ -1136,6 +1137,16 @@ private fun AlignSolveCard(state: AppState, ctrl: SessionController) {
             style = BtnStyle.SUBTLE,
             modifier = Modifier.fillMaxWidth().height(38.dp),
         )
+        // Ekos can leave a failed solve "In Progress" for minutes (B1); this ends it.
+        if (state.wireAlignStatus in ALIGN_ACTIVE_STATES) {
+            Spacer(Modifier.height(6.dp))
+            NocturneButton(
+                text = "Stop",
+                onClick = ctrl::abortAlign,
+                style = BtnStyle.DANGER,
+                modifier = Modifier.fillMaxWidth().height(38.dp),
+            )
+        }
         state.wireAlignStatus?.let {
             Spacer(Modifier.height(6.dp))
             TextC(it, style = t.Caption, color = c.textMuted)
