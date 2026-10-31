@@ -1677,6 +1677,40 @@ class EkosRemoteController(
     }
 
     /**
+     * The automatic part of [syncTimeToRig]/[syncLocationToRig] at connect. Waits for the link and
+     * a few seconds for Ekos' states (the Scheduler's running state is only known then), reads the
+     * Pi's clock from the daemon, and syncs time only when it is off by more than
+     * [CLOCK_SKEW_OK_SEC] and nothing is running: a clock step under a running Scheduler job could
+     * upset it, and a reconnect mid-session must not do that.
+     */
+    override fun syncRigOnConnect(location: Triple<Double, Double, Double>?) {
+        scope.launch {
+            withTimeoutOrNull(AUTO_SYNC_LINK_TIMEOUT_MS) { client.connectionStatus.first { it.state == ConnectionState.ONLINE } }
+                ?: return@launch
+            delay(AUTO_SYNC_SETTLE_MS)
+            val running = _state.value.schedulerIsRunning()
+            val skew = RigRebootClient(client.host, rigRebootPort).health()?.clockSkewSec(System.currentTimeMillis())
+            when (autoTimeSync(skew, running)) {
+                AutoTimeSync.SYNC -> {
+                    log?.record("App", "Rig clock was ${skew}s off the phone's; syncing time")
+                    syncTimeToRig()
+                }
+                AutoTimeSync.CLOCK_OK -> log?.record("App", "Rig clock is within ${CLOCK_SKEW_OK_SEC}s of the phone's, time not changed")
+                AutoTimeSync.RUNNING -> log?.record("App", "Rig clock is ${skew}s off the phone's but a job is running, time not changed", LogLevel.WARN)
+                AutoTimeSync.UNKNOWN -> log?.record("App", "Rig clock unknown (maintenance daemon not answering), time not synced", LogLevel.WARN)
+            }
+            if (location == null) {
+                log?.record("App", "Location not synced: no phone location permission or fix (Home > Rig maintenance syncs it by hand)", LogLevel.WARN)
+            } else if (running) {
+                log?.record("App", "A job is running, location not changed")
+            } else {
+                log?.record("App", "Syncing KStars location from the phone: %.4f, %.4f".format(location.first, location.second))
+                syncLocationToRig(location.first, location.second, location.third)
+            }
+        }
+    }
+
+    /**
      * `kstars_set_location` (see [SessionController.syncLocationToRig] for why
      * `option_set`/`invoke_method` can't reach `KStars::setGPSLocation`). [tz] is only used if
      * KStars can't match the coordinates to a known city (`nearestLocation()`); it's the phone's
@@ -2746,6 +2780,10 @@ private const val CAMERA_FAN_PROP = "TC_FAN_SPEED" // ToupTek-family drivers (in
 private val ALIGN_DONE_STATES = setOf("Idle", "Complete", "Failed", "Aborted")
 private const val ALIGN_DUMP_KEEP = 20
 private const val SOLVER_ACTION_SETTLE_MS = 500L
+private const val AUTO_SYNC_LINK_TIMEOUT_MS = 30_000L
+private const val AUTO_SYNC_SETTLE_MS = 6_000L
+/** Largest rig-vs-phone clock difference left alone, in seconds. */
+internal const val CLOCK_SKEW_OK_SEC = 2L
 private const val SLEW_START_TIMEOUT_MS = 10_000L
 private const val SLEW_TIMEOUT_MS = 5 * 60_000L
 private const val SLEW_SETTLE_MS = 2_000L
@@ -2920,3 +2958,13 @@ internal fun solverActionNeedsReset(settings: WireAlignSettings?): Boolean = set
  */
 internal fun restoredSolverAction(original: WireAlignSettings?): Triple<Boolean, Boolean, Boolean> =
     if (original?.syncR == true) Triple(false, false, true) else Triple(true, false, false)
+
+internal enum class AutoTimeSync { SYNC, CLOCK_OK, RUNNING, UNKNOWN }
+
+/** What the connect-time time sync does: [skewSec] is the phone's clock minus the rig's, null if unknown. */
+internal fun autoTimeSync(skewSec: Long?, jobRunning: Boolean): AutoTimeSync = when {
+    skewSec == null -> AutoTimeSync.UNKNOWN
+    kotlin.math.abs(skewSec) <= CLOCK_SKEW_OK_SEC -> AutoTimeSync.CLOCK_OK
+    jobRunning -> AutoTimeSync.RUNNING
+    else -> AutoTimeSync.SYNC
+}

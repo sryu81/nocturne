@@ -1851,7 +1851,7 @@ private fun TextFieldBox(value: String, onChange: (String) -> Unit) {
  * cached fix is precise enough for site/almanac math, so there's no Play Services dependency or
  * wait for a fresh lock. Elevation defaults to 0.0 when missing; it only affects refraction.
  */
-private fun requestLastKnownLocation(context: android.content.Context): Triple<Double, Double, Double>? {
+internal fun requestLastKnownLocation(context: android.content.Context): Triple<Double, Double, Double>? {
     if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
         ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED
     ) return null

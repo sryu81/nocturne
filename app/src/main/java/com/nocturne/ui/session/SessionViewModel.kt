@@ -131,6 +131,8 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
             logRepo = logRepo,
             alignFrameDumpDir = getApplication<android.app.Application>().getExternalFilesDir(null)?.let { java.io.File(it, "align-frames") },
         )
+        // The phone's last location fix, if it has permission and one; the controller does the rest once Ekos is online.
+        ctrl.syncRigOnConnect(com.nocturne.ui.session.requestLastKnownLocation(getApplication()))
 
         viewModelScope.launch {
             newClient.connectionStatus.collect { status ->

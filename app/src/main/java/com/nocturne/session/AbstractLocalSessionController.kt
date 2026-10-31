@@ -740,6 +740,7 @@ abstract class AbstractLocalSessionController : SessionController {
 
     override fun plateSolveHere() = update { it.copy(mountSolved = true) }
     override fun abortAlign() {}
+    override fun syncRigOnConnect(location: Triple<Double, Double, Double>?) {}
     override fun emergencyStop() = update { s ->
         s.copy(guiding = false, polarRunning = false, slewDir = null, lastEndedJobId = s.contractJob?.id ?: s.lastEndedJobId)
     }

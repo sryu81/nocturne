@@ -239,6 +239,12 @@ interface SessionController {
      * Assumes phone and rig share a site and timezone, as in [syncLocationToRig].
      */
     fun syncTimeToRig()
+    /**
+     * Once per connection, after Ekos is online: sets the rig's clock when it is off by more than
+     * a couple of seconds (never mid-run), and sets KStars' location from [location] (the phone's
+     * last fix: lat, lon, elevation m), or logs that it couldn't.
+     */
+    fun syncRigOnConnect(location: Triple<Double, Double, Double>?)
 
     /**
      * Sets KStars' geographic location via `kstars_set_location` (`KStars::setGPSLocation`),
