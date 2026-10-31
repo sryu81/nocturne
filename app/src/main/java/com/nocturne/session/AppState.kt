@@ -167,6 +167,12 @@ data class AppState(
      * the moment it is written; see [coolerIsOn].
      */
     val coolerCommandedOn: Boolean? = null,
+    /**
+     * The cooler was not known to be on when the last Preview was requested. A held Preview ("Setting
+     * Temperature") starts the cooler by itself (B2), so only then does Cancel switch it off again;
+     * a cooler the user already had on stays on.
+     */
+    val coolerOffAtPreview: Boolean = false,
     val coolNow: Double? = null,
     val snappedMain: Boolean = false,
     val snappedGuide: Boolean = false,

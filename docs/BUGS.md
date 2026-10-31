@@ -136,9 +136,12 @@ first within each list. Commits are on `main` (the `controls-revision` branch wa
 - **Cause:** Ekos' "Setting Temperature" step sends the set point to the camera, which turns the
   cooler on; cancelling the held capture does not undo that. The held-capture note only says "waiting
   for temperature … before exposing", not that cooling has started.
-- **Fix (planned, app only):** say it in the note ("… cooling to X °C started"), so a Preview is not
-  a silent cooler start. Whether Cancel should also switch the cooler off needs a decision, since
-  the user may want it cooling.
+- **Fix:** built 2026-10-31, not rig-checked. The held note now says "The cooler is running for this
+  Preview; Cancel switches it off." and Cancel (`capture_stop`) also sends cooler off, but only when the
+  cooler was not known to be on when the Preview was requested (`coolerOffAtPreview`), so a cooler the
+  user already had on is left alone. Decided with the user 2026-10-31 (Cancel switches the cooler off).
+- **Check after the fix:** cooler off, Preview with Enforce temperature on, Cancel: the cooler is off
+  and the note matched. With the cooler on first: Cancel leaves it on.
 
 ## Fixed
 

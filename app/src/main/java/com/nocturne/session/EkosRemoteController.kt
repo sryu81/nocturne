@@ -958,6 +958,8 @@ class EkosRemoteController(
 
     /** Image bytes arrive on the media channel; status via new_capture_state. */
     override fun snapMain() {
+        val s = _state.value
+        _state.update { it.copy(coolerOffAtPreview = s.coolerIsOn(s.primaryTrain.camera) != true) }
         client.sendCommand(Commands.CAPTURE_PREVIEW)
         super.snapMain()
     }
@@ -1018,8 +1020,14 @@ class EkosRemoteController(
         }
     }
 
+    /**
+     * `capture_stop`. A Preview held in "Setting Temperature" has started the cooler (B2) and
+     * cancelling alone leaves it running, so a cooler that was off before the Preview goes off again.
+     */
     override fun cancelPendingCapture() {
+        val s = _state.value
         client.sendCommand(Commands.CAPTURE_STOP)
+        if (s.wireCaptureStatus == "Setting Temperature" && s.coolerOffAtPreview) setCoolerEnabled(false)
     }
 
     /** Direct element write — `CCD_COOLER` is write-only on ToupTek, so it may never land in

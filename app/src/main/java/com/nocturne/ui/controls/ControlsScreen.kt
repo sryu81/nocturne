@@ -390,7 +390,8 @@ private fun capturePendingNote(state: AppState): String? {
             val now = state.indiNumber(state.primaryTrain.camera, "CCD_TEMPERATURE")
             val target = state.wireCaptureSettings?.cameraTemperatureN ?: state.coolTarget
             "waiting for temperature " + (now?.let { "%.1f".format(it) } ?: "N/A") + " → " +
-                (target?.let { "%.1f °C".format(it) } ?: "N/A") + " before exposing (enforce temperature is on)"
+                (target?.let { "%.1f °C".format(it) } ?: "N/A") + " before exposing (enforce temperature is on)" +
+                if (state.coolerOffAtPreview) ". The cooler is running for this Preview; Cancel switches it off." else ""
         }
         "Setting Rotator", "Waiting", "Paused", "Meridian Flip" -> "capture held: $status — will start by itself when it clears"
         else -> null
