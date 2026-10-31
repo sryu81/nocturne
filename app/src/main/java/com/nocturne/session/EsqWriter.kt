@@ -9,8 +9,8 @@ package com.nocturne.session
  * its default, so only fields Nocturne has data for are written.
  * - `FITSDirectory` must be written per job: an absent element leaves the job's save directory
  *   empty, it does not fall back to Capture's "Save path" (`fileDirectoryT`), which is a
- *   separate module-wide setting. Both it and `PlaceholderFormat` come from
- *   [AppState.wireCaptureSettings].
+ *   separate module-wide setting. Both it and `PlaceholderFormat` come from [CaptureLayout],
+ *   never from a user-editable setting.
  * - `HFRCheck` is omitted; Nocturne has no "HFR deviation %" setting.
  *
  * The refocus elements' `enabled` attribute is compared as the literal string "true"
@@ -23,9 +23,9 @@ object EsqWriter {
         job: SequenceJob, targetName: String,
         enforceRefocusEveryN: Boolean, refocusEveryN: Int,
         enforceAutofocusOnTemperature: Boolean, maxFocusTemperatureDelta: Double,
-        /** `fileDirectoryT` (Camera settings' "Save path"); null/blank omits the element. */
+        /** [CaptureLayout.fitsDirectory]; null/blank omits the element. */
         fitsDirectory: String? = null,
-        /** `placeholderFormatT`; Ekos's default format when blank. */
+        /** [CaptureLayout.placeholderFormat]; Ekos's default format when blank. */
         placeholderFormat: String = DEFAULT_PLACEHOLDER_FORMAT,
     ): String = buildString {
         append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
