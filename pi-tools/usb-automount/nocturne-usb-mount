@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# Mounts or unmounts a USB partition for Nocturne's Rig storage.
+#
+#   nocturne-usb-mount add <kernel name>      e.g. sda1
+#   nocturne-usb-mount remove <kernel name>
+#
+# Called by the udev rule through systemd-run, never by hand in normal use.
+# A stick whose UUID is in /etc/fstab (the old /mnt/astro one) is mounted at its fstab
+# target; every other stick goes to $ROOT/<label> (the UUID when it has no label).
+set -u
+
+OWNER="${NOCTURNE_USB_OWNER:-soo}"
+ROOT="${NOCTURNE_USB_ROOT:-/media}"
+DRY="${NOCTURNE_USB_DRY_RUN:-}"
+DEVDIR="${NOCTURNE_USB_DEVDIR:-/dev}"
+
+log() { logger -t nocturne-usb "$*"; echo "$*" >&2; }
+run() { if [[ -n $DRY ]]; then echo "+ $*"; else "$@"; fi; }
+
+add() {
+    local dev=$DEVDIR/$1 TYPE LABEL UUID
+    # `-o value` prints raw values; `-o export` backslash-escapes spaces in labels.
+    TYPE=$(blkid -o value -s TYPE "$dev")
+    LABEL=$(blkid -o value -s LABEL "$dev")
+    UUID=$(blkid -o value -s UUID "$dev")
+    [[ -n $TYPE ]] || { log "$dev: no filesystem, skipped"; return 0; }
+    findmnt -rn -S "$dev" >/dev/null && { log "$dev: already mounted"; return 0; }
+
+    local target=''
+    if [[ -n $UUID ]]; then
+        target=$(findmnt --fstab -rn -S "UUID=$UUID" -o TARGET | head -n1)
+    fi
+    if [[ -n $target ]]; then
+        run mount "$target" && log "$dev: mounted at $target (fstab)"
+        return
+    fi
+
+    local name
+    name=$(printf '%s' "${LABEL:-$UUID}" | tr -c 'A-Za-z0-9._-' '_')
+    [[ -n $name ]] || name=$1
+    target=$ROOT/$name
+    # A second stick with the same label must not land on the first one's mount point.
+    findmnt -rn "$target" >/dev/null && target=$ROOT/$name-$1
+
+    local uid gid opts
+    uid=$(id -u "$OWNER") gid=$(id -g "$OWNER")
+    case $TYPE in
+        vfat) opts="uid=$uid,gid=$gid,umask=022,noatime,flush" ;;
+        exfat) opts="uid=$uid,gid=$gid,umask=022,noatime" ;;
+        ntfs) TYPE=ntfs3; opts="uid=$uid,gid=$gid,umask=022,noatime" ;;
+        *) opts="noatime" ;;  # ext4 and friends keep their own ownership
+    esac
+
+    run mkdir -p "$target"
+    if run mount -t "$TYPE" -o "$opts" "$dev" "$target"; then
+        log "$dev ($TYPE): mounted at $target"
+    else
+        log "$dev ($TYPE): mount failed"
+        run rmdir "$target" 2>/dev/null
+        return 1
+    fi
+}
+
+remove() {
+    local dev=$DEVDIR/$1 target
+    # The device node is already gone, so match the mount by its source string.
+    while IFS= read -r target; do
+        run umount -l "$target" && log "$dev: unmounted $target"
+        [[ $target == "$ROOT"/* ]] && run rmdir "$target" 2>/dev/null
+    done < <(findmnt -rn -S "$dev" -o TARGET)
+    return 0
+}
+
+case ${1:-} in
+    add) add "${2:?kernel name}" ;;
+    remove) remove "${2:?kernel name}" ;;
+    *) echo "usage: $0 add|remove <kernel name>" >&2; exit 2 ;;
+esac

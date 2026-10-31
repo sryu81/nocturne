@@ -1,0 +1,4 @@
+# Mount USB sticks for Nocturne's Rig storage; see pi-tools/usb-automount/README.md.
+# systemd-run keeps the mount out of udev's own sandbox and lets udev return at once.
+ACTION=="add", SUBSYSTEM=="block", SUBSYSTEMS=="usb", ENV{ID_FS_USAGE}=="filesystem", RUN+="/usr/bin/systemd-run --no-block --collect --unit=nocturne-usb-mount-%k /usr/local/bin/nocturne-usb-mount add %k"
+ACTION=="remove", SUBSYSTEM=="block", SUBSYSTEMS=="usb", ENV{ID_FS_USAGE}=="filesystem", RUN+="/usr/bin/systemd-run --no-block --collect --unit=nocturne-usb-umount-%k /usr/local/bin/nocturne-usb-mount remove %k"
