@@ -120,7 +120,7 @@ private fun CategoryPicker(
                 CategoryCard(
                     icon = Phosphor.SlidersHorizontal,
                     title = "File settings",
-                    sub = "save path, filename template",
+                    sub = "where frames are saved",
                     onClick = { ctrl.openSheet(SheetType.CAMERA_SETTINGS) },
                 )
             },
