@@ -85,6 +85,11 @@ class EkosRemoteController(
 
     private val log = logRepo?.let { LogCollector(it, scope) }
 
+    private val ctx = ControllerContext(client, scope, { _state.value }, { f -> _state.update(f) })
+
+    /** The Rig storage view's commands and watches; the overrides below delegate to it. */
+    private val rigStorage = RigStorageController(ctx)
+
     /** Name a `profile_delete` was just sent for — checked against the next [EkosEvent.Profiles]. */
     private var pendingProfileDelete: String? = null
 
@@ -704,17 +709,7 @@ class EkosRemoteController(
             }
             is EkosEvent.NewConnectionState -> binningDefaulted.clear()
             is EkosEvent.CaptureSettings -> enforceCaptureLocation(event.settings)
-            // What an operation changed (free space, folder contents) is read again when it ends.
-            is EkosEvent.FileProgress -> if (event.state != "running") refreshRigStorage()
-            is EkosEvent.FileRenameReply -> if (event.ok) refreshRigStorage()
-            is EkosEvent.FileEjectReply -> {
-                refreshRigStorage()
-                // The ejected drive's folders are gone: back to the drives.
-                val rs = _state.value.rigStorage
-                if (event.ok && rs.driveFor(rs.path)?.id == event.id) update { it.copy(rigStorage = it.rigStorage.openDrives()) }
-            }
-            is EkosEvent.FocusSettings -> defaultBinningIfMissing("focus", event.settings.focusBinning) { setFocusBinning(DEFAULT_BINNING) }
-            is EkosEvent.GuideSettings -> defaultBinningIfMissing("guide", event.settings.guideBinning) { setGuidePreviewBinning(DEFAULT_BINNING) }
+            is EkosEvent.FileProgress, is EkosEvent.FileRenameReply, is EkosEvent.FileEjectReply -> rigStorage.onEvent(event)
             is EkosEvent.DeviceProperty -> {
                 refreshModuleSettingsForCamera(event.property)
                 fetchFullDeviceIfNewlyConnected(event.property.device, event.property)
@@ -838,168 +833,25 @@ class EkosRemoteController(
         pushLocalAlert("$device preferred pier side was $was — set to East (needed for meridian flip)", source = 5, severity = 2)
     }
 
-    // ── Rig storage ──────────────────────────────────────────────────────
+    // ── Rig storage (see RigStorageController) ──────────────────────────
 
-    private var rigStorageWatch: Job? = null
-    private var filePageWatch: Job? = null
-
-    private fun linkUp(): Boolean = client.connectionStatus.value.state.let {
-        it == ConnectionState.SOCKET_OPEN || it == ConnectionState.ONLINE
-    }
-
-    override fun requestRigStorageSummary() {
-        if (linkUp()) client.sendCommand(Commands.FILE_LIST_DRIVES)
-    }
-
-    override fun openRigStorage() {
-        update { it.copy(rigStorage = it.rigStorage.copy(open = true).openDrives()) }
-        requestRigStorageData()
-    }
-
-    override fun closeRigStorage() {
-        rigStorageWatch?.cancel()
-        filePageWatch?.cancel()
-        update { it.copy(rigStorage = it.rigStorage.copy(open = false).openDrives()) }
-    }
-
-    override fun rigStorageOpenFolder(path: String) {
-        update { it.copy(rigStorage = it.rigStorage.openFolder(path)) }
-        requestRigStorageData()
-    }
-
-    override fun rigStorageUp() {
-        val rs = _state.value.rigStorage
-        val parent = rs.parentPath()
-        if (rs.file != null) {
-            filePageWatch?.cancel()
-            update { it.copy(rigStorage = it.rigStorage.closeFile()) }
-        } else if (rs.path == null) {
-            closeRigStorage()
-        } else if (parent == null) {
-            update { it.copy(rigStorage = it.rigStorage.openDrives()) }
-            requestRigStorageData()
-        } else {
-            rigStorageOpenFolder(parent)
-        }
-    }
-
-    override fun rigStorageOpenFile(path: String) {
-        filePageWatch?.cancel()
-        update { it.copy(rigStorage = it.rigStorage.openFile(path), latestFilePreviewFrame = null) }
-        if (!linkUp()) return
-        client.sendCommand(Commands.FILE_HEADER, buildJsonObject { put("path", path) })
-        client.sendCommand(Commands.FILE_PREVIEW, buildJsonObject { put("path", path) })
-        // A preview needs the whole file read and stretched on the Pi; the header is tiny.
-        filePageWatch = scope.launch {
-            delay(FILE_PAGE_TIMEOUT_MS)
-            update { s ->
-                val page = s.rigStorage.file
-                if (page == null || page.path != path) return@update s
-                val arrived = page.previewUuid != null && s.latestFilePreviewFrame?.header?.uuid == page.previewUuid
-                s.copy(
-                    rigStorage = s.rigStorage.copy(
-                        file = page.copy(
-                            headerError = page.headerError ?: if (page.header == null) "no_reply" else null,
-                            previewTimedOut = !arrived && page.previewError == null,
-                        ),
-                    ),
-                )
-            }
-        }
-    }
-
-    override fun rigStorageToggleSelect(path: String) = update { it.copy(rigStorage = it.rigStorage.toggled(path)) }
-
-    override fun rigStorageClearSelection() = update { it.copy(rigStorage = it.rigStorage.clearedSelection()) }
-
-    override fun rigStorageStartOp(kind: RigOpKind, paths: List<String>) =
-        update { it.copy(rigStorage = it.rigStorage.startPending(kind, paths)) }
-
-    override fun rigStorageChooseTarget(driveId: String) = update { it.copy(rigStorage = it.rigStorage.withTarget(driveId)) }
-
-    override fun rigStorageCancelPending() = update { it.copy(rigStorage = it.rigStorage.cancelPending()) }
-
-    override fun rigStorageConfirmOp() {
-        val rs = _state.value.rigStorage
-        val pending = rs.pending ?: return
-        if (!pending.confirming || rs.opRunning) return
-        val command = when (pending.kind) {
-            RigOpKind.DELETE -> Commands.FILE_DELETE
-            RigOpKind.COPY -> Commands.FILE_COPY
-            RigOpKind.MOVE -> Commands.FILE_MOVE
-            RigOpKind.RENAME -> return
-        }
-        client.sendCommand(command, buildJsonObject {
-            put("paths", kotlinx.serialization.json.JsonArray(pending.paths.map { JsonPrimitive(it) }))
-            pending.toDrive?.let { put("toDrive", it) }
-        })
-        // A file page whose file is about to move or go is left; the folder shows what is left.
-        update { it.copy(rigStorage = it.rigStorage.sent().closeFile()) }
-    }
-
-    override fun rigStorageRename(newName: String) {
-        val rs = _state.value.rigStorage
-        val pending = rs.pending?.takeIf { it.kind == RigOpKind.RENAME } ?: return
-        val path = pending.paths.singleOrNull() ?: return
-        client.sendCommand(Commands.FILE_RENAME, buildJsonObject {
-            put("path", path)
-            put("name", newName.trim())
-        })
-        update { it.copy(rigStorage = it.rigStorage.cancelPending().clearedSelection()) }
-    }
-
-    override fun rigStorageCancelOp() {
-        val id = _state.value.rigStorage.op?.takeIf { it.state == "running" }?.id ?: return
-        client.sendCommand(Commands.FILE_CANCEL, buildJsonObject { put("id", id) })
-    }
-
-    override fun rigStorageEject(driveId: String) {
-        if (_state.value.rigStorage.opRunning) return
-        update { it.copy(rigStorage = it.rigStorage.copy(ejecting = driveId, notice = null)) }
-        client.sendCommand(Commands.FILE_EJECT, buildJsonObject { put("id", driveId) })
-    }
-
-    override fun rigStorageDismissNotice() = update { it.copy(rigStorage = it.rigStorage.dismissedNotice()) }
-
-    /** Reads the drives and the open folder again, without showing a loading state. */
-    private fun refreshRigStorage() {
-        if (!linkUp()) return
-        client.sendCommand(Commands.FILE_LIST_DRIVES)
-        _state.value.rigStorage.path?.let { client.sendCommand(Commands.FILE_LIST, buildJsonObject { put("path", it) }) }
-    }
-
-    override fun rigStorageRefresh() {
-        update { it.copy(rigStorage = it.rigStorage.copy(listing = null, status = RigStorageStatus.LOADING)) }
-        requestRigStorageData()
-    }
-
-    /**
-     * Asks for what the screen shows: the drives, or the listing of the open folder. A fork from
-     * before R1 does not know the commands and never replies, so the wait ends in OLD_FORK (drives)
-     * or NO_REPLY (a folder) after [RIG_STORAGE_TIMEOUT_MS]; a late reply still wins.
-     */
-    private fun requestRigStorageData() {
-        rigStorageWatch?.cancel()
-        val path = _state.value.rigStorage.path
-        if (!linkUp()) {
-            update { it.copy(rigStorage = it.rigStorage.copy(status = RigStorageStatus.OFFLINE)) }
-            return
-        }
-        if (path == null) {
-            client.sendCommand(Commands.FILE_LIST_DRIVES)
-        } else {
-            client.sendCommand(Commands.FILE_LIST, buildJsonObject { put("path", path) })
-        }
-        rigStorageWatch = scope.launch {
-            delay(RIG_STORAGE_TIMEOUT_MS)
-            update { s ->
-                val rs = s.rigStorage
-                if (rs.open && rs.path == path && rs.status == RigStorageStatus.LOADING) {
-                    s.copy(rigStorage = rs.copy(status = if (path == null) RigStorageStatus.OLD_FORK else RigStorageStatus.NO_REPLY))
-                } else s
-            }
-        }
-    }
+    override fun requestRigStorageSummary() = rigStorage.requestRigStorageSummary()
+    override fun openRigStorage() = rigStorage.openRigStorage()
+    override fun closeRigStorage() = rigStorage.closeRigStorage()
+    override fun rigStorageOpenFolder(path: String) = rigStorage.rigStorageOpenFolder(path)
+    override fun rigStorageUp() = rigStorage.rigStorageUp()
+    override fun rigStorageOpenFile(path: String) = rigStorage.rigStorageOpenFile(path)
+    override fun rigStorageToggleSelect(path: String) = rigStorage.rigStorageToggleSelect(path)
+    override fun rigStorageClearSelection() = rigStorage.rigStorageClearSelection()
+    override fun rigStorageStartOp(kind: RigOpKind, paths: List<String>) = rigStorage.rigStorageStartOp(kind, paths)
+    override fun rigStorageChooseTarget(driveId: String) = rigStorage.rigStorageChooseTarget(driveId)
+    override fun rigStorageCancelPending() = rigStorage.rigStorageCancelPending()
+    override fun rigStorageConfirmOp() = rigStorage.rigStorageConfirmOp()
+    override fun rigStorageRename(newName: String) = rigStorage.rigStorageRename(newName)
+    override fun rigStorageCancelOp() = rigStorage.rigStorageCancelOp()
+    override fun rigStorageEject(driveId: String) = rigStorage.rigStorageEject(driveId)
+    override fun rigStorageDismissNotice() = rigStorage.rigStorageDismissNotice()
+    override fun rigStorageRefresh() = rigStorage.rigStorageRefresh()
 
     /**
      * Ekos's own Capture settings (used by a capture started outside a job) point inside
@@ -2979,8 +2831,6 @@ private const val PIER_SIDE_EAST = "2" // lx200_OnStep.cpp: "1" West, "2" East, 
 private const val SETTINGS_REFRESH_DELAY_MS = 1_500L
 private const val DEVICE_REFRESH_DELAY_MS = 1_500L
 private const val DEFAULT_BINNING = "1x1"
-private const val RIG_STORAGE_TIMEOUT_MS = 5_000L
-private const val FILE_PAGE_TIMEOUT_MS = 20_000L
 private const val PIER_SIDE_RESEND_MS = 10_000L
 
 /** See [AppState.wireGainRangeByDevice]. */
