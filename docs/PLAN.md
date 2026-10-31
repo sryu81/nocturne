@@ -32,7 +32,9 @@ rig; what is still unchecked is in `docs/STATUS.md`. Details of each milestone a
 | 2 | C3 | Page upgrades (frames, backlash, chart, coordinates) | Built, merged; mount layout, backlash and align frame rig-checked, focus frame and guide chart not |
 | 2 | C4 | Polar alignment page with pinned Start/Stop | Built, merged; page and settings rig-checked, the run itself not |
 | 3 | R0 | USB automount (Pi tool) | Done, installed on the Pi 2026-10-31; NTFS stick mounted and unmounted on a real pull; vfat, exfat and the fstab stick unchecked |
-| 3 | R1 | Fork: drives and listings | Not started |
+| 3 | L1 | App: fixed capture layout (`Nocturne/<Target>/<night>/…`) | Proposed |
+| 3 | L2 | Pi: migration of the old folders into it | Proposed |
+| 3 | R1 | Fork: drives and listings | Design drafted |
 | 3 | R2 | App: Rig storage, read-only | Not started |
 | 3 | R3 | Fork: preview and header | Not started |
 | 3 | R4 | App: file page | Not started |
@@ -594,6 +596,129 @@ are safe on the rig; R5 can lose files, so it is tested on a scratch folder firs
 
 R0 has no fork build, so it can start first and gives R1 real USB volumes to list. R1, R3 and R5 could
 share one fork build if they are written together, at the cost of testing later.
+
+## File layout rule (proposed 2026-10-31, awaiting the user's yes)
+
+Today every job makes a new top-level folder in the Pi's home, mixed with tools and logs:
+`/home/soo/M_31_j2_20261030_201431/Light/R/M_31_j2_20261030_201431_Light_R_3.fits`. One target on one
+night is split over several folders (`_j1_`, `_j2_`), the night is only readable from the stamp,
+and the Save path and Placeholder format are free text in the File settings sheet. The old
+`move-images.sh` moved folders to the stick and left symlinks behind.
+
+**Rule: one fixed root per drive, one fixed structure under it, no user-editable path.**
+
+```
+<drive>/Nocturne/<Target>/<YYYY-MM-DD>/<FrameType>/<Filter>/<Target>_<FrameType>_<Filter>_<exp>_<datetime>_<NNN>.fits
+```
+
+- **Drive roots:** SD `/home/soo/Nocturne`; USB `/media/<label>/Nocturne` (R0's mount point) and
+  the old stick's `/mnt/astro/Nocturne`. The same relative path on every drive, so a copy or move
+  keeps the structure and "move last night to the stick" is a straight folder copy.
+- **Target:** the clean target name (`M_31`), without job number or stamp.
+- **Night:** the local date the night began (dusk), not the calendar date of each frame, so a
+  session that crosses midnight stays in one folder. Re-running a target on the same night adds to
+  the same folder; Ekos continues the file numbering, so nothing is overwritten.
+- **Frame type and filter:** as today (`Light/R`, `Dark`, `Flat/L`, `Bias`). Calibration frames
+  shot for no target use the target name `Calibration`.
+- **Nothing else lives in `Nocturne/`.** The app browses, copies, moves and deletes only inside it.
+  Anything else on a stick (like personal files) is never listed or touched; a stick without a
+  `Nocturne` folder shows "No Nocturne folder" with a button to create it.
+
+**How it is enforced**
+
+- The app sets both parts per job in `pushRealJob` (`EkosRemoteController`): `FITSDirectory` =
+  `<root>/<Target>/<Night>` and `PlaceholderFormat` = `/%T/%F/<Target>_%T_%F_%e_%D`, with the clean
+  target baked in as literal text. The scheduler job keeps its unique name (`M_31_j2_…`), which
+  only the esq file and the scheduler list use.
+- The File settings sheet shows the root and the structure read-only. The Save path and
+  Placeholder format fields, `setCameraSaveDir` and `setCameraPlaceholderFormat` go away; the app
+  writes the root into the Capture module's own settings once per connection so a Preview or manual
+  capture lands in the same tree.
+- The fork's `isAllowedPath` (R1) accepts only `Nocturne/` roots, which turns the same rule into the
+  safety check for every file operation.
+- Ekos on the Pi's own screen (VNC) can still change its settings. The rule holds for everything
+  that goes through the app; a fork-side check on `capture_set_settings` is possible later.
+
+**Existing data (about 9 GB on the SD card, more on the stick).** The old folders sit outside
+`Nocturne/`, so the file manager cannot see them until they are moved. A migration script in
+`pi-tools/capture-layout/` rsyncs each old folder into the new tree (target and night read from the
+folder name `M_31_j2_20261030_201431`), verifies checksums like `move-images.sh`, then deletes the
+source, and it also follows the symlinks that script left. File names are not rewritten. It runs on
+the Pi, by hand, after the user looks at its dry-run list.
+
+**Milestones**
+
+| # | Milestone | Done when |
+|---|---|---|
+| L1 | **App: fixed layout** | `pushRealJob` writes the rule's `FITSDirectory` and format; the night date comes from the almanac dusk (fallback: start time minus 12 h); the File settings sheet is read-only; unit tests for the path builder, including a midnight crossing and odd target names. |
+| L2 | **Pi: migration script** | Dry run lists every old folder with its new path; a real run on one small folder moves it with matching checksums; the symlinks from `move-images.sh` are handled. |
+
+L1 and L2 need no fork build, so they can go before R1. R1's browse test is easier with them in
+place, because the stick and the SD card then have the same `Nocturne/` shape.
+
+## R1 design: drives and listings (draft 2026-10-31, not built)
+
+Read-only. Two new commands in `message.cpp` (`processFileCommands`), registered in `commands.h`.
+The stock `file_directory_operation` stays as it is for `exists` and `list`; it cannot be extended
+because it has no root check, returns `result:false` for an empty folder, and reports `path` as the
+parent folder.
+
+**`file_list_drives`** (no payload) → `{"drives": [...]}`, one entry per volume:
+
+| Field | Meaning |
+|---|---|
+| `id` | Mount point, the key the app passes back |
+| `kind` | `sd` or `usb` |
+| `label`, `fs` | Volume label (UUID when none) and filesystem |
+| `path`, `total`, `free` | Mount point (for `sd`, the capture base folder), bytes |
+| `readOnly` | From `QStorageInfo` |
+
+Source is `QStorageInfo::mountedVolumes()`, keeping valid, ready volumes whose root is `/mnt/*` or
+`/media/*` (`usb`), plus the volume that holds `/home/soo/Nocturne` (`sd`). Each drive also reports
+`hasRoot` (whether its `Nocturne` folder exists) and `path` is that folder. `/boot/firmware`,
+tmpfs and the other system mounts are dropped. The old `/mnt/astro` stick shows up only while
+mounted; so does anything R0 mounts.
+
+**`file_list`** `{path}` → `{path, entries: [...], capturing}`:
+
+- Each entry has `name`, `isDir`, `size`, `modified`; a folder also has `count` (direct children)
+  and `bytes` (recursive, with a budget of 2,000 entries per request; `bytesPartial:true` when the
+  budget ran out). A folder holding the running capture has `inUse:true`.
+- `inUse` comes from the active job's `SJ_Signature` (the same lookup the Live Stacker code already
+  does in `message.cpp`): an entry is in use when the signature's folder is inside it.
+- Newest first, hidden files skipped, at most 5,000 entries (`truncated:true` past that).
+- Errors reply `{path, error}` with `not_allowed`, `not_found`, `not_dir` or `unmounted`; the
+  request path is echoed because the wire has no request id.
+
+**Allowed roots.** A path is checked after `QFileInfo::canonicalFilePath()`, so `..` and symlinks
+cannot leave the roots: `<drive>/Nocturne` on the SD card (`/home/soo/Nocturne`), under `/mnt/*` and
+under `/media/*` (see the file layout rule above). The check is one function (`isAllowedPath`) that
+R5's copy, move and delete reuse; `Nocturne` itself cannot be deleted or renamed.
+
+**Threading.** The listing runs off the GUI thread (`QtConcurrent::run` plus a watcher) and replies
+when done. A stick that hangs would otherwise freeze KStars, and capture with it.
+
+**Stock `remove` and `create`.** Both take any path from an unauthenticated LAN socket, and the app
+does not use them. R1 puts them behind `isAllowedPath` as well (an app that never calls them is
+unaffected). This closes the hole today instead of waiting for R5.
+
+**Older forks.** The app sends `file_list_drives` once on connect; no reply within a few seconds
+means an older fork and the Rig storage card says "Needs the updated KStars". Check how M5 did its
+older-fork fallback and reuse it.
+
+**Checks.**
+- A scripted client on the Pi (port 9000 takes one client, so with the app closed): drives with
+  and without a stick, a normal listing, `/home/soo/../etc`, a symlink out of the root, a path on
+  a pulled stick, and a listing during a running capture for `inUse`.
+- App side (R2): codec tests for both payloads in `EkosEventCodecTest`, including the error and
+  `truncated` shapes.
+- Rig: the build restarts KStars and Ekos, so it needs an idle rig and the user's go-ahead.
+
+**Open questions.**
+1. Settled 2026-10-31: the `sd` root exposed the whole home folder; each drive now has a dedicated
+   `Nocturne` root, see the file layout rule.
+2. Should R1, R3 and R5 share one fork build? One restart instead of three, but R1 would wait for
+   the other two to be written and the allowed-roots check would go untested on its own.
 
 ---
 
