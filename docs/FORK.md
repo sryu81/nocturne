@@ -19,6 +19,7 @@ replaces that client with **EkosRemote**, a server inside KStars that listens on
 | `15de51474` | Tracking off without the confirmation dialog (remote `mount_set_tracking` used to wait on a modal box on the Pi) |
 | `9259d6e48` | `new_log` (one log line, sent once, with a per-run id) and `get_logs` (last 2,000 lines); fed by the Capture/Align/Focus/Guide/Scheduler/Mount module logs, the Ekos main log and INDI driver messages with their level; the older `{"log"}` pushes and `device_message` stay |
 | `88026c9c7` | Align overlay (RA-axis ring, correction triangle, star circle) drawn 5 px wide, ring solid not dashed, so it survives JPEG and the phone downscale |
+| `f6671f854` | `file_list_drives` and `file_list` (read-only listing of the `Nocturne` folders on the SD card and USB drives, `ekosremote/filebrowser.cpp`); the stock `file_directory_operation` `create` and `remove` act only inside a `Nocturne` folder |
 
 ## Divergence from upstream (checked 2026-10-24)
 

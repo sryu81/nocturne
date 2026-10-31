@@ -34,7 +34,7 @@ rig; what is still unchecked is in `docs/STATUS.md`. Details of each milestone a
 | 3 | R0 | USB automount (Pi tool) | Done, installed on the Pi 2026-10-31; NTFS stick mounted and unmounted on a real pull; vfat, exfat and the fstab stick unchecked |
 | 3 | L1 | App: fixed capture layout (`Nocturne/<Target>/<night>/…`) | Built and unit-tested 2026-10-31; not installed, no real capture seen in the new tree |
 | 3 | L2 | Pi: migration of the old folders into it | Done 2026-10-31: 4 folders (161 files, 8 GB) moved on the SD card; the symlink case was only tested on a fake drive |
-| 3 | R1 | Fork: drives and listings | Design drafted |
+| 3 | R1 | Fork: drives and listings | Built, deployed to the Pi 2026-10-31 and tested with a scripted client (drives, listings, refusals, stock create/remove); `inUse` during a capture not seen |
 | 3 | R2 | App: Rig storage, read-only | Not started |
 | 3 | R3 | Fork: preview and header | Not started |
 | 3 | R4 | App: file page | Not started |
@@ -659,7 +659,7 @@ the Pi, by hand, after the user looks at its dry-run list.
 L1 and L2 need no fork build, so they can go before R1. R1's browse test is easier with them in
 place, because the stick and the SD card then have the same `Nocturne/` shape.
 
-## R1 design: drives and listings (draft 2026-10-31, not built)
+## R1 design: drives and listings (built and deployed 2026-10-31)
 
 Read-only. Two new commands in `message.cpp` (`processFileCommands`), registered in `commands.h`.
 The stock `file_directory_operation` stays as it is for `exists` and `list`; it cannot be extended
