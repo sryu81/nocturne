@@ -15,6 +15,9 @@ if ! adb devices | grep -q "^$DEVICE[[:space:]]*device$"; then
     exit 1
 fi
 
+echo "Building debug APK..."
+./gradlew assembleDebug
+
 echo "Installing APK on $DEVICE..."
 adb -s "$DEVICE" install -r "$APK"
 
