@@ -37,7 +37,7 @@ import com.nocturne.transport.rigBeacons
 import com.nocturne.ui.components.NocturneButton
 import com.nocturne.ui.components.BtnStyle
 import com.nocturne.ui.components.TextC
-import com.nocturne.ui.components.TypedConfirmDialog
+import com.nocturne.ui.components.WindowConfirmDialog
 import com.nocturne.ui.session.RigPowerAction
 import com.nocturne.ui.session.RigPowerUi
 import com.nocturne.ui.components.VSpacer
@@ -283,11 +283,10 @@ fun ConnectScreen(
 
     confirmAction?.let { action ->
         val reboot = action == RigPowerAction.REBOOT
-        TypedConfirmDialog(
+        WindowConfirmDialog(
             title = if (reboot) "Reboot the rig?" else "Shut down the rig?",
             message = (if (reboot) "This power-cycles the Pi at ${host.trim()}. " else "This powers off the Pi at ${host.trim()}; it will not come back until its power is cycled. ") +
                 "Anything mid-slew, mid-capture, or mid-guide will be cut off ungracefully.",
-            requiredText = if (reboot) "REBOOT" else "SHUTDOWN",
             confirmText = if (reboot) "Reboot" else "Shut down",
             onConfirm = {
                 confirmAction = null

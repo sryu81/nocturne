@@ -2044,11 +2044,10 @@ private fun MaintenanceSheet(state: AppState, ctrl: SessionController) {
     }
 
     if (showConfirm) {
-        com.nocturne.ui.components.TypedConfirmDialog(
+        com.nocturne.ui.components.WindowConfirmDialog(
             title = "Reboot the rig?",
             message = "This power-cycles the Pi. Anything mid-slew, mid-capture, or mid-guide " +
                 "will be cut off ungracefully.",
-            requiredText = "REBOOT",
             confirmText = "Reboot",
             onConfirm = {
                 showConfirm = false
@@ -2058,11 +2057,10 @@ private fun MaintenanceSheet(state: AppState, ctrl: SessionController) {
         )
     }
     if (showShutdownConfirm) {
-        com.nocturne.ui.components.TypedConfirmDialog(
+        com.nocturne.ui.components.WindowConfirmDialog(
             title = "Shut down the rig?",
             message = "This powers the Pi off. It will not come back until its power is cycled, and " +
                 "anything mid-slew, mid-capture, or mid-guide will be cut off ungracefully.",
-            requiredText = "SHUTDOWN",
             confirmText = "Shut down",
             onConfirm = {
                 showShutdownConfirm = false
