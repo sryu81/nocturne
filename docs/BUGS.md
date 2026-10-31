@@ -15,13 +15,16 @@ first within each list. Commits are on `main` (the `controls-revision` branch wa
   Scheduler logged "Observatory is in the startup process ... Starting Ekos"; a new analyze file starts
   23:35:20, the mount went home at 23:35:52. No job end event, no crash or core dump in the journal, and
   KStars itself stayed up (only Ekos restarted).
-- **Cause:** unknown. The phone was out of Wi-Fi range from 20:21 and only reconnected at 23:34:46, so
-  it saw nothing before that, and the KStars log of that night was overwritten at the 23:41 boot.
-  Pi journal: no crash and no USB error at 23:35:18, only "indiserver closed the connection"; the
-  Scheduler then saw Ekos down and started it again (so stopping Ekos while the Scheduler runs
-  restarts it). The mount went home 23:35:53 to 23:36:26. The 23:37:26 `sudo poweroff` was the user's
-  and is not part of the bug. Open: whether the user also stopped Ekos at 23:35:18, 32 s after the
-  phone reconnected.
+- **Cause:** unknown. Evidence says imaging was still running when the user reached the rig: the
+  analyze file has R_5 done and R_6 started 23:32:54, a TargetDistance at 23:33:44 and a guide sample
+  at 23:35:16, so the stop (23:35:18) came about 30 s after the phone reconnected (23:34:46), not
+  before. Pi journal 23:25 to 23:35:18: nothing but "indiserver closed the connection" at 23:35:18
+  (no crash, no USB error, no login; undervoltage warnings run all night and are not the cause). The
+  app has no command that stops Ekos and sends none on connect. KStars' own log of that night was
+  overwritten at the 23:41 boot, and the phone was out of Wi-Fi range 20:21 to 23:34, so no Log lines
+  exist for the evening. The Scheduler restarted Ekos by itself at 23:35:18, the mount went home
+  23:35:53 and the user powered the Pi off at 23:37:26 (neither is part of the bug).
+- **Open:** what the user saw on arrival (VNC/KStars screen?) and what they pressed before 23:35.
 - **Fix state:** Ekos file logging turned on 2026-10-31 (kstarsrc `LogToFile`, module logging for Capture,
   Focus, Guide, Alignment, Mount, Scheduler) and KStars restarted; logs in
   `~/.local/share/kstars/logs/<date>/`. Next occurrence will have a log.
