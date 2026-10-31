@@ -33,7 +33,7 @@ rig; what is still unchecked is in `docs/STATUS.md`. Details of each milestone a
 | 2 | C4 | Polar alignment page with pinned Start/Stop | Built, merged; page and settings rig-checked, the run itself not |
 | 3 | R0 | USB automount (Pi tool) | Done, installed on the Pi 2026-10-31; NTFS stick mounted and unmounted on a real pull; vfat, exfat and the fstab stick unchecked |
 | 3 | L1 | App: fixed capture layout (`Nocturne/<Target>/<night>/…`) | Proposed |
-| 3 | L2 | Pi: migration of the old folders into it | Proposed |
+| 3 | L2 | Pi: migration of the old folders into it | Done 2026-10-31: 4 folders (161 files, 8 GB) moved on the SD card; the symlink case was only tested on a fake drive |
 | 3 | R1 | Fork: drives and listings | Design drafted |
 | 3 | R2 | App: Rig storage, read-only | Not started |
 | 3 | R3 | Fork: preview and header | Not started |
