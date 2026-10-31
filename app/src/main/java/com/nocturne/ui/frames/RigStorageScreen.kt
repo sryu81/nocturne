@@ -174,15 +174,11 @@ private fun ActionBar(rs: RigStorageState, ctrl: SessionController, modifier: Mo
                     "${paths.size} selected" + (bytes?.let { " · ${formatByteSize(it)}" } ?: ""),
                     style = t.MonoSmall, color = c.text,
                 )
-                Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
-                    val idle = !rs.opRunning
-                    NocturneButton("Copy to…", { ctrl.rigStorageStartOp(RigOpKind.COPY, paths) }, Modifier.weight(1f), BtnStyle.OUTLINE, idle)
-                    NocturneButton("Move to…", { ctrl.rigStorageStartOp(RigOpKind.MOVE, paths) }, Modifier.weight(1f), BtnStyle.OUTLINE, idle)
-                    if (paths.size == 1) {
-                        NocturneButton("Rename", { ctrl.rigStorageStartOp(RigOpKind.RENAME, paths) }, Modifier.weight(1f), BtnStyle.OUTLINE, idle)
-                    }
-                    NocturneButton("Delete", { ctrl.rigStorageStartOp(RigOpKind.DELETE, paths) }, Modifier.weight(1f), BtnStyle.DANGER, idle)
-                }
+                ActionButtons(
+                    idle = !rs.opRunning,
+                    canRename = paths.size == 1,
+                    onStart = { kind -> ctrl.rigStorageStartOp(kind, paths) },
+                )
                 NocturneButton("Clear selection", ctrl::rigStorageClearSelection, style = BtnStyle.SUBTLE)
             }
             pending.kind == RigOpKind.RENAME -> {
@@ -512,14 +508,24 @@ private fun FilePage(rs: RigStorageState, ctrl: SessionController, frame: MediaF
             }
         }
 
-        val idle = !rs.opRunning && rs.pending == null
-        val one = listOf(page.path)
+        ActionButtons(
+            idle = !rs.opRunning && rs.pending == null,
+            canRename = true,
+            onStart = { kind -> ctrl.rigStorageStartOp(kind, listOf(page.path)) },
+        )
+    }
+}
+
+/** Copy, Move and Rename on one row, Delete below it: four across would wrap their labels. */
+@Composable
+private fun ActionButtons(idle: Boolean, canRename: Boolean, onStart: (RigOpKind) -> Unit) {
+    Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
         Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
-            NocturneButton("Copy", { ctrl.rigStorageStartOp(RigOpKind.COPY, one) }, Modifier.weight(1f), BtnStyle.OUTLINE, idle)
-            NocturneButton("Move", { ctrl.rigStorageStartOp(RigOpKind.MOVE, one) }, Modifier.weight(1f), BtnStyle.OUTLINE, idle)
-            NocturneButton("Rename", { ctrl.rigStorageStartOp(RigOpKind.RENAME, one) }, Modifier.weight(1f), BtnStyle.OUTLINE, idle)
-            NocturneButton("Delete", { ctrl.rigStorageStartOp(RigOpKind.DELETE, one) }, Modifier.weight(1f), BtnStyle.DANGER, idle)
+            NocturneButton("Copy", { onStart(RigOpKind.COPY) }, Modifier.weight(1f), BtnStyle.OUTLINE, idle)
+            NocturneButton("Move", { onStart(RigOpKind.MOVE) }, Modifier.weight(1f), BtnStyle.OUTLINE, idle)
+            if (canRename) NocturneButton("Rename", { onStart(RigOpKind.RENAME) }, Modifier.weight(1f), BtnStyle.OUTLINE, idle)
         }
+        NocturneButton("Delete", { onStart(RigOpKind.DELETE) }, Modifier.fillMaxWidth(), BtnStyle.DANGER, idle)
     }
 }
 

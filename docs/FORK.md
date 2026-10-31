@@ -20,6 +20,7 @@ replaces that client with **EkosRemote**, a server inside KStars that listens on
 | `9259d6e48` | `new_log` (one log line, sent once, with a per-run id) and `get_logs` (last 2,000 lines); fed by the Capture/Align/Focus/Guide/Scheduler/Mount module logs, the Ekos main log and INDI driver messages with their level; the older `{"log"}` pushes and `device_message` stay |
 | `88026c9c7` | Align overlay (RA-axis ring, correction triangle, star circle) drawn 5 px wide, ring solid not dashed, so it survives JPEG and the phone downscale |
 | `f6671f854` | `file_list_drives` and `file_list` (read-only listing of the `Nocturne` folders on the SD card and USB drives, `ekosremote/filebrowser.cpp`); the stock `file_directory_operation` `create` and `remove` act only inside a `Nocturne` folder |
+| `57cbaaf0f` | `file_header` (FITS header cards), `file_preview` (JPEG on the media channel as `fp_<n>`), and the file operations `file_delete`, `file_copy`, `file_move`, `file_rename`, `file_cancel`, `file_eject` with `file_progress` pushes (`ekosremote/fileops.cpp`); one operation at a time, `.part` files, SHA-1 on move, the running capture's folder locked |
 
 ## Divergence from upstream (checked 2026-10-24)
 
