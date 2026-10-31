@@ -2365,10 +2365,11 @@ internal fun PolarAlignmentBody(state: AppState, ctrl: SessionController) {
             val azErr = state.wirePolarUpdatedAzError ?: state.wirePolarVector?.azError
             val altErr = state.wirePolarUpdatedAltError ?: state.wirePolarVector?.altError
             Spacer(Modifier.height(10.dp))
+            // Read at arm's length at the mount, so the values are large with the label above.
             Row(Modifier.fillMaxWidth()) {
-                TextC("total %.2f°".format(totalErr), style = t.MonoMid, color = c.text, modifier = Modifier.weight(1f))
-                TextC(azErr?.let { "az %+.2f°".format(it) } ?: "az —", style = t.MonoMid, color = c.textMuted, modifier = Modifier.weight(1f))
-                TextC(altErr?.let { "alt %+.2f°".format(it) } ?: "alt —", style = t.MonoMid, color = c.textMuted, modifier = Modifier.weight(1f))
+                PolarErrorReadout("TOTAL", "%.2f°".format(totalErr), c.text, Modifier.weight(1f))
+                PolarErrorReadout("AZ", azErr?.let { "%+.2f°".format(it) } ?: "—", c.textMuted, Modifier.weight(1f))
+                PolarErrorReadout("ALT", altErr?.let { "%+.2f°".format(it) } ?: "—", c.textMuted, Modifier.weight(1f))
             }
         }
 
@@ -2446,6 +2447,16 @@ internal fun PolarAlignmentBody(state: AppState, ctrl: SessionController) {
                 style = t.MonoMicro, color = c.warn,
             )
         }
+    }
+}
+
+@Composable
+private fun PolarErrorReadout(label: String, value: String, valueColor: androidx.compose.ui.graphics.Color, modifier: Modifier = Modifier) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    Column(modifier) {
+        TextC(label, style = t.MicroUppercase, color = c.textFaint)
+        TextC(value, style = t.Mono21, color = valueColor)
     }
 }
 
