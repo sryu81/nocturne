@@ -12,6 +12,9 @@ import com.nocturne.protocol.Commands
 import com.nocturne.protocol.EkosEvent
 import com.nocturne.protocol.GuideAxis
 import com.nocturne.protocol.WireAlignSettings
+import com.nocturne.protocol.WireCaptureSettings
+import java.time.Instant
+import java.time.ZoneId
 import com.nocturne.protocol.GuideTuning
 import com.nocturne.protocol.clamp
 import com.nocturne.protocol.MediaFrameType
@@ -691,6 +694,7 @@ class EkosRemoteController(
                 event.devices.forEach { device -> subscribeDevice(device) }
             }
             is EkosEvent.NewConnectionState -> binningDefaulted.clear()
+            is EkosEvent.CaptureSettings -> enforceCaptureLocation(event.settings)
             is EkosEvent.FocusSettings -> defaultBinningIfMissing("focus", event.settings.focusBinning) { setFocusBinning(DEFAULT_BINNING) }
             is EkosEvent.GuideSettings -> defaultBinningIfMissing("guide", event.settings.guideBinning) { setGuidePreviewBinning(DEFAULT_BINNING) }
             is EkosEvent.DeviceProperty -> {
@@ -814,6 +818,22 @@ class EkosRemoteController(
         val was = property.switches.firstOrNull { it.state == 1 }
             ?.let { mapOf("1" to "West", "3" to "Best")[it.name] ?: it.label ?: it.name } ?: "unset"
         pushLocalAlert("$device preferred pier side was $was — set to East (needed for meridian flip)", source = 5, severity = 2)
+    }
+
+    /**
+     * Ekos's own Capture settings (used by a capture started outside a job) point inside
+     * [CaptureLayout.ROOT] too, so nothing is saved outside the tree the file manager manages.
+     * Jobs carry their own directory (see [pushRealJob]) and are not affected; a running Scheduler
+     * is left alone and this applies at the next connection. Ekos echoes the new values back, which
+     * match, so it does not repeat.
+     */
+    private fun enforceCaptureLocation(settings: WireCaptureSettings) {
+        if (_state.value.schedulerRunning) return
+        val dir = CaptureLayout.manualFitsDirectory()
+        if (settings.fileDirectoryT != dir) sendCaptureSetting("fileDirectoryT", JsonPrimitive(dir))
+        if (settings.placeholderFormatT != CaptureLayout.MANUAL_PLACEHOLDER_FORMAT) {
+            sendCaptureSetting("placeholderFormatT", JsonPrimitive(CaptureLayout.MANUAL_PLACEHOLDER_FORMAT))
+        }
     }
 
     /**
@@ -1791,14 +1811,6 @@ class EkosRemoteController(
         }
     }
 
-    override fun setCameraSaveDir(path: String) {
-        sendCaptureSetting("fileDirectoryT", JsonPrimitive(path))
-        super.setCameraSaveDir(path)
-    }
-    override fun setCameraPlaceholderFormat(format: String) {
-        sendCaptureSetting("placeholderFormatT", JsonPrimitive(format))
-        super.setCameraPlaceholderFormat(format)
-    }
     override fun setCameraGuideDeviationEnabled(enabled: Boolean) {
         sendCaptureSetting("enforceGuideDeviation", JsonPrimitive(enabled))
         super.setCameraGuideDeviationEnabled(enabled)
@@ -2576,6 +2588,10 @@ class EkosRemoteController(
         val job = s.jobs.firstOrNull { it.id == jobId } ?: return
         val target = s.findTarget(job.targetId)
         val targetName = s.targetNameFor(job)
+        val layoutTarget = target?.common ?: target?.id ?: job.targetId
+        val night = CaptureLayout.nightDate(
+            Instant.now(), s.realNightWindow, s.siteZoneOffset ?: ZoneId.systemDefault(),
+        )
         // Named after the target (e.g. "esq/M33_j3.esq"), sanitized like FrameFileWriter's
         // paths; the raw name goes to `nameEdit`, which Ekos sanitizes itself. A bare path
         // resolves relative to $HOME. It's not known whether the save handler creates a missing
@@ -2590,10 +2606,9 @@ class EkosRemoteController(
                     refocusEveryN = s.wireCaptureSettings?.refocusEveryN ?: 60,
                     enforceAutofocusOnTemperature = s.wireCaptureSettings?.enforceAutofocusOnTemperature ?: false,
                     maxFocusTemperatureDelta = s.wireCaptureSettings?.maxFocusTemperatureDelta ?: 1.0,
-                    // Carried from the capture settings so the job's FITSDirectory and
-                    // PlaceholderFormat match Ekos's.
-                    fitsDirectory = s.wireCaptureSettings?.fileDirectoryT,
-                    placeholderFormat = s.wireCaptureSettings?.placeholderFormatT ?: "",
+                    // Fixed by CaptureLayout, never taken from the capture settings.
+                    fitsDirectory = CaptureLayout.fitsDirectory(layoutTarget, night),
+                    placeholderFormat = CaptureLayout.placeholderFormat(layoutTarget),
                 ),
             )
             put("path", path)

@@ -326,12 +326,6 @@ abstract class AbstractLocalSessionController : SessionController {
     }
 
     // Camera settings.
-    override open fun setCameraSaveDir(path: String) = update { s ->
-        s.copy(wireCaptureSettings = s.wireCaptureSettings?.copy(fileDirectoryT = path))
-    }
-    override open fun setCameraPlaceholderFormat(format: String) = update { s ->
-        s.copy(wireCaptureSettings = s.wireCaptureSettings?.copy(placeholderFormatT = format))
-    }
     override open fun setCameraGuideDeviationEnabled(enabled: Boolean) = update { s ->
         s.copy(wireCaptureSettings = s.wireCaptureSettings?.copy(enforceGuideDeviation = enabled))
     }

@@ -20,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.unit.dp
+import com.nocturne.session.CaptureLayout
 import com.nocturne.session.SessionController
 import com.nocturne.session.AppState
 import com.nocturne.ui.components.TextC
@@ -29,23 +30,16 @@ import com.nocturne.ui.theme.NocturneTheme
 // ── Camera file settings ────────────────────────────────────────────────────
 
 /**
- * Capture-module file settings: save path and filename template (`fileDirectoryT`/
- * `placeholderFormatT`). Opened from the Frames tab. [AppState.wireCaptureSettings] is null until
- * the first `capture_get_all_settings` reply.
+ * Where frames are saved. Fixed by [CaptureLayout] (`docs/PLAN.md`, "File layout rule"), so this
+ * only shows the rule. [AppState.wireCaptureSettings] is not needed.
  */
 @Composable
 internal fun CameraSettingsSheet(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
 
-    val cam = state.wireCaptureSettings
-    if (cam == null) {
-        TextC("Fetching camera settings…", style = t.Body13, color = c.textMuted)
-        return
-    }
-
     Column {
-        FieldLabel("Save path")
+        FieldLabel("Save location")
         Spacer(Modifier.height(5.dp))
         Box(
             Modifier.fillMaxWidth().height(48.dp)
@@ -54,37 +48,20 @@ internal fun CameraSettingsSheet(state: AppState, ctrl: SessionController) {
                 .padding(horizontal = 12.dp),
             contentAlignment = Alignment.CenterStart,
         ) {
-            BasicTextField(
-                value = cam.fileDirectoryT,
-                onValueChange = ctrl::setCameraSaveDir,
-                singleLine = true,
-                textStyle = t.Body13.copy(color = c.text),
-                cursorBrush = SolidColor(c.accent),
-                modifier = Modifier.fillMaxWidth(),
-            )
+            TextC(CaptureLayout.ROOT, style = t.Body13, color = c.text)
         }
         Spacer(Modifier.height(11.2.dp))
-        FieldLabel("Placeholder format")
-        Spacer(Modifier.height(5.dp))
-        Box(
-            Modifier.fillMaxWidth().height(48.dp)
-                .background(c.bg, RoundedCornerShape(4.dp))
-                .border(1.dp, c.divider, RoundedCornerShape(4.dp))
-                .padding(horizontal = 12.dp),
-            contentAlignment = Alignment.CenterStart,
-        ) {
-            BasicTextField(
-                value = cam.placeholderFormatT,
-                onValueChange = ctrl::setCameraPlaceholderFormat,
-                singleLine = true,
-                textStyle = t.Body13.copy(color = c.text),
-                cursorBrush = SolidColor(c.accent),
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
+        FieldLabel("Folders")
         Spacer(Modifier.height(5.dp))
         TextC(
-            "Real subfolder/filename template, applied after Save path — e.g. /%t/%T/%F/ (%t target, %T frame type, %F filter).",
+            "<Target> / <night> / <Type> / <Filter> / <Target>_<Type>_<Filter>_<exposure>_<time>_<n>.fits",
+            style = t.MonoSmall, color = c.text,
+        )
+        Spacer(Modifier.height(8.dp))
+        TextC(
+            "The night is the date it began, so frames after midnight stay with the evening before. " +
+                "The same layout is used on every USB drive, under its own Nocturne folder. The path is " +
+                "fixed so the Rig storage file manager can find, copy and move whole nights.",
             style = t.MonoMicro, color = c.textMuted,
         )
     }

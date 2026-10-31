@@ -268,9 +268,6 @@ interface SessionController {
     fun setMountAutoParkTime(time: String)
 
     // ── Camera settings (curated subset) ─────────────────────────────────
-    fun setCameraSaveDir(path: String)
-    /** See [com.nocturne.protocol.WireCaptureSettings.placeholderFormatT]. */
-    fun setCameraPlaceholderFormat(format: String)
     fun setCameraGuideDeviationEnabled(enabled: Boolean)
     fun setCameraGuideDeviation(arcsec: Double)
     fun setCameraStartGuideDriftEnabled(enabled: Boolean)

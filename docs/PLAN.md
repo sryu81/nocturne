@@ -32,7 +32,7 @@ rig; what is still unchecked is in `docs/STATUS.md`. Details of each milestone a
 | 2 | C3 | Page upgrades (frames, backlash, chart, coordinates) | Built, merged; mount layout, backlash and align frame rig-checked, focus frame and guide chart not |
 | 2 | C4 | Polar alignment page with pinned Start/Stop | Built, merged; page and settings rig-checked, the run itself not |
 | 3 | R0 | USB automount (Pi tool) | Done, installed on the Pi 2026-10-31; NTFS stick mounted and unmounted on a real pull; vfat, exfat and the fstab stick unchecked |
-| 3 | L1 | App: fixed capture layout (`Nocturne/<Target>/<night>/…`) | Proposed |
+| 3 | L1 | App: fixed capture layout (`Nocturne/<Target>/<night>/…`) | Built and unit-tested 2026-10-31; not installed, no real capture seen in the new tree |
 | 3 | L2 | Pi: migration of the old folders into it | Done 2026-10-31: 4 folders (161 files, 8 GB) moved on the SD card; the symlink case was only tested on a fake drive |
 | 3 | R1 | Fork: drives and listings | Design drafted |
 | 3 | R2 | App: Rig storage, read-only | Not started |
@@ -597,7 +597,7 @@ are safe on the rig; R5 can lose files, so it is tested on a scratch folder firs
 R0 has no fork build, so it can start first and gives R1 real USB volumes to list. R1, R3 and R5 could
 share one fork build if they are written together, at the cost of testing later.
 
-## File layout rule (proposed 2026-10-31, awaiting the user's yes)
+## File layout rule (decided 2026-10-31; L1 built)
 
 Today every job makes a new top-level folder in the Pi's home, mixed with tools and logs:
 `/home/soo/M_31_j2_20261030_201431/Light/R/M_31_j2_20261030_201431_Light_R_3.fits`. One target on one
@@ -631,9 +631,12 @@ and the Save path and Placeholder format are free text in the File settings shee
   target baked in as literal text. The scheduler job keeps its unique name (`M_31_j2_…`), which
   only the esq file and the scheduler list use.
 - The File settings sheet shows the root and the structure read-only. The Save path and
-  Placeholder format fields, `setCameraSaveDir` and `setCameraPlaceholderFormat` go away; the app
-  writes the root into the Capture module's own settings once per connection so a Preview or manual
-  capture lands in the same tree.
+  Placeholder format fields, `setCameraSaveDir` and `setCameraPlaceholderFormat` are gone. Once per
+  connection (not while the Scheduler runs) the app writes `Nocturne/Manual` and the format
+  `/%t/%T/%F/%t_%T_%F_%e_%D` into the Capture module's own settings, so a capture started in Ekos
+  outside a job lands in `Nocturne/Manual/<Ekos target>/<Type>/<Filter>/` instead of outside the tree.
+  The night date is taken when the job is pushed (`pushRealJob`, which also runs at Start), so a
+  run that crosses into a second night stays in the first night's folder.
 - The fork's `isAllowedPath` (R1) accepts only `Nocturne/` roots, which turns the same rule into the
   safety check for every file operation.
 - Ekos on the Pi's own screen (VNC) can still change its settings. The rule holds for everything
