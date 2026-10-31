@@ -53,6 +53,9 @@ object Commands {
 
     // Scopes catalog (separate from optical trains)
     const val GET_SCOPES = "get_scopes"
+    /** Fork (R1): drives and a Nocturne folder's listing. An older fork never answers. */
+    const val FILE_LIST_DRIVES = "file_list_drives"
+    const val FILE_LIST = "file_list"
     const val SCOPE_ADD = "scope_add"
     const val SCOPE_UPDATE = "scope_update"
     const val SCOPE_DELETE = "scope_delete"

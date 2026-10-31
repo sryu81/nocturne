@@ -35,7 +35,7 @@ rig; what is still unchecked is in `docs/STATUS.md`. Details of each milestone a
 | 3 | L1 | App: fixed capture layout (`Nocturne/<Target>/<night>/…`) | Built and unit-tested 2026-10-31; not installed, no real capture seen in the new tree |
 | 3 | L2 | Pi: migration of the old folders into it | Done 2026-10-31: 4 folders (161 files, 8 GB) moved on the SD card; the symlink case was only tested on a fake drive |
 | 3 | R1 | Fork: drives and listings | Built, deployed to the Pi 2026-10-31 and tested with a scripted client (drives, listings, refusals, stock create/remove); `inUse` during a capture not seen |
-| 3 | R2 | App: Rig storage, read-only | Not started |
+| 3 | R2 | App: Rig storage, read-only | Built, installed and seen on the phone against the deployed fork 2026-10-31 (drives, folders, files, Back, empty stick); the offline, older-fork and in-use states are unit-tested or untried on the rig |
 | 3 | R3 | Fork: preview and header | Not started |
 | 3 | R4 | App: file page | Not started |
 | 3 | R5 | Fork: file operations and eject | Not started |

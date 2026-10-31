@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,6 +31,7 @@ import com.nocturne.session.formatDecDegrees
 import com.nocturne.session.formatRaHours
 import com.nocturne.session.keepCount
 import com.nocturne.session.rejectCount
+import com.nocturne.session.rigStorageSummary
 import com.nocturne.session.SheetType
 import com.nocturne.ui.components.Card
 import com.nocturne.ui.components.HfrRunChart
@@ -63,7 +65,10 @@ fun FramesScreen(
     val planRows = state.frameRows.filter { it.target != null }
 
     when {
-        state.frameCategory == null -> CategoryPicker(previewRows.size, planRows.size, ctrl, landscape, modifier)
+        state.rigStorage.open -> RigStorageScreen(state, ctrl, landscape, modifier)
+        state.frameCategory == null -> CategoryPicker(
+            previewRows.size, planRows.size, rigStorageSummary(state.rigStorage.drives), ctrl, landscape, modifier,
+        )
         state.frameCategory == FrameCategory.PREVIEW -> FrameListScreen(
             title = "Preview",
             rows = previewRows,
@@ -91,10 +96,13 @@ fun FramesScreen(
 private fun CategoryPicker(
     previewCount: Int,
     planCount: Int,
+    rigStorageSummary: String?,
     ctrl: SessionController,
     landscape: Boolean,
     modifier: Modifier,
 ) {
+    // The picker's one-liner for Rig storage; an older fork never answers and the card keeps its default.
+    LaunchedEffect(Unit) { ctrl.requestRigStorageSummary() }
     TabPane(
         landscape = landscape,
         modifier = modifier,
@@ -115,7 +123,15 @@ private fun CategoryPicker(
                     onClick = { ctrl.selectFrameCategory(FrameCategory.PLAN) },
                 )
             },
-            // Save path and placeholder format live here, with the files they produce.
+            TabItem(full = true) {
+                CategoryCard(
+                    icon = Phosphor.HardDrive,
+                    title = "Rig storage",
+                    sub = rigStorageSummary ?: "the Pi's SD card and USB drives",
+                    onClick = ctrl::openRigStorage,
+                )
+            },
+            // Where frames are saved is shown here, with the files they produce.
             TabItem(full = true) {
                 CategoryCard(
                     icon = Phosphor.SlidersHorizontal,

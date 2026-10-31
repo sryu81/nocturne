@@ -125,6 +125,8 @@ data class AppState(
      * [FrameCategory.PLAN], null [frameTarget] shows the target list, non-null that target's frames.
      */
     val frameCategory: FrameCategory? = null,
+    /** Frames tab's Rig storage view (plan 3, R2); local navigation plus the last fork replies. */
+    val rigStorage: RigStorageState = RigStorageState(),
     val frameTarget: String? = null,
     /** Cumulative seconds the meridian flip countdown has been pushed back via DEFER. */
     val flipDeferSec: Int = 0,

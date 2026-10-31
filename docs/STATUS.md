@@ -148,7 +148,7 @@ maintenance); the Pi keeps orders 0–5 on the SD card for KStars' offline HiPS.
   and installed 2026-10-31 (NTFS stick mounts at `/media/<label or UUID>` and unmounts on a pull;
   vfat, exfat and the fstab stick plugged in after boot unchecked), L2 (`pi-tools/capture-layout`) moved the four old SD-card folders into
   `/home/soo/Nocturne/<Target>/<night>/` on 2026-10-31; the layout rule is proposed, L1 (the app locks
-  the path) not built; R1 (fork `file_list_drives`/`file_list`) built and deployed 2026-10-31, scripted client checked drives, listings and refusals, `inUse` during a capture unseen; R2–R6 not started; (4) night 2026-10-26 fixes —
+  the path) not built; R1 (fork `file_list_drives`/`file_list`) built and deployed 2026-10-31, scripted client checked drives, listings and refusals, `inUse` during a capture unseen; R2 (app Rig storage, read-only: drives, folders, files) built and seen on the phone 2026-10-31; R3–R6 not started; (4) night 2026-10-26 fixes —
   N1 cooler on at Start, N2 guiding tuning, N3 polar overlay, built and merged 2026-10-27. Rig-checked:
   the cooler start step and the guide sheet values (not the first-sub hold). Not checked: a live guide
   gain write, and the polar overlay on a live frame (needs a PAH run under the sky). Overlay changed

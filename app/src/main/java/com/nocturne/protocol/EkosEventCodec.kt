@@ -67,6 +67,8 @@ object EkosEventCodec {
                 "scheduler_save_sequence_file" -> protocolJson.decodeFromJsonElement<EkosEvent.SchedulerSaveSequenceFile>(envelope.payload)
                 "train_get_all" -> EkosEvent.Trains(protocolJson.decodeFromJsonElement(envelope.payload))
                 "get_scopes" -> EkosEvent.Scopes(protocolJson.decodeFromJsonElement(envelope.payload))
+                "file_list_drives" -> protocolJson.decodeFromJsonElement<EkosEvent.FileDrives>(envelope.payload)
+                "file_list" -> protocolJson.decodeFromJsonElement<EkosEvent.FileListing>(envelope.payload)
                 "get_drivers" -> EkosEvent.Drivers(protocolJson.decodeFromJsonElement(envelope.payload))
                 "option_get" -> EkosEvent.OptionValues(protocolJson.decodeFromJsonElement(envelope.payload))
                 "train_get_profiles" -> EkosEvent.TrainProfiles(protocolJson.decodeFromJsonElement(envelope.payload))

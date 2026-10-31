@@ -490,6 +490,8 @@ class EkosRemoteController(
         }
 
         is EkosEvent.MountSettings -> s.copy(wireMountSettings = event.settings)
+        is EkosEvent.FileDrives -> s.copy(rigStorage = s.rigStorage.withDrives(event.drives))
+        is EkosEvent.FileListing -> s.copy(rigStorage = s.rigStorage.withListing(event))
         // Seed coolTarget from the Capture module's setpoint. This reply arrives only once (the
         // eager fetch at connect), so it can't overwrite a later optimistic coolUp/coolDown.
         is EkosEvent.CaptureSettings -> s.copy(
@@ -818,6 +820,79 @@ class EkosRemoteController(
         val was = property.switches.firstOrNull { it.state == 1 }
             ?.let { mapOf("1" to "West", "3" to "Best")[it.name] ?: it.label ?: it.name } ?: "unset"
         pushLocalAlert("$device preferred pier side was $was — set to East (needed for meridian flip)", source = 5, severity = 2)
+    }
+
+    // ── Rig storage ──────────────────────────────────────────────────────
+
+    private var rigStorageWatch: Job? = null
+
+    private fun linkUp(): Boolean = client.connectionStatus.value.state.let {
+        it == ConnectionState.SOCKET_OPEN || it == ConnectionState.ONLINE
+    }
+
+    override fun requestRigStorageSummary() {
+        if (linkUp()) client.sendCommand(Commands.FILE_LIST_DRIVES)
+    }
+
+    override fun openRigStorage() {
+        update { it.copy(rigStorage = it.rigStorage.copy(open = true).openDrives()) }
+        requestRigStorageData()
+    }
+
+    override fun closeRigStorage() {
+        rigStorageWatch?.cancel()
+        update { it.copy(rigStorage = it.rigStorage.copy(open = false).openDrives()) }
+    }
+
+    override fun rigStorageOpenFolder(path: String) {
+        update { it.copy(rigStorage = it.rigStorage.openFolder(path)) }
+        requestRigStorageData()
+    }
+
+    override fun rigStorageUp() {
+        val rs = _state.value.rigStorage
+        val parent = rs.parentPath()
+        if (rs.path == null) {
+            closeRigStorage()
+        } else if (parent == null) {
+            update { it.copy(rigStorage = it.rigStorage.openDrives()) }
+            requestRigStorageData()
+        } else {
+            rigStorageOpenFolder(parent)
+        }
+    }
+
+    override fun rigStorageRefresh() {
+        update { it.copy(rigStorage = it.rigStorage.copy(listing = null, status = RigStorageStatus.LOADING)) }
+        requestRigStorageData()
+    }
+
+    /**
+     * Asks for what the screen shows: the drives, or the listing of the open folder. A fork from
+     * before R1 does not know the commands and never replies, so the wait ends in OLD_FORK (drives)
+     * or NO_REPLY (a folder) after [RIG_STORAGE_TIMEOUT_MS]; a late reply still wins.
+     */
+    private fun requestRigStorageData() {
+        rigStorageWatch?.cancel()
+        val path = _state.value.rigStorage.path
+        if (!linkUp()) {
+            update { it.copy(rigStorage = it.rigStorage.copy(status = RigStorageStatus.OFFLINE)) }
+            return
+        }
+        if (path == null) {
+            client.sendCommand(Commands.FILE_LIST_DRIVES)
+        } else {
+            client.sendCommand(Commands.FILE_LIST, buildJsonObject { put("path", path) })
+        }
+        rigStorageWatch = scope.launch {
+            delay(RIG_STORAGE_TIMEOUT_MS)
+            update { s ->
+                val rs = s.rigStorage
+                if (rs.open && rs.path == path && rs.status == RigStorageStatus.LOADING) {
+                    s.copy(rigStorage = rs.copy(status = if (path == null) RigStorageStatus.OLD_FORK else RigStorageStatus.NO_REPLY))
+                } else s
+            }
+        }
     }
 
     /**
@@ -2798,6 +2873,7 @@ private const val PIER_SIDE_EAST = "2" // lx200_OnStep.cpp: "1" West, "2" East, 
 private const val SETTINGS_REFRESH_DELAY_MS = 1_500L
 private const val DEVICE_REFRESH_DELAY_MS = 1_500L
 private const val DEFAULT_BINNING = "1x1"
+private const val RIG_STORAGE_TIMEOUT_MS = 5_000L
 private const val PIER_SIDE_RESEND_MS = 10_000L
 
 /** See [AppState.wireGainRangeByDevice]. */

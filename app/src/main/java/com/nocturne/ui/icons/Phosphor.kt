@@ -357,6 +357,33 @@ object Phosphor {
         )
     }
 
+    // ── Rig storage ─────────────────────────────────────────────────────────
+
+    val Folder: ImageVector by lazy {
+        icon("Folder",
+            s("M32,200V64a8,8,0,0,1,8-8H92.69a8,8,0,0,1,5.65,2.34L128,88H216a8,8,0,0,1,8,8V200a8,8,0,0,1-8,8H40A8,8,0,0,1,32,200Z"),
+            s(line(32f, 120f, 224f, 120f)),
+        )
+    }
+
+    val HardDrive: ImageVector by lazy {
+        icon("HardDrive",
+            s(rrect(32f, 120f, 192f, 88f, 12f)),
+            s(line(32f, 168f, 224f, 168f)),
+            s(circle(188f, 144f, 4f)),
+            s(circle(188f, 192f, 4f)),
+            s(line(64f, 144f, 112f, 144f)),
+        )
+    }
+
+    val Lock: ImageVector by lazy {
+        icon("Lock",
+            s(rrect(48f, 104f, 160f, 112f, 12f)),
+            s("M80,104V72a48,48,0,0,1,96,0V104"),
+            s(circle(128f, 160f, 6f)),
+        )
+    }
+
     // ── Path helpers ────────────────────────────────────────────────────────
 
     /** SVG `d` for a straight segment. */

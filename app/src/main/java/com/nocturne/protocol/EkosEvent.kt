@@ -232,6 +232,25 @@ sealed interface EkosEvent {
     @Serializable
     data class TrainProfiles(val assignments: Map<String, Int>) : EkosEvent
 
+    // ── Rig storage (fork, R1) ───────────────────────────────────────────
+
+    /** `file_list_drives` reply: the SD card first, then each USB drive. */
+    @Serializable
+    data class FileDrives(val drives: List<WireDrive> = emptyList()) : EkosEvent
+
+    /**
+     * `file_list` reply. [path] is echoed (the wire has no request id); [error] is `not_allowed`,
+     * `not_found` or `not_dir` and then [entries] is empty. [capturing]: a capture job is active.
+     */
+    @Serializable
+    data class FileListing(
+        val path: String = "",
+        val entries: List<WireFileEntry> = emptyList(),
+        val capturing: Boolean = false,
+        val truncated: Boolean = false,
+        val error: String? = null,
+    ) : EkosEvent
+
     // ── Scopes, drivers, options ─────────────────────────────────────────
 
     /** `get_scopes` reply — bare array, wrapped here. Also the auto-push after every `scope_add`/`update`/`delete`. */
@@ -670,6 +689,48 @@ data class WireDriver(
     val manufacturer: String = "",
     val family: String = "",
 )
+
+/**
+ * One drive of `file_list_drives`. [path] is the drive's `Nocturne` folder and [hasRoot] says
+ * whether it exists yet. Sizes are doubles on the wire (Qt JSON); read them through [totalBytes]
+ * and [freeBytes].
+ */
+@Serializable
+data class WireDrive(
+    val id: String,
+    /** `sd` or `usb`. */
+    val kind: String,
+    val label: String = "",
+    val fs: String = "",
+    val path: String,
+    val total: Double = 0.0,
+    val free: Double = 0.0,
+    val readOnly: Boolean = false,
+    val hasRoot: Boolean = false,
+) {
+    val totalBytes: Long get() = total.toLong()
+    val freeBytes: Long get() = free.toLong()
+}
+
+/**
+ * One entry of `file_list`. Folders carry [count] (direct children) and [bytes] (recursive;
+ * [bytesPartial] when the server's budget ran out); [inUse] marks the folder a capture is writing to.
+ */
+@Serializable
+data class WireFileEntry(
+    val name: String,
+    val isDir: Boolean = false,
+    /** Epoch seconds. */
+    val modified: Double = 0.0,
+    val size: Double = 0.0,
+    val count: Int = 0,
+    val bytes: Double = 0.0,
+    val bytesPartial: Boolean = false,
+    val inUse: Boolean = false,
+) {
+    val sizeBytes: Long get() = if (isDir) bytes.toLong() else size.toLong()
+    val modifiedSec: Long get() = modified.toLong()
+}
 
 /**
  * `OAL::Scope::toJson()` (`get_scopes`/`scope_add`/`scope_update`/`scope_delete`). The Scopes

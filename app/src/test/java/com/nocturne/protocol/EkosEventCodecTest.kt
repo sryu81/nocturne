@@ -468,4 +468,62 @@ class EkosEventCodecTest {
         assertEquals(337.5, event.ha!!, 1e-9)
         assertEquals(null, event.status)
     }
+
+    // The two payloads below are verbatim from the deployed fork (R1, 2026-10-31).
+
+    @Test
+    fun `decodes file_list_drives from the deployed fork`() {
+        // live capture
+        val event = EkosEventCodec.decode(
+            """{"payload":{"drives":[{"free":9641537536,"fs":"ext4","hasRoot":true,"id":"sd","kind":"sd","label":"SD card","path":"/home/soo/Nocturne","readOnly":false,"total":30825148416},{"free":158079107072,"fs":"ntfs3","hasRoot":true,"id":"/media/41BBA7905F504B0F","kind":"usb","label":"41BBA7905F504B0F","path":"/media/41BBA7905F504B0F/Nocturne","readOnly":false,"total":256060481536}]},"type":"file_list_drives"}""",
+        )
+        assertTrue(event is EkosEvent.FileDrives)
+        event as EkosEvent.FileDrives
+        assertEquals(listOf("sd", "usb"), event.drives.map { it.kind })
+        assertEquals(9_641_537_536L, event.drives[0].freeBytes)
+        assertEquals(256_060_481_536L, event.drives[1].totalBytes)
+        assertEquals("/media/41BBA7905F504B0F/Nocturne", event.drives[1].path)
+        assertTrue(event.drives[1].hasRoot)
+    }
+
+    @Test
+    fun `decodes file_list with folders and files`() {
+        // live capture
+        val event = EkosEventCodec.decode(
+            """{"payload":{"capturing":false,"entries":[{"bytes":3372969600,"count":1,"isDir":true,"modified":1793480205,"name":"2026-10-30"},{"isDir":false,"modified":1793428372,"name":"M_31_j2_20261030_201431_Light_R_5.fits","size":51891840}],"path":"/home/soo/Nocturne/M_31"},"type":"file_list"}""",
+        )
+        assertTrue(event is EkosEvent.FileListing)
+        event as EkosEvent.FileListing
+        assertEquals("/home/soo/Nocturne/M_31", event.path)
+        assertFalse(event.capturing)
+        assertNull(event.error)
+        val (folder, file) = event.entries
+        assertTrue(folder.isDir)
+        assertEquals(3_372_969_600L, folder.sizeBytes)
+        assertEquals(1, folder.count)
+        assertFalse(folder.inUse)
+        assertFalse(file.isDir)
+        assertEquals(51_891_840L, file.sizeBytes)
+        assertEquals(1_793_428_372L, file.modifiedSec)
+    }
+
+    @Test
+    fun `decodes file_list in use, partial and truncated shapes`() {
+        val event = EkosEventCodec.decode(
+            """{"payload":{"capturing":true,"truncated":true,"entries":[{"bytes":10,"bytesPartial":true,"count":2,"inUse":true,"isDir":true,"modified":1,"name":"2026-10-31"}],"path":"/p"},"type":"file_list"}""",
+        ) as EkosEvent.FileListing
+        assertTrue(event.capturing)
+        assertTrue(event.truncated)
+        assertTrue(event.entries.single().inUse)
+        assertTrue(event.entries.single().bytesPartial)
+    }
+
+    @Test
+    fun `decodes a file_list refusal`() {
+        val event = EkosEventCodec.decode(
+            """{"payload":{"capturing":false,"error":"not_allowed","path":"/home/soo/.ssh"},"type":"file_list"}""",
+        ) as EkosEvent.FileListing
+        assertEquals("not_allowed", event.error)
+        assertTrue(event.entries.isEmpty())
+    }
 }

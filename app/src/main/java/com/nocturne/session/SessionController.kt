@@ -29,6 +29,16 @@ interface SessionController {
     fun closeFrameExpand()
     /** Frames tab top-level nav; null returns to the Preview/Plan picker. */
     fun selectFrameCategory(category: FrameCategory?)
+
+    // ── Rig storage (Frames tab, plan 3 R2): the Pi's Nocturne folders, read-only ──
+    fun openRigStorage()
+    fun closeRigStorage()
+    fun rigStorageOpenFolder(path: String)
+    /** One level up; from a drive's own folder back to the drives. */
+    fun rigStorageUp()
+    fun rigStorageRefresh()
+    /** Asks for the drives once, for the Frames picker's one-liner; no screen state changes. */
+    fun requestRigStorageSummary()
     /** Frames tab target drill-down within Plan; null returns to the target list. */
     fun selectFrameTarget(target: String?)
     fun requestDeferFlip()
