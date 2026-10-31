@@ -97,7 +97,7 @@ trimmed). The app keeps only the new lines of it, and ignores it once the fork's
 | Align | `align_solve`, `align_set_astrometry_settings`, `align_set_target_pa`, `align_get_all_settings`, `align_set_all_settings` |
 | Focus | `focus_start`, `focus_stop`, `focus_in`, `focus_out`, `focus_get_all_settings`, `focus_set_all_settings` |
 | Guide | `guide_start`, `guide_stop`, `guide_loop`, `guide_clear`, `guide_capture`, `guide_get_all_settings`, `guide_set_all_settings` |
-| Files (R2) | `file_list_drives`, `file_list` |
+| Files (R2, R4, R6) | `file_list_drives`, `file_list`, `file_header`, `file_preview`, `file_delete`, `file_copy`, `file_move`, `file_rename`, `file_cancel`, `file_eject` |
 | Polar align | `polar_start`, `polar_stop`, `polar_refresh`, `polar_refreshing_done`, `polar_slew_done`, `polar_set_crosshair` |
 | Options / KStars | `option_get`, `option_set`, `kstars_set_location`, `kstars_set_time` |
 
@@ -123,6 +123,37 @@ is active. At most 5,000 entries (`truncated: true` beyond). A refusal replies `
 `not_allowed` (outside a `Nocturne` folder, a `..` part, or a symlink out), `not_found` or `not_dir`;
 the request path is echoed because the wire has no request id. The listing runs off KStars's GUI
 thread, so a stalled drive delays only its own reply.
+
+**`file_header`** `{"path"}` → response `file_header`, `{"path", "records": [{"key", "value"}]}`: the FITS header
+cards read straight from the file's first blocks (no pixels decoded); string values lose their quotes, COMMENT,
+HISTORY and blank cards are skipped. Errors: `not_allowed`, `not_found`, `not_file`, `not_fits`.
+
+**`file_preview`** `{"path"}` → response `file_preview`, `{"path", "uuid": "fp_<n>"}` (or `{"path", "error"}`: `not_allowed`,
+`not_found`, `not_file`, `not_fits`), then the JPEG arrives on the **media channel** with that uuid and the usual
+metadata packet (resolution, exposure, gain, bin, `hfr`, `hasWCS`, ...). The app must treat `fp_` as its own frame
+type: any unknown uuid counts as a capture. A newer request makes an older one drop its result. Needs `set_blobs`.
+
+**Operations** (one at a time; every path goes through the Nocturne-folders check and never touches the running
+capture's folder or anything inside it):
+
+| Command | Payload | Reply |
+|---|---|---|
+| `file_delete` | `{paths: [..]}` | `{id, op}` or `{error, path?}` |
+| `file_copy`, `file_move` | `{paths: [..], toDrive: "<drive id>"}` | same |
+| `file_rename` | `{path, name}` (same folder) | `{ok, path}` or `{error}` |
+| `file_cancel` | `{id}` | `{id, ok}` or `{error: "not_running"}` |
+| `file_eject` | `{id: "<usb drive id>"}` | `{id, ok}` or `{id, error, message?}` |
+
+Errors: `busy`, `bad_request`, `not_allowed`, `not_found`, `in_use`, `no_such_drive`, `same_drive`, `bad_name`, `exists`.
+Copy and move put each source at the same relative path under the target drive's `Nocturne` folder, creating folders
+and merging into existing ones; a name that exists is not overwritten (it is reported in `failed`, and its source is
+kept). Files are written as `<name>.part` and renamed when complete. Copy compares sizes; move also compares a SHA-1
+of source and copy before the source file is removed. A copy or move needs the target's free space to exceed the data
+plus 200 MB, else it ends `failed` with `error: "no_space"`, `needed`, `free`.
+
+**`file_progress`** push (about twice a second while running, and once at the end): `{id, op, state, filesDone,
+filesTotal, bytesDone, bytesTotal, current, failed: ["<name>: <reason>"], error?, needed?, free?}`, `state` being
+`running`, `done`, `failed` or `cancelled`.
 
 **Stock `file_directory_operation`:** `create` and `remove` now act only inside a `Nocturne` folder,
 and `remove` refuses a `Nocturne` folder itself; they answer `result: false` otherwise. `list` and

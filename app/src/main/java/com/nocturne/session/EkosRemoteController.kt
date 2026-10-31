@@ -494,6 +494,10 @@ class EkosRemoteController(
         is EkosEvent.FileDrives -> s.copy(rigStorage = s.rigStorage.withDrives(event.drives))
         is EkosEvent.FileListing -> s.copy(rigStorage = s.rigStorage.withListing(event))
         is EkosEvent.FileHeader -> s.copy(rigStorage = s.rigStorage.withHeader(event))
+        is EkosEvent.FileOpReply -> s.copy(rigStorage = s.rigStorage.withOpReply(event))
+        is EkosEvent.FileProgress -> s.copy(rigStorage = s.rigStorage.withProgress(event))
+        is EkosEvent.FileRenameReply -> s.copy(rigStorage = s.rigStorage.withRenameReply(event))
+        is EkosEvent.FileEjectReply -> s.copy(rigStorage = s.rigStorage.withEjectReply(event))
         is EkosEvent.FilePreviewReply -> s.copy(rigStorage = s.rigStorage.withPreviewReply(event))
         // Seed coolTarget from the Capture module's setpoint. This reply arrives only once (the
         // eager fetch at connect), so it can't overwrite a later optimistic coolUp/coolDown.
@@ -700,6 +704,15 @@ class EkosRemoteController(
             }
             is EkosEvent.NewConnectionState -> binningDefaulted.clear()
             is EkosEvent.CaptureSettings -> enforceCaptureLocation(event.settings)
+            // What an operation changed (free space, folder contents) is read again when it ends.
+            is EkosEvent.FileProgress -> if (event.state != "running") refreshRigStorage()
+            is EkosEvent.FileRenameReply -> if (event.ok) refreshRigStorage()
+            is EkosEvent.FileEjectReply -> {
+                refreshRigStorage()
+                // The ejected drive's folders are gone: back to the drives.
+                val rs = _state.value.rigStorage
+                if (event.ok && rs.driveFor(rs.path)?.id == event.id) update { it.copy(rigStorage = it.rigStorage.openDrives()) }
+            }
             is EkosEvent.FocusSettings -> defaultBinningIfMissing("focus", event.settings.focusBinning) { setFocusBinning(DEFAULT_BINNING) }
             is EkosEvent.GuideSettings -> defaultBinningIfMissing("guide", event.settings.guideBinning) { setGuidePreviewBinning(DEFAULT_BINNING) }
             is EkosEvent.DeviceProperty -> {
@@ -893,6 +906,66 @@ class EkosRemoteController(
                 )
             }
         }
+    }
+
+    override fun rigStorageToggleSelect(path: String) = update { it.copy(rigStorage = it.rigStorage.toggled(path)) }
+
+    override fun rigStorageClearSelection() = update { it.copy(rigStorage = it.rigStorage.clearedSelection()) }
+
+    override fun rigStorageStartOp(kind: RigOpKind, paths: List<String>) =
+        update { it.copy(rigStorage = it.rigStorage.startPending(kind, paths)) }
+
+    override fun rigStorageChooseTarget(driveId: String) = update { it.copy(rigStorage = it.rigStorage.withTarget(driveId)) }
+
+    override fun rigStorageCancelPending() = update { it.copy(rigStorage = it.rigStorage.cancelPending()) }
+
+    override fun rigStorageConfirmOp() {
+        val rs = _state.value.rigStorage
+        val pending = rs.pending ?: return
+        if (!pending.confirming || rs.opRunning) return
+        val command = when (pending.kind) {
+            RigOpKind.DELETE -> Commands.FILE_DELETE
+            RigOpKind.COPY -> Commands.FILE_COPY
+            RigOpKind.MOVE -> Commands.FILE_MOVE
+            RigOpKind.RENAME -> return
+        }
+        client.sendCommand(command, buildJsonObject {
+            put("paths", kotlinx.serialization.json.JsonArray(pending.paths.map { JsonPrimitive(it) }))
+            pending.toDrive?.let { put("toDrive", it) }
+        })
+        // A file page whose file is about to move or go is left; the folder shows what is left.
+        update { it.copy(rigStorage = it.rigStorage.sent().closeFile()) }
+    }
+
+    override fun rigStorageRename(newName: String) {
+        val rs = _state.value.rigStorage
+        val pending = rs.pending?.takeIf { it.kind == RigOpKind.RENAME } ?: return
+        val path = pending.paths.singleOrNull() ?: return
+        client.sendCommand(Commands.FILE_RENAME, buildJsonObject {
+            put("path", path)
+            put("name", newName.trim())
+        })
+        update { it.copy(rigStorage = it.rigStorage.cancelPending().clearedSelection()) }
+    }
+
+    override fun rigStorageCancelOp() {
+        val id = _state.value.rigStorage.op?.takeIf { it.state == "running" }?.id ?: return
+        client.sendCommand(Commands.FILE_CANCEL, buildJsonObject { put("id", id) })
+    }
+
+    override fun rigStorageEject(driveId: String) {
+        if (_state.value.rigStorage.opRunning) return
+        update { it.copy(rigStorage = it.rigStorage.copy(ejecting = driveId, notice = null)) }
+        client.sendCommand(Commands.FILE_EJECT, buildJsonObject { put("id", driveId) })
+    }
+
+    override fun rigStorageDismissNotice() = update { it.copy(rigStorage = it.rigStorage.dismissedNotice()) }
+
+    /** Reads the drives and the open folder again, without showing a loading state. */
+    private fun refreshRigStorage() {
+        if (!linkUp()) return
+        client.sendCommand(Commands.FILE_LIST_DRIVES)
+        _state.value.rigStorage.path?.let { client.sendCommand(Commands.FILE_LIST, buildJsonObject { put("path", it) }) }
     }
 
     override fun rigStorageRefresh() {

@@ -270,6 +270,57 @@ sealed interface EkosEvent {
         val error: String? = null,
     ) : EkosEvent
 
+    /**
+     * Reply to `file_delete`, `file_copy` or `file_move`: accepted with an [id] (then `file_progress` pushes
+     * follow) or refused with [error] (`busy`, `bad_request`, `not_allowed`, `not_found`, `in_use`,
+     * `no_such_drive`, `same_drive`).
+     */
+    @Serializable
+    data class FileOpReply(
+        val id: Int? = null,
+        val op: String? = null,
+        val error: String? = null,
+        val path: String? = null,
+    ) : EkosEvent
+
+    /**
+     * `file_progress` push, about twice a second while an operation runs and once at its end. [state] is
+     * `running`, `done`, `failed` or `cancelled`; [failed] lists `name: reason`; on `no_space`, [needed] and
+     * [free] are bytes.
+     */
+    @Serializable
+    data class FileProgress(
+        val id: Int = 0,
+        val op: String = "",
+        val state: String = "running",
+        val filesDone: Int = 0,
+        val filesTotal: Int = 0,
+        val bytesDone: Double = 0.0,
+        val bytesTotal: Double = 0.0,
+        val current: String = "",
+        val error: String? = null,
+        val failed: List<String> = emptyList(),
+        val needed: Double = 0.0,
+        val free: Double = 0.0,
+    ) : EkosEvent
+
+    /** `file_rename` reply: [ok] with the new [path], or [error] (`bad_name`, `exists`, `in_use`, ...). */
+    @Serializable
+    data class FileRenameReply(
+        val ok: Boolean = false,
+        val path: String = "",
+        val error: String? = null,
+    ) : EkosEvent
+
+    /** `file_eject` reply for the drive [id]; [message] is the helper's reason when it failed. */
+    @Serializable
+    data class FileEjectReply(
+        val id: String = "",
+        val ok: Boolean = false,
+        val error: String? = null,
+        val message: String? = null,
+    ) : EkosEvent
+
     // ── Scopes, drivers, options ─────────────────────────────────────────
 
     /** `get_scopes` reply — bare array, wrapped here. Also the auto-push after every `scope_add`/`update`/`delete`. */

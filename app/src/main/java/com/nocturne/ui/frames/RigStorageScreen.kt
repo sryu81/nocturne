@@ -2,6 +2,26 @@ package com.nocturne.ui.frames
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import com.nocturne.session.PendingOp
+import com.nocturne.session.RigOpKind
+import com.nocturne.session.deleteMessage
+import com.nocturne.session.driveFor
+import com.nocturne.session.driveLabel
+import com.nocturne.session.opRunning
+import com.nocturne.session.pendingBytes
+import com.nocturne.session.progressLine
+import com.nocturne.session.transferMessage
+import com.nocturne.ui.components.WindowConfirmDialog
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
@@ -60,32 +80,162 @@ private val ENTRY_DATE_FMT = SimpleDateFormat("MMM d, HH:mm", Locale.US)
 fun RigStorageScreen(state: AppState, ctrl: SessionController, landscape: Boolean, modifier: Modifier = Modifier) {
     val rs = state.rigStorage
     BackHandler(onBack = ctrl::rigStorageUp)
+    val barVisible = rs.selection.isNotEmpty() || rs.pending != null
 
-    TabPane(
-        landscape = landscape,
-        modifier = modifier,
-        items = buildList {
-            add(TabItem(full = true) { StorageHeader(rs, ctrl) })
-            add(
-                TabItem(full = true) {
-                    when (rs.status) {
-                        RigStorageStatus.OFFLINE -> Notice("Needs KStars running", "Connect to the rig, then refresh.")
-                        RigStorageStatus.OLD_FORK -> Notice(
-                            "Needs the updated KStars",
-                            "The KStars on the Pi is older than the file manager. Install the current build, then refresh.",
-                        )
-                        RigStorageStatus.NO_REPLY -> Notice("No answer from the rig", "The drive may be busy or gone. Refresh to try again.")
-                        RigStorageStatus.LOADING -> Notice("Reading…", null)
-                        RigStorageStatus.READY -> when {
-                            rs.file != null -> FilePage(rs, state.latestFilePreviewFrame)
-                            rs.path == null -> DriveList(rs.drives, ctrl)
-                            else -> FolderList(rs, ctrl)
+    Box(modifier) {
+        TabPane(
+            landscape = landscape,
+            modifier = Modifier,
+            items = buildList {
+                add(TabItem(full = true) { StorageHeader(rs, ctrl) })
+                if (rs.opRunning || rs.notice != null) add(TabItem(full = true) { OpPanel(rs, ctrl) })
+                add(
+                    TabItem(full = true) {
+                        when (rs.status) {
+                            RigStorageStatus.OFFLINE -> Notice("Needs KStars running", "Connect to the rig, then refresh.")
+                            RigStorageStatus.OLD_FORK -> Notice(
+                                "Needs the updated KStars",
+                                "The KStars on the Pi is older than the file manager. Install the current build, then refresh.",
+                            )
+                            RigStorageStatus.NO_REPLY -> Notice("No answer from the rig", "The drive may be busy or gone. Refresh to try again.")
+                            RigStorageStatus.LOADING -> Notice("Reading…", null)
+                            RigStorageStatus.READY -> when {
+                                rs.file != null -> FilePage(rs, ctrl, state.latestFilePreviewFrame)
+                                rs.path == null -> DriveList(rs, ctrl)
+                                else -> FolderList(rs, ctrl)
+                            }
                         }
+                    },
+                )
+                // Room for the action bar over the last rows.
+                if (barVisible) add(TabItem(full = true) { Spacer(Modifier.height(120.dp)) })
+            },
+        )
+        if (barVisible) ActionBar(rs, ctrl, Modifier.align(Alignment.BottomCenter))
+    }
+}
+
+/** The running operation with its progress and Cancel, or what the last one came to. */
+@Composable
+private fun OpPanel(rs: RigStorageState, ctrl: SessionController) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    val p = rs.op
+    Card(Modifier.fillMaxWidth()) {
+        if (rs.opRunning) {
+            val verb = when (p?.op) {
+                "copy" -> "Copying"
+                "move" -> "Moving"
+                "delete" -> "Deleting"
+                else -> "Working"
+            }
+            TextC(verb + "…", style = t.Body135, color = c.text)
+            if (p != null && p.filesTotal > 0) {
+                Spacer(Modifier.height(4.dp))
+                TextC(progressLine(p), style = t.MonoSmall, color = c.textMuted)
+                if (p.current.isNotBlank()) TextC(p.current, style = t.MonoMicro, color = c.textFaint, maxLines = 1)
+                Spacer(Modifier.height(8.dp))
+                val done = if (p.bytesTotal > 0) (p.bytesDone / p.bytesTotal).toFloat() else p.filesDone.toFloat() / p.filesTotal
+                Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(c.surfaceDeep)) {
+                    Box(Modifier.fillMaxWidth(done.coerceIn(0f, 1f)).fillMaxHeight().background(c.accent))
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            NocturneButton("Cancel", onClick = ctrl::rigStorageCancelOp, style = BtnStyle.OUTLINE, enabled = p?.state == "running")
+        } else {
+            val bad = p?.state == "failed" || p?.state == "cancelled" || rs.notice?.startsWith("Not enough") == true
+            TextC(rs.notice.orEmpty(), style = t.Body13, color = if (bad) NocturnePalette.Warn else c.text)
+            Spacer(Modifier.height(8.dp))
+            NocturneButton("Dismiss", onClick = ctrl::rigStorageDismissNotice, style = BtnStyle.SUBTLE)
+        }
+    }
+}
+
+/**
+ * Pinned at the bottom while something is ticked or being set up: the actions, then (for copy and move)
+ * the drive to send it to, or the new name, with the plain confirmation as a dialog.
+ */
+@Composable
+private fun ActionBar(rs: RigStorageState, ctrl: SessionController, modifier: Modifier) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    val pending = rs.pending
+    val paths = pending?.paths ?: rs.selection.toList()
+    val names = paths.map { it.substringAfterLast('/') }
+
+    Column(
+        modifier.fillMaxWidth().background(c.surfaceRaised).padding(horizontal = 16.8.dp, vertical = 12.dp),
+        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp),
+    ) {
+        when {
+            pending == null -> {
+                val bytes = rs.listing?.entries?.filter { it.name in names }?.sumOf { it.sizeBytes }
+                TextC(
+                    "${paths.size} selected" + (bytes?.let { " · ${formatByteSize(it)}" } ?: ""),
+                    style = t.MonoSmall, color = c.text,
+                )
+                Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+                    val idle = !rs.opRunning
+                    NocturneButton("Copy to…", { ctrl.rigStorageStartOp(RigOpKind.COPY, paths) }, Modifier.weight(1f), BtnStyle.OUTLINE, idle)
+                    NocturneButton("Move to…", { ctrl.rigStorageStartOp(RigOpKind.MOVE, paths) }, Modifier.weight(1f), BtnStyle.OUTLINE, idle)
+                    if (paths.size == 1) {
+                        NocturneButton("Rename", { ctrl.rigStorageStartOp(RigOpKind.RENAME, paths) }, Modifier.weight(1f), BtnStyle.OUTLINE, idle)
                     }
-                },
-            )
-        },
-    )
+                    NocturneButton("Delete", { ctrl.rigStorageStartOp(RigOpKind.DELETE, paths) }, Modifier.weight(1f), BtnStyle.DANGER, idle)
+                }
+                NocturneButton("Clear selection", ctrl::rigStorageClearSelection, style = BtnStyle.SUBTLE)
+            }
+            pending.kind == RigOpKind.RENAME -> {
+                var name by remember(pending.paths) { mutableStateOf(names.single()) }
+                TextC("Rename", style = t.MonoSmall, color = c.textMuted)
+                BasicTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    singleLine = true,
+                    textStyle = t.Body13.copy(color = c.text),
+                    cursorBrush = androidx.compose.ui.graphics.SolidColor(c.accent),
+                    modifier = Modifier.fillMaxWidth().height(44.dp).background(c.bg, RoundedCornerShape(4.dp)).padding(horizontal = 12.dp, vertical = 12.dp),
+                )
+                Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+                    NocturneButton("Cancel", ctrl::rigStorageCancelPending, Modifier.weight(1f), BtnStyle.OUTLINE)
+                    NocturneButton(
+                        "Rename", { ctrl.rigStorageRename(name) }, Modifier.weight(1f),
+                        enabled = name.isNotBlank() && name != names.single(),
+                    )
+                }
+            }
+            pending.toDrive == null -> {
+                val from = rs.driveFor(paths.first())?.id
+                TextC("${pending.kind.verb} to which drive?", style = t.MonoSmall, color = c.text)
+                Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+                    rs.drives.filter { it.id != from && !it.readOnly }.forEach { drive ->
+                        NocturneButton(driveLabel(drive), { ctrl.rigStorageChooseTarget(drive.id) }, Modifier.weight(1f), BtnStyle.OUTLINE)
+                    }
+                    NocturneButton("Cancel", ctrl::rigStorageCancelPending, Modifier.weight(1f), BtnStyle.SUBTLE)
+                }
+                if (rs.drives.none { it.id != from && !it.readOnly }) {
+                    TextC("No other drive is attached.", style = t.Body13, color = c.textMuted)
+                }
+            }
+        }
+    }
+
+    if (pending != null && pending.confirming) {
+        val bytes = rs.pendingBytes()
+        val target = rs.drives.firstOrNull { it.id == pending.toDrive }?.let(::driveLabel).orEmpty()
+        val isDelete = pending.kind == RigOpKind.DELETE
+        WindowConfirmDialog(
+            title = when (pending.kind) {
+                RigOpKind.DELETE -> if (names.size == 1) "Delete ${names.single()}?" else "Delete ${names.size} items?"
+                else -> "${pending.kind.verb} to $target?"
+            },
+            message = if (isDelete) deleteMessage(names, bytes) else transferMessage(pending.kind, names, bytes, target),
+            confirmText = pending.kind.verb,
+            confirmStyle = if (isDelete) BtnStyle.DANGER else BtnStyle.SOLID,
+            onConfirm = ctrl::rigStorageConfirmOp,
+            onDismiss = ctrl::rigStorageCancelPending,
+        )
+    }
 }
 
 /** Back arrow, then `Rig storage › SD › M_31 › 2026-10-30`; each step opens that level. */
@@ -136,18 +286,27 @@ private fun Notice(title: String, body: String?) {
 }
 
 @Composable
-private fun DriveList(drives: List<WireDrive>, ctrl: SessionController) {
+private fun DriveList(rs: RigStorageState, ctrl: SessionController) {
+    val drives = rs.drives
     if (drives.isEmpty()) {
         Notice("No drives reported", "The rig answered but listed no storage.")
         return
     }
     Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(11.2.dp)) {
-        drives.forEach { DriveCard(it, onOpen = { ctrl.rigStorageOpenFolder(it.path) }) }
+        drives.forEach { drive ->
+            DriveCard(
+                drive,
+                onOpen = { ctrl.rigStorageOpenFolder(drive.path) },
+                ejecting = rs.ejecting == drive.id,
+                canEject = drive.kind == "usb" && !rs.opRunning && rs.ejecting == null,
+                onEject = { ctrl.rigStorageEject(drive.id) },
+            )
+        }
     }
 }
 
 @Composable
-private fun DriveCard(drive: WireDrive, onOpen: () -> Unit) {
+private fun DriveCard(drive: WireDrive, onOpen: () -> Unit, ejecting: Boolean, canEject: Boolean, onEject: () -> Unit) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val used = if (drive.totalBytes > 0) (1f - drive.freeBytes.toFloat() / drive.totalBytes).coerceIn(0f, 1f) else 0f
@@ -173,6 +332,13 @@ private fun DriveCard(drive: WireDrive, onOpen: () -> Unit) {
         if (!drive.hasRoot) {
             Spacer(Modifier.height(4.dp))
             TextC("No Nocturne folder on this drive yet", style = t.Body13, color = c.textMuted)
+        }
+        if (drive.kind == "usb") {
+            Spacer(Modifier.height(10.dp))
+            NocturneButton(
+                if (ejecting) "Ejecting…" else "Eject", onClick = onEject, style = BtnStyle.OUTLINE,
+                enabled = canEject,
+            )
         }
     }
 }
@@ -207,13 +373,14 @@ private fun FolderList(rs: RigStorageState, ctrl: SessionController) {
             val entries = sortedEntries(listing.entries)
             entries.forEachIndexed { i, entry ->
                 if (i > 0) HDivider()
+                val full = rs.path.orEmpty() + "/" + entry.name
                 EntryRow(
                     entry,
                     withIconColumn = entries.any { it.isDir },
-                    onOpen = {
-                        val full = rs.path.orEmpty() + "/" + entry.name
-                        if (entry.isDir) ctrl.rigStorageOpenFolder(full) else ctrl.rigStorageOpenFile(full)
-                    },
+                    selecting = rs.selection.isNotEmpty(),
+                    selected = full in rs.selection,
+                    onToggle = { ctrl.rigStorageToggleSelect(full) },
+                    onOpen = { if (entry.isDir) ctrl.rigStorageOpenFolder(full) else ctrl.rigStorageOpenFile(full) },
                 )
             }
         }
@@ -224,15 +391,35 @@ private fun FolderList(rs: RigStorageState, ctrl: SessionController) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun EntryRow(entry: WireFileEntry, withIconColumn: Boolean, onOpen: () -> Unit) {
+private fun EntryRow(
+    entry: WireFileEntry,
+    withIconColumn: Boolean,
+    selecting: Boolean,
+    selected: Boolean,
+    onToggle: () -> Unit,
+    onOpen: () -> Unit,
+) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val opens = !entry.inUse && (entry.isDir || isFitsName(entry.name))
+    // A long press ticks the row; once something is ticked a tap ticks too. A locked row cannot be ticked.
     Row(
-        Modifier.fillMaxWidth().clickable(enabled = opens, onClick = onOpen).padding(vertical = 9.dp),
+        Modifier.fillMaxWidth()
+            .combinedClickable(
+                enabled = !entry.inUse && (opens || selecting),
+                onClick = { if (selecting) onToggle() else onOpen() },
+                onLongClick = onToggle,
+            )
+            .padding(vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (selecting && !entry.inUse) {
+            if (selected) Phosphor.Icon(Phosphor.CheckCircle, size = 22.dp, tint = c.accent)
+            else Box(Modifier.size(22.dp).border(2.dp, c.textFaint, CircleShape))
+            Spacer(Modifier.width(10.dp))
+        }
         when {
             entry.inUse -> Phosphor.Icon(Phosphor.Lock, size = 20.dp, tint = NocturnePalette.Warn)
             entry.isDir -> Phosphor.Icon(Phosphor.Folder, size = 20.dp, tint = c.accent400)
@@ -250,7 +437,7 @@ private fun EntryRow(entry: WireFileEntry, withIconColumn: Boolean, onOpen: () -
                 style = t.MonoMicro, color = if (entry.inUse) NocturnePalette.Warn else c.textMuted,
             )
         }
-        if (opens) {
+        if (opens && !selecting) {
             Spacer(Modifier.width(6.dp))
             Phosphor.Icon(Phosphor.CaretRight, size = 16.dp, tint = c.textFaint)
         }
@@ -261,7 +448,7 @@ private fun isFitsName(name: String): Boolean = name.lowercase().let { it.endsWi
 
 /** One FITS file: the preview the Pi made, the header values, and the actions (switched on in R6). */
 @Composable
-private fun FilePage(rs: RigStorageState, frame: MediaFrame?) {
+private fun FilePage(rs: RigStorageState, ctrl: SessionController, frame: MediaFrame?) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val page = rs.file ?: return
@@ -325,15 +512,13 @@ private fun FilePage(rs: RigStorageState, frame: MediaFrame?) {
             }
         }
 
-        Column {
-            Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
-                NocturneButton("Copy", onClick = {}, enabled = false, style = BtnStyle.OUTLINE, modifier = Modifier.weight(1f))
-                NocturneButton("Move", onClick = {}, enabled = false, style = BtnStyle.OUTLINE, modifier = Modifier.weight(1f))
-                NocturneButton("Rename", onClick = {}, enabled = false, style = BtnStyle.OUTLINE, modifier = Modifier.weight(1f))
-                NocturneButton("Delete", onClick = {}, enabled = false, style = BtnStyle.OUTLINE, modifier = Modifier.weight(1f))
-            }
-            Spacer(Modifier.height(6.dp))
-            TextC("Copy, move, rename and delete are not switched on yet.", style = t.MonoMicro, color = c.textFaint)
+        val idle = !rs.opRunning && rs.pending == null
+        val one = listOf(page.path)
+        Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+            NocturneButton("Copy", { ctrl.rigStorageStartOp(RigOpKind.COPY, one) }, Modifier.weight(1f), BtnStyle.OUTLINE, idle)
+            NocturneButton("Move", { ctrl.rigStorageStartOp(RigOpKind.MOVE, one) }, Modifier.weight(1f), BtnStyle.OUTLINE, idle)
+            NocturneButton("Rename", { ctrl.rigStorageStartOp(RigOpKind.RENAME, one) }, Modifier.weight(1f), BtnStyle.OUTLINE, idle)
+            NocturneButton("Delete", { ctrl.rigStorageStartOp(RigOpKind.DELETE, one) }, Modifier.weight(1f), BtnStyle.DANGER, idle)
         }
     }
 }

@@ -154,4 +154,117 @@ class RigStorageTest {
         assertEquals("Dark", rows["Frame"])
         assertEquals("unknown s", rows["Exposure"])
     }
+
+    private fun progress(state: String, op: String = "copy", done: Int = 2, total: Int = 2, bytes: Double = 5e6, failed: List<String> = emptyList(), error: String? = null) =
+        EkosEvent.FileProgress(id = 1, op = op, state = state, filesDone = done, filesTotal = total, bytesDone = bytes, bytesTotal = bytes, failed = failed, error = error)
+
+    @Test
+    fun aSelectionTicksAndUnticksAndClears() {
+        val s = state.toggled("/a").toggled("/b")
+        assertEquals(setOf("/a", "/b"), s.selection)
+        assertEquals(setOf("/b"), s.toggled("/a").selection)
+        assertEquals(emptySet<String>(), s.clearedSelection().selection)
+    }
+
+    @Test
+    fun deleteAsksAtOnceWhileCopyAndMoveAskWhereToFirst() {
+        assertEquals(true, state.startPending(RigOpKind.DELETE, listOf("/a")).pending?.confirming)
+        val copy = state.startPending(RigOpKind.COPY, listOf("/a"))
+        assertEquals(false, copy.pending?.confirming)
+        assertNull(copy.pending?.toDrive)
+        val target = copy.withTarget("/media/STICK")
+        assertEquals("/media/STICK", target.pending?.toDrive)
+        assertEquals(true, target.pending?.confirming)
+        assertNull(target.cancelPending().pending)
+    }
+
+    @Test
+    fun sendingSpendsTheSelectionAndMarksTheStart() {
+        val s = state.toggled("/a").startPending(RigOpKind.DELETE, listOf("/a")).sent()
+        assertEquals(true, s.starting)
+        assertEquals(true, s.opRunning)
+        assertNull(s.pending)
+        assertEquals(emptySet<String>(), s.selection)
+    }
+
+    @Test
+    fun aRefusalOrAProgressPushEndsTheStart() {
+        val sent = state.sent()
+        val refused = sent.withOpReply(EkosEvent.FileOpReply(error = "in_use"))
+        assertEquals(false, refused.opRunning)
+        assertEquals("A capture is writing there, so it is locked", refused.notice)
+
+        val accepted = sent.withOpReply(EkosEvent.FileOpReply(id = 4, op = "move"))
+        assertEquals(true, accepted.opRunning)
+        assertEquals(4, accepted.op?.id)
+
+        val running = accepted.withProgress(progress("running", done = 1))
+        assertEquals(true, running.opRunning)
+        assertNull(running.notice)
+        val done = running.withProgress(progress("done"))
+        assertEquals(false, done.opRunning)
+        assertEquals("Copied 2 files · 5 MB", done.notice)
+    }
+
+    @Test
+    fun theNoticesSayWhatHappened() {
+        assertEquals("Moved 2 files · 5 MB", progressNotice(progress("done", op = "move")))
+        assertEquals("Deleted 1 file · 5 MB", progressNotice(progress("done", op = "delete", total = 1)))
+        assertEquals("Cancelled after 1 of 2 files", progressNotice(progress("cancelled", done = 1)))
+        assertEquals(
+            "1 file not done: a.fits: exists",
+            progressNotice(progress("failed", failed = listOf("a.fits: exists"))),
+        )
+        assertEquals(
+            "Not enough room on the drive: it needs 3.7 GB and has 954 MB free",
+            progressNotice(
+                EkosEvent.FileProgress(op = "copy", state = "failed", error = "no_space", needed = 4e9, free = 1e9),
+            ),
+        )
+        assertEquals("8/24 files · 1 MB / 3 MB", progressLine(EkosEvent.FileProgress(filesDone = 8, filesTotal = 24, bytesDone = 1.1e6, bytesTotal = 3.2e6)))
+    }
+
+    @Test
+    fun anEjectOrRenameResultBecomesANotice() {
+        assertEquals("Ejected. It is safe to pull the drive.", state.copy(ejecting = "/media/X").withEjectReply(EkosEvent.FileEjectReply("/media/X", ok = true)).notice)
+        val failed = state.withEjectReply(EkosEvent.FileEjectReply("/media/X", error = "failed", message = "/media/X is busy"))
+        assertEquals("Could not eject: /media/X is busy", failed.notice)
+        assertNull(failed.ejecting)
+        val open = state.openFolder("/p").openFile("/p/a.fits")
+        assertNull(open.withRenameReply(EkosEvent.FileRenameReply(ok = true, path = "/p/b.fits")).file)
+        assertEquals("Something with that name is already there", state.withRenameReply(EkosEvent.FileRenameReply(error = "exists")).notice)
+    }
+
+    @Test
+    fun theConfirmationNamesWhatGoesAndWhereItLands() {
+        assertEquals(
+            "2026-10-30 (3.1 GB) goes, with everything inside it. This cannot be undone.",
+            deleteMessage(listOf("2026-10-30"), 3_328_599_654L),
+        )
+        assertEquals("3 items goes, with everything inside it. This cannot be undone.", deleteMessage(listOf("a", "b", "c"), null))
+        assertEquals("2026-10-30 (3.1 GB) is copied to the same place on STICK. The original stays.", transferMessage(RigOpKind.COPY, listOf("2026-10-30"), 3_328_599_654L, "STICK"))
+        assertEquals(
+            "2026-10-30 is copied to the same place on STICK, checked byte for byte, and only then removed from here.",
+            transferMessage(RigOpKind.MOVE, listOf("2026-10-30"), null, "STICK"),
+        )
+    }
+
+    @Test
+    fun thePendingSizeComesFromTheFolderBeingShown() {
+        val listing = EkosEvent.FileListing(
+            path = "/p",
+            entries = listOf(WireFileEntry(name = "a", isDir = true, bytes = 100.0), WireFileEntry(name = "b", size = 50.0)),
+        )
+        val s = state.openFolder("/p").withListing(listing).startPending(RigOpKind.DELETE, listOf("/p/a", "/p/b"))
+        assertEquals(150L, s.pendingBytes())
+        assertNull(s.startPending(RigOpKind.DELETE, listOf("/p/a", "/p/other")).pendingBytes())   // one is not in the listing
+    }
+
+    @Test
+    fun errorTextsAreReadable() {
+        assertEquals("The rig is already working on something", opErrorText("busy"))
+        assertEquals("It is already on that drive", opErrorText("same_drive"))
+        assertEquals("Not done (weird)", opErrorText("weird"))
+        assertEquals("The drive is in use by a copy or move", ejectErrorText(EkosEvent.FileEjectReply(error = "busy")))
+    }
 }

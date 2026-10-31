@@ -551,4 +551,30 @@ class EkosEventCodecTest {
         assertNull(refused.uuid)
         assertEquals("not_fits", refused.error)
     }
+
+    @Test
+    fun `decodes the file operation replies and progress pushes`() {
+        val accepted = EkosEventCodec.decode("""{"payload":{"id":4,"op":"copy","request":"file_copy"},"type":"file_copy"}""") as EkosEvent.FileOpReply
+        assertEquals(4, accepted.id)
+        assertEquals("copy", accepted.op)
+        val refused = EkosEventCodec.decode("""{"payload":{"error":"in_use","path":"/p"},"type":"file_delete"}""") as EkosEvent.FileOpReply
+        assertEquals("in_use", refused.error)
+        assertNull(refused.id)
+
+        val progress = EkosEventCodec.decode(
+            """{"payload":{"bytesDone":2100032,"bytesTotal":5248640,"current":"b.fits","failed":["a.fits: exists"],"filesDone":1,"filesTotal":2,"id":1,"op":"copy","state":"running"},"type":"file_progress"}""",
+        ) as EkosEvent.FileProgress
+        assertEquals(1, progress.filesDone)
+        assertEquals(listOf("a.fits: exists"), progress.failed)
+        assertEquals("running", progress.state)
+
+        val noSpace = EkosEventCodec.decode("""{"payload":{"id":2,"op":"copy","state":"failed","error":"no_space","needed":4000000000,"free":1000000000},"type":"file_progress"}""") as EkosEvent.FileProgress
+        assertEquals("no_space", noSpace.error)
+        assertEquals(4_000_000_000.0, noSpace.needed, 0.5)
+
+        val renamed = EkosEventCodec.decode("""{"payload":{"ok":true,"path":"/p/b2.fits"},"type":"file_rename"}""") as EkosEvent.FileRenameReply
+        assertTrue(renamed.ok)
+        val ejected = EkosEventCodec.decode("""{"payload":{"id":"/media/X","error":"failed","message":"/media/X is busy"},"type":"file_eject"}""") as EkosEvent.FileEjectReply
+        assertEquals("/media/X is busy", ejected.message)
+    }
 }

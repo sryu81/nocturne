@@ -36,6 +36,22 @@ interface SessionController {
     fun rigStorageOpenFolder(path: String)
     /** Opens a FITS file's page: its header and a preview made on the Pi. */
     fun rigStorageOpenFile(path: String)
+    /** Ticks or unticks a path; a selection of one or more shows the action bar. */
+    fun rigStorageToggleSelect(path: String)
+    fun rigStorageClearSelection()
+    /** Starts setting up copy, move, delete or rename of [paths]; a delete asks to confirm at once. */
+    fun rigStorageStartOp(kind: RigOpKind, paths: List<String>)
+    /** Picks the drive a copy or move goes to; its confirmation follows. */
+    fun rigStorageChooseTarget(driveId: String)
+    fun rigStorageCancelPending()
+    /** Sends the pending delete, copy or move. */
+    fun rigStorageConfirmOp()
+    /** Renames the one pending path inside its folder. */
+    fun rigStorageRename(newName: String)
+    /** Stops the running operation after its current chunk. */
+    fun rigStorageCancelOp()
+    fun rigStorageEject(driveId: String)
+    fun rigStorageDismissNotice()
     /** One level up; from a drive's own folder back to the drives. */
     fun rigStorageUp()
     fun rigStorageRefresh()

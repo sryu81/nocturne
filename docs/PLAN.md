@@ -36,10 +36,10 @@ rig; what is still unchecked is in `docs/STATUS.md`. Details of each milestone a
 | 3 | L2 | Pi: migration of the old folders into it | Done 2026-10-31: 4 folders (161 files, 8 GB) moved on the SD card; the symlink case was only tested on a fake drive |
 | 3 | R1 | Fork: drives and listings | Built, deployed to the Pi 2026-10-31 and tested with a scripted client (drives, listings, refusals, stock create/remove); `inUse` during a capture not seen |
 | 3 | R2 | App: Rig storage, read-only | Built, installed and seen on the phone against the deployed fork 2026-10-31 (drives, folders, files, Back, empty stick); the offline, older-fork and in-use states are unit-tested or untried on the rig |
-| 3 | R3 | Fork: preview and header | Not started |
-| 3 | R4 | App: file page | Not started |
-| 3 | R5 | Fork: file operations and eject | Not started |
-| 3 | R6 | App: manage (selection, paste, progress, delete) | Not started |
+| 3 | R3 | Fork: preview and header | Written and tested standalone 2026-10-31; not yet built into a deb or deployed |
+| 3 | R4 | App: file page | Built and unit-tested 2026-10-31; not installed, needs the R3 fork |
+| 3 | R5 | Fork: file operations and eject | Written and tested standalone 2026-10-31 (copy, move with checksum, delete, rename, cancel, refusals); not deployed; eject and the real cross-drive path untried |
+| 3 | R6 | App: manage (selection, copy/move to a drive, progress, delete, rename, eject) | Built and unit-tested 2026-10-31; not installed, needs the R5 fork |
 | 4 | N1 | Cooler on at session start, hold first sub | Built, installed, start step rig-checked 2026-10-27; first-sub hold not seen |
 | 4 | N2 | Guiding tuning (gain, pulse, axes) | Built and installed; sheet values rig-checked 2026-10-27, live write not yet |
 | 4 | N3 | Polar alignment: bigger, vivid triangle and target circle | Built and unit-tested (2026-10-27); not installed or seen on the rig |
@@ -723,7 +723,7 @@ older-fork fallback and reuse it.
 2. Should R1, R3 and R5 share one fork build? One restart instead of three, but R1 would wait for
    the other two to be written and the allowed-roots check would go untested on its own.
 
-## R3 and R5 design: preview, header, file operations (draft 2026-10-31, not built)
+## R3 and R5 design: preview, header, file operations (decided 2026-10-31; built, not deployed)
 
 Both are fork work and would share one build (see "Build order" below). Everything goes through the
 R1 `isAllowedPath` check, which stays the single gate.

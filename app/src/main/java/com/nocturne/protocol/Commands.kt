@@ -59,6 +59,13 @@ object Commands {
     /** Fork (R3): a FITS file's header cards, and its preview JPEG on the media channel. */
     const val FILE_HEADER = "file_header"
     const val FILE_PREVIEW = "file_preview"
+    /** Fork (R5): operations inside the Nocturne folders; progress comes back as `file_progress` pushes. */
+    const val FILE_DELETE = "file_delete"
+    const val FILE_RENAME = "file_rename"
+    const val FILE_COPY = "file_copy"
+    const val FILE_MOVE = "file_move"
+    const val FILE_CANCEL = "file_cancel"
+    const val FILE_EJECT = "file_eject"
     const val SCOPE_ADD = "scope_add"
     const val SCOPE_UPDATE = "scope_update"
     const val SCOPE_DELETE = "scope_delete"
