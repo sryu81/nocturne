@@ -739,6 +739,10 @@ abstract class AbstractLocalSessionController : SessionController {
     override fun setMountTracking(enabled: Boolean) = update { it.copy(mountTracking = enabled) }
 
     override fun plateSolveHere() = update { it.copy(mountSolved = true) }
+    override fun abortAlign() {}
+    override fun emergencyStop() = update { s ->
+        s.copy(guiding = false, polarRunning = false, slewDir = null, lastEndedJobId = s.contractJob?.id ?: s.lastEndedJobId)
+    }
     // No local mount-position model (mountAlt/mountAz are display-only), so a plain goto does
     // nothing; "& center" marks solved like plateSolveHere.
     override fun gotoTarget(targetId: String) {}

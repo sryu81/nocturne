@@ -71,6 +71,57 @@ import com.nocturne.ui.components.BtnStyle
 import androidx.compose.ui.graphics.Color
 
 /**
+ * Stops everything at once ([SessionController.emergencyStop]) and never moves the mount. Parking
+ * is a second, deliberate tap that appears only after the stop: a stop can follow a bad sync, and
+ * a park slews through the mount's own idea of where it is.
+ */
+@Composable
+internal fun EmergencyStopCard(state: AppState, ctrl: SessionController) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    var stopped by remember { mutableStateOf(false) }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(c.surface, RoundedCornerShape(14.dp))
+            .border(1.dp, c.divider, RoundedCornerShape(14.dp))
+            .padding(12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Phosphor.Icon(Phosphor.Warning, size = 19.dp, tint = c.warn)
+            Spacer(Modifier.width(9.dp))
+            TextC("Emergency stop", style = t.Body135, color = c.text)
+        }
+        Spacer(Modifier.height(6.dp))
+        TextC(
+            "Stops the mount, capture, guiding, focus, alignment and the Scheduler, and removes its jobs. The mount stays where it is.",
+            style = t.Body13, color = c.textMuted,
+        )
+        Spacer(Modifier.height(10.dp))
+        com.nocturne.ui.components.NocturneButton(
+            text = "Stop everything",
+            onClick = { ctrl.emergencyStop(); stopped = true },
+            style = com.nocturne.ui.components.BtnStyle.DANGER,
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+        )
+        if (stopped) {
+            Spacer(Modifier.height(10.dp))
+            TextC(
+                "Stopped. The mount was not moved. Park it only when the way is clear.",
+                style = t.Body13, color = c.textMuted,
+            )
+            Spacer(Modifier.height(8.dp))
+            com.nocturne.ui.components.NocturneButton(
+                text = "Park mount",
+                onClick = { ctrl.parkMount(); stopped = false },
+                style = com.nocturne.ui.components.BtnStyle.OUTLINE,
+                modifier = Modifier.fillMaxWidth().height(44.dp),
+            )
+        }
+    }
+}
+
+/**
  * Ekos on/off and the profile that starts it: the card to use when Ekos isn't running. Stopped,
  * the profiles are listed to pick from; running, the minimum-rig readiness is shown instead.
  * Profile editing stays in Gear.

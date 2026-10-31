@@ -72,6 +72,8 @@ object Commands {
     const val MOUNT_GOTO_TARGET = "mount_goto_target"
     const val MOUNT_ABORT = "mount_abort"
     const val ALIGN_SOLVE = "align_solve"
+    /** `Align::abort()`: ends a solve and the next capture/solve of a centre loop. Does not stop a slew. */
+    const val ALIGN_STOP = "align_stop"
     // Rotator. align_manual_rotator_toggle is unused: it only shows/hides Ekos's dialog on the
     // Pi's own screen.
     const val ALIGN_SET_ASTROMETRY_SETTINGS = "align_set_astrometry_settings"

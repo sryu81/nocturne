@@ -6,6 +6,27 @@ first within each list. Commits are on `main` (the `controls-revision` branch wa
 
 ## Open
 
+### B10 · Goto & center sent the mount the wrong way and Stop did not end it
+
+- **Found:** 2026-10-30, 19:54, from the phone Log and the Pi's `mount-events.log`.
+- **Symptom:** Goto & center on M31 (RA 0:44:14, Dec +41:25) right after a polar alignment. The first
+  solve put the picture 84° from where the mount said it pointed (mount 23h56m, solution 19h09m), Ekos
+  synced the mount to that solution and slewed again, a second time 75° off. Then "Mount homing in
+  progress" x14, "Slewing failed", OnStep "Error setting RA/DEC", Under Pole and Meridian limits. Stop
+  presses (17 "Mount motion was aborted" alerts to 20:00) did not end it, and at 20:01 Ekos lost the
+  mount's serial port.
+- **Cause:** not settled. The mount's pointing was off by hours of RA after the polar alignment
+  rotations, and the centre loop trusts each solve. Stop only sent `mount_abort`, and Align's loop
+  re-slews on its own; the app had no way to end the loop.
+- **Fix:** `align_stop` was already in the fork (`Align::abort()`); the app never sent it (the B1 note
+  below, that the wire has no align abort, was wrong). Built 2026-10-31: "Abort centering" under Goto &
+  center on the Plan tab (`abortAlign`: align stop + mount abort, cancels the centre job) and an
+  Emergency stop card on Home under Ekos (`emergencyStop`: mount abort, Scheduler stop and job removal,
+  align/capture/guide/focus/polar stop; never moves the mount; Park is a second tap). Not rig-checked.
+- **Check after the fix:** start Goto & center with the mount parked or the way clear, tap Abort
+  centering mid-slew: the slew stops and Align does not re-slew. Emergency stop with a job running:
+  everything stops, jobs are gone, the mount stays put.
+
 ### B9 · "Plate solve here" slewed the mount to Dec +90°
 
 - **Found:** 2026-10-26, evening, from the Pi's KStars log (line of the first `align_solve`).
@@ -93,14 +114,13 @@ first within each list. Commits are on `main` (the `controls-revision` branch wa
   Progress" for minutes. The Plate solve page has no way to stop it.
 - **Cause:** Ekos itself. Read over DBus on the Pi (`org.kde.kstars.Ekos.Align` `status`) the Align
   module was still `4` (`ALIGN_PROGRESS`) after the failure alert, so the app shows the real state.
-  Why Ekos does not go to Failed is not known. The wire has no align abort command (`Commands.kt` has
-  `align_solve` only).
+  Why Ekos does not go to Failed is not known. The fork already has `align_stop` (`Align::abort()`); the
+  app did not send it until B10's fix.
 - **Workaround:** Ekos' own Stop on the desktop, or on the Pi
   `gdbus call --session --dest org.kde.kstars --object-path /KStars/Ekos/Align --method org.kde.kstars.Ekos.Align.abort`
   (done 2026-10-25: status became `3`, `ALIGN_ABORTED`, the card showed "Aborted" and unpinned).
-- **Fix (planned):** a fork command `align_abort` that calls `Align::abort()` (see `docs/FORK.md`
-  backlog), and a Stop button on the Plate solve page while a solve is active, next to "Plate solve
-  here". The menu card then unpins by itself when the status leaves the active set. Find out why
+- **Fix (planned):** a Stop button on the Plate solve page while a solve is active, next to "Plate solve
+  here", sending `align_stop` (see B10). The menu card then unpins by itself when the status leaves the active set. Find out why
   Align does not reach Failed (Align log in the fork) before deciding whether the button is enough.
 - **Check after the fix:** daytime solve, wait for the failure alert, Stop; status leaves "In
   Progress" and the menu card unpins.

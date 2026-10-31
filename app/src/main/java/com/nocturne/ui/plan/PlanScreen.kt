@@ -153,6 +153,13 @@ fun PlanScreen(
                     }
                     Spacer(Modifier.height(8.4.dp))
                     com.nocturne.ui.components.NocturneButton(
+                        text = "Abort centering",
+                        onClick = ctrl::abortAlign,
+                        modifier = Modifier.fillMaxWidth().height(44.dp),
+                        style = com.nocturne.ui.components.BtnStyle.DANGER,
+                    )
+                    Spacer(Modifier.height(8.4.dp))
+                    com.nocturne.ui.components.NocturneButton(
                         text = "Add to sequence",
                         onClick = {
                             ctrl.addToSequence(tgt.id)

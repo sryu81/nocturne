@@ -137,6 +137,13 @@ interface SessionController {
     fun parkMount()
     fun setMountTracking(enabled: Boolean)
     fun plateSolveHere()
+    /** Ends Align's solve / centre loop and stops the mount's slew (`align_stop` + `mount_abort`). */
+    fun abortAlign()
+    /**
+     * Stops everything at once without moving the mount to a new place: mount, align, capture,
+     * guiding, focus, polar align, and the Scheduler with its jobs. Parking is a separate step ([parkMount]).
+     */
+    fun emergencyStop()
     fun startGuiding()
     fun stopGuiding()
     /** `guide_loop` — continuous guide-cam frames (Ekos's Loop button); [stopGuiding] ends it. */

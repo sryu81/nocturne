@@ -1144,6 +1144,42 @@ class EkosRemoteController(
         super.plateSolveHere()
     }
 
+    /**
+     * `align_stop` ends the solve and the centre loop's next capture/solve, but not a slew already
+     * running (and the loop re-slews on its own), so the mount is aborted too. Cancelling
+     * [gotoJob] makes it put the solver action back.
+     */
+    override fun abortAlign() {
+        log?.record("App", "Abort centering: align stop, mount abort")
+        gotoJob?.cancel()
+        gotoJob = null
+        client.sendCommand(Commands.MOUNT_ABORT)
+        client.sendCommand(Commands.ALIGN_STOP)
+        super.abortAlign()
+    }
+
+    /**
+     * The mount goes first (it is the one that can hurt), then the Scheduler, so it can't restart
+     * what the rest of the stops end. Nothing here parks or slews. Commands that don't apply
+     * (no capture running, say) are harmless no-ops in Ekos.
+     */
+    override fun emergencyStop() {
+        val s = _state.value
+        val names = endingJobNames(s) + s.jobs.filter { it.synced }.map { s.targetNameFor(it) }
+        log?.record("App", "Emergency stop: mount, align, capture, guide, focus, polar and Scheduler; removing ${names.ifEmpty { setOf("no job") }.joinToString()}", LogLevel.WARN)
+        gotoJob?.cancel()
+        gotoJob = null
+        client.sendCommand(Commands.MOUNT_ABORT)
+        stopSchedulerIfRunning()
+        client.sendCommand(Commands.ALIGN_STOP)
+        client.sendCommand(Commands.CAPTURE_STOP)
+        client.sendCommand(Commands.GUIDE_STOP)
+        client.sendCommand(Commands.FOCUS_STOP)
+        client.sendCommand(Commands.POLAR_STOP)
+        removeRealJobsByName(names)
+        super.emergencyStop()
+    }
+
     override fun selectTarget(id: String) {
         super.selectTarget(id)
         ensureTargetRiseset(id)
