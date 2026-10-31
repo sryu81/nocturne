@@ -78,9 +78,22 @@ class EkosRemoteController(
     private val allowOptionalInternet: () -> Boolean = { true },
     /** The phone's log of what Ekos and the app did (see [LogCollector]). Null = not kept. */
     logRepo: LogRepository? = null,
+    /** Temporary: where each incoming align frame's untouched JPEG is kept (newest [ALIGN_DUMP_KEEP]), to study what Ekos paints. Null = off. */
+    private val alignFrameDumpDir: java.io.File? = null,
 ) : AbstractLocalSessionController() {
 
     private val log = logRepo?.let { LogCollector(it, scope) }
+
+    private fun dumpAlignFrame(jpeg: ByteArray) {
+        val dir = alignFrameDumpDir ?: return
+        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                dir.mkdirs()
+                java.io.File(dir, "align_${System.currentTimeMillis()}.jpg").writeBytes(jpeg)
+                dir.listFiles()?.sortedBy { it.name }?.dropLast(ALIGN_DUMP_KEEP)?.forEach { it.delete() }
+            }
+        }
+    }
 
     /** Name a `profile_delete` was just sent for — checked against the next [EkosEvent.Profiles]. */
     private var pendingProfileDelete: String? = null
@@ -231,6 +244,7 @@ class EkosRemoteController(
                         scope.launch { repo.insert(frame, System.currentTimeMillis(), source) }
                     }
                 }
+                if (frame.header.frameType == MediaFrameType.ALIGN) dumpAlignFrame(frame.jpeg)
                 _state.update { s ->
                     when (frame.header.frameType) {
                         MediaFrameType.CAPTURE -> s.copy(latestCaptureFrame = frame)
@@ -2686,6 +2700,7 @@ private const val CAMERA_FAN_PROP = "TC_FAN_SPEED" // ToupTek-family drivers (in
 /** `new_align_state.status` values (`ekos.h` `alignStates`) that end an Align run. "Successful"
  *  is not one: with `slewR` it's followed by a re-slew and another solve. */
 private val ALIGN_DONE_STATES = setOf("Idle", "Complete", "Failed", "Aborted")
+private const val ALIGN_DUMP_KEEP = 20
 private const val SOLVER_ACTION_SETTLE_MS = 500L
 private const val SLEW_START_TIMEOUT_MS = 10_000L
 private const val SLEW_TIMEOUT_MS = 5 * 60_000L

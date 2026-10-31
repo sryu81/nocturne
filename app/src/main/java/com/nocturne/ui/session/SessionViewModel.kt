@@ -129,6 +129,7 @@ class SessionViewModel(app: Application) : AndroidViewModel(app) {
             newClient, viewModelScope, repo, sequenceRepo, frameRepo, targetRepo, skyAtlas,
             allowOptionalInternet = { com.nocturne.transport.RigNetwork.allowOptionalInternet(getApplication(), host) },
             logRepo = logRepo,
+            alignFrameDumpDir = getApplication<android.app.Application>().getExternalFilesDir(null)?.let { java.io.File(it, "align-frames") },
         )
 
         viewModelScope.launch {
