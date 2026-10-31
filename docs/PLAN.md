@@ -731,7 +731,9 @@ so the app cannot redraw them itself.
 is not enough. Size target: lines at least 3 dp on screen, the target circle at least 24 dp across,
 colours with enough contrast on the dark frame (the screenshots show the lines vanish into noise).
 
-**As built (option A).** `OverlayBoost` (`ui/components`) runs on the align frame in `PaImage`
+**As built (option A), superseded 2026-10-31.** The app-side `OverlayBoost` below was removed: the app now
+shows the frame untouched and the fork paints the overlay wide and solid (fork `88026c9c7`, `docs/BUGS.md`
+B11). Kept for history. `OverlayBoost` (`ui/components`) runs on the align frame in `PaImage`
 (`MediaFramePreview(..., boostOverlay = true)`, decoded off the main thread like every frame): pixels
 with a channel spread of at least 14 count as overlay (a mono frame is exactly grey), are widened by
 `width/300` px (1–6, about 3 dp) and repainted fully saturated at full brightness in their own hue.

@@ -7,7 +7,9 @@ History lives in git; this file only says what is true now and what is left.
 
 **Connection** — rig auto-detected on the LAN (UDP beacon), message + media websockets with
 reconnect, one client at a time. Maintenance daemon (port 9001): reboot Pi, set Pi clock, sky-atlas
-tiles. GPS location and time sync to KStars.
+tiles. On every connect the app checks the Pi clock (sets it only when it is more than 2 s off) and
+syncs KStars' location from the phone's fix, both skipped while a job runs; Sync time stays in Rig
+maintenance. Reboot and Shut down ask for a plain confirmation (no typed word).
 
 **Gear** — rig profiles (start/stop Ekos, new/edit/delete). The profile wizard offers every INDI
 driver installed on the Pi (`get_drivers`) with search, "used before", grouping by manufacturer;
@@ -98,10 +100,10 @@ maintenance); the Pi keeps orders 0–5 on the SD card for KStars' offline HiPS.
   frame with HFR (after a focus capture or autofocus), the 140 dp guide chart (with guide data), the
   mount card's STOP while a slew runs, and the polar alignment run itself (Start, Done rotating,
   Start adjusting, Done, Stop, which drive the mount) with the pinned bar and the menu Stop.
-- Plate solve here can leave Ekos in `ALIGN_PROGRESS` after "Astrometry alignment failed"
-  (2026-10-25, daytime): the card stays pinned as `solving…` and the app has no way to abort it (no
-  align abort on the wire; Ekos' own Stop, or DBus `Align.abort`, clears it). A fork command and a
-  Stop button on the Plate solve page would fix it. Details and the plan: `docs/BUGS.md` B1.
+- Plate solve can leave Ekos in `ALIGN_PROGRESS` after "Astrometry alignment failed" (2026-10-25).
+  Fixed 2026-10-31: the Plate solve page and the Plan tab's "Abort centering" send `align_stop` plus
+  `mount_abort`; Home has a "Stop everything" card (then a separate "Park mount"). The buttons work;
+  not yet tried against a real stuck solve. `docs/BUGS.md` B1, B10.
 - Home layout (2026-10-25, compiled and unit-tested, installed, seen on the phone): Night arc, Ekos,
   a compact Rig health card that opens a Rig health sheet, Session, Alerts, Log, maintenance. The
   "Rig" box (mount/cooler line) is folded into the health card. The cooler set point reads N/A until
@@ -145,7 +147,9 @@ maintenance); the Pi keeps orders 0–5 on the SD card for KStars' offline HiPS.
   (3) Frames tab revision, the Pi file manager — open decisions; (4) night 2026-10-26 fixes —
   N1 cooler on at Start, N2 guiding tuning, N3 polar overlay, built and merged 2026-10-27. Rig-checked:
   the cooler start step and the guide sheet values (not the first-sub hold). Not checked: a live guide
-  gain write, and the polar overlay on a live frame (needs a PAH run under the sky).
+  gain write, and the polar overlay on a live frame (needs a PAH run under the sky). Overlay changed
+  2026-10-31: the app no longer processes it; the fork paints it 5 px wide and solid (deployed to the
+  Pi 12:35), and pinch-zoom/pan crops. Unseen on a real frame; `docs/BUGS.md` B11.
 - New sequence blocks start at 300 s × 10, gain 100, offset 50, dither every 2 — could start from
   Ekos's current capture settings instead. `TabPlaceholder` is unused.
 - Warn when a second client takes over the connection.
