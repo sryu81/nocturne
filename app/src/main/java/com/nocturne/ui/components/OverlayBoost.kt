@@ -4,16 +4,20 @@ import android.graphics.Bitmap
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 /**
  * Makes the overlay Ekos paints into a Polar alignment frame (the correction triangle and the
  * target circle) visible on a phone. Ekos draws them about 1 px wide on a mono frame, and the
  * frame is then scaled down to the screen width, so they vanish into the noise.
  *
- * The frame itself is grey, so any strongly coloured pixel belongs to the overlay: those pixels are
- * widened by [lineRadius] and painted fully saturated at full brightness in their own hue (the three
- * triangle edges stay told apart). The overlay pen is dim (dark purple, dark green), so the colour is
- * rebuilt from its hue, not just scaled up, which would wash it out to pastel. Image size and geometry are unchanged, so tap-to-pick maps as before.
+ * The frame itself is grey, so any strongly coloured pixel belongs to the overlay. Each one is
+ * splatted into a soft disc of [lineRadius]: the discs add up to the line's coverage (alpha), so
+ * the gaps JPEG leaves in a 1 px line close and the edge is antialiased, and they add up the
+ * pixels' colours, so a stray chroma-noise pixel is outvoted by its neighbours instead of
+ * showing as a speck. The summed colour is then rebuilt at full saturation and brightness (the
+ * overlay pen is dim, so scaling it up would wash it out to pastel) and blended over the frame by
+ * coverage. Geometry is untouched, so the line stays where Ekos drew it and tap-to-pick maps as before.
  */
 object OverlayBoost {
     /**
@@ -22,6 +26,12 @@ object OverlayBoost {
      * phone screenshot of a real run (the dark magenta edge and the circle fall below 32).
      */
     const val SPREAD_MIN = 14
+
+    /** Spread at which a pixel's vote on the line colour is full strength; fainter pixels count less. */
+    private const val SPREAD_FULL = 40f
+
+    /** A pixel's own colour counts this many times over a neighbour at the same distance, so where two lines touch each keeps its own hue. */
+    private const val SELF_WEIGHT = 3f
 
     /** Half-width of the widened line, in image pixels: about 3 dp on screen for a typical frame width. */
     fun lineRadius(width: Int): Int = (width / 300f).roundToInt().coerceIn(1, 6)
@@ -39,34 +49,72 @@ object OverlayBoost {
     /** Pure core of [apply] on ARGB pixels; returns a new array, [src] is not modified. */
     fun boost(src: IntArray, w: Int, h: Int, radius: Int): IntArray {
         val out = src.copyOf()
+        var cover: FloatArray? = null
+        var red = FloatArray(0)
+        var green = FloatArray(0)
+        var blue = FloatArray(0)
         for (y in 0 until h) for (x in 0 until w) {
             val c = src[y * w + x]
-            val colour = vivid(c) ?: continue
+            val spread = spread(c)
+            if (spread < SPREAD_MIN) continue
+            if (cover == null) {
+                cover = FloatArray(w * h)
+                red = FloatArray(w * h)
+                green = FloatArray(w * h)
+                blue = FloatArray(w * h)
+            }
+            val vote = min(1f, spread / SPREAD_FULL)
+            val (vr, vg, vb) = vivid(c)
             for (dy in -radius..radius) {
                 val yy = y + dy
                 if (yy !in 0 until h) continue
                 for (dx in -radius..radius) {
                     val xx = x + dx
-                    if (xx !in 0 until w || dx * dx + dy * dy > radius * radius) continue
+                    if (xx !in 0 until w) continue
+                    // Full inside the radius, fading to nothing one pixel beyond it.
+                    val k = (radius + 1 - sqrt((dx * dx + dy * dy).toFloat())).coerceIn(0f, 1f)
+                    if (k == 0f) continue
                     val i = yy * w + xx
-                    // Overlay pixels keep their own colour; a neighbour's paint only goes on background.
-                    if (vivid(src[i]) == null) out[i] = colour
+                    val wt = k * vote * (if (dx == 0 && dy == 0) SELF_WEIGHT else 1f)
+                    cover[i] += k
+                    red[i] += vr * wt
+                    green[i] += vg * wt
+                    blue[i] += vb * wt
                 }
             }
-            out[y * w + x] = colour
+        }
+        if (cover == null) return out
+        for (i in out.indices) {
+            val a = min(1f, cover[i])
+            if (a <= 0f) continue
+            val lo = min(red[i], min(green[i], blue[i]))
+            val hi = max(red[i], max(green[i], blue[i]))
+            if (hi - lo <= 0f) continue
+            val k = 255f / (hi - lo)
+            val base = src[i]
+            fun mix(from: Int, sum: Float) = (from + ((sum - lo) * k - from) * a).roundToInt().coerceIn(0, 255)
+            out[i] = (0xFF shl 24) or
+                (mix((base shr 16) and 0xFF, red[i]) shl 16) or
+                (mix((base shr 8) and 0xFF, green[i]) shl 8) or
+                mix(base and 0xFF, blue[i])
         }
         return out
     }
 
-    /** The pixel's hue at full saturation and brightness, or null when it is grey (not overlay). */
-    private fun vivid(c: Int): Int? {
+    private fun spread(c: Int): Int {
         val r = (c shr 16) and 0xFF
         val g = (c shr 8) and 0xFF
         val b = c and 0xFF
-        val hi = max(r, max(g, b))
+        return max(r, max(g, b)) - min(r, min(g, b))
+    }
+
+    /** The pixel's hue at full saturation and brightness, as r, g, b in 0..255. */
+    private fun vivid(c: Int): Triple<Float, Float, Float> {
+        val r = (c shr 16) and 0xFF
+        val g = (c shr 8) and 0xFF
+        val b = c and 0xFF
         val lo = min(r, min(g, b))
-        if (hi - lo < SPREAD_MIN) return null
-        val k = 255f / (hi - lo)
-        return (0xFF shl 24) or (((r - lo) * k).roundToInt() shl 16) or (((g - lo) * k).roundToInt() shl 8) or ((b - lo) * k).roundToInt()
+        val k = 255f / (max(r, max(g, b)) - lo)
+        return Triple((r - lo) * k, (g - lo) * k, (b - lo) * k)
     }
 }
