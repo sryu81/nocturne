@@ -42,8 +42,9 @@ first within each list. Commits are on `main` (the `controls-revision` branch wa
   better. Fork commit `88026c9c7` (`alignview.cpp`): one 5 px pen for the RA-axis ring, the triangle and
   the star circle, the ring solid instead of dashed, round caps (the small inner ring stays 2 px). The
   app side is cleaned up: `OverlayBoost` and the raw-frame dump are removed. Cropping is the Polar sheet's
-  existing pinch-zoom, drag-pan and double-tap reset (`PaImage`). Not yet built into a `.deb` or
-  deployed to the Pi, so nothing has been seen on the rig.
+  existing pinch-zoom, drag-pan and double-tap reset (`PaImage`). Built and deployed to the Pi
+  2026-10-31 12:35 (KStars restarted, profile RedCat51_Umi17lite started, port 9000 up); nothing has
+  been seen on the rig yet. Previous build kept as `~/cc/deb/kstars-custom_3.8.3_arm64.deb.prev-2026-10-31`.
 - **Check:** build and deploy the fork (`docs/FORK.md`), run Polar alignment to Select Star and look at
   the ring and triangle on the phone, zoomed and not. Tune `OverlayLineWidth` if 5 px is too heavy.
 
