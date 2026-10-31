@@ -38,12 +38,14 @@ first within each list. Commits are on `main` (the `controls-revision` branch wa
   lines. JPEG and the downscale to the phone break them into dots and shift their colours. The wire has
   no geometry for them (only `center_x/y`, `mag`, `pa` and the errors), so redrawing them as vectors
   would be a fit to pixels.
-- **Fix state:** `OverlayBoost` (widen and recolour the overlay pixels) was rewritten 2026-10-31 as a soft
-  splat: gaps close, edges fade, a stray hue is outvoted by its neighbours. Its first install was a stale
-  APK, so the result has not been judged. The raw align JPEGs are dumped to the phone
-  (`Android/data/com.nocturne/files/align-frames`, newest 20) to measure the real dash gap; the dump is
-  temporary and should be removed once the fix is settled.
-- **Check:** a Polar alignment run to Select Star, then pull the frames and look.
+- **Fix state:** decided 2026-10-31: the app draws and processes nothing on the overlay; Ekos paints it
+  better. Fork commit `88026c9c7` (`alignview.cpp`): one 5 px pen for the RA-axis ring, the triangle and
+  the star circle, the ring solid instead of dashed, round caps (the small inner ring stays 2 px). The
+  app side is cleaned up: `OverlayBoost` and the raw-frame dump are removed. Cropping is the Polar sheet's
+  existing pinch-zoom, drag-pan and double-tap reset (`PaImage`). Not yet built into a `.deb` or
+  deployed to the Pi, so nothing has been seen on the rig.
+- **Check:** build and deploy the fork (`docs/FORK.md`), run Polar alignment to Select Star and look at
+  the ring and triangle on the phone, zoomed and not. Tune `OverlayLineWidth` if 5 px is too heavy.
 
 ### B10 · Goto & center sent the mount the wrong way and Stop did not end it
 

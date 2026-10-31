@@ -416,16 +416,16 @@ private fun MediaFramePreviewImpl(
 
 /** Raw-bytes overload, for a live `/media/ekos` frame not yet written to disk. */
 @Composable
-fun MediaFramePreview(jpeg: ByteArray?, modifier: Modifier = Modifier, hatchColor: Color? = null, boostOverlay: Boolean = false) {
+fun MediaFramePreview(jpeg: ByteArray?, modifier: Modifier = Modifier, hatchColor: Color? = null) {
     MediaFramePreviewImpl(jpeg, modifier, hatchColor) {
-        BitmapFactory.decodeByteArray(jpeg, 0, jpeg!!.size)?.let { if (boostOverlay) OverlayBoost.apply(it) else it }?.asImageBitmap()
+        BitmapFactory.decodeByteArray(jpeg, 0, jpeg!!.size)?.asImageBitmap()
     }
 }
 
 /** [MediaFrame] overload for a live `/media/ekos` frame. */
 @Composable
-fun MediaFramePreview(frame: MediaFrame?, modifier: Modifier = Modifier, hatchColor: Color? = null, boostOverlay: Boolean = false) {
-    MediaFramePreview(frame?.jpeg, modifier, hatchColor, boostOverlay)
+fun MediaFramePreview(frame: MediaFrame?, modifier: Modifier = Modifier, hatchColor: Color? = null) {
+    MediaFramePreview(frame?.jpeg, modifier, hatchColor)
 }
 
 /** File-path overload, for a [com.nocturne.data.FrameEntity]'s `filePath`. */
