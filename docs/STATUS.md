@@ -144,7 +144,9 @@ maintenance); the Pi keeps orders 0–5 on the SD card for KStars' offline HiPS.
 - **Future plan** (`docs/PLAN.md`, draft) has three plans: (1) Home tab and tab layout revision —
   built (M1–M6) and merged into `main`, rig checks above;
   (2) Controls tab revision — built (C1–C4), merged into `main` 2026-10-27, rig checks above;
-  (3) Frames tab revision, the Pi file manager — open decisions; (4) night 2026-10-26 fixes —
+  (3) Frames tab revision, the Pi file manager — R0 (USB automount, `pi-tools/usb-automount`) done
+  and installed 2026-10-31 (NTFS stick mounts at `/media/<label or UUID>` and unmounts on a pull;
+  vfat, exfat and the fstab stick plugged in after boot unchecked), R1–R6 not started; (4) night 2026-10-26 fixes —
   N1 cooler on at Start, N2 guiding tuning, N3 polar overlay, built and merged 2026-10-27. Rig-checked:
   the cooler start step and the guide sheet values (not the first-sub hold). Not checked: a live guide
   gain write, and the polar overlay on a live frame (needs a PAH run under the sky). Overlay changed

@@ -14,7 +14,7 @@ added as discussions go.
 The three are independent: plan 1 only reorders the tabs and moves the old Session content;
 Controls and Frames keep their content until their own plans are built.
 
-## Milestone tracker (updated 2026-10-25)
+## Milestone tracker (updated 2026-10-31)
 
 "Built" = compiled, unit-tested and installed on the phone. "Rig-checked" = also seen working on the
 rig; what is still unchecked is in `docs/STATUS.md`. Details of each milestone are in its plan below.
@@ -31,7 +31,7 @@ rig; what is still unchecked is in `docs/STATUS.md`. Details of each milestone a
 | 2 | C2 | Live menu: one-liners, pinning, mount STOP | Built, merged; one-liners and pinning rig-checked, STOP card not |
 | 2 | C3 | Page upgrades (frames, backlash, chart, coordinates) | Built, merged; mount layout, backlash and align frame rig-checked, focus frame and guide chart not |
 | 2 | C4 | Polar alignment page with pinned Start/Stop | Built, merged; page and settings rig-checked, the run itself not |
-| 3 | R0 | USB automount (Pi tool) | Not started |
+| 3 | R0 | USB automount (Pi tool) | Done, installed on the Pi 2026-10-31; NTFS stick mounted and unmounted on a real pull; vfat, exfat and the fstab stick unchecked |
 | 3 | R1 | Fork: drives and listings | Not started |
 | 3 | R2 | App: Rig storage, read-only | Not started |
 | 3 | R3 | Fork: preview and header | Not started |
@@ -43,8 +43,8 @@ rig; what is still unchecked is in `docs/STATUS.md`. Details of each milestone a
 | 4 | N3 | Polar alignment: bigger, vivid triangle and target circle | Built and unit-tested (2026-10-27); not installed or seen on the rig |
 
 **Next:** the remaining rig checks of plans 2 and 4 (the sky-only ones: the PAH run and overlay, a
-live guide-gain write, the first-sub temperature hold, the mount STOP card). Plan 3 (R0–R6) is
-unchanged and not started; the user decides when it goes ahead.
+live guide-gain write, the first-sub temperature hold, the mount STOP card). Plan 3: R0 is done; R1–R6
+are not started (R1 needs a fork build and an idle rig).
 
 ---
 
