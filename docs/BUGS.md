@@ -6,6 +6,23 @@ first within each list. Commits are on `main` (the `controls-revision` branch wa
 
 ## Open
 
+### B12 · Ekos stopped by itself mid-frame at 23:35 on 10-30, 15 minutes after a good meridian flip
+
+- **Found:** 2026-10-31, from the Pi's analyze file `ekos-2026-10-30T20-05-46` and the phone Log.
+- **Flip was fine:** waiting 23:17:42, running 23:19:15, completed 23:20:31; then plate solve, sync,
+  guide calibration, refocus, and three more R frames (R_3 to R_5) before the stop.
+- **Stop:** R_6 started 23:32:54; last guide sample 23:35:16; 23:35:18 "INDI services stopped" and the
+  Scheduler logged "Observatory is in the startup process ... Starting Ekos"; a new analyze file starts
+  23:35:20, the mount went home at 23:35:52. No job end event, no crash or core dump in the journal, and
+  KStars itself stayed up (only Ekos restarted).
+- **Cause:** unknown. The phone had left Wi-Fi range from 20:21 and only reconnected at 23:34:46, so it saw none of it, and the
+  KStars log of that night was overwritten at the 23:41 boot. It looks like a deliberate stop-and-start
+  (someone or something pressed it) more than a fault.
+- **Fix state:** Ekos file logging turned on 2026-10-31 (kstarsrc `LogToFile`, module logging for Capture,
+  Focus, Guide, Alignment, Mount, Scheduler) and KStars restarted; logs in
+  `~/.local/share/kstars/logs/<date>/`. Next occurrence will have a log.
+- **Check:** after a night, read the log around any unexpected stop.
+
 ### B11 · The Polar alignment overlay is ugly: dashed ring, speckled lines
 
 - **Found:** 2026-10-30, screenshots of Select Star and Refreshing.
