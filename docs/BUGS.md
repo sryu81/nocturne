@@ -15,9 +15,13 @@ first within each list. Commits are on `main` (the `controls-revision` branch wa
   Scheduler logged "Observatory is in the startup process ... Starting Ekos"; a new analyze file starts
   23:35:20, the mount went home at 23:35:52. No job end event, no crash or core dump in the journal, and
   KStars itself stayed up (only Ekos restarted).
-- **Cause:** unknown. The phone had left Wi-Fi range from 20:21 and only reconnected at 23:34:46, so it saw none of it, and the
-  KStars log of that night was overwritten at the 23:41 boot. It looks like a deliberate stop-and-start
-  (someone or something pressed it) more than a fault.
+- **Cause:** unknown. The phone was out of Wi-Fi range from 20:21 and only reconnected at 23:34:46, so
+  it saw nothing before that, and the KStars log of that night was overwritten at the 23:41 boot.
+  Pi journal: no crash and no USB error at 23:35:18, only "indiserver closed the connection"; the
+  Scheduler then saw Ekos down and started it again (so stopping Ekos while the Scheduler runs
+  restarts it). The mount went home 23:35:53 to 23:36:26. The 23:37:26 `sudo poweroff` was the user's
+  and is not part of the bug. Open: whether the user also stopped Ekos at 23:35:18, 32 s after the
+  phone reconnected.
 - **Fix state:** Ekos file logging turned on 2026-10-31 (kstarsrc `LogToFile`, module logging for Capture,
   Focus, Guide, Alignment, Mount, Scheduler) and KStars restarted; logs in
   `~/.local/share/kstars/logs/<date>/`. Next occurrence will have a log.
