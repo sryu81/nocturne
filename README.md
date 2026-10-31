@@ -54,6 +54,7 @@ Put the phone on the rig's network. The connect screen lists rigs it hears (UDP 
 | `docs/PROTOCOL.md` | EkosRemote wire protocol as the app uses it |
 | `docs/FORK.md` | The KStars fork: changes, build/deploy, backlog |
 | `docs/PLAN.md` | Draft future plan: rig status and logs, rig file manager, tab layout |
+| `docs/REFACTOR.md` | Plan for splitting `EkosRemoteController` (measured by `tools/controller_map.py`) |
 | `docs/emulator-troubleshooting.md` | Emulator gotchas |
 | `pi-tools/*/README.md` | Pi-side tools |
 
