@@ -112,10 +112,26 @@ exercised without the sky or moving the mount. Those steps move code verbatim, k
 (partial-shape decode, `exact:true`, scheduler toggles; see `docs/PROTOCOL.md`) are in the code being moved,
 so none of it is rewritten.
 
-## Open decisions
+## Decisions
 
-1. Is steps 6 and 9 (scheduler, equipment actions) worth doing before a clear night proves the app, or do
-   steps 2 to 5, 7 and 8 already give enough?
-2. Should `AbstractLocalSessionController` (893 lines, the local half) be split the same way afterwards, one
-   domain at a time next to its wire half? That is the larger redesign the `super` layering points to, and
-   not part of this plan.
+1. **Steps 6 and 9 stay in (decided 2026-10-31).** The user can test the scheduler lifecycle and the equipment
+   actions under the sky, so they go as planned, last, with a rollback ready.
+2. **Splitting `AbstractLocalSessionController` is out of this plan.** It is the larger redesign: one action is
+   implemented in the interface (`SessionController`, 275 members), the base class (the local update, 255) and
+   `EkosRemoteController` (the wire send, calling `super`); 205 actions have both halves. Splitting the base the same
+   way means dissolving the inheritance: `_state` and `update` move to the shared context (touching every member), the
+   181 `super.…` calls become explicit local-update-then-send code (31 have `super` in the middle, so order is a
+   behaviour question per call), the interface is cut into sub-interfaces the screens consume, and nothing tests either
+   class. About 4,300 lines across three files. Revisit only after steps 1 to 9, if three places per action still hurts.
+
+## Testing tonight (2026-10-31)
+
+Two things would be new on the same night: the refactored controller and the first real capture in the
+`Nocturne/<Target>/<night>/…` tree (plan 3, L1). If something breaks, which one did it? Keep the order clear:
+
+- Before dusk, install the refactored build and run only short, controlled checks of the moved paths (goto and
+  park, guiding start and stop, autofocus, polar alignment screens, scheduler start, finish and end session), each
+  watched in the Log tab.
+- Keep the rollback APK ready: `~/Workspace/nocturne-rollback/app-debug-15f2866.apk` is the build installed before
+  the split (git `15f2866`), restorable with `adb install -r`.
+- If a moved path misbehaves, restore the rollback before the capture run, so the L1 layout check stays clean.
