@@ -20,7 +20,7 @@ Non-goal: changing behaviour. Every step moves code verbatim.
 
 | | Lines |
 |---|---|
-| `EkosRemoteController.kt` | 3,006 (was 3,156) |
+| `EkosRemoteController.kt` | 2,788 (was 3,156) |
 | `RigStorageController.kt`, `ControllerContext.kt` (done, `15f2866`) | 198, 22 |
 | `AbstractLocalSessionController.kt` (the local-update half) | 893 |
 | `SessionController.kt` (the interface the UI uses) | 440 |
@@ -78,7 +78,7 @@ Each step is one commit. Between steps: compile, the unit tests, and the phone s
 | # | Step | Moves | Risk | Status |
 |---|---|---|---|---|
 | 1 | Rig storage | 151 lines | low | **done** `15f2866` |
-| 2 | Top-level helpers after the class | ~240 lines | none (pure functions) | todo |
+| 2 | Top-level helpers after the class (`WireMappers`, `IndiStateHelpers`, `RemoteSessionRules`, coordinate formatters into `MountCoordFormat`) | 218 lines | none (pure functions) | **done** |
 | 3 | Plan search: owns 3 fields, shares 8 with the reducer; the reducer's `Astro*` cases call `search.onEvent` | ~230 | medium | todo |
 | 4 | Profiles / trains / scopes | ~180 | medium (9 `super` callers) | todo |
 | 5 | Rig maintenance and sky atlas (reboot, shutdown, time and location sync, atlas copy) | ~220 | medium | todo |

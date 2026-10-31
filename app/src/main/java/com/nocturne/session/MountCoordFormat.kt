@@ -37,3 +37,23 @@ fun formatDegrees(degrees: Double?): String = degrees?.let { "%.1f°".format(it)
 
 /** Zenith angle: 90° minus altitude. */
 fun zenithAngle(altitude: Double?): Double? = altitude?.let { 90.0 - it }
+
+/** J2000 RA hours → "20h59m17s". */
+fun formatRaHours(hours: Double): String {
+    val h = hours.toInt()
+    val remMin = (hours - h) * 60
+    val m = remMin.toInt()
+    val sec = ((remMin - m) * 60).let { if (it < 0) 0.0 else it }
+    return "%02dh%02dm%02ds".format(h, m, sec.toInt())
+}
+
+/** J2000 Dec degrees → "+44°31′44″". */
+fun formatDecDegrees(deg: Double): String {
+    val sign = if (deg < 0) "-" else "+"
+    val a = kotlin.math.abs(deg)
+    val d = a.toInt()
+    val remMin = (a - d) * 60
+    val m = remMin.toInt()
+    val sec = ((remMin - m) * 60).let { if (it < 0) 0.0 else it }
+    return "$sign%02d°%02d′%02d″".format(d, m, sec.toInt())
+}
