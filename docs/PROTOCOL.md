@@ -97,8 +97,36 @@ trimmed). The app keeps only the new lines of it, and ignores it once the fork's
 | Align | `align_solve`, `align_set_astrometry_settings`, `align_set_target_pa`, `align_get_all_settings`, `align_set_all_settings` |
 | Focus | `focus_start`, `focus_stop`, `focus_in`, `focus_out`, `focus_get_all_settings`, `focus_set_all_settings` |
 | Guide | `guide_start`, `guide_stop`, `guide_loop`, `guide_clear`, `guide_capture`, `guide_get_all_settings`, `guide_set_all_settings` |
+| Files (R2) | `file_list_drives`, `file_list` |
 | Polar align | `polar_start`, `polar_stop`, `polar_refresh`, `polar_refreshing_done`, `polar_slew_done`, `polar_set_crosshair` |
 | Options / KStars | `option_get`, `option_set`, `kstars_set_location`, `kstars_set_time` |
+
+## File browsing (fork, R1; app side is R2)
+
+Read-only view of the Pi's capture storage, added by the fork (`ekosremote/filebrowser.cpp`). Every
+drive keeps frames in one `Nocturne` folder with the layout in `docs/PLAN.md` ("File layout rule");
+nothing outside those folders is listed, whatever path is sent. An older fork does not know the
+commands and never answers.
+
+**`file_list_drives`** (no payload) → response `file_list_drives`, `{"drives": [...]}`, one object per
+drive: `id` (`"sd"` or the mount point), `kind` (`sd`/`usb`), `label` (the volume label, else the mount
+folder name), `fs`, `path` (the drive's `Nocturne` folder), `total` and `free` in bytes, `readOnly`,
+`hasRoot` (whether `path` exists yet). The SD card is always first. USB drives are the volumes mounted
+under `/mnt/` and `/media/`.
+
+**`file_list`** `{"path": "<folder>"}` → response `file_list`, `{"path", "capturing", "entries": [...]}`:
+newest first, hidden files and symlinks skipped. An entry has `name`, `isDir`, `modified` (epoch
+seconds) and, for a file, `size`; for a folder, `count` (direct children) and `bytes` (recursive, from
+a budget of 2,000 files shared by the whole reply; `bytesPartial: true` when it ran out). A folder that
+holds the running capture's save folder has `inUse: true`, and `capturing` says whether any capture job
+is active. At most 5,000 entries (`truncated: true` beyond). A refusal replies `{"path", "error"}` with
+`not_allowed` (outside a `Nocturne` folder, a `..` part, or a symlink out), `not_found` or `not_dir`;
+the request path is echoed because the wire has no request id. The listing runs off KStars's GUI
+thread, so a stalled drive delays only its own reply.
+
+**Stock `file_directory_operation`:** `create` and `remove` now act only inside a `Nocturne` folder,
+and `remove` refuses a `Nocturne` folder itself; they answer `result: false` otherwise. `list` and
+`exists` are unchanged. (The app uses none of them.)
 
 ## INDI devices and properties
 
