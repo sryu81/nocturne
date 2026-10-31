@@ -723,6 +723,89 @@ older-fork fallback and reuse it.
 2. Should R1, R3 and R5 share one fork build? One restart instead of three, but R1 would wait for
    the other two to be written and the allowed-roots check would go untested on its own.
 
+## R3 and R5 design: preview, header, file operations (draft 2026-10-31, not built)
+
+Both are fork work and would share one build (see "Build order" below). Everything goes through the
+R1 `isAllowedPath` check, which stays the single gate.
+
+### R3 · preview and header (the file page, app side R4)
+
+- **`file_header {path}`** → `{path, records: [{key, value}], error?}`. A header-only read with cfitsio
+  (`fits_open_file`, then the header cards), so no pixels are decoded and it is cheap on any drive. The
+  app picks what to show: `FILTER`, `EXPTIME`, `GAIN`, `OFFSET`, `XBINNING`, `CCD-TEMP`, `IMAGETYP`/`FRAME`,
+  `OBJECT`, `DATE-OBS`, `INSTRUME`, `FOCALLEN`. HFR is not a FITS key (Ekos computes it from pixels), so it
+  is not here; the preview's metadata carries it (below).
+- **`file_preview {path}`** → the JPEG arrives on the **media channel**, like every other frame, with the
+  same 5 KB metadata packet (resolution, exposure, gain, bin, mean/median/stddev, `hfr`, `hasWCS`).
+  Load, stretch and JPEG run on a worker thread through `Media::sendData` (FITSData to QImage to JPEG,
+  scaled to the usual 1,920 px). The stock `Media::sendFile` is not used: nothing calls it, it builds a
+  `FITSView` (a widget) on a worker thread, and it is untested.
+- **Media uuid.** The app treats any uuid it does not know as a capture and writes it to the Frames
+  history, so the preview carries its own: `fp_<n>`, with `n` the request number echoed in the message
+  reply `{path, uuid}`. The app needs a `FILE_PREVIEW` frame type for it before R3 is deployed, or the
+  first preview lands in the capture history.
+- **Cost and limits.** A 49 MB frame reads from the SD card in about 0.3 s and stretches in about as long.
+  One preview at a time; a second request cancels the first. `m_sendBlobs` must be on (the app sets it).
+- **Refused:** a path outside a `Nocturne` folder, a folder, a file that is not FITS (`not_fits`).
+
+### R5 · file operations
+
+All run on a worker thread with a cancel flag and push progress; none blocks KStars or a capture.
+
+| Command | Payload | Rules |
+|---|---|---|
+| `file_delete` | `{paths: [..]}` | Files and folders (recursive). Never a `Nocturne` root, never a path that holds or is the running capture's folder. |
+| `file_rename` | `{path, name}` | Same folder only (`name` has no `/`), refuses an existing name, same rules as delete. |
+| `file_copy` | `{paths, toDrive}` | See "Copy and move". Refused when free space on the target is below the size plus a 200 MB margin: reply `no_space` with `needed` and `free`. |
+| `file_move` | `{paths, toDrive}` | Copy, verify, then delete the source. Same drive: a rename. |
+| `file_cancel` | `{id}` | Stops the operation after the current file; the file being written is removed. |
+| `file_eject` | `{id}` | A USB drive's `id` from `file_list_drives`. Refused while an operation uses it. |
+
+- **Progress.** Every operation gets an `id` in its first reply. The fork pushes `file_progress`
+  `{id, op, state: running|done|failed|cancelled, filesDone, filesTotal, bytesDone, bytesTotal,
+  current, error?, failed: [..]}` about twice a second and once at the end. The app shows a progress card
+  (R6) that survives leaving the screen, because the work is on the Pi.
+- **Copy loop.** 4 MB chunks, so progress and cancel are responsive; each file lands as `name.part` and is
+  renamed once complete, so a pulled drive or a cancel never leaves a half file under its real name.
+- **Verification.** After a cross-drive copy the size and modified time are compared before the source goes
+  (move only). A byte-for-byte compare would double the read time on a slow stick; see open question 2.
+- **Drive removed mid-operation.** A write or read error ends the operation as `failed` with the drive named,
+  removes the `.part` file, and leaves the source untouched.
+- **Eject.** KStars runs as `soo` and cannot unmount. The command calls `sudo -n` on a new `eject` verb of
+  `pi-tools/usb-automount/nocturne-usb-mount` (`sync`, then a plain `umount`, which fails if busy, then the
+  empty mount folder is removed). It relies on the passwordless sudo the Pi already has.
+- **Scratch first.** The first runs of copy, move and delete are done on `Nocturne/_scratch` on the SD card
+  and on the stick, never on a real night.
+
+### Copy and move: where things land (decision for the user)
+
+The file layout rule keeps the same relative path on every drive. Two ways to use that:
+
+- **A. To a drive (recommended).** The app offers "Copy to SD / STICK". The fork puts each source at the same
+  relative path under the target drive's `Nocturne` folder (`M_31/2026-10-30` on the SD becomes
+  `<stick>/Nocturne/M_31/2026-10-30`), creating folders and merging into existing ones, and refusing a name
+  that already exists. One tap moves a night; the structure cannot be broken by a wrong paste.
+- **B. Paste here** (as the plan first said). Browse to any folder under any drive's `Nocturne` and paste
+  there. More flexible, but it lets a night end up anywhere in the tree and the layout rule stops holding.
+
+A needs no destination browser, which also removes a screen from R6.
+
+### Build order
+
+R3 and R5 in one fork build (about 15 minutes plus a KStars restart on the Pi), after the app's `FILE_PREVIEW`
+frame type exists. The app side then follows: R4 (the file page: preview and header, action buttons disabled)
+can ship with R3; R6 (selection, copy and move to a drive, progress, delete, rename, eject) needs R5. Testing
+R5 on the Pi needs an idle rig and the scratch folders; the stick has no `Nocturne` content yet.
+
+### Open questions
+
+1. A or B for copy and move (above).
+2. After a cross-drive copy, is size and modified time enough, or should a checksum compare run too? A
+   checksum doubles the read time (a 4 GB night off an NTFS stick would take minutes longer), but it is the
+   only proof a copy is intact before the source is deleted. A middle road: checksum for **move**, size only for copy.
+3. Should delete ask for a second confirmation when it would remove a whole night (a date folder)? The plan
+   has one plain confirm that names what goes; a night is the unit people actually lose.
+
 ---
 
 # 4. Night 2026-10-26 fixes
