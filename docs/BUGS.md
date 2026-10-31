@@ -6,6 +6,56 @@ first within each list. Commits are on `main` (the `controls-revision` branch wa
 
 ## Open
 
+### B13 · The app's link to the rig was down from 20:21 to 23:34 and nothing says why
+
+- **Found:** 2026-10-30, looking for the meridian flip in the phone Log (see B12): the Log has no
+  lines at all between 20:21:23 and 23:34:46, though Ekos ran the whole time (the Pi's analyze file
+  has the flip, refocus and frames).
+- **Evidence (phone Log, source Link):** 20:21:01 "Lost the KStars connection (Software caused
+  connection abort), reconnecting"; 20:21:23 "Disconnected from the rig"; next line 23:34:46.
+  "Disconnected from the rig" is only logged by an explicit `client.disconnect()`, never by a lost
+  socket, so 22 s after the loss something called it: the Disconnect card (`SessionViewModel.disconnect`),
+  or the view model being cleared (`onCleared`, e.g. the app swiped away). A lost socket alone retries
+  forever (1 s doubling to 30 s) and would have logged "Connecting to KStars" again.
+- **Not known:** what the user did at 20:21 (closed the app or tapped Disconnect), and why the socket
+  was aborted (`Software caused connection abort` is the phone's network going away: Wi-Fi out of range
+  or a network switch). The app never auto-dials after an explicit disconnect, by design (see
+  `SessionViewModel.disconnect`).
+- **Fix (planned):** none until the cause is known. Cheap step: log why a disconnect happened (button,
+  app closed, reboot/shutdown) so the next gap explains itself.
+
+### B12 · Ekos stopped by itself mid-frame at 23:35 on 10-30, 15 minutes after a good meridian flip
+
+- **Found:** 2026-10-31, from the Pi's analyze file `ekos-2026-10-30T20-05-46` and the phone Log.
+- **Flip was fine:** waiting 23:17:42, running 23:19:15, completed 23:20:31; then plate solve, sync,
+  guide calibration, refocus, and three more R frames (R_3 to R_5) before the stop.
+- **Stop:** R_6 started 23:32:54; last guide sample 23:35:16; 23:35:18 "INDI services stopped" and the
+  Scheduler logged "Observatory is in the startup process ... Starting Ekos"; a new analyze file starts
+  23:35:20, the mount went home at 23:35:52. No job end event, no crash or core dump in the journal, and
+  KStars itself stayed up (only Ekos restarted).
+- **Cause:** unknown. The phone only reconnected at 23:34:46 (B13), so it saw none of it, and the
+  KStars log of that night was overwritten at the 23:41 boot. It looks like a deliberate stop-and-start
+  (someone or something pressed it) more than a fault.
+- **Fix state:** Ekos file logging turned on 2026-10-31 (kstarsrc `LogToFile`, module logging for Capture,
+  Focus, Guide, Alignment, Mount, Scheduler) and KStars restarted; logs in
+  `~/.local/share/kstars/logs/<date>/`. Next occurrence will have a log.
+- **Check:** after a night, read the log around any unexpected stop.
+
+### B11 · The Polar alignment overlay is ugly: dashed ring, speckled lines
+
+- **Found:** 2026-10-30, screenshots of Select Star and Refreshing.
+- **Cause:** Ekos paints the overlay itself into the frame it sends: the RA-axis circle is a green
+  `Qt::DashLine` (`AlignView::drawRaAxis`), the triangle edges are 2 to 3 px magenta, yellow and green
+  lines. JPEG and the downscale to the phone break them into dots and shift their colours. The wire has
+  no geometry for them (only `center_x/y`, `mag`, `pa` and the errors), so redrawing them as vectors
+  would be a fit to pixels.
+- **Fix state:** `OverlayBoost` (widen and recolour the overlay pixels) was rewritten 2026-10-31 as a soft
+  splat: gaps close, edges fade, a stray hue is outvoted by its neighbours. Its first install was a stale
+  APK, so the result has not been judged. The raw align JPEGs are dumped to the phone
+  (`Android/data/com.nocturne/files/align-frames`, newest 20) to measure the real dash gap; the dump is
+  temporary and should be removed once the fix is settled.
+- **Check:** a Polar alignment run to Select Star, then pull the frames and look.
+
 ### B10 · Goto & center sent the mount the wrong way and Stop did not end it
 
 - **Found:** 2026-10-30, 19:54, from the phone Log and the Pi's `mount-events.log`.
