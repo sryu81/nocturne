@@ -1437,6 +1437,7 @@ class EkosRemoteController(
     // ── Profiles / Optical Train ────────────────────────────────────────
 
     override fun startProfile(name: String) {
+        log?.record("App", "Start Ekos requested with profile $name")
         client.sendCommand(Commands.PROFILE_START, buildJsonObject { put("name", name) })
         super.startProfile(name) // optimistic; new_connection_state.online confirms
     }
@@ -1453,6 +1454,7 @@ class EkosRemoteController(
     }
 
     override fun stopProfile() {
+        log?.record("App", "Stop Ekos requested")
         client.sendCommand(Commands.PROFILE_STOP)
         super.stopProfile()
     }
