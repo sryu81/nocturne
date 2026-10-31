@@ -25,6 +25,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.nocturne.data.FrameEntity
 import com.nocturne.session.AppState
+import com.nocturne.session.CaptureLayout
 import com.nocturne.session.FrameCategory
 import com.nocturne.session.SessionController
 import com.nocturne.session.formatDecDegrees
@@ -32,7 +33,6 @@ import com.nocturne.session.formatRaHours
 import com.nocturne.session.keepCount
 import com.nocturne.session.rejectCount
 import com.nocturne.session.rigStorageSummary
-import com.nocturne.session.SheetType
 import com.nocturne.ui.components.Card
 import com.nocturne.ui.components.HfrRunChart
 import com.nocturne.ui.components.IconBtn
@@ -131,17 +131,34 @@ private fun CategoryPicker(
                     onClick = ctrl::openRigStorage,
                 )
             },
-            // Where frames are saved is shown here, with the files they produce.
-            TabItem(full = true) {
-                CategoryCard(
-                    icon = Phosphor.SlidersHorizontal,
-                    title = "File settings",
-                    sub = "where frames are saved",
-                    onClick = { ctrl.openSheet(SheetType.CAMERA_SETTINGS) },
-                )
-            },
+            // Where the frames land is fixed (CaptureLayout); this only shows the rule.
+            TabItem(full = true) { SaveLocationCard() },
         ),
     )
+}
+
+/** Where frames are saved on the Pi. Fixed by [CaptureLayout], so it is shown, not edited. */
+@Composable
+private fun SaveLocationCard() {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    Card(Modifier.fillMaxWidth()) {
+        TextC("Saved on the Pi", style = t.MonoSmall, color = c.textMuted)
+        Spacer(Modifier.height(4.dp))
+        TextC(CaptureLayout.ROOT, style = t.Body135, color = c.text)
+        Spacer(Modifier.height(10.dp))
+        TextC(
+            "<Target> / <night> / <Type> / <Filter> / <Target>_<Type>_<Filter>_<exposure>_<time>_<n>.fits",
+            style = t.MonoSmall, color = c.text,
+        )
+        Spacer(Modifier.height(8.dp))
+        TextC(
+            "The night is the date it began, so frames after midnight stay with the evening before. " +
+                "Every USB drive uses the same layout under its own Nocturne folder. The path is fixed so " +
+                "Rig storage can find, copy and move whole nights.",
+            style = t.MonoMicro, color = c.textMuted,
+        )
+    }
 }
 
 @Composable

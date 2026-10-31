@@ -403,7 +403,7 @@ internal fun OptionRow(label: String, selected: Boolean, onSelect: () -> Unit) {
     )
 }
 
-/** Plain single-line text field box, same visual shape as [CameraSettingsSheet]'s save-path field. */
+/** Plain single-line text field box in the settings sheets' field style. */
 @Composable
 internal fun TextFieldBox(value: String, onChange: (String) -> Unit) {
     val c = NocturneTheme.colors

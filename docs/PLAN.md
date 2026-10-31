@@ -469,7 +469,7 @@ header switcher, Back (a sheet first, then the page, then the tab), a Main Cam p
 solve with its align frame and the pinned card while it ran, a PAH direction round trip. Not seen:
 the focus frame (needs a focus capture), the guide chart (needs guide data), the mount STOP card,
 and the polar alignment steps that drive the mount. Differences from the plan: the Camera header has
-no settings button (the sheet it would open is "File settings", which stays on the Frames tab);
+no settings button (the file save path is fixed and shown on the Frames tab, see the file layout rule);
 the pier side shows only when it is East or West; and Back now closes an open sheet before leaving
 the screen, for every sheet.
 
@@ -538,7 +538,7 @@ today.
 Drill-downs with a back arrow, the same pattern as the Controls pages, never sheets.
 
 1. **Entry:** a fourth card in the Frames picker, `Rig storage`, with a one-liner such as
-   `SD 412 GB free · USB 1`. Preview and Plan stay as the phone side; File settings stays.
+   `SD 412 GB free · USB 1`. Preview and Plan stay as the phone side; the fixed save location is shown as a card on the Frames tab (the File settings card and sheet were removed 2026-10-31).
 2. **Drives (root):** one card per drive: the SD card (`/home/soo`) and each attached USB drive, with
    label, filesystem, a free-space bar and `free / total`. A running copy or move shows its progress
    card on top. A USB drive card has an **Eject** button that unmounts it safely before it is pulled
@@ -630,7 +630,7 @@ and the Save path and Placeholder format are free text in the File settings shee
   `<root>/<Target>/<Night>` and `PlaceholderFormat` = `/%T/%F/<Target>_%T_%F_%e_%D`, with the clean
   target baked in as literal text. The scheduler job keeps its unique name (`M_31_j2_…`), which
   only the esq file and the scheduler list use.
-- The File settings sheet shows the root and the structure read-only. The Save path and
+- The Frames tab shows the root and the structure as a read-only card (there is no File settings sheet any more). The Save path and
   Placeholder format fields, `setCameraSaveDir` and `setCameraPlaceholderFormat` are gone. Once per
   connection (not while the Scheduler runs) the app writes `Nocturne/Manual` and the format
   `/%t/%T/%F/%t_%T_%F_%e_%D` into the Capture module's own settings, so a capture started in Ekos
@@ -653,7 +653,7 @@ the Pi, by hand, after the user looks at its dry-run list.
 
 | # | Milestone | Done when |
 |---|---|---|
-| L1 | **App: fixed layout** | `pushRealJob` writes the rule's `FITSDirectory` and format; the night date comes from the almanac dusk (fallback: start time minus 12 h); the File settings sheet is read-only; unit tests for the path builder, including a midnight crossing and odd target names. |
+| L1 | **App: fixed layout** | `pushRealJob` writes the rule's `FITSDirectory` and format; the night date comes from the almanac dusk (fallback: start time minus 12 h); the Frames tab shows the layout read-only (no File settings sheet); read-only; unit tests for the path builder, including a midnight crossing and odd target names. |
 | L2 | **Pi: migration script** | Dry run lists every old folder with its new path; a real run on one small folder moves it with matching checksums; the symlinks from `move-images.sh` are handled. |
 
 L1 and L2 need no fork build, so they can go before R1. R1's browse test is easier with them in

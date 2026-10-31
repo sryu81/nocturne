@@ -37,7 +37,6 @@ fun SheetHost(state: AppState, ctrl: SessionController, landscape: Boolean) {
         SheetType.MAINTENANCE -> "Rig maintenance" to "reboot or shut down the Pi"
         SheetType.RIG_HEALTH -> "Rig health" to "links, modules and the Pi"
         SheetType.MOUNT_SETTINGS -> "Mount settings" to "flip, limits, auto-park"
-        SheetType.CAMERA_SETTINGS -> "File settings" to "where frames are saved"
         SheetType.ALIGN_SETTINGS -> "Align settings" to "exposure, gain, filter, accuracy"
         SheetType.GUIDE_SETTINGS -> "Guide settings" to "dither, frame, calibration"
         SheetType.FOCUS_SETTINGS -> "Focus settings" to "exposure, gain, filter"
@@ -75,7 +74,6 @@ fun SheetHost(state: AppState, ctrl: SessionController, landscape: Boolean) {
                 SheetType.MAINTENANCE -> MaintenanceSheet(state, ctrl)
                 SheetType.RIG_HEALTH -> com.nocturne.ui.home.RigHealthSheet(state)
                 SheetType.MOUNT_SETTINGS -> MountSettingsSheet(state, ctrl)
-                SheetType.CAMERA_SETTINGS -> CameraSettingsSheet(state, ctrl)
                 SheetType.ALIGN_SETTINGS -> AlignSettingsSheet(state, ctrl)
                 SheetType.GUIDE_SETTINGS -> GuideSettingsSheet(state, ctrl)
                 SheetType.FOCUS_SETTINGS -> FocusSettingsSheet(state, ctrl)
