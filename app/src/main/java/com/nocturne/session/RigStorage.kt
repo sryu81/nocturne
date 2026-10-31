@@ -146,11 +146,19 @@ fun ejectErrorText(event: EkosEvent.FileEjectReply): String = when (event.error)
     else -> "Could not eject" + (event.message?.takeIf { it.isNotBlank() }?.let { ": $it" } ?: "")
 }
 
-/** The delete dialog's plain words, naming what goes (plan 3, "Delete"). */
-fun deleteMessage(names: List<String>, bytes: Long?): String {
+/** The delete dialog's plain words, naming what goes (plan 3, "Delete"). A folder takes its contents with it. */
+fun deleteMessage(names: List<String>, bytes: Long?, anyFolder: Boolean = true): String {
     val what = if (names.size == 1) names.single() else "${names.size} items"
     val size = bytes?.let { " (${formatByteSize(it)})" }.orEmpty()
-    return "$what$size goes, with everything inside it. This cannot be undone."
+    return if (anyFolder) "$what$size goes, with everything inside it. This cannot be undone."
+    else "$what$size goes. This cannot be undone."
+}
+
+/** Whether any pending path is a folder, from the listing being shown; a file page is always one file. */
+fun RigStorageState.pendingHasFolder(): Boolean {
+    if (file != null) return false
+    val names = pending?.paths.orEmpty().map { it.substringAfterLast('/') }.toSet()
+    return listing?.entries.orEmpty().any { it.isDir && it.name in names }
 }
 
 fun transferMessage(kind: RigOpKind, names: List<String>, bytes: Long?, target: String): String {

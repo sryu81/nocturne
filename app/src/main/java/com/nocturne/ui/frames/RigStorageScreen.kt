@@ -19,6 +19,7 @@ import com.nocturne.session.driveFor
 import com.nocturne.session.driveLabel
 import com.nocturne.session.opRunning
 import com.nocturne.session.pendingBytes
+import com.nocturne.session.pendingHasFolder
 import com.nocturne.session.progressLine
 import com.nocturne.session.transferMessage
 import com.nocturne.ui.components.WindowConfirmDialog
@@ -33,6 +34,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -163,8 +165,9 @@ private fun ActionBar(rs: RigStorageState, ctrl: SessionController, modifier: Mo
     val paths = pending?.paths ?: rs.selection.toList()
     val names = paths.map { it.substringAfterLast('/') }
 
-    Column(
-        modifier.fillMaxWidth().background(c.surfaceRaised).padding(horizontal = 16.8.dp, vertical = 12.dp),
+    // While a confirmation is up the dialog is all there is; the bar behind it stays out of the way.
+    if (pending?.confirming != true) Column(
+        modifier.imePadding().fillMaxWidth().background(c.surfaceRaised).padding(horizontal = 16.8.dp, vertical = 12.dp),
         verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp),
     ) {
         when {
@@ -200,7 +203,7 @@ private fun ActionBar(rs: RigStorageState, ctrl: SessionController, modifier: Mo
                     )
                 }
             }
-            pending.toDrive == null -> {
+            pending.kind != RigOpKind.DELETE && pending.toDrive == null -> {
                 val from = rs.driveFor(paths.first())?.id
                 TextC("${pending.kind.verb} to which drive?", style = t.MonoSmall, color = c.text)
                 Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
@@ -225,7 +228,7 @@ private fun ActionBar(rs: RigStorageState, ctrl: SessionController, modifier: Mo
                 RigOpKind.DELETE -> if (names.size == 1) "Delete ${names.single()}?" else "Delete ${names.size} items?"
                 else -> "${pending.kind.verb} to $target?"
             },
-            message = if (isDelete) deleteMessage(names, bytes) else transferMessage(pending.kind, names, bytes, target),
+            message = if (isDelete) deleteMessage(names, bytes, rs.pendingHasFolder()) else transferMessage(pending.kind, names, bytes, target),
             confirmText = pending.kind.verb,
             confirmStyle = if (isDelete) BtnStyle.DANGER else BtnStyle.SOLID,
             onConfirm = ctrl::rigStorageConfirmOp,
@@ -404,8 +407,8 @@ private fun EntryRow(
     Row(
         Modifier.fillMaxWidth()
             .combinedClickable(
-                enabled = !entry.inUse && (opens || selecting),
-                onClick = { if (selecting) onToggle() else onOpen() },
+                enabled = !entry.inUse,
+                onClick = { if (selecting) onToggle() else if (opens) onOpen() },
                 onLongClick = onToggle,
             )
             .padding(vertical = 9.dp),

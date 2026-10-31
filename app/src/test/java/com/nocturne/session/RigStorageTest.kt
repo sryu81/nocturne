@@ -242,6 +242,7 @@ class RigStorageTest {
             deleteMessage(listOf("2026-10-30"), 3_328_599_654L),
         )
         assertEquals("3 items goes, with everything inside it. This cannot be undone.", deleteMessage(listOf("a", "b", "c"), null))
+        assertEquals("a.fits (49 MB) goes. This cannot be undone.", deleteMessage(listOf("a.fits"), 51_891_840L, anyFolder = false))
         assertEquals("2026-10-30 (3.1 GB) is copied to the same place on STICK. The original stays.", transferMessage(RigOpKind.COPY, listOf("2026-10-30"), 3_328_599_654L, "STICK"))
         assertEquals(
             "2026-10-30 is copied to the same place on STICK, checked byte for byte, and only then removed from here.",
@@ -266,5 +267,18 @@ class RigStorageTest {
         assertEquals("It is already on that drive", opErrorText("same_drive"))
         assertEquals("Not done (weird)", opErrorText("weird"))
         assertEquals("The drive is in use by a copy or move", ejectErrorText(EkosEvent.FileEjectReply(error = "busy")))
+    }
+
+    @Test
+    fun aDeleteOfOnlyFilesDoesNotTalkAboutWhatIsInside() {
+        val listing = EkosEvent.FileListing(
+            path = "/p",
+            entries = listOf(WireFileEntry(name = "a", isDir = true), WireFileEntry(name = "b.fits", size = 5.0)),
+        )
+        val base = state.openFolder("/p").withListing(listing)
+        assertEquals(true, base.startPending(RigOpKind.DELETE, listOf("/p/a")).pendingHasFolder())
+        assertEquals(false, base.startPending(RigOpKind.DELETE, listOf("/p/b.fits")).pendingHasFolder())
+        assertEquals(true, base.startPending(RigOpKind.DELETE, listOf("/p/a", "/p/b.fits")).pendingHasFolder())
+        assertEquals(false, base.openFile("/p/b.fits").startPending(RigOpKind.DELETE, listOf("/p/b.fits")).pendingHasFolder())
     }
 }

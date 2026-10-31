@@ -38,8 +38,8 @@ rig; what is still unchecked is in `docs/STATUS.md`. Details of each milestone a
 | 3 | R2 | App: Rig storage, read-only | Built, installed and seen on the phone against the deployed fork 2026-10-31 (drives, folders, files, Back, empty stick); the offline, older-fork and in-use states are unit-tested or untried on the rig |
 | 3 | R3 | Fork: preview and header | Deployed to the Pi 2026-10-31; header and a 6224×4168 preview (0.8 s) verified from a scripted client and on the phone |
 | 3 | R4 | App: file page | Built, installed and seen on the phone 2026-10-31 (real M 31 preview and header values; the timeout state on a truncated file) |
-| 3 | R5 | Fork: file operations and eject | Deployed to the Pi 2026-10-31; copy SD to stick, move back with checksum, delete, rename, cancel and the refusals verified on scratch folders with the real NTFS stick; eject refusals checked, a real unmount not yet done |
-| 3 | R6 | App: manage (selection, copy/move to a drive, progress, delete, rename, eject) | Built and installed 2026-10-31; selection bar and file page seen on the phone; the operations were driven by a scripted client, not yet from the app's buttons |
+| 3 | R5 | Fork: file operations and eject | Deployed to the Pi 2026-10-31; copy SD to stick, move back with checksum, delete, rename, cancel, the refusals and a real eject verified with the real NTFS stick (scratch folders only) |
+| 3 | R6 | App: manage (selection, copy/move to a drive, progress, delete, rename, eject) | Built, installed and tapped through on the phone 2026-10-31 against the real stick: copy, delete, move (checksum), rename, Cancel mid-copy, Eject; three UI bugs found and fixed on the way. Not seen: the capture lock, the no-space notice |
 | 4 | N1 | Cooler on at session start, hold first sub | Built, installed, start step rig-checked 2026-10-27; first-sub hold not seen |
 | 4 | N2 | Guiding tuning (gain, pulse, axes) | Built and installed; sheet values rig-checked 2026-10-27, live write not yet |
 | 4 | N3 | Polar alignment: bigger, vivid triangle and target circle | Built and unit-tested (2026-10-27); not installed or seen on the rig |

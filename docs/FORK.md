@@ -86,3 +86,4 @@ discovery (the UDP beacon covers it), dome control (no dome on this rig).
 
 Rig item outside the fork: reflash OnStep with `PIER_SIDE_PREFERRED_DEFAULT EAST` so the pier
 guard is no longer needed after a mount power cycle.
+7. **Empty target folders after a cancel or failed copy** — `file_copy`/`file_move` create the target folders before the first file, so a cancelled or failed run leaves them empty (seen 2026-10-31: an empty `_scratch` on the stick). Remove the folders the run created when it ends without copying into them.
