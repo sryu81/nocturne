@@ -777,18 +777,23 @@ All run on a worker thread with a cancel flag and push progress; none blocks KSt
 - **Scratch first.** The first runs of copy, move and delete are done on `Nocturne/_scratch` on the SD card
   and on the stick, never on a real night.
 
-### Copy and move: where things land (decision for the user)
+### Copy and move: where things land (decided 2026-10-31: A)
 
-The file layout rule keeps the same relative path on every drive. Two ways to use that:
+The file layout rule keeps the same relative path on every drive, so the app offers "Copy to SD / STICK"
+(and "Move to"). The fork puts each source at the same relative path under the target drive's `Nocturne`
+folder (`M_31/2026-10-30` on the SD becomes `<stick>/Nocturne/M_31/2026-10-30`), creating folders and
+merging into existing ones, and refusing a name that already exists (that file is reported in `failed`
+and its source is kept). One tap moves a night, a wrong paste cannot break the structure, and R6 needs no
+destination browser. A "paste into any folder" mode was considered and dropped.
 
-- **A. To a drive (recommended).** The app offers "Copy to SD / STICK". The fork puts each source at the same
-  relative path under the target drive's `Nocturne` folder (`M_31/2026-10-30` on the SD becomes
-  `<stick>/Nocturne/M_31/2026-10-30`), creating folders and merging into existing ones, and refusing a name
-  that already exists. One tap moves a night; the structure cannot be broken by a wrong paste.
-- **B. Paste here** (as the plan first said). Browse to any folder under any drive's `Nocturne` and paste
-  there. More flexible, but it lets a night end up anywhere in the tree and the layout rule stops holding.
+### Verification and delete (decided 2026-10-31)
 
-A needs no destination browser, which also removes a screen from R6.
+- **Copy:** size is compared after each file; the modified time is carried over to the copy.
+- **Move:** size and a SHA-1 of source and copy are compared before the source file is removed. The checksum
+  re-reads both files, so a move off the SD card to the stick takes longer than a copy; a same-drive move is a
+  rename and needs none.
+- **Delete:** one plain confirm that says what goes ("Delete folder 2026-10-30 with 65 files, 3.2 GB? This
+  cannot be undone."), the same for a file, a folder or a whole night.
 
 ### Build order
 
@@ -799,12 +804,7 @@ R5 on the Pi needs an idle rig and the scratch folders; the stick has no `Noctur
 
 ### Open questions
 
-1. A or B for copy and move (above).
-2. After a cross-drive copy, is size and modified time enough, or should a checksum compare run too? A
-   checksum doubles the read time (a 4 GB night off an NTFS stick would take minutes longer), but it is the
-   only proof a copy is intact before the source is deleted. A middle road: checksum for **move**, size only for copy.
-3. Should delete ask for a second confirmation when it would remove a whole night (a date folder)? The plan
-   has one plain confirm that names what goes; a night is the unit people actually lose.
+None left from the first draft.
 
 ---
 

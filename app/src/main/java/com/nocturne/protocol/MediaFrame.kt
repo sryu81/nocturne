@@ -40,13 +40,13 @@ data class MediaHeader(
 )
 
 /** Module this frame came from, derived from [MediaHeader.uuid]'s tag convention. */
-enum class MediaFrameType { CAPTURE, ALIGN, FOCUS, GUIDE, DARK, LIVE_VIDEO, OTHER }
+enum class MediaFrameType { CAPTURE, ALIGN, FOCUS, GUIDE, DARK, LIVE_VIDEO, FILE_PREVIEW, OTHER }
 
 /**
  * A capture frame's `uuid` is `data->objectName()`, a 32-hex-char per-image id
  * (`manager.cpp:updateCaptureProgress`), not an empty string. Only the module tags
  * `"+A"`/`"+F"`/`"+G"`/`"+D"` (`Media::sendModuleFrame`) and the HiPS sky tags
- * (`"skypoint_hips"`, `"hips_<md5>"`) are special, so any other uuid is a capture.
+ * (`"skypoint_hips"`, `"hips_<md5>"`) and the file manager's `"fp_<n>"` are special, so any other uuid is a capture.
  */
 val MediaHeader.frameType: MediaFrameType
     get() = when {
@@ -56,6 +56,9 @@ val MediaHeader.frameType: MediaFrameType
         uuid == "+G" -> MediaFrameType.GUIDE
         uuid == "+D" -> MediaFrameType.DARK
         uuid == "skypoint_hips" || uuid.startsWith("hips_") -> MediaFrameType.OTHER
+        // The fork's `file_preview` (a FITS file on the Pi's storage): `fp_<request number>`. Without
+        // this tag it would count as a capture and land in the Frames history.
+        uuid.startsWith("fp_") -> MediaFrameType.FILE_PREVIEW
         else -> MediaFrameType.CAPTURE
     }
 

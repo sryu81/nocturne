@@ -418,6 +418,8 @@ data class AppState(
     val latestAlignFrame: com.nocturne.protocol.MediaFrame? = null,
     val latestFocusFrame: com.nocturne.protocol.MediaFrame? = null,
     val latestGuideFrame: com.nocturne.protocol.MediaFrame? = null,
+    /** The last `file_preview` JPEG (Rig storage's file page, R4); `header.uuid` is `fp_<n>`. */
+    val latestFilePreviewFrame: com.nocturne.protocol.MediaFrame? = null,
     /** `mount_get_all_settings` (curated subset). Null until the first reply. */
     val wireMountSettings: WireMountSettings? = null,
     /** `capture_get_all_settings` (curated subset), fetched on connect. Null until the first reply. */

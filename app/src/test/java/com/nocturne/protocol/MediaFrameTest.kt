@@ -92,4 +92,12 @@ class MediaFrameTest {
         val real = MediaFrame.parse(frameBytes("""{"uuid":"abc","hfr":2.07}"""))!!
         assertEquals(2.07, real.header.hfr!!, 1e-9)
     }
+
+    @Test
+    fun `a file preview uuid is its own type, not a capture`() {
+        val header = MediaHeader(uuid = "fp_7")
+        assertEquals(MediaFrameType.FILE_PREVIEW, header.frameType)
+        assertEquals(MediaFrameType.CAPTURE, MediaHeader(uuid = "5d7fe6d1d36a4378a4238bad2d054535").frameType)
+        assertEquals(MediaFrameType.CAPTURE, MediaHeader(uuid = "fpga").frameType)
+    }
 }

@@ -240,6 +240,7 @@ class EkosRemoteController(
                         MediaFrameType.ALIGN -> s.copy(latestAlignFrame = frame)
                         MediaFrameType.FOCUS -> s.copy(latestFocusFrame = frame)
                         MediaFrameType.GUIDE -> s.copy(latestGuideFrame = frame)
+                        MediaFrameType.FILE_PREVIEW -> s.copy(latestFilePreviewFrame = frame)
                         // Live-video (minimal header, no uuid) and dark/hips lookups aren't
                         // rendered anywhere yet — dropped rather than guessed into a slot.
                         MediaFrameType.LIVE_VIDEO, MediaFrameType.DARK, MediaFrameType.OTHER -> s
