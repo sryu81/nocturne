@@ -420,7 +420,7 @@ Content, the same as the sheet and in its order, with the same stage logic and c
   Mount.
 - **Menu one-liner:** stage and error, e.g. `measuring · image 2 of 3`, `refreshing · total 0.12°`,
   `not started`.
-- **Pure move:** no logic change. `PaRealSheet` and `PaImage` (in `Sheets.kt`) become reusable by the
+- **Pure move:** no logic change. `PaRealSheet` and `PaImage` (in `PolarAlignment.kt`) become reusable by the
   page; the "Polar align" tile and `SheetType.PA` go once the page works. This is the riskiest move:
   PAH drives the mount and its full run is not yet verified under the sky.
 
@@ -710,7 +710,7 @@ verified in `docs/STATUS.md`.
 on the align frame, hard to see on a phone and under the red night filter.
 
 **Why.** Ekos paints both into the frame JPEG at frame scale, about 1 px wide (see the `PaImage`
-comment, `Sheets.kt`); the frame is then scaled down to the phone width, so the lines shrink further.
+comment, `PolarAlignment.kt`); the frame is then scaled down to the phone width, so the lines shrink further.
 The app draws only its own tap ring (`polarSelectStar`). The wire also sends the correction line
 (`new_polar_state.vector`: centre, length, angle), but not the triangle corners or the target circle,
 so the app cannot redraw them itself.
