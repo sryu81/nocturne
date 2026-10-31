@@ -3,6 +3,7 @@
 #
 #   nocturne-usb-mount add <kernel name>      e.g. sda1
 #   nocturne-usb-mount remove <kernel name>
+#   nocturne-usb-mount eject <mount point>   (the file manager's Eject, through sudo)
 #
 # Called by the udev rule through systemd-run, never by hand in normal use.
 # A stick whose UUID is in /etc/fstab (the old /mnt/astro one) is mounted at its fstab
@@ -71,8 +72,26 @@ remove() {
     return 0
 }
 
+# Unmounts a stick for the file manager's Eject (called by KStars through sudo). A plain umount, so a
+# stick that something still uses fails instead of being pulled out from under it.
+eject() {
+    local mp=$1
+    case $mp in
+        /media/*|/mnt/*) ;;
+        *) echo "not a USB mount point: $mp" >&2; return 2 ;;
+    esac
+    [[ $mp == *..* ]] && { echo "bad mount point: $mp" >&2; return 2; }
+    findmnt -rn "$mp" >/dev/null || { echo "not mounted: $mp" >&2; return 1; }
+    sync
+    run umount "$mp" || { echo "$mp is busy" >&2; return 1; }
+    [[ $mp == "$ROOT"/* ]] && run rmdir "$mp" 2>/dev/null
+    log "ejected $mp"
+    return 0
+}
+
 case ${1:-} in
     add) add "${2:?kernel name}" ;;
     remove) remove "${2:?kernel name}" ;;
-    *) echo "usage: $0 add|remove <kernel name>" >&2; exit 2 ;;
+    eject) eject "${2:?mount point}" ;;
+    *) echo "usage: $0 add|remove <kernel name> | eject <mount point>" >&2; exit 2 ;;
 esac

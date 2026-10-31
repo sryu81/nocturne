@@ -34,6 +34,8 @@ interface SessionController {
     fun openRigStorage()
     fun closeRigStorage()
     fun rigStorageOpenFolder(path: String)
+    /** Opens a FITS file's page: its header and a preview made on the Pi. */
+    fun rigStorageOpenFile(path: String)
     /** One level up; from a drive's own folder back to the drives. */
     fun rigStorageUp()
     fun rigStorageRefresh()

@@ -8,7 +8,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -21,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import com.nocturne.protocol.MediaFrame
 import com.nocturne.protocol.WireDrive
 import com.nocturne.protocol.WireFileEntry
 import com.nocturne.session.AppState
@@ -28,10 +31,14 @@ import com.nocturne.session.RigStorageState
 import com.nocturne.session.RigStorageStatus
 import com.nocturne.session.SessionController
 import com.nocturne.session.crumbs
+import com.nocturne.session.headerSummary
 import com.nocturne.session.formatByteSize
 import com.nocturne.session.sortedEntries
+import com.nocturne.ui.components.BtnStyle
 import com.nocturne.ui.components.Card
 import com.nocturne.ui.components.HDivider
+import com.nocturne.ui.components.MediaFramePreview
+import com.nocturne.ui.components.NocturneButton
 import com.nocturne.ui.components.TabItem
 import com.nocturne.ui.components.TabPane
 import com.nocturne.ui.components.TextC
@@ -69,7 +76,11 @@ fun RigStorageScreen(state: AppState, ctrl: SessionController, landscape: Boolea
                         )
                         RigStorageStatus.NO_REPLY -> Notice("No answer from the rig", "The drive may be busy or gone. Refresh to try again.")
                         RigStorageStatus.LOADING -> Notice("Reading…", null)
-                        RigStorageStatus.READY -> if (rs.path == null) DriveList(rs.drives, ctrl) else FolderList(rs, ctrl)
+                        RigStorageStatus.READY -> when {
+                            rs.file != null -> FilePage(rs, state.latestFilePreviewFrame)
+                            rs.path == null -> DriveList(rs.drives, ctrl)
+                            else -> FolderList(rs, ctrl)
+                        }
                     }
                 },
             )
@@ -199,7 +210,10 @@ private fun FolderList(rs: RigStorageState, ctrl: SessionController) {
                 EntryRow(
                     entry,
                     withIconColumn = entries.any { it.isDir },
-                    onOpen = { ctrl.rigStorageOpenFolder(rs.path.orEmpty() + "/" + entry.name) },
+                    onOpen = {
+                        val full = rs.path.orEmpty() + "/" + entry.name
+                        if (entry.isDir) ctrl.rigStorageOpenFolder(full) else ctrl.rigStorageOpenFile(full)
+                    },
                 )
             }
         }
@@ -214,8 +228,9 @@ private fun FolderList(rs: RigStorageState, ctrl: SessionController) {
 private fun EntryRow(entry: WireFileEntry, withIconColumn: Boolean, onOpen: () -> Unit) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
+    val opens = !entry.inUse && (entry.isDir || isFitsName(entry.name))
     Row(
-        Modifier.fillMaxWidth().clickable(enabled = entry.isDir && !entry.inUse, onClick = onOpen).padding(vertical = 9.dp),
+        Modifier.fillMaxWidth().clickable(enabled = opens, onClick = onOpen).padding(vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         when {
@@ -235,9 +250,105 @@ private fun EntryRow(entry: WireFileEntry, withIconColumn: Boolean, onOpen: () -
                 style = t.MonoMicro, color = if (entry.inUse) NocturnePalette.Warn else c.textMuted,
             )
         }
-        if (entry.isDir && !entry.inUse) {
+        if (opens) {
             Spacer(Modifier.width(6.dp))
             Phosphor.Icon(Phosphor.CaretRight, size = 16.dp, tint = c.textFaint)
         }
     }
+}
+
+private fun isFitsName(name: String): Boolean = name.lowercase().let { it.endsWith(".fits") || it.endsWith(".fit") || it.endsWith(".fts") }
+
+/** One FITS file: the preview the Pi made, the header values, and the actions (switched on in R6). */
+@Composable
+private fun FilePage(rs: RigStorageState, frame: MediaFrame?) {
+    val c = NocturneTheme.colors
+    val t = NocturneTheme.type
+    val page = rs.file ?: return
+    val entry = rs.listing?.entries?.firstOrNull { it.name == page.name }
+    val shown = frame?.takeIf { page.previewUuid != null && it.header.uuid == page.previewUuid }
+
+    Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(11.2.dp)) {
+        Column {
+            TextC(page.name, style = t.Body13, color = c.text)
+            if (entry != null) {
+                TextC(
+                    formatByteSize(entry.sizeBytes) + " · " + ENTRY_DATE_FMT.format(Date(entry.modifiedSec * 1000)),
+                    style = t.MonoMicro, color = c.textMuted,
+                )
+            }
+        }
+
+        val ratio = shown?.header?.resolution?.split("x")?.let { p ->
+            val w = p.getOrNull(0)?.toFloatOrNull()
+            val h = p.getOrNull(1)?.toFloatOrNull()
+            if (w != null && h != null && h > 0f) w / h else null
+        } ?: 1.5f
+        Box(
+            Modifier.fillMaxWidth().aspectRatio(ratio).clip(RoundedCornerShape(8.dp)).background(c.surfaceDeep),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (shown != null) {
+                MediaFramePreview(shown, Modifier.fillMaxSize())
+            } else {
+                TextC(
+                    when {
+                        page.previewError != null -> previewErrorText(page.previewError)
+                        page.previewTimedOut -> "No preview came back"
+                        else -> "Reading the file on the Pi…"
+                    },
+                    style = t.Body13, color = c.textMuted,
+                )
+            }
+        }
+
+        Card(Modifier.fillMaxWidth()) {
+            val rows = buildList {
+                addAll(headerSummary(page.header.orEmpty()))
+                shown?.header?.let { h ->
+                    h.resolution?.let { add("Resolution" to it) }
+                    h.hfr?.takeIf { it > 0.0 }?.let { add("HFR" to String.format(Locale.US, "%.2f", it)) }
+                    h.hasWCS?.let { add("Plate solved" to if (it) "yes" else "no") }
+                }
+            }
+            when {
+                page.headerError != null -> TextC(headerErrorText(page.headerError), style = t.Body13, color = c.textMuted)
+                page.header == null -> TextC("Reading the header…", style = t.Body13, color = c.textMuted)
+                rows.isEmpty() -> TextC("No usual header values in this file", style = t.Body13, color = c.textMuted)
+                else -> rows.forEachIndexed { i, (label, value) ->
+                    if (i > 0) HDivider()
+                    Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                        TextC(label, style = t.MonoSmall, color = c.textMuted, modifier = Modifier.weight(1f))
+                        TextC(value, style = t.Body13, color = c.text)
+                    }
+                }
+            }
+        }
+
+        Column {
+            Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+                NocturneButton("Copy", onClick = {}, enabled = false, style = BtnStyle.OUTLINE, modifier = Modifier.weight(1f))
+                NocturneButton("Move", onClick = {}, enabled = false, style = BtnStyle.OUTLINE, modifier = Modifier.weight(1f))
+                NocturneButton("Rename", onClick = {}, enabled = false, style = BtnStyle.OUTLINE, modifier = Modifier.weight(1f))
+                NocturneButton("Delete", onClick = {}, enabled = false, style = BtnStyle.OUTLINE, modifier = Modifier.weight(1f))
+            }
+            Spacer(Modifier.height(6.dp))
+            TextC("Copy, move, rename and delete are not switched on yet.", style = t.MonoMicro, color = c.textFaint)
+        }
+    }
+}
+
+private fun previewErrorText(code: String): String = when (code) {
+    "not_fits" -> "Not a FITS file"
+    "not_allowed" -> "Outside the Nocturne folder"
+    "not_found" -> "The file is gone"
+    else -> "No preview ($code)"
+}
+
+private fun headerErrorText(code: String): String = when (code) {
+    "not_fits" -> "This is not a readable FITS file."
+    "not_allowed" -> "Outside the Nocturne folder."
+    "not_found" -> "The file is gone."
+    "no_reply" -> "The rig did not send the header."
+    else -> "Header not available ($code)."
 }

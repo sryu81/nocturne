@@ -69,6 +69,8 @@ object EkosEventCodec {
                 "get_scopes" -> EkosEvent.Scopes(protocolJson.decodeFromJsonElement(envelope.payload))
                 "file_list_drives" -> protocolJson.decodeFromJsonElement<EkosEvent.FileDrives>(envelope.payload)
                 "file_list" -> protocolJson.decodeFromJsonElement<EkosEvent.FileListing>(envelope.payload)
+                "file_header" -> protocolJson.decodeFromJsonElement<EkosEvent.FileHeader>(envelope.payload)
+                "file_preview" -> protocolJson.decodeFromJsonElement<EkosEvent.FilePreviewReply>(envelope.payload)
                 "get_drivers" -> EkosEvent.Drivers(protocolJson.decodeFromJsonElement(envelope.payload))
                 "option_get" -> EkosEvent.OptionValues(protocolJson.decodeFromJsonElement(envelope.payload))
                 "train_get_profiles" -> EkosEvent.TrainProfiles(protocolJson.decodeFromJsonElement(envelope.payload))

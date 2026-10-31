@@ -56,6 +56,9 @@ object Commands {
     /** Fork (R1): drives and a Nocturne folder's listing. An older fork never answers. */
     const val FILE_LIST_DRIVES = "file_list_drives"
     const val FILE_LIST = "file_list"
+    /** Fork (R3): a FITS file's header cards, and its preview JPEG on the media channel. */
+    const val FILE_HEADER = "file_header"
+    const val FILE_PREVIEW = "file_preview"
     const val SCOPE_ADD = "scope_add"
     const val SCOPE_UPDATE = "scope_update"
     const val SCOPE_DELETE = "scope_delete"

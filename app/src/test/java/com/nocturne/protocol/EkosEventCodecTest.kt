@@ -526,4 +526,29 @@ class EkosEventCodecTest {
         assertEquals("not_allowed", event.error)
         assertTrue(event.entries.isEmpty())
     }
+
+    @Test
+    fun `decodes file_header and its refusal`() {
+        val ok = EkosEventCodec.decode(
+            """{"payload":{"path":"/p/a.fits","records":[{"key":"SIMPLE","value":"T"},{"key":"FILTER","value":"H"},{"key":"OBJECT","value":"M 31's core"}]},"type":"file_header"}""",
+        ) as EkosEvent.FileHeader
+        assertEquals("/p/a.fits", ok.path)
+        assertEquals(listOf("SIMPLE", "FILTER", "OBJECT"), ok.records.map { it.key })
+        assertEquals("M 31's core", ok.records[2].value)
+        assertNull(ok.error)
+
+        val refused = EkosEventCodec.decode("""{"payload":{"path":"/etc/passwd","error":"not_allowed"},"type":"file_header"}""") as EkosEvent.FileHeader
+        assertEquals("not_allowed", refused.error)
+        assertTrue(refused.records.isEmpty())
+    }
+
+    @Test
+    fun `decodes the file_preview reply that names the media uuid`() {
+        val ok = EkosEventCodec.decode("""{"payload":{"path":"/p/a.fits","uuid":"fp_3"},"type":"file_preview"}""") as EkosEvent.FilePreviewReply
+        assertEquals("fp_3", ok.uuid)
+        assertNull(ok.error)
+        val refused = EkosEventCodec.decode("""{"payload":{"path":"/p/a.txt","error":"not_fits"},"type":"file_preview"}""") as EkosEvent.FilePreviewReply
+        assertNull(refused.uuid)
+        assertEquals("not_fits", refused.error)
+    }
 }

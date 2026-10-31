@@ -99,4 +99,59 @@ class RigStorageTest {
         assertEquals("148 GB", formatByteSize(148L * 1024 * 1024 * 1024))
         assertEquals("1.2 TB", formatByteSize((1.2 * 1024 * 1024 * 1024 * 1024).toLong()))
     }
+
+    private fun rec(key: String, value: String) = com.nocturne.protocol.WireHeaderRecord(key, value)
+
+    @Test
+    fun theFilePageIsTheLastCrumbAndClosesBackToTheFolder() {
+        val inFolder = state.openFolder("/home/soo/Nocturne/M_31/2026-10-30/Light/H")
+        val open = inFolder.openFile("/home/soo/Nocturne/M_31/2026-10-30/Light/H/a.fits")
+        assertEquals("a.fits", open.file?.name)
+        assertEquals(listOf("SD", "M_31", "2026-10-30", "Light", "H", "a.fits"), open.crumbs().map { it.label })
+        assertNull(open.crumbs().last().path)
+        assertEquals(inFolder.path, open.closeFile().path)
+        assertNull(open.closeFile().file)
+        assertNull(open.openDrives().file)
+    }
+
+    @Test
+    fun aHeaderOrPreviewReplyCountsOnlyForTheOpenFile() {
+        val open = state.openFolder("/p").openFile("/p/a.fits")
+        val header = EkosEvent.FileHeader(path = "/p/a.fits", records = listOf(rec("FILTER", "H")))
+        assertEquals(listOf("FILTER"), open.withHeader(header).file?.header?.map { it.key })
+        assertEquals(open, open.withHeader(header.copy(path = "/p/other.fits")))
+        assertEquals("not_fits", open.withHeader(EkosEvent.FileHeader(path = "/p/a.fits", error = "not_fits")).file?.headerError)
+
+        assertEquals("fp_3", open.withPreviewReply(EkosEvent.FilePreviewReply("/p/a.fits", uuid = "fp_3")).file?.previewUuid)
+        assertEquals(open, open.withPreviewReply(EkosEvent.FilePreviewReply("/p/other.fits", uuid = "fp_4")))
+        assertNull(state.withHeader(header).file)   // no file open: ignored
+    }
+
+    @Test
+    fun theHeaderSummaryNamesWhatMattersAndSkipsWhatIsMissing() {
+        val rows = headerSummary(
+            listOf(
+                rec("SIMPLE", "T"), rec("OBJECT", "M 31"), rec("IMAGETYP", "Light Frame"), rec("FILTER", "H"),
+                rec("EXPTIME", "300.0"), rec("GAIN", "100"), rec("XBINNING", "1"), rec("YBINNING", "1"),
+                rec("CCD-TEMP", "-9.80"), rec("DATE-OBS", "2026-10-30T21:25:03"), rec("FOCALLEN", "250.0"),
+            ),
+        ).toMap()
+        assertEquals("M 31", rows["Object"])
+        assertEquals("Light Frame", rows["Frame"])
+        assertEquals("300 s", rows["Exposure"])
+        assertEquals("100", rows["Gain"])
+        assertEquals("1x1", rows["Binning"])
+        assertEquals("-9.8 °C", rows["Sensor"])
+        assertEquals("2026-10-30 21:25:03", rows["Taken"])
+        assertEquals("250 mm", rows["Focal length"])
+        assertEquals(null, rows["Offset"])
+        assertEquals(emptyList<Pair<String, String>>(), headerSummary(listOf(rec("SIMPLE", "T"))))
+    }
+
+    @Test
+    fun aFrameKeyBeatsImagetypAndANonNumberIsKeptAsItIs() {
+        val rows = headerSummary(listOf(rec("FRAME", "Dark"), rec("IMAGETYP", "Light Frame"), rec("EXPTIME", "unknown"))).toMap()
+        assertEquals("Dark", rows["Frame"])
+        assertEquals("unknown s", rows["Exposure"])
+    }
 }

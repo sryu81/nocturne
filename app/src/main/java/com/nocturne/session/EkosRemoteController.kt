@@ -493,6 +493,8 @@ class EkosRemoteController(
         is EkosEvent.MountSettings -> s.copy(wireMountSettings = event.settings)
         is EkosEvent.FileDrives -> s.copy(rigStorage = s.rigStorage.withDrives(event.drives))
         is EkosEvent.FileListing -> s.copy(rigStorage = s.rigStorage.withListing(event))
+        is EkosEvent.FileHeader -> s.copy(rigStorage = s.rigStorage.withHeader(event))
+        is EkosEvent.FilePreviewReply -> s.copy(rigStorage = s.rigStorage.withPreviewReply(event))
         // Seed coolTarget from the Capture module's setpoint. This reply arrives only once (the
         // eager fetch at connect), so it can't overwrite a later optimistic coolUp/coolDown.
         is EkosEvent.CaptureSettings -> s.copy(
@@ -826,6 +828,7 @@ class EkosRemoteController(
     // ── Rig storage ──────────────────────────────────────────────────────
 
     private var rigStorageWatch: Job? = null
+    private var filePageWatch: Job? = null
 
     private fun linkUp(): Boolean = client.connectionStatus.value.state.let {
         it == ConnectionState.SOCKET_OPEN || it == ConnectionState.ONLINE
@@ -842,6 +845,7 @@ class EkosRemoteController(
 
     override fun closeRigStorage() {
         rigStorageWatch?.cancel()
+        filePageWatch?.cancel()
         update { it.copy(rigStorage = it.rigStorage.copy(open = false).openDrives()) }
     }
 
@@ -853,13 +857,41 @@ class EkosRemoteController(
     override fun rigStorageUp() {
         val rs = _state.value.rigStorage
         val parent = rs.parentPath()
-        if (rs.path == null) {
+        if (rs.file != null) {
+            filePageWatch?.cancel()
+            update { it.copy(rigStorage = it.rigStorage.closeFile()) }
+        } else if (rs.path == null) {
             closeRigStorage()
         } else if (parent == null) {
             update { it.copy(rigStorage = it.rigStorage.openDrives()) }
             requestRigStorageData()
         } else {
             rigStorageOpenFolder(parent)
+        }
+    }
+
+    override fun rigStorageOpenFile(path: String) {
+        filePageWatch?.cancel()
+        update { it.copy(rigStorage = it.rigStorage.openFile(path), latestFilePreviewFrame = null) }
+        if (!linkUp()) return
+        client.sendCommand(Commands.FILE_HEADER, buildJsonObject { put("path", path) })
+        client.sendCommand(Commands.FILE_PREVIEW, buildJsonObject { put("path", path) })
+        // A preview needs the whole file read and stretched on the Pi; the header is tiny.
+        filePageWatch = scope.launch {
+            delay(FILE_PAGE_TIMEOUT_MS)
+            update { s ->
+                val page = s.rigStorage.file
+                if (page == null || page.path != path) return@update s
+                val arrived = page.previewUuid != null && s.latestFilePreviewFrame?.header?.uuid == page.previewUuid
+                s.copy(
+                    rigStorage = s.rigStorage.copy(
+                        file = page.copy(
+                            headerError = page.headerError ?: if (page.header == null) "no_reply" else null,
+                            previewTimedOut = !arrived && page.previewError == null,
+                        ),
+                    ),
+                )
+            }
         }
     }
 
@@ -2875,6 +2907,7 @@ private const val SETTINGS_REFRESH_DELAY_MS = 1_500L
 private const val DEVICE_REFRESH_DELAY_MS = 1_500L
 private const val DEFAULT_BINNING = "1x1"
 private const val RIG_STORAGE_TIMEOUT_MS = 5_000L
+private const val FILE_PAGE_TIMEOUT_MS = 20_000L
 private const val PIER_SIDE_RESEND_MS = 10_000L
 
 /** See [AppState.wireGainRangeByDevice]. */

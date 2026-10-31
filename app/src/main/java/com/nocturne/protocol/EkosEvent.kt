@@ -251,6 +251,25 @@ sealed interface EkosEvent {
         val error: String? = null,
     ) : EkosEvent
 
+    /** `file_header` reply: the FITS header cards of [path], or [error] (`not_allowed`, `not_found`, `not_file`, `not_fits`). */
+    @Serializable
+    data class FileHeader(
+        val path: String = "",
+        val records: List<WireHeaderRecord> = emptyList(),
+        val error: String? = null,
+    ) : EkosEvent
+
+    /**
+     * `file_preview` reply: the request was accepted and the JPEG follows on the media channel under
+     * [uuid] (`fp_<n>`), or it was refused with [error].
+     */
+    @Serializable
+    data class FilePreviewReply(
+        val path: String = "",
+        val uuid: String? = null,
+        val error: String? = null,
+    ) : EkosEvent
+
     // ── Scopes, drivers, options ─────────────────────────────────────────
 
     /** `get_scopes` reply — bare array, wrapped here. Also the auto-push after every `scope_add`/`update`/`delete`. */
@@ -689,6 +708,10 @@ data class WireDriver(
     val manufacturer: String = "",
     val family: String = "",
 )
+
+/** One header card of `file_header`; string values arrive without their quotes. */
+@Serializable
+data class WireHeaderRecord(val key: String, val value: String = "")
 
 /**
  * One drive of `file_list_drives`. [path] is the drive's `Nocturne` folder and [hasRoot] says
