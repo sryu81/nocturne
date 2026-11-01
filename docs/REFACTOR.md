@@ -20,7 +20,7 @@ Non-goal: changing behaviour. Every step moves code verbatim.
 
 | | Lines |
 |---|---|
-| `EkosRemoteController.kt` | 2,788 (was 3,156) |
+| `EkosRemoteController.kt` | 2,551 (was 3,156) |
 | `RigStorageController.kt`, `ControllerContext.kt` (done, `15f2866`) | 198, 22 |
 | `AbstractLocalSessionController.kt` (the local-update half) | 893 |
 | `SessionController.kt` (the interface the UI uses) | 440 |
@@ -60,6 +60,9 @@ The first version of this plan assumed the settings setters were the easy bulk. 
 
 ## The pattern
 
+`ControllerContext` takes a `send` function and a link check, not the client, so a test builds a piece with a
+recording `send` and a plain `MutableStateFlow<AppState>` (see `PlanSearchControllerTest`).
+
 Proven by Rig storage: a class per domain taking a `ControllerContext` (connection, scope, read and
 update of `AppState`), holding the domain's private state, and exposing the functions the controller used to
 hold. The controller keeps one-line `override`s that delegate. A domain that reacts to wire events exposes
@@ -79,7 +82,7 @@ Each step is one commit. Between steps: compile, the unit tests, and the phone s
 |---|---|---|---|---|
 | 1 | Rig storage | 151 lines | low | **done** `15f2866` |
 | 2 | Top-level helpers after the class (`WireMappers`, `IndiStateHelpers`, `RemoteSessionRules`, coordinate formatters into `MountCoordFormat`) | 218 lines | none (pure functions) | **done** |
-| 3 | Plan search: owns 3 fields, shares 8 with the reducer; the reducer's `Astro*` cases call `search.onEvent` | ~230 | medium | todo |
+| 3 | Plan search (`PlanSearchController`: owns the search state, `reduce` and `onEvent` hooks for the reducer and follow-ups); 13 new behaviour tests | 237 lines | medium | **done** |
 | 4 | Profiles / trains / scopes | ~180 | medium (9 `super` callers) | todo |
 | 5 | Rig maintenance and sky atlas (reboot, shutdown, time and location sync, atlas copy) | ~220 | medium | todo |
 | 6 | Scheduler / session (push, sync, finish, end session) | ~250 | high: job lifecycle, 5 `super` callers | todo |

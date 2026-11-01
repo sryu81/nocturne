@@ -22,7 +22,7 @@ internal class RigStorageController(private val ctx: ControllerContext) {
     private var filePageWatch: Job? = null
 
     fun requestRigStorageSummary() {
-        if (ctx.linkUp()) ctx.client.sendCommand(Commands.FILE_LIST_DRIVES)
+        if (ctx.linkUp()) ctx.send(Commands.FILE_LIST_DRIVES)
     }
 
     fun openRigStorage() {
@@ -61,8 +61,8 @@ internal class RigStorageController(private val ctx: ControllerContext) {
         filePageWatch?.cancel()
         ctx.update { it.copy(rigStorage = it.rigStorage.openFile(path), latestFilePreviewFrame = null) }
         if (!ctx.linkUp()) return
-        ctx.client.sendCommand(Commands.FILE_HEADER, buildJsonObject { put("path", path) })
-        ctx.client.sendCommand(Commands.FILE_PREVIEW, buildJsonObject { put("path", path) })
+        ctx.send(Commands.FILE_HEADER, buildJsonObject { put("path", path) })
+        ctx.send(Commands.FILE_PREVIEW, buildJsonObject { put("path", path) })
         // A preview needs the whole file read and stretched on the Pi; the header is tiny.
         filePageWatch = ctx.scope.launch {
             delay(FILE_PAGE_TIMEOUT_MS)
@@ -103,7 +103,7 @@ internal class RigStorageController(private val ctx: ControllerContext) {
             RigOpKind.MOVE -> Commands.FILE_MOVE
             RigOpKind.RENAME -> return
         }
-        ctx.client.sendCommand(command, buildJsonObject {
+        ctx.send(command, buildJsonObject {
             put("paths", kotlinx.serialization.json.JsonArray(pending.paths.map { JsonPrimitive(it) }))
             pending.toDrive?.let { put("toDrive", it) }
         })
@@ -115,7 +115,7 @@ internal class RigStorageController(private val ctx: ControllerContext) {
         val rs = ctx.state().rigStorage
         val pending = rs.pending?.takeIf { it.kind == RigOpKind.RENAME } ?: return
         val path = pending.paths.singleOrNull() ?: return
-        ctx.client.sendCommand(Commands.FILE_RENAME, buildJsonObject {
+        ctx.send(Commands.FILE_RENAME, buildJsonObject {
             put("path", path)
             put("name", newName.trim())
         })
@@ -124,13 +124,13 @@ internal class RigStorageController(private val ctx: ControllerContext) {
 
     fun rigStorageCancelOp() {
         val id = ctx.state().rigStorage.op?.takeIf { it.state == "running" }?.id ?: return
-        ctx.client.sendCommand(Commands.FILE_CANCEL, buildJsonObject { put("id", id) })
+        ctx.send(Commands.FILE_CANCEL, buildJsonObject { put("id", id) })
     }
 
     fun rigStorageEject(driveId: String) {
         if (ctx.state().rigStorage.opRunning) return
         ctx.update { it.copy(rigStorage = it.rigStorage.copy(ejecting = driveId, notice = null)) }
-        ctx.client.sendCommand(Commands.FILE_EJECT, buildJsonObject { put("id", driveId) })
+        ctx.send(Commands.FILE_EJECT, buildJsonObject { put("id", driveId) })
     }
 
     fun rigStorageDismissNotice() = ctx.update { it.copy(rigStorage = it.rigStorage.dismissedNotice()) }
@@ -138,8 +138,8 @@ internal class RigStorageController(private val ctx: ControllerContext) {
     /** Reads the drives and the open folder again, without showing a loading state. */
     private fun refreshRigStorage() {
         if (!ctx.linkUp()) return
-        ctx.client.sendCommand(Commands.FILE_LIST_DRIVES)
-        ctx.state().rigStorage.path?.let { ctx.client.sendCommand(Commands.FILE_LIST, buildJsonObject { put("path", it) }) }
+        ctx.send(Commands.FILE_LIST_DRIVES)
+        ctx.state().rigStorage.path?.let { ctx.send(Commands.FILE_LIST, buildJsonObject { put("path", it) }) }
     }
 
     fun rigStorageRefresh() {
@@ -160,9 +160,9 @@ internal class RigStorageController(private val ctx: ControllerContext) {
             return
         }
         if (path == null) {
-            ctx.client.sendCommand(Commands.FILE_LIST_DRIVES)
+            ctx.send(Commands.FILE_LIST_DRIVES)
         } else {
-            ctx.client.sendCommand(Commands.FILE_LIST, buildJsonObject { put("path", path) })
+            ctx.send(Commands.FILE_LIST, buildJsonObject { put("path", path) })
         }
         rigStorageWatch = ctx.scope.launch {
             delay(RIG_STORAGE_TIMEOUT_MS)

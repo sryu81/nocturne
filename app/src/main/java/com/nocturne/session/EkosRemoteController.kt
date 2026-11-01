@@ -85,36 +85,26 @@ class EkosRemoteController(
 
     private val log = logRepo?.let { LogCollector(it, scope) }
 
-    private val ctx = ControllerContext(client, scope, { _state.value }, { f -> _state.update(f) })
+    private val ctx = ControllerContext(
+        sender = { type, payload -> client.sendCommand(type, payload) },
+        link = {
+            client.connectionStatus.value.state.let { it == ConnectionState.SOCKET_OPEN || it == ConnectionState.ONLINE }
+        },
+        scope = scope,
+        state = { _state.value },
+        update = { f -> _state.update(f) },
+    )
 
     /** The Rig storage view's commands and watches; the overrides below delegate to it. */
     private val rigStorage = RigStorageController(ctx)
 
+    /** The Plan tab's search and framing data; the overrides below delegate to it. */
+    private val search = PlanSearchController(ctx, skyAtlas, allowOptionalInternet)
+
     /** Name a `profile_delete` was just sent for — checked against the next [EkosEvent.Profiles]. */
     private var pendingProfileDelete: String? = null
 
-    /** Plain internet fetch for reference images; independent of the wire protocol. */
-    private val referenceImageClient = ReferenceImageClient()
     private var skyAtlasCopyJob: Job? = null
-
-    // Plan tab search. astro_get_objects_info and riseset replies can arrive in either order, so
-    // the latest of each is kept and merged by buildSearchResults(). astro_search_objects has no
-    // name filter (only type/alt/mag/FOV), so its flat name list (lastSearchNames) is
-    // substring-filtered locally against AppState.query, and re-filtered on each keystroke.
-    private var lastAstroObjects: List<WireAstroObject> = emptyList()
-    private var lastRiseset: List<WireRiseset> = emptyList()
-    private var lastSearchNames: List<String>? = null
-    // No-type name search: every name KStars knows (astro_get_names), fetched once per
-    // connection on first need and filtered locally like lastSearchNames.
-    private var allNames: List<String>? = null
-    private var allNamesRequested = false
-    // Typed-name lookup (astro_get_object_info): finds names the type search misses (other type,
-    // below the altitude cutoff, no catalogued magnitude). One request in flight at a time;
-    // replies carry the resolved name, not the typed one, so a query typed mid-flight is queued
-    // and the in-flight reply discarded. lastLookupObject is the current query's match, if any.
-    private var lastLookupObject: WireAstroObject? = null
-    private var lookupInFlight = false
-    private var queuedLookupQuery: String? = null
 
     // Devices whose full property set has been requested (DEVICE_GET + full subscribe). The
     // DEVICE_GET reply itself carries CONNECTION=connected, so without this set every reply
@@ -132,9 +122,6 @@ class EkosRemoteController(
 
     // Last time (ms) we pushed Preferred Pier Side = East per device — see enforcePreferredPierSide.
     private val pierSideFixSentAt = mutableMapOf<String, Long>()
-
-    /** Name a standalone [ensureTargetRiseset] fetch is in flight for — see that function's doc. */
-    private var pendingTargetRisesetName: String? = null
 
     /** Raw `train_get_profiles` reply (ordinal → train ID) — see [resolveModuleTrainAssignments]. */
     private var lastTrainProfileAssignments: Map<String, Int>? = null
@@ -531,81 +518,13 @@ class EkosRemoteController(
 
         // A fresh astro_search_objects reply clears prior results; the follow-up
         // astro_get_objects_info/riseset replies (sendFollowUpCommands) repopulate them, merged
-        // via lastAstroObjects/lastRiseset since they can arrive in either order.
-        is EkosEvent.AstroSearchResult -> {
-            lastSearchNames = event.names
-            resetSearchResults(s)
-        }
-        is EkosEvent.AstroNames -> {
-            allNames = event.names
-            resetSearchResults(s)
-        }
-        is EkosEvent.AstroObjectInfo -> {
-            lookupInFlight = false
-            if (queuedLookupQuery == null) {
-                lastLookupObject = event.obj
-                s.copy(wireSearchResults = buildSearchResults())
-            } else s // stale — sendFollowUpCommands sends the queued query instead
-        }
-        is EkosEvent.AstroObjectsInfo -> {
-            lastAstroObjects = event.objects
-            s.copy(wireSearchResults = buildSearchResults())
-        }
-        is EkosEvent.AstroObjectsRiseset -> {
-            // This reply serves several consumers sharing one cache: the search-results merge and
-            // ensureTargetRiseset's single-name fetch for the framed target. Upsert rather than
-            // replace, so a 1-entry reply doesn't wipe the other rows' riseset data. A fresh
-            // search resets the cache first (AstroSearchResult arm).
-            val incomingNames = event.entries.map { it.name }.toSet()
-            lastRiseset = lastRiseset.filterNot { it.name in incomingNames } + event.entries
-            // Only claim this reply for ensureTargetRiseset if the pending name is in it, so an
-            // unrelated search reply doesn't clear the pending fetch.
-            val pending = pendingTargetRisesetName
-            val matched = pending?.let { name -> event.entries.firstOrNull { it.name == name } }
-            if (matched != null) pendingTargetRisesetName = null
-            // "Moon" rides along on ensureTargetRiseset's request for the Moon altitude curve.
-            // Kept once captured; it doesn't depend on which target is framed.
-            val moonEntry = event.entries.firstOrNull { it.name == "Moon" }
-            s.copy(
-                wireSearchResults = buildSearchResults(),
-                wireTargetRiseset = matched ?: s.wireTargetRiseset,
-                wireMoonRiseset = moonEntry ?: s.wireMoonRiseset,
-            )
-        }
+        // in PlanSearchController, since they can arrive in either order.
+        is EkosEvent.AstroSearchResult, is EkosEvent.AstroNames, is EkosEvent.AstroObjectInfo,
+        is EkosEvent.AstroObjectsInfo, is EkosEvent.AstroObjectsRiseset -> search.reduce(s, event) ?: s
 
         // Only the log keeps these (LogCollector).
         is EkosEvent.NewLog, is EkosEvent.LogSnapshot, is EkosEvent.DeviceMessage -> s
         is EkosEvent.Raw -> s
-    }
-
-    /** Names matching the typed query, before the [SEARCH_RESULT_CAP] cut. With a type: that
-     *  search's names (all of them for a blank query). Without one: nothing until the query is
-     *  [minLookupLength]+ chars, then every catalog's names, prefix matches first. */
-    private fun matchingSearchNames(s: AppState): List<String> {
-        val q = s.query.trim()
-        if (s.searchType == null) {
-            val names = allNames ?: return emptyList()
-            if (q.length < minLookupLength) return emptyList()
-            val (prefix, rest) = names.filter { it.contains(q, ignoreCase = true) }
-                .partition { it.startsWith(q, ignoreCase = true) }
-            return prefix + rest
-        }
-        val names = lastSearchNames ?: return emptyList()
-        return if (q.isBlank()) names else names.filter { it.contains(q, ignoreCase = true) }
-    }
-
-    /** Clears resolved rows ahead of a fresh resolve — [sendSearchResolve] repopulates them. */
-    private fun resetSearchResults(s: AppState): AppState {
-        lastAstroObjects = emptyList()
-        lastRiseset = emptyList()
-        return s.copy(wireSearchResults = emptyList(), wireSearchMatchCount = matchingSearchNames(s).size)
-    }
-
-    /** Name-lookup match pinned first (unless the type search already has it), then the list. */
-    private fun buildSearchResults(): List<Target> {
-        val lookup = lastLookupObject?.takeIf { l -> lastAstroObjects.none { it.name == l.name } }
-        return (listOfNotNull(lookup) + lastAstroObjects)
-            .map { it.toTarget(lastRiseset.firstOrNull { rs -> rs.name == it.name }) }
     }
 
     /**
@@ -722,25 +641,9 @@ class EkosRemoteController(
             }
             // astro_search_objects has no free-text field, so the query is applied here against
             // the flat name list before resolving the matching subset's coordinates/riseset.
-            is EkosEvent.AstroSearchResult -> if (_state.value.searchType != null) sendSearchResolve()
-            is EkosEvent.AstroNames -> if (_state.value.searchType == null) sendSearchResolve()
-            is EkosEvent.AstroObjectInfo -> {
-                val queued = queuedLookupQuery
-                if (queued != null) {
-                    queuedLookupQuery = null
-                    sendNameLookup(queued)
-                } else event.obj?.let { obj ->
-                    // Same exact-name riseset as sendSearchResolve, for the pinned row's "X° max".
-                    client.sendCommand(Commands.ASTRO_GET_OBJECTS_RISESET, buildJsonObject {
-                        putJsonArray("names") { add(obj.name) }
-                        put("exact", true)
-                    })
-                }
-            }
-            // First automatic search, so the Plan tab has results without user input. The almanac
-            // reply rides the online burst (EkosRemoteClient) and needs the same geo/clock as the
-            // search, so it signals astro_* is answering; it's fetched once per connection.
-            is EkosEvent.AstroAlmanac -> if (lastSearchNames == null) runSearch()
+            // Plan search follow-ups: resolve the matching names, the pinned lookup, the first search.
+            is EkosEvent.AstroSearchResult, is EkosEvent.AstroNames, is EkosEvent.AstroObjectInfo,
+            is EkosEvent.AstroAlmanac -> search.onEvent(event)
             // Continues pushRealJob's chain once the save reply carries the resolved path (see
             // PendingJobStart).
             is EkosEvent.SchedulerSaveSequenceFile -> {
@@ -1233,59 +1136,9 @@ class EkosRemoteController(
         ensureReferenceImage(id)
     }
 
-    /**
-     * Altitude data for the Plan tab's chart. `astro_get_objects_riseset` resolves any
-     * KStars-known name directly, with no prior `astro_search_objects` needed, so this covers
-     * catalog and custom targets too. Skips the fetch if cached or in flight for this name, so
-     * it's cheap to call on every [selectTarget].
-     */
-    override fun ensureTargetRiseset(targetId: String) {
-        val target = _state.value.findTarget(targetId) ?: return
-        val name = target.realLookupName
-        // The Moon's curve rides along as a second name in the same request. A cached target
-        // still refetches until the Moon has been captured this connection.
-        if ((pendingTargetRisesetName == name || _state.value.wireTargetRiseset?.name == name) &&
-            _state.value.wireMoonRiseset != null
-        ) return
-        pendingTargetRisesetName = name
-        // "exact": true makes the reply echo the name we sent (message.cpp:2295); otherwise it
-        // carries KStars' preferred name (e.g. for M 64), the match below fails, and the chart
-        // silently keeps the previous target. Safe: the name is catalog-sourced, and findByName
-        // still falls back to a fuzzy lookup if the exact form doesn't resolve
-        // (catalogscomponent.cpp:334-338).
-        client.sendCommand(Commands.ASTRO_GET_OBJECTS_RISESET, buildJsonObject {
-            putJsonArray("names") { add(name); add("Moon") }
-            put("exact", true)
-        })
-    }
+    override fun ensureTargetRiseset(targetId: String) = search.ensureTargetRiseset(targetId)
 
-    /**
-     * Reference image for framing: the offline sky atlas if available, else an online cutout
-     * (see [ReferenceImageClient]). FOV is 1.4× the camera's ([AppState.framingFovDeg]) so the
-     * drawn FOV box doesn't sit on the edge, with a placeholder before CCD_INFO arrives. Skips
-     * if this target is already cached.
-     */
-    override fun ensureReferenceImage(targetId: String) {
-        val s = _state.value
-        if (s.referenceImageForTargetId == targetId) return
-        val target = s.findTarget(targetId) ?: return
-        val (raDeg, decDeg) = target.raDecDegrees ?: return
-        val fovDeg = (s.framingFovDeg?.let { maxOf(it.first, it.second) } ?: 2.4) * 1.4
-        _state.update { it.copy(referenceImageForTargetId = targetId, referenceImageJpeg = null, referenceImageFovDeg = null, referenceImageOnlineSkipped = false) }
-        scope.launch {
-            // Offline atlas first (works with no internet, any FOV); CDS cutout as the fallback.
-            val offline = skyAtlas?.render(raDeg, decDeg, fovDeg, _state.value.skyAtlas.completeOrder)
-            val online = offline == null && allowOptionalInternet()
-            val jpeg = offline ?: if (online) referenceImageClient.fetchCutout(raDeg, decDeg, fovDeg) else null
-            // Apply only if the framed target hasn't changed meanwhile, so a slow fetch doesn't
-            // land on a since-selected target.
-            if (_state.value.referenceImageForTargetId == targetId) {
-                _state.update {
-                    it.copy(referenceImageJpeg = jpeg, referenceImageFovDeg = fovDeg.takeIf { jpeg != null }, referenceImageOffline = offline != null, referenceImageOnlineSkipped = offline == null && !online)
-                }
-            }
-        }
-    }
+    override fun ensureReferenceImage(targetId: String) = search.ensureReferenceImage(targetId)
 
     /**
      * `mount_goto_target` resolves the name server-side via KStars' `findByName` (unlike
@@ -2460,110 +2313,28 @@ class EkosRemoteController(
 
     override fun setQuery(text: String) {
         super.setQuery(text)
-        refilterSearch()
+        search.refilterSearch()
     }
 
     override fun clearQuery() {
         super.clearQuery()
-        refilterSearch()
+        search.refilterSearch()
     }
 
     override fun toggleChip(index: Int) {
         super.toggleChip(index)
-        runSearch()
+        search.runSearch()
     }
 
     override fun setSearchType(skyType: Int?) {
         super.setSearchType(skyType)
-        runSearch()
+        search.runSearch()
     }
 
     override fun setSearchMaxMag(mag: Int) {
         super.setSearchMaxMag(mag)
-        runSearch()
+        search.runSearch()
     }
-
-    /**
-     * Typed-query change: re-filter the cached name list locally (no new server-side search),
-     * and look the typed text up directly by name across every catalog/type.
-     */
-    private fun refilterSearch() {
-        lastLookupObject = null
-        requestNameLookup(_state.value.query.trim())
-        val haveNames = if (_state.value.searchType == null) allNames != null else lastSearchNames != null
-        if (!haveNames) return runSearch()
-        _state.update { resetSearchResults(it) }
-        sendSearchResolve()
-    }
-
-    /** Below this, KStars' substring name match hits nearly everything — not worth a round-trip. */
-    private val minLookupLength = 2
-
-    private fun requestNameLookup(query: String) {
-        val q = query.takeIf { it.length >= minLookupLength }
-        when {
-            lookupInFlight -> queuedLookupQuery = q ?: "" // "" = drop the in-flight reply, send nothing
-            q != null -> sendNameLookup(q)
-        }
-    }
-
-    private fun sendNameLookup(query: String) {
-        if (query.isEmpty()) return
-        lookupInFlight = true
-        client.sendCommand(Commands.ASTRO_GET_OBJECT_INFO, buildJsonObject { put("object", query) })
-    }
-
-    /**
-     * Resolves the brightest [SEARCH_RESULT_CAP] matching names' coords/size/riseset. The DSO
-     * database hands names back brightest-first, so the cap keeps the most useful slice.
-     */
-    private fun sendSearchResolve() {
-        val names = matchingSearchNames(_state.value).take(SEARCH_RESULT_CAP)
-        if (names.isEmpty()) return
-        client.sendCommand(Commands.ASTRO_GET_OBJECTS_INFO, buildJsonObject { putJsonArray("names") { names.forEach { add(it) } } })
-        // "exact": true, as in ensureTargetRiseset (message.cpp:2295): otherwise a name KStars
-        // resolves to a different preferred name misses buildSearchResults()'s name-keyed merge
-        // and the row shows no "X° max".
-        client.sendCommand(Commands.ASTRO_GET_OBJECTS_RISESET, buildJsonObject {
-            putJsonArray("names") { names.forEach { add(it) } }
-            put("exact", true)
-        })
-    }
-
-    /**
-     * `astro_search_objects` has no free-text field (only `type`/`direction`/`maxMagnitude`/
-     * `minAlt`/`minDuration`/`minFOV`), so [AppState.searchType]/[AppState.searchMaxMag]/
-     * [AppState.chips] drive the wire call and the typed query is applied client-side
-     * ([matchingSearchNames]). `type` is a single `SkyObject::TYPE`. The DSO query is
-     * `magnitude < maxMagnitude`, so objects with no catalogued magnitude (common for large
-     * emission nebulae) never match a type search.
-     */
-    private fun runSearch() {
-        val s = _state.value
-        if (s.searchType == null) {
-            // Name search: no server-side filtering; the full name list is the source.
-            if (allNames == null) {
-                if (!allNamesRequested) {
-                    allNamesRequested = true
-                    client.sendCommand(Commands.ASTRO_GET_NAMES)
-                }
-                _state.update { it.copy(wireSearchResults = emptyList(), wireSearchMatchCount = null) }
-            } else {
-                _state.update { resetSearchResults(it) }
-                sendSearchResolve()
-            }
-            return
-        }
-        client.sendCommand(Commands.ASTRO_SEARCH_OBJECTS, buildJsonObject {
-            put("type", s.searchType)
-            put("maxMagnitude", s.searchMaxMag.toDouble())
-            put("minAlt", if (s.chips.contains(1)) 40.0 else 15.0)
-            put("minDuration", if (s.chips.contains(0)) 3600 else 0)
-            put("minFOV", if (s.chips.contains(2)) 1.0 else 0.0)
-        })
-    }
-
-    // ── Sequence tab — Scheduler + .esq ─────────────────────────────────
 
     /**
      * Ekos has no "edit a synced job" primitive: `scheduler_add_jobs` only adds from the
