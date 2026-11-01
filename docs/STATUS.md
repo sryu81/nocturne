@@ -169,7 +169,7 @@ bogus flip planned at home, `polar_set_algorithm`). Rig: reflash OnStep with
 
 ## Known rig behaviour
 
-- OnStep Unpark raises a spurious "Mount parking failed" alert although the mount unparks (B13, seen twice on 2026-10-31). Cause: the driver's 0.1 s serial reply timeout. A patched driver is built and staged, not yet installed on the Pi.
+- OnStep Unpark used to raise a spurious "Mount parking failed" alert (B13). Fixed 2026-10-31 by a patched INDI driver on the Pi (confirmed with one Park/Unpark); original driver kept as `indi_lx200generic.orig`.
 
 - OnStep forgets Preferred Pier Side on a power cycle (the pier guard re-applies East).
 - Recurring: mount faults ~1 s after some slews; CP2102 USB drops; Pi undervoltage warnings

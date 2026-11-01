@@ -34,7 +34,7 @@ first within each list. Commits are on `main` (the `controls-revision` branch wa
   split, and the alert is raised on the Pi.
 - **Impact:** a spurious red alert (and a phone notification if pushes are on). The mount state stays correct. It could
   hide a real parking failure.
-- **Fix (built 2026-10-31, not installed yet):** a patch to the OnStep driver (`~/cc/patches/indi-onstep-unpark-timeout.patch`,
+- **Fix (built and installed 2026-10-31, confirmed):** a patch to the OnStep driver (`~/cc/patches/indi-onstep-unpark-timeout.patch`,
   applied by `~/cc/scripts/build-indi-core.sh`) waits 5 s for the `:hR#` reply, then restores the 0.1 s default; it also
   checks the read for an error before looking at the reply buffer (it was uninitialised). The patched `indi_lx200generic`
   (the binary `indi_lx200_OnStep` links to) is built, stripped, and checked: aarch64, the same six libraries as the one on
@@ -44,6 +44,10 @@ first within each list. Commits are on `main` (the `controls-revision` branch wa
   The alert gone confirms this cause; the alert still there means the cause was wrong, and copying `.orig` back restores
   the old driver. Other options considered: an app rule that holds the alert back while the mount reports Tracking (it
   would hide a real failure unless it waits for the mount state), or leaving it.
+- **Result:** installed on the Pi at 19:05 (original kept as `/usr/bin/indi_lx200generic.orig`, sha256 `b113851f…`). After
+  starting Ekos, Park at 19:06:51 (parked 19:07:00) and Unpark at 19:07:06 (unparked 19:07:09, Tracking 19:07:10): the
+  phone Log shows "Mount unparked" and no "Mount parking failed". Before the patch both Unparks of 18:43 and 18:44 raised
+  it. This confirms the 0.1 s reply timeout as the cause. Worth sending upstream to INDI.
 
 ### B12 · Ekos stopped by itself mid-frame at 23:35 on 10-30, 15 minutes after a good meridian flip
 
