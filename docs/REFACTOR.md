@@ -20,7 +20,7 @@ Non-goal: changing behaviour. Every step moves code verbatim.
 
 | | Lines |
 |---|---|
-| `EkosRemoteController.kt` | 2,551 (was 3,156) |
+| `EkosRemoteController.kt` | 2,375 (was 3,156) |
 | `RigStorageController.kt`, `ControllerContext.kt` (done, `15f2866`) | 198, 22 |
 | `AbstractLocalSessionController.kt` (the local-update half) | 893 |
 | `SessionController.kt` (the interface the UI uses) | 440 |
@@ -83,7 +83,7 @@ Each step is one commit. Between steps: compile, the unit tests, and the phone s
 | 1 | Rig storage | 151 lines | low | **done** `15f2866` |
 | 2 | Top-level helpers after the class (`WireMappers`, `IndiStateHelpers`, `RemoteSessionRules`, coordinate formatters into `MountCoordFormat`) | 218 lines | none (pure functions) | **done** |
 | 3 | Plan search (`PlanSearchController`: owns the search state, `reduce` and `onEvent` hooks for the reducer and follow-ups); 13 new behaviour tests | 237 lines | medium | **done** |
-| 4 | Profiles / trains / scopes | ~180 | medium (9 `super` callers) | todo |
+| 4 | Profiles / trains / scopes (`ProfilesController`: wire halves and the Profiles, Trains, TrainProfiles and Scopes reducer cases; `super` calls stay in the controller, same order); 15 new behaviour tests | 176 lines | medium | **done** |
 | 5 | Rig maintenance and sky atlas (reboot, shutdown, time and location sync, atlas copy) | ~220 | medium | todo |
 | 6 | Scheduler / session (push, sync, finish, end session) | ~250 | high: job lifecycle, 5 `super` callers | todo |
 | 7 | Devices / INDI (property sets, throttle, subscribe) | ~160 | medium | todo |

@@ -101,8 +101,8 @@ class EkosRemoteController(
     /** The Plan tab's search and framing data; the overrides below delegate to it. */
     private val search = PlanSearchController(ctx, skyAtlas, allowOptionalInternet)
 
-    /** Name a `profile_delete` was just sent for — checked against the next [EkosEvent.Profiles]. */
-    private var pendingProfileDelete: String? = null
+    /** Rig profiles, optical trains and the scope catalog; the overrides below delegate to it. */
+    private val profiles = ProfilesController(ctx, log)
 
     private var skyAtlasCopyJob: Job? = null
 
@@ -122,15 +122,6 @@ class EkosRemoteController(
 
     // Last time (ms) we pushed Preferred Pier Side = East per device — see enforcePreferredPierSide.
     private val pierSideFixSentAt = mutableMapOf<String, Long>()
-
-    /** Raw `train_get_profiles` reply (ordinal → train ID) — see [resolveModuleTrainAssignments]. */
-    private var lastTrainProfileAssignments: Map<String, Int>? = null
-
-    /**
-     * Module → train-name for an optimistic [setModuleTrain] pick not yet confirmed by the
-     * server's own snapshot — see [resolveModuleTrainAssignments] for why this exists.
-     */
-    private val pendingModuleTrainAssignments = mutableMapOf<String, String>()
 
     /**
      * Name a `scheduler_add_jobs` was just sent for, matched against the next
@@ -434,39 +425,7 @@ class EkosRemoteController(
 
         // get_profiles is always the full list, so profiles is overwritten. Diffed against the
         // old s.profiles (still pre-delete here) to detect profile_delete's silent refusal.
-        is EkosEvent.Profiles -> {
-            val attemptedDelete = pendingProfileDelete
-            pendingProfileDelete = null
-            val refused = attemptedDelete != null && event.profiles.any { it.name == attemptedDelete }
-            s.copy(
-                profiles = event.profiles.map { it.toRigProfile() },
-                selectedProfile = event.selectedProfile ?: s.selectedProfile,
-                profileDeleteRefused = if (refused) attemptedDelete else null,
-                // Every driver label saved in any profile on this Pi, unioned — see
-                // AppState.realDeviceOptions. Available before Ekos is online, unlike wireDevices.
-                wireKnownDrivers = event.profiles
-                    .flatMap { it.drivers.entries }
-                    .groupBy({ it.key }, { it.value })
-                    .mapValues { (_, lists) -> lists.flatten().distinct() },
-            )
-        }
-        // The UI models only two train slots (Primary/Secondary); trains 0 and 1 of the reply
-        // map onto them. With one train, secondaryTrain keeps its default; a 3rd+ train is not
-        // shown.
-        is EkosEvent.Trains -> s.copy(
-            wireTrains = event.trains,
-            primaryTrain = event.trains.getOrNull(0)?.toTrainAssignment() ?: s.primaryTrain,
-            secondaryTrain = event.trains.getOrNull(1)?.toTrainAssignment() ?: s.secondaryTrain,
-            moduleTrainAssignments = resolveModuleTrainAssignments(s.moduleTrainAssignments, event.trains),
-        )
-        // train_get_profiles carries train IDs, not names, and can arrive before or after
-        // train_get_all, so the raw ordinal→ID map is kept and re-resolved by whichever lands
-        // second.
-        is EkosEvent.TrainProfiles -> {
-            lastTrainProfileAssignments = event.assignments
-            s.copy(moduleTrainAssignments = resolveModuleTrainAssignments(s.moduleTrainAssignments, s.wireTrains))
-        }
-        is EkosEvent.Scopes -> s.copy(wireScopes = event.scopes.map { it.toScopeDef() })
+        is EkosEvent.Profiles, is EkosEvent.Trains, is EkosEvent.TrainProfiles, is EkosEvent.Scopes -> profiles.reduce(s, event) ?: s
         is EkosEvent.Drivers -> s.copy(wireDriverCatalog = event.drivers)
         // Options::self() values, fetched once at connect, so overwriting can't race an
         // optimistic edit. rotatorAutoControl is re-seeded from astrometryUseRotator here.
@@ -525,30 +484,6 @@ class EkosRemoteController(
         // Only the log keeps these (LogCollector).
         is EkosEvent.NewLog, is EkosEvent.LogSnapshot, is EkosEvent.DeviceMessage -> s
         is EkosEvent.Raw -> s
-    }
-
-    /**
-     * Resolves the raw ordinal→trainID map against [trains] into module-key→train-name, merged
-     * onto [previous] rather than replacing it.
-     *
-     * `train_get_profiles` can carry a stale train ID left over from before the trains were
-     * recreated, matching nothing in `train_get_all`. Such a module keeps whatever [previous]
-     * had (an optimistic pick, or absent = shown unselected) instead of being dropped.
-     *
-     * Ekos's persistence may also lag a [setModuleTrain] pick, so a reply can resolve to the
-     * pre-edit train. A module with an outstanding pick in [pendingModuleTrainAssignments] keeps
-     * that pick until `resolved` agrees with it, at which point it's cleared.
-     */
-    private fun resolveModuleTrainAssignments(previous: Map<String, String>?, trains: List<WireTrain>?): Map<String, String>? {
-        val raw = lastTrainProfileAssignments ?: return previous
-        if (trains == null) return previous
-        val resolved = raw.mapNotNull { (ordinal, trainId) ->
-            val module = MODULE_KEY_BY_TRAIN_SETTING[ordinal] ?: return@mapNotNull null
-            val name = trains.firstOrNull { it.id == trainId }?.name ?: return@mapNotNull null
-            module to name
-        }.toMap()
-        pendingModuleTrainAssignments.entries.removeAll { (module, expected) -> resolved[module] == expected }
-        return (previous ?: emptyMap()) + resolved + pendingModuleTrainAssignments
     }
 
     /**
@@ -1326,108 +1261,39 @@ class EkosRemoteController(
         super.setPahRefreshAlgorithm(algorithm)
     }
 
+    override fun disconnectDevices() = profiles.disconnectDevices()
+
+    override fun deleteProfile(name: String) = profiles.deleteProfile(name)
+
+    override fun finishSetup() = profiles.finishSetup()
+
     // ── Profiles / Optical Train ────────────────────────────────────────
 
     override fun startProfile(name: String) {
-        log?.record("App", "Start Ekos requested with profile $name")
-        client.sendCommand(Commands.PROFILE_START, buildJsonObject { put("name", name) })
+        profiles.startProfile(name)
         super.startProfile(name) // optimistic; new_connection_state.online confirms
     }
-
     /** No optimistic update: Stop Ekos unlocks only when each device's CONNECTION push says so. */
-    override fun disconnectDevices() {
-        _state.value.wireDevices.orEmpty().filter { it.connected }.forEach { device ->
-            client.sendCommand(Commands.DEVICE_PROPERTY_SET, buildJsonObject {
-                put("device", device.name)
-                put("property", "CONNECTION")
-                putJsonArray("elements") { addJsonObject { put("name", "DISCONNECT"); put("state", 1) } }
-            })
-        }
-    }
-
     override fun stopProfile() {
-        log?.record("App", "Stop Ekos requested")
-        client.sendCommand(Commands.PROFILE_STOP)
+        profiles.stopProfile()
         super.stopProfile()
     }
-
-    override fun deleteProfile(name: String) {
-        pendingProfileDelete = name
-        client.sendCommand(Commands.PROFILE_DELETE, buildJsonObject { put("name", name) })
-        // No optimistic removal: the get_profiles reply that follows is authoritative.
-    }
-
-    /**
-     * The base implementation doesn't touch `selectedDeviceNames`/`devOff`, so the wizard would
-     * show leftover picker state. Maps `RigProfile.drivers` (family → labels) back to category
-     * keys via [CATEGORY_TO_DRIVER_FAMILY]; [finishSetup] runs the same mapping forward.
-     */
     override fun editProfile(name: String) {
         super.editProfile(name)
-        val p = _state.value.profiles.firstOrNull { it.name == name } ?: return
-        update { s ->
-            if (s.setupEditingName != name) return@update s // base declined (Ekos running) — nothing to seed
-            val selected = DEVICES.associate { d ->
-                // "guide" has no family of its own — it's a second entry in drivers["CCDs"],
-                // named only by the legacy `guider` field (see CATEGORY_TO_DRIVER_FAMILY).
-                val label = if (d.key == "guide") p.guider.ifBlank { null }
-                else CATEGORY_TO_DRIVER_FAMILY[d.key]?.let { family -> p.drivers[family]?.firstOrNull() }
-                d.key to (label ?: "None")
-            }
-            s.copy(
-                selectedDeviceNames = s.selectedDeviceNames + selected,
-                devOff = selected.filterValues { it == "None" }.keys,
-            )
-        }
+        profiles.seedEditedProfile(name)
     }
-
-    override fun finishSetup() {
-        val s = _state.value
-        // "guide" shares the "CCDs" family with "cam"; the explicit "guider" field is the only
-        // signal for which entry is the guide camera. profile_update persists "guider" alongside
-        // "drivers", despite the docs saying legacy fields are only read when drivers is absent.
-        val drivers: Map<String, List<String>> = DEVICES.filter { it.key !in s.devOff }
-            .groupBy({ CATEGORY_TO_DRIVER_FAMILY[it.key] ?: "Aux" }, { s.selectedDeviceNames[it.key] ?: it.name })
-        val guiderLabel = s.selectedDeviceNames["guide"]?.takeIf { "guide" !in s.devOff }
-        val payload = buildJsonObject {
-            put("name", s.profileName)
-            put("auto_connect", true)
-            put("port_selector", false)
-            put("mode", "local")
-            put("use_web_manager", false)
-            put("guiding", 0) // guider-type enum, unconfirmed meaning — leave at the known-safe default
-            putJsonObject("drivers") { drivers.forEach { (family, labels) -> putJsonArray(family) { labels.forEach { add(it) } } } }
-            if (guiderLabel != null) put("guider", guiderLabel)
-        }
-        client.sendCommand(if (s.setupEditingName != null) Commands.PROFILE_UPDATE else Commands.PROFILE_ADD, payload)
-        // Not super.finishSetup(): that marks Ekos running, but this only sends
-        // profile_add/update, never profile_start. Close the sheet; the following get_profiles
-        // reply reconciles the profile list.
-        update { it.copy(sheet = null, setupEditingName = null) }
-    }
-
     override fun setTrainRole(slot: TrainSlot, role: TrainRole, value: String) {
         super.setTrainRole(slot, role, value)
-        sendTrainUpdate(slot)
+        profiles.sendTrainUpdate(slot)
     }
-
     override fun setTrainReducer(slot: TrainSlot, value: Double) {
         super.setTrainReducer(slot, value)
-        sendTrainUpdate(slot)
+        profiles.sendTrainUpdate(slot)
     }
-
-    /**
-     * `train_set` (`processTrainCommands` in `message.cpp`): each module's `setOpticalTrain(name)`
-     * persists to the active profile's `ProfileSettings`. No direct reply, so
-     * `train_get_profiles` is re-sent to confirm.
-     */
     override fun setModuleTrain(module: String, trainName: String) {
-        pendingModuleTrainAssignments[module] = trainName
-        client.sendCommand(Commands.TRAIN_SET, buildJsonObject { put("module", module); put("name", trainName) })
-        client.sendCommand(Commands.TRAIN_GET_PROFILES)
-        super.setModuleTrain(module, trainName) // optimistic; confirmed reply reconciles above
+        profiles.setModuleTrain(module, trainName)
+        super.setModuleTrain(module, trainName) // optimistic; confirmed reply reconciles
     }
-
     /** Persists the reboot daemon's port in memory (for [rebootRig]) and to disk via [connectionRepo]. */
     override fun setRigRebootPort(port: Int) {
         rigRebootPort = port
@@ -2248,69 +2114,18 @@ class EkosRemoteController(
         super.setSchedulerForceAlignmentBeforeJob(enabled)
     }
 
-    /**
-     * The `train_add`/`train_update` payload shape is undocumented, so this sends every field
-     * `train_get_all` reports, with [id] when a matching train is known (else `train_add`).
-     * The `train_get_all` auto-push reconciles whatever the server accepted.
-     */
-    private fun sendTrainUpdate(slot: TrainSlot) {
-        val s = _state.value
-        val t = s.train(slot)
-        val wireTrain = s.wireTrains?.getOrNull(if (slot == TrainSlot.PRIMARY) 0 else 1)
-        val payload = buildJsonObject {
-            wireTrain?.let { put("id", it.id) }
-            put("name", wireTrain?.name ?: if (slot == TrainSlot.PRIMARY) "Primary" else "Secondary")
-            put("mount", t.mount)
-            put("camera", t.camera)
-            put("guider", t.guideVia)
-            put("focuser", t.focuser)
-            put("filterwheel", t.filterWheel)
-            put("rotator", t.rotator)
-            put("reducer", t.reducer.toString())
-            put("dustcap", t.dustCap)
-            put("lightbox", t.lightBox)
-            put("scope", t.scope)
-            put("adaptiveoptics", t.adaptiveOptics)
-        }
-        client.sendCommand(if (wireTrain != null) Commands.TRAIN_UPDATE else Commands.TRAIN_ADD, payload)
-    }
-
-    // ── Scopes catalog (separate from Optical Trains) ───────────────────
-
     override fun addScope(name: String, vendor: String, type: String, focalMm: Int, apertureMm: Int) {
-        client.sendCommand(Commands.SCOPE_ADD, buildJsonObject {
-            put("model", name); put("vendor", vendor); put("type", type)
-            put("focal_length", focalMm.toDouble()); put("aperture", apertureMm.toDouble())
-        })
+        profiles.addScope(name, vendor, type, focalMm, apertureMm)
         super.addScope(name, vendor, type, focalMm, apertureMm) // optimistic; get_scopes auto-reply reconciles
     }
-
     override fun updateScope(id: String, name: String, vendor: String, type: String, focalMm: Int, apertureMm: Int) {
-        // Only a wire-known scope has a server id to update; a local-only scope is added instead.
-        val isWireKnown = _state.value.wireScopes?.any { it.id == id } == true
-        if (isWireKnown) {
-            client.sendCommand(Commands.SCOPE_UPDATE, buildJsonObject {
-                put("id", id); put("model", name); put("vendor", vendor); put("type", type)
-                put("focal_length", focalMm.toDouble()); put("aperture", apertureMm.toDouble())
-            })
-        } else {
-            client.sendCommand(Commands.SCOPE_ADD, buildJsonObject {
-                put("model", name); put("vendor", vendor); put("type", type)
-                put("focal_length", focalMm.toDouble()); put("aperture", apertureMm.toDouble())
-            })
-        }
+        profiles.updateScope(id, name, vendor, type, focalMm, apertureMm)
         super.updateScope(id, name, vendor, type, focalMm, apertureMm)
     }
-
     override fun removeScope(id: String) {
-        if (_state.value.wireScopes?.any { it.id == id } == true) {
-            client.sendCommand(Commands.SCOPE_DELETE, buildJsonObject { put("id", id) })
-        }
+        profiles.removeScope(id)
         super.removeScope(id)
     }
-
-    // ── Plan tab astro_* search ─────────────────────────────────────────
-
     override fun setQuery(text: String) {
         super.setQuery(text)
         search.refilterSearch()
