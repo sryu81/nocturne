@@ -93,6 +93,10 @@ class EkosRemoteController(
         scope = scope,
         state = { _state.value },
         update = { f -> _state.update(f) },
+        host = client.host,
+        onlineWait = { ms ->
+            withTimeoutOrNull(ms) { client.connectionStatus.first { it.state == ConnectionState.ONLINE } } != null
+        },
     )
 
     /** The Rig storage view's commands and watches; the overrides below delegate to it. */
@@ -104,7 +108,8 @@ class EkosRemoteController(
     /** Rig profiles, optical trains and the scope catalog; the overrides below delegate to it. */
     private val profiles = ProfilesController(ctx, log)
 
-    private var skyAtlasCopyJob: Job? = null
+    /** Reboot, shutdown, clock and location sync, and the sky atlas; the overrides below delegate to it. */
+    private val rigMaintenance = RigMaintenanceController(ctx, log, skyAtlas, connectionRepo)
 
     // Devices whose full property set has been requested (DEVICE_GET + full subscribe). The
     // DEVICE_GET reply itself carries CONNECTION=connected, so without this set every reply
@@ -149,9 +154,6 @@ class EkosRemoteController(
     private data class PendingJobStart(val jobId: String, val targetName: String, val raDec: Pair<String, String>?, val trainName: String?, val alsoStart: Boolean = false)
     private var pendingJobStart: PendingJobStart? = null
 
-    /** In-memory mirror of the reboot daemon's port, for [rebootRig]/[syncTimeToRig]. */
-    private var rigRebootPort: Int = 9001
-
     /** Last-applied time per (device, property) for [shouldThrottleNumberPush]. */
     private val lastAppliedNumberPushMs = mutableMapOf<Pair<String, String>, Long>()
 
@@ -175,7 +177,7 @@ class EkosRemoteController(
     }
 
     init {
-        if (skyAtlas != null) scope.launch { rescanSkyAtlas() }
+        rigMaintenance.start()
         // AppState defaults jobs to DEFAULT_JOBS (one pre-marked running). Start empty until
         // sequenceRepo restores the saved queue below or the user adds one.
         _state.update {
@@ -243,7 +245,7 @@ class EkosRemoteController(
         connectionRepo?.let { repo ->
             scope.launch {
                 val saved = repo.current()
-                rigRebootPort = saved.rebootPort
+                rigMaintenance.restoreRebootPort(saved.rebootPort)
                 _state.update { it.copy(rigRebootPort = saved.rebootPort, pushNotificationsEnabled = saved.pushNotifications, mountJ2000 = saved.mountJ2000) }
             }
         }
@@ -1294,32 +1296,6 @@ class EkosRemoteController(
         profiles.setModuleTrain(module, trainName)
         super.setModuleTrain(module, trainName) // optimistic; confirmed reply reconciles
     }
-    /** Persists the reboot daemon's port in memory (for [rebootRig]) and to disk via [connectionRepo]. */
-    override fun setRigRebootPort(port: Int) {
-        rigRebootPort = port
-        _state.update { it.copy(rigRebootPort = port, rigRebootState = RigRebootState.IDLE, rigRebootError = null) }
-        scope.launch { connectionRepo?.saveRebootPort(port) }
-    }
-
-    /**
-     * Sends the reboot request over the daemon's HTTP channel (see [RigRebootClient]), not the
-     * EkosRemote wire. Success only means the Pi accepted it; the socket then drops and
-     * [EkosRemoteClient]'s reconnect picks the session back up.
-     */
-    override fun rebootRig() {
-        log?.record("App", "Reboot of the Pi requested")
-        _state.update { it.copy(rigRebootState = RigRebootState.SENDING, rigRebootError = null) }
-        scope.launch {
-            val result = RigRebootClient(client.host, rigRebootPort).reboot()
-            _state.update { s ->
-                result.fold(
-                    onSuccess = { s.copy(rigRebootState = RigRebootState.SENT, rigRebootError = null) },
-                    onFailure = { e -> s.copy(rigRebootState = RigRebootState.FAILED, rigRebootError = e.message ?: "request failed") },
-                )
-            }
-        }
-    }
-
     override fun setMountJ2000(enabled: Boolean) {
         super.setMountJ2000(enabled)
         scope.launch { connectionRepo?.saveMountJ2000(enabled) }
@@ -1330,145 +1306,23 @@ class EkosRemoteController(
         scope.launch { connectionRepo?.savePushNotifications(enabled) }
     }
 
-    /** Same daemon and channel as [rebootRig]; success only means the Pi accepted the request. */
-    override fun shutdownRig() {
-        log?.record("App", "Shutdown of the Pi requested")
-        _state.update { it.copy(rigShutdownState = RigRebootState.SENDING, rigShutdownError = null) }
-        scope.launch {
-            val result = RigRebootClient(client.host, rigRebootPort).shutdown()
-            _state.update { s ->
-                result.fold(
-                    onSuccess = { s.copy(rigShutdownState = RigRebootState.SENT, rigShutdownError = null) },
-                    onFailure = { e -> s.copy(rigShutdownState = RigRebootState.FAILED, rigShutdownError = e.message ?: "request failed") },
-                )
-            }
-        }
-    }
+    override fun setRigRebootPort(port: Int) = rigMaintenance.setRigRebootPort(port)
 
-    private suspend fun rescanSkyAtlas() {
-        val local = skyAtlas?.scanLocal() ?: return
-        _state.update { it.copy(skyAtlas = it.skyAtlas.copy(localTiles = local.tiles, completeOrder = local.completeOrder)) }
-    }
+    override fun rebootRig() = rigMaintenance.rebootRig()
 
-    override fun refreshSkyAtlas() {
-        val atlas = skyAtlas ?: return
-        scope.launch {
-            rescanSkyAtlas()
-            val rig = runCatching { atlas.rigTiles(client.host, rigRebootPort) }
-            _state.update { s ->
-                s.copy(skyAtlas = s.skyAtlas.copy(
-                    rigTiles = rig.getOrNull(),
-                    error = rig.exceptionOrNull()?.let { "Rig atlas: ${it.message ?: "unreachable"}" },
-                ))
-            }
-        }
-    }
+    override fun shutdownRig() = rigMaintenance.shutdownRig()
 
-    /** Over the reboot daemon's `/hips/` (same host and port as [rebootRig]), 4 tiles at a time. */
-    override fun copySkyAtlasFromRig() {
-        val atlas = skyAtlas ?: return
-        if (skyAtlasCopyJob?.isActive == true) return
-        _state.update { it.copy(skyAtlas = it.skyAtlas.copy(copying = true, error = null, lastMissing = null)) }
-        skyAtlasCopyJob = scope.launch {
-            var missing: Int? = null
-            var error: String? = null
-            try {
-                missing = atlas.copyFromRig(client.host, rigRebootPort) { done, _ ->
-                    _state.update { it.copy(skyAtlas = it.skyAtlas.copy(copyDone = done)) }
-                }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                error = "Copy stopped: ${e.message ?: "rig unreachable"}"
-            } finally {
-                // also runs after Cancel, so the sheet doesn't stay stuck on "Copying…"
-                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
-                    rescanSkyAtlas()
-                    _state.update { s ->
-                        s.copy(skyAtlas = s.skyAtlas.copy(copying = false, lastMissing = missing, error = error))
-                    }
-                }
-            }
-        }
-    }
+    override fun refreshSkyAtlas() = rigMaintenance.refreshSkyAtlas()
 
-    override fun cancelSkyAtlasCopy() {
-        skyAtlasCopyJob?.cancel()
-    }
+    override fun copySkyAtlasFromRig() = rigMaintenance.copySkyAtlasFromRig()
 
-    override fun clearSkyAtlas() {
-        val atlas = skyAtlas ?: return
-        skyAtlasCopyJob?.cancel()
-        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            atlas.clear()
-            rescanSkyAtlas()
-        }
-    }
+    override fun cancelSkyAtlasCopy() = rigMaintenance.cancelSkyAtlasCopy()
 
-    /**
-     * Sets the KStars clock over the wire and the Pi OS clock via the reboot daemon's
-     * `POST /set-time` (see [RigRebootClient.setTime]). Sends the phone's local wall-clock time
-     * with no timezone conversion, assuming phone and rig are co-located.
-     */
-    override fun syncTimeToRig() {
-        // KStars' internal clock over the EkosRemote wire; works without the reboot daemon.
-        // See KSTARS_SET_TIME (Commands.kt).
-        val now = java.time.LocalDateTime.now()
-        client.sendCommand(
-            Commands.KSTARS_SET_TIME,
-            buildJsonObject {
-                put("yr", now.year); put("mth", now.monthValue); put("day", now.dayOfMonth)
-                put("hr", now.hour); put("min", now.minute); put("sec", now.second)
-            },
-        )
+    override fun clearSkyAtlas() = rigMaintenance.clearSkyAtlas()
 
-        // Pi OS clock — best-effort, needs the reboot daemon running on the Pi.
-        _state.update { it.copy(piTimeSyncState = RigRebootState.SENDING, piTimeSyncError = null) }
-        val iso = now.withNano(0).toString()
-        scope.launch {
-            val result = RigRebootClient(client.host, rigRebootPort).setTime(iso)
-            _state.update { s ->
-                result.fold(
-                    onSuccess = { s.copy(piTimeSyncState = RigRebootState.SENT, piTimeSyncError = null) },
-                    onFailure = { e -> s.copy(piTimeSyncState = RigRebootState.FAILED, piTimeSyncError = e.message ?: "request failed") },
-                )
-            }
-        }
-    }
+    override fun syncTimeToRig() = rigMaintenance.syncTimeToRig()
 
-    /**
-     * The automatic part of [syncTimeToRig]/[syncLocationToRig] at connect. Waits for the link and
-     * a few seconds for Ekos' states (the Scheduler's running state is only known then), reads the
-     * Pi's clock from the daemon, and syncs time only when it is off by more than
-     * [CLOCK_SKEW_OK_SEC] and nothing is running: a clock step under a running Scheduler job could
-     * upset it, and a reconnect mid-session must not do that.
-     */
-    override fun syncRigOnConnect(location: Triple<Double, Double, Double>?) {
-        scope.launch {
-            withTimeoutOrNull(AUTO_SYNC_LINK_TIMEOUT_MS) { client.connectionStatus.first { it.state == ConnectionState.ONLINE } }
-                ?: return@launch
-            delay(AUTO_SYNC_SETTLE_MS)
-            val running = _state.value.schedulerIsRunning()
-            val skew = RigRebootClient(client.host, rigRebootPort).health()?.clockSkewSec(System.currentTimeMillis())
-            when (autoTimeSync(skew, running)) {
-                AutoTimeSync.SYNC -> {
-                    log?.record("App", "Rig clock was ${skew}s off the phone's; syncing time")
-                    syncTimeToRig()
-                }
-                AutoTimeSync.CLOCK_OK -> log?.record("App", "Rig clock is within ${CLOCK_SKEW_OK_SEC}s of the phone's, time not changed")
-                AutoTimeSync.RUNNING -> log?.record("App", "Rig clock is ${skew}s off the phone's but a job is running, time not changed", LogLevel.WARN)
-                AutoTimeSync.UNKNOWN -> log?.record("App", "Rig clock unknown (maintenance daemon not answering), time not synced", LogLevel.WARN)
-            }
-            if (location == null) {
-                log?.record("App", "Location not synced: no phone location permission or fix (Home > Rig maintenance syncs it by hand)", LogLevel.WARN)
-            } else if (running) {
-                log?.record("App", "A job is running, location not changed")
-            } else {
-                log?.record("App", "Syncing KStars location from the phone: %.4f, %.4f".format(location.first, location.second))
-                syncLocationToRig(location.first, location.second, location.third)
-            }
-        }
-    }
+    override fun syncRigOnConnect(location: Triple<Double, Double, Double>?) = rigMaintenance.syncRigOnConnect(location)
 
     /**
      * `kstars_set_location` (see [SessionController.syncLocationToRig] for why
@@ -1477,11 +1331,7 @@ class EkosRemoteController(
      * standard-time UTC offset, assuming phone and rig are co-located.
      */
     override fun syncLocationToRig(lat: Double, lon: Double, elevM: Double) {
-        val tzHours = java.util.TimeZone.getDefault().rawOffset / 3_600_000.0
-        client.sendCommand(
-            Commands.KSTARS_SET_LOCATION,
-            buildJsonObject { put("lat", lat); put("lon", lon); put("elev", elevM); put("tz", tzHours) },
-        )
+        rigMaintenance.syncLocationToRig(lat, lon, elevM)
         super.syncLocationToRig(lat, lon, elevM)
     }
 
@@ -2357,8 +2207,6 @@ private const val CAMERA_FAN_PROP = "TC_FAN_SPEED" // ToupTek-family drivers (in
  *  is not one: with `slewR` it's followed by a re-slew and another solve. */
 private val ALIGN_DONE_STATES = setOf("Idle", "Complete", "Failed", "Aborted")
 private const val SOLVER_ACTION_SETTLE_MS = 500L
-private const val AUTO_SYNC_LINK_TIMEOUT_MS = 30_000L
-private const val AUTO_SYNC_SETTLE_MS = 6_000L
 private const val SLEW_START_TIMEOUT_MS = 10_000L
 private const val SLEW_TIMEOUT_MS = 5 * 60_000L
 private const val SLEW_SETTLE_MS = 2_000L

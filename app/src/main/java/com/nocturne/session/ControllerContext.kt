@@ -16,8 +16,14 @@ internal class ControllerContext(
     val scope: CoroutineScope,
     val state: () -> AppState,
     val update: ((AppState) -> AppState) -> Unit,
+    /** The rig's address, for the maintenance daemon's HTTP channel. */
+    val host: String = "",
+    private val onlineWait: suspend (timeoutMs: Long) -> Boolean = { true },
 ) {
     fun send(type: String, payload: JsonElement = JsonObject(emptyMap())) = sender(type, payload)
+
+    /** True once Ekos is running (not just the socket open), false if [timeoutMs] runs out first. */
+    suspend fun awaitOnline(timeoutMs: Long): Boolean = onlineWait(timeoutMs)
 
     /** The socket is open, with or without Ekos running. */
     fun linkUp(): Boolean = link()
