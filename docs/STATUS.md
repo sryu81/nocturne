@@ -105,7 +105,7 @@ maintenance); the Pi keeps orders 0–5 on the SD card for KStars' offline HiPS.
   `mount_abort`; Home has a "Stop everything" card (then a separate "Park mount"). The buttons work;
   not yet tried against a real stuck solve. `docs/BUGS.md` B1, B10.
 - Home layout (2026-10-25, compiled and unit-tested, installed, seen on the phone): Night arc, Ekos,
-  a compact Rig health card that opens a Rig health sheet, Session, Alerts, Log, maintenance. The
+  a Target and mount card (Plan's picked target, how far the mount is from it, the live position; the Controls mount page shows the same target strip), a compact Rig health card that opens a Rig health sheet, Session, Log, maintenance. The Alerts card was removed 2026-10-31: the header bell opens the Alerts sheet. The
   "Rig" box (mount/cooler line) is folded into the health card. The cooler set point reads N/A until
   the camera's `CCD_TEMPERATURE` exists and Capture's settings are re-read.
 - M5 (fork per-line logs, deployed to the Pi 2026-10-25 02:15): `new_log` and `get_logs` work end to

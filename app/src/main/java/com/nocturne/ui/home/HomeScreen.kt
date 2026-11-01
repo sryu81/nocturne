@@ -75,10 +75,10 @@ fun HomeScreen(
         items = listOf(
             TabItem(full = true) { NightArcCard(state) },
             TabItem(full = true) { EkosCard(state, ctrl) },
+            TabItem(full = true) { TargetMountCard(state, ctrl) },
             TabItem(full = true) { EmergencyStopCard(state, ctrl) },
             TabItem(full = true) { RigHealthSummaryCard(state, ctrl) },
             TabItem(full = true) { SessionLine(state, onGoToSequence) },
-            TabItem(full = true) { AlertsCard(state, ctrl) },
             TabItem(full = true) { LogCard(logRepo, ctrl) },
             TabItem { MaintenanceCard(state, ctrl) },
             TabItem { DisconnectCard(onDisconnect) },

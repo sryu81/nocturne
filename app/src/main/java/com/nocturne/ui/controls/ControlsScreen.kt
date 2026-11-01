@@ -77,6 +77,8 @@ import com.nocturne.ui.components.NocturneButton
 import com.nocturne.ui.components.SwitchRow
 import com.nocturne.ui.components.TabItem
 import com.nocturne.ui.components.TabPane
+import com.nocturne.ui.components.MountCoordsGrid
+import com.nocturne.ui.components.TargetStrip
 import com.nocturne.ui.components.TextC
 import com.nocturne.ui.icons.Phosphor
 import com.nocturne.ui.session.PolarAlignmentActions
@@ -908,6 +910,8 @@ private fun MountControlCard(state: AppState, ctrl: SessionController) {
             )
         }
         Spacer(Modifier.height(9.dp))
+        TargetStrip(state)
+        Spacer(Modifier.height(11.dp))
         Row(verticalAlignment = Alignment.Top) {
             DPad(state, ctrl)
             Spacer(Modifier.width(14.dp))
@@ -1025,44 +1029,6 @@ private fun DPad(state: AppState, ctrl: SessionController) {
  * like Ekos) unless toggled to J2000; the toggle is remembered. Values dim when the pushes stop
  * (parked mount, link lost) so a stale position is not read as live.
  */
-@Composable
-private fun MountCoordsGrid(state: AppState, ctrl: SessionController) {
-    val c = NocturneTheme.colors
-    val t = NocturneTheme.type
-    val now by produceState(System.currentTimeMillis()) {
-        while (true) { delay(1_000); value = System.currentTimeMillis() }
-    }
-    val live = state.mountCoordsAt?.let { now - it < 5_000 } == true
-    val j2000 = state.mountJ2000
-    val color = if (live) c.text else c.neutral500
-    @Composable
-    fun RowScope.cell(label: String, value: String, weight: Float = 1f) {
-        Column(Modifier.weight(weight)) {
-            TextC(label, style = t.MonoMicro, color = c.textFaint)
-            TextC(value, style = t.MonoSmall, color = if (value == "N/A") c.textMuted else color, maxLines = 1)
-        }
-    }
-    Column(Modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth()) {
-            cell("RA", formatRa(if (j2000) state.mountRa0 else state.mountRa), 1.0f)
-            cell("DEC", formatDec(if (j2000) state.mountDec0 else state.mountDec), 1.15f)
-            cell("HA", formatHa(state.mountHa), 0.9f)
-        }
-        Spacer(Modifier.height(5.dp))
-        Row(Modifier.fillMaxWidth()) {
-            cell("ALT", formatDegrees(state.mountAlt), 1.0f)
-            cell("AZ", formatDegrees(state.mountAz), 1.15f)
-            cell("ZA", formatDegrees(zenithAngle(state.mountAlt)), 0.9f)
-        }
-        Spacer(Modifier.height(3.dp))
-        TextC(
-            (if (j2000) "J2000" else "JNow") + " · tap to switch" + if (!live && state.mountCoordsAt != null) " · not updating" else "",
-            style = t.MonoMicro, color = c.textFaint,
-            modifier = Modifier.clickable { ctrl.setMountJ2000(!j2000) },
-        )
-    }
-}
-
 /**
  * Guide start/stop (`guide_stop` is Ekos's `abort()`, not a pause), loop and clear calibration.
  * [AppState.guiding] is optimistic on tap, then follows `new_guide_state`

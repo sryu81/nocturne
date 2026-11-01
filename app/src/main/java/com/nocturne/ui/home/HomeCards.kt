@@ -52,6 +52,8 @@ import com.nocturne.ui.components.NightArc
 import com.nocturne.ui.components.NocturneButton
 import com.nocturne.ui.components.TabItem
 import com.nocturne.ui.components.TabPane
+import com.nocturne.ui.components.MountCoordsGrid
+import com.nocturne.ui.components.TargetStrip
 import com.nocturne.ui.components.TextC
 import com.nocturne.ui.icons.Phosphor
 import com.nocturne.ui.theme.NocturneTheme
@@ -256,34 +258,40 @@ internal fun LogCard(repo: LogRepository, ctrl: SessionController) {
     }
 }
 
-/** Alert count and the latest lines; tap opens the full Alerts sheet. */
+/**
+ * The current target and where the mount is: Plan's pick (or Ekos's), how far the mount is from it, and the
+ * live position. The mount card on Controls shows the same target strip.
+ */
 @Composable
-internal fun AlertsCard(state: AppState, ctrl: SessionController) {
+internal fun TargetMountCard(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
-    val alerts: List<Alert> = state.wireNotifications
+    val status = state.wireMountStatus
     Column(
         Modifier
             .fillMaxWidth()
             .background(c.surface, RoundedCornerShape(14.dp))
             .border(1.dp, c.divider, RoundedCornerShape(14.dp))
-            .clickable { ctrl.openSheet(SheetType.ALERTS) }
             .padding(12.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TextC("ALERTS", style = t.MicroLabel, color = c.textFaint, modifier = Modifier.weight(1f))
-            TextC(if (alerts.isEmpty()) "none" else "${alerts.size}", style = t.MonoMicro, color = if (alerts.isEmpty()) c.textFaint else c.warn)
+            TextC("TARGET AND MOUNT", style = t.MicroLabel, color = c.textFaint, modifier = Modifier.weight(1f))
+            val pier = state.mountPierSideLabel
+            TextC(
+                listOfNotNull(status, pier?.let { "pier $it" }).joinToString(" · ").ifEmpty { "mount N/A" },
+                style = t.MonoMicro,
+                color = when (status) {
+                    null -> c.textFaint
+                    "Tracking" -> c.ok
+                    "Error" -> c.danger
+                    else -> c.warn
+                },
+            )
         }
-        if (alerts.isEmpty()) {
-            Spacer(Modifier.height(4.dp))
-            TextC("No alerts this connection.", style = t.Body13, color = c.textMuted)
-        } else {
-            alerts.take(3).forEach { a ->
-                Spacer(Modifier.height(6.dp))
-                TextC(a.message, style = t.Body13, color = c.text, maxLines = 2)
-                TextC("${a.time} · ${a.sourceLabel}", style = t.MonoMicro, color = c.textMuted)
-            }
-        }
+        Spacer(Modifier.height(10.dp))
+        TargetStrip(state)
+        Spacer(Modifier.height(10.dp))
+        MountCoordsGrid(state, ctrl)
     }
 }
 
