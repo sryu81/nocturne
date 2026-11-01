@@ -15,21 +15,29 @@ first within each list. Commits are on `main` (the `controls-revision` branch wa
 - **What actually happened:** each time the mount was fine. KStars log: `mount_unpark` at 18:43:00.8, OnStep's
   `[INFO] Mount is unparked.` at 18:43:02.5, Ekos status Parked to Tracking at 18:43:03. Same at 18:44:21.7 to
   18:44:23. The two Parks completed normally too (parked 18:38:03 after a 40 s park; 18:44:16 after 3 s).
-- **Where the alert comes from:** KStars raises it whenever the INDI `TELESCOPE_PARK` property enters the Alert state
-  (`indi/indimount.cpp`, `Mount::updateParkStatus`), whatever else OnStep says. In the OnStep driver
-  (`drivers/telescope/lx200_OnStep.cpp`, `LX200_OnStep::UnPark`) the only way out with an error is a `:hR#` reply that is
-  not `'1'` or an I/O error, which makes the base class set Alert. The mount did unpark, so the reply was probably read
-  wrongly or arrived late, not refused. This is a hypothesis; the reply itself has not been seen.
+- **Where the alert comes from (read from the source, 2026-10-31):**
+  1. KStars raises it whenever the INDI `TELESCOPE_PARK` property enters the Alert state (`indi/indimount.cpp`,
+     `Mount::updateParkStatus`).
+  2. The base class sets Alert when the driver's `UnPark()` returns false (`libs/indibase/inditelescope.cpp`).
+  3. `LX200_OnStep::UnPark()` sends `:hR#` and reads one reply byte through `getCommandSingleCharResponse`, which
+     waits `OSTimeoutSeconds`/`OSTimeoutMicroSeconds`. On a serial connection (this rig: CP2102, 9600 baud) the driver
+     sets that to **0.1 s** (`updateProperties`, "Non-Network based connection, detection timeouts set to 0.1
+     seconds"); only a TCP connection gets 2 s. A timeout is a negative error, and `UnPark()` returns false for it.
+  4. OnStep takes well over 0.1 s to answer `:hR#` (the log shows about 1.7 s from the command to "Mount is unparked"),
+     so the read times out although the command works. The late `1` is then flushed before the next command.
+  5. `Park()` is not affected: its failure path needs `slewToPark` to return an error, which it does not.
+  The one step not yet seen is the reply byte and its timing on the wire. That could be read without any driver debug
+  by watching the driver process's serial reads and writes while the mount parks and unparks once (`strace -tt` on
+  `indi_lx200_OnStep`, read-only). The driver's own DEBUG switch cannot be turned on (the request is ignored).
 - **Not caused by the app:** the app sends a plain `mount_unpark`, the same command path as before the controller
   split, and the alert is raised on the Pi.
 - **Impact:** a spurious red alert (and a phone notification if pushes are on). The mount state stays correct. It could
   hide a real parking failure.
-- **To confirm:** switch the OnStep driver's DEBUG on (INDI Options tab or the `DEBUG` switch), do one Park and one
-  Unpark with the rig idle, and read the `:hR#` command and its reply in the driver log. It is unknown whether earlier
-  nights did this; the phone Log is the only place alerts are kept.
-- **Possible fixes, none applied:** a driver patch (accept the reply, or retry the read), or an app rule that holds an
-  Unpark's "parking failed" back while the mount then reports Tracking within a few seconds. Not done: it would also
-  hide a genuine failure unless it waits for the mount state.
+- **Possible fixes, none applied:** (1) patch `UnPark()` to wait about 2 s for the reply, rebuild the INDI core in
+  the cross-build container and install it on the Pi (heavy: the rig runs the driver from the system INDI package);
+  (2) an app rule that holds back an Unpark's "parking failed" while the mount then reports Tracking within a few
+  seconds. The rule would hide a genuine failure unless it waits for the mount state; (3) leave it: the alert is
+  false, the cause is known, and the mount state shown is correct.
 
 ### B12 · Ekos stopped by itself mid-frame at 23:35 on 10-30, 15 minutes after a good meridian flip
 
