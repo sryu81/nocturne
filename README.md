@@ -59,3 +59,8 @@ Put the phone on the rig's network. The connect screen lists rigs it hears (UDP 
 | `pi-tools/*/README.md` | Pi-side tools |
 
 `project/` holds the original HTML design prototype the UI was built from.
+
+## Licence
+
+GPL-3.0-or-later, see `LICENSE`. Copyright 2026 soo.ryu. The Pi side (KStars fork, INDI, the
+housekeeping services) is built and packaged in other repos under the GPL as well.
