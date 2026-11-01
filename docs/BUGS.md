@@ -28,16 +28,22 @@ first within each list. Commits are on `main` (the `controls-revision` branch wa
   5. `Park()` is not affected: its failure path needs `slewToPark` to return an error, which it does not.
   The one step not yet seen is the reply byte and its timing on the wire. That could be read without any driver debug
   by watching the driver process's serial reads and writes while the mount parks and unparks once (`strace -tt` on
-  `indi_lx200_OnStep`, read-only). The driver's own DEBUG switch cannot be turned on (the request is ignored).
+  `indi_lx200_OnStep`, read-only). The driver's own DEBUG switch cannot be turned on (the request is ignored); testing
+  the patched driver tells the same thing.
 - **Not caused by the app:** the app sends a plain `mount_unpark`, the same command path as before the controller
   split, and the alert is raised on the Pi.
 - **Impact:** a spurious red alert (and a phone notification if pushes are on). The mount state stays correct. It could
   hide a real parking failure.
-- **Possible fixes, none applied:** (1) patch `UnPark()` to wait about 2 s for the reply, rebuild the INDI core in
-  the cross-build container and install it on the Pi (heavy: the rig runs the driver from the system INDI package);
-  (2) an app rule that holds back an Unpark's "parking failed" while the mount then reports Tracking within a few
-  seconds. The rule would hide a genuine failure unless it waits for the mount state; (3) leave it: the alert is
-  false, the cause is known, and the mount state shown is correct.
+- **Fix (built 2026-10-31, not installed yet):** a patch to the OnStep driver (`~/cc/patches/indi-onstep-unpark-timeout.patch`,
+  applied by `~/cc/scripts/build-indi-core.sh`) waits 5 s for the `:hR#` reply, then restores the 0.1 s default; it also
+  checks the read for an error before looking at the reply buffer (it was uninitialised). The patched `indi_lx200generic`
+  (the binary `indi_lx200_OnStep` links to) is built, stripped, and checked: aarch64, the same six libraries as the one on
+  the Pi, GLIBC 2.34 against the Pi's 2.36. It is staged at `~/cc/deb/indi_lx200generic.onstep-unpark-fix`
+  (sha256 `88f2bc05…f5c2`). Install with the rig idle and Ekos stopped: copy the Pi's `/usr/bin/indi_lx200generic` to
+  `/usr/bin/indi_lx200generic.orig`, put the new one in its place, start Ekos, then Park and Unpark once from the app.
+  The alert gone confirms this cause; the alert still there means the cause was wrong, and copying `.orig` back restores
+  the old driver. Other options considered: an app rule that holds the alert back while the mount reports Tracking (it
+  would hide a real failure unless it waits for the mount state), or leaving it.
 
 ### B12 · Ekos stopped by itself mid-frame at 23:35 on 10-30, 15 minutes after a good meridian flip
 

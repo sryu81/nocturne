@@ -87,3 +87,7 @@ discovery (the UDP beacon covers it), dome control (no dome on this rig).
 Rig item outside the fork: reflash OnStep with `PIER_SIDE_PREFERRED_DEFAULT EAST` so the pier
 guard is no longer needed after a mount power cycle.
 7. **Empty target folders after a cancel or failed copy** — `file_copy`/`file_move` create the target folders before the first file, so a cancelled or failed run leaves them empty (seen 2026-10-31: an empty `_scratch` on the stick). Remove the folders the run created when it ends without copying into them.
+8. **OnStep driver patch (INDI, not KStars)** — `~/cc/patches/indi-onstep-unpark-timeout.patch` makes Unpark wait 5 s for
+   OnStep's `:hR#` reply (BUGS B13). Built and staged at `~/cc/deb/indi_lx200generic.onstep-unpark-fix`; install and test
+   steps are in B13. Until it is installed the Pi runs the stock driver and Unpark raises a false "Mount parking failed".
+   `make indi-core` re-applies the patch, so a later INDI rebuild keeps it. Worth sending upstream to INDI.
