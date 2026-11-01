@@ -6,6 +6,31 @@ first within each list. Commits are on `main` (the `controls-revision` branch wa
 
 ## Open
 
+### B13 · "Mount parking failed" after every Unpark, though the mount unparks
+
+- **Found:** 2026-10-31, 18:43 and 18:44, from the phone's Log (the Alert source keeps the notifications) and the
+  Pi's KStars log.
+- **Symptom:** pressing Unpark raises a red alert "Mount parking failed" about a second after the command, then
+  "Mount unparked" follows. It did not appear after Park. Both Unparks of the evening did it (18:43:01, 18:44:22).
+- **What actually happened:** each time the mount was fine. KStars log: `mount_unpark` at 18:43:00.8, OnStep's
+  `[INFO] Mount is unparked.` at 18:43:02.5, Ekos status Parked to Tracking at 18:43:03. Same at 18:44:21.7 to
+  18:44:23. The two Parks completed normally too (parked 18:38:03 after a 40 s park; 18:44:16 after 3 s).
+- **Where the alert comes from:** KStars raises it whenever the INDI `TELESCOPE_PARK` property enters the Alert state
+  (`indi/indimount.cpp`, `Mount::updateParkStatus`), whatever else OnStep says. In the OnStep driver
+  (`drivers/telescope/lx200_OnStep.cpp`, `LX200_OnStep::UnPark`) the only way out with an error is a `:hR#` reply that is
+  not `'1'` or an I/O error, which makes the base class set Alert. The mount did unpark, so the reply was probably read
+  wrongly or arrived late, not refused. This is a hypothesis; the reply itself has not been seen.
+- **Not caused by the app:** the app sends a plain `mount_unpark`, the same command path as before the controller
+  split, and the alert is raised on the Pi.
+- **Impact:** a spurious red alert (and a phone notification if pushes are on). The mount state stays correct. It could
+  hide a real parking failure.
+- **To confirm:** switch the OnStep driver's DEBUG on (INDI Options tab or the `DEBUG` switch), do one Park and one
+  Unpark with the rig idle, and read the `:hR#` command and its reply in the driver log. It is unknown whether earlier
+  nights did this; the phone Log is the only place alerts are kept.
+- **Possible fixes, none applied:** a driver patch (accept the reply, or retry the read), or an app rule that holds an
+  Unpark's "parking failed" back while the mount then reports Tracking within a few seconds. Not done: it would also
+  hide a genuine failure unless it waits for the mount state.
+
 ### B12 · Ekos stopped by itself mid-frame at 23:35 on 10-30, 15 minutes after a good meridian flip
 
 - **Found:** 2026-10-31, from the Pi's analyze file `ekos-2026-10-30T20-05-46` and the phone Log.

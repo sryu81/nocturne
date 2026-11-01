@@ -11,6 +11,8 @@ import kotlin.math.sin
  */
 data class CurrentTarget(
     val name: String,
+    /** The short form for tight spots (`M 31`, or a custom target's own name). */
+    val shortName: String,
     /** "00h42m44s +41°16′08″" (J2000) when known. */
     val coords: String?,
     val raDeg: Double?,
@@ -25,10 +27,13 @@ data class CurrentTarget(
 fun AppState.currentTarget(): CurrentTarget? {
     findTarget(targetId)?.let { t ->
         val deg = t.raDecDegrees
-        return CurrentTarget(t.displayName, t.coords.takeIf { it.isNotBlank() }, deg?.first, deg?.second, fromPlan = true)
+        return CurrentTarget(
+            name = t.displayName, shortName = if (t.custom) t.common else t.id,
+            coords = t.coords.takeIf { it.isNotBlank() }, raDeg = deg?.first, decDeg = deg?.second, fromPlan = true,
+        )
     }
     return wireMountTarget?.trim()?.takeIf { it.isNotEmpty() }
-        ?.let { CurrentTarget(it, null, null, null, fromPlan = false) }
+        ?.let { CurrentTarget(name = it, shortName = it, coords = null, raDeg = null, decDeg = null, fromPlan = false) }
 }
 
 /** How far the mount's J2000 position is from the target, in degrees; null when either is unknown. */

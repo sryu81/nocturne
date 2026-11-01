@@ -33,6 +33,42 @@ class ControlsSummaryTest {
         assertEquals("tracking off · HA ${formatHa(90.0)}", summary(s, ControlsModule.MOUNT).line)
     }
 
+    private val m31 = com.nocturne.session.Target(id = "M 31", common = "Andromeda", coords = "00h42m44s +41°16′08″", ra0 = 0.7122, de0 = 41.2689)
+
+    @Test
+    fun theMountLineNamesThePickedTargetAndHowFarTheMountIsFromIt() {
+        val s = idle.copy(
+            mountTracking = true, wireMountPierSide = 0, mountHa = 20.0,
+            targetId = "M 31", targetSnapshot = m31, mountRa0 = 0.7122 * 15.0, mountDec0 = 41.2689 + 0.5,
+        )
+        assertEquals("Tracking · East · HA ${formatHa(20.0)} · → M 31 · 30′ off", summary(s, ControlsModule.MOUNT).line)
+    }
+
+    @Test
+    fun withoutAMountPositionTheTargetIsNamedAlone() {
+        val s = idle.copy(mountParked = true, targetId = "M 31", targetSnapshot = m31)
+        assertEquals("parked · → M 31", summary(s, ControlsModule.MOUNT).line)
+    }
+
+    @Test
+    fun aMountOnTheTargetSaysSo() {
+        val s = idle.copy(mountTracking = true, targetId = "M 31", targetSnapshot = m31, mountRa0 = 0.7122 * 15.0, mountDec0 = 41.2689)
+        assertTrue(summary(s, ControlsModule.MOUNT).line.endsWith("→ M 31 · on target"))
+    }
+
+    @Test
+    fun aCustomTargetIsNamedByItsOwnName() {
+        val custom = com.nocturne.session.Target(id = "u1", common = "My field", coords = "20h59m17s +44°31′44″", custom = true)
+        val s = idle.copy(mountParked = true, userTargets = listOf(custom), targetId = "u1")
+        assertEquals("parked · → My field", summary(s, ControlsModule.MOUNT).line)
+    }
+
+    @Test
+    fun ekosTargetNameIsTheFallbackAndHasNoDistance() {
+        val s = idle.copy(mountParked = true, wireMountTarget = "M 42", mountRa0 = 10.0, mountDec0 = 20.0)
+        assertEquals("parked · → M 42", summary(s, ControlsModule.MOUNT).line)
+    }
+
     @Test
     fun parkedAndTrackingOffAreNamed() {
         assertEquals("parked", summary(idle.copy(mountParked = true), ControlsModule.MOUNT).line)

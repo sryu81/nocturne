@@ -8,12 +8,15 @@ import com.nocturne.session.PAH_STAGE_IDLE
 import com.nocturne.session.PAH_STAGE_REFRESHING
 import com.nocturne.session.benchFocPos
 import com.nocturne.session.coolerIsOn
+import com.nocturne.session.currentTarget
 import com.nocturne.session.formatHa
+import com.nocturne.session.formatSeparation
 import com.nocturne.session.guideRmsTotal
 import com.nocturne.session.indiNumber
 import com.nocturne.session.mountParkedReal
 import com.nocturne.session.mountPierSideLabel
 import com.nocturne.session.mountTrackingOn
+import com.nocturne.session.targetSeparationDeg
 import kotlin.math.roundToInt
 
 /**
@@ -68,7 +71,11 @@ private fun mountSummary(s: AppState): ModuleSummary {
     }
     // The label reads "raw N" for a pier side the app can't name (-1 is "unknown"); leave those out.
     val pier = s.mountPierSideLabel?.takeIf { it == "East" || it == "West" }
-    val line = listOfNotNull(first, pier, s.mountHa?.let { "HA ${formatHa(it)}" }).joinToString(" · ")
+    // The target the user is working on, and how far the mount is from it (nothing when none is known).
+    val target = s.currentTarget()?.let { t ->
+        "→ ${t.shortName}" + (s.targetSeparationDeg()?.let { " · ${formatSeparation(it)}" } ?: "")
+    }
+    val line = listOfNotNull(first, pier, s.mountHa?.let { "HA ${formatHa(it)}" }, target).joinToString(" · ")
     return ModuleSummary(line, active = moving, warn = moving, stoppable = moving)
 }
 

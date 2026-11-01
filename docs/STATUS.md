@@ -169,6 +169,8 @@ bogus flip planned at home, `polar_set_algorithm`). Rig: reflash OnStep with
 
 ## Known rig behaviour
 
+- OnStep Unpark raises a spurious "Mount parking failed" alert although the mount unparks (B13, seen twice on 2026-10-31).
+
 - OnStep forgets Preferred Pier Side on a power cycle (the pier guard re-applies East).
 - Recurring: mount faults ~1 s after some slews; CP2102 USB drops; Pi undervoltage warnings
   (considered harmless on this rig).
