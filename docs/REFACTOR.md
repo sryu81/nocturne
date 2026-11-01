@@ -74,6 +74,15 @@ For a member that calls `super`, the controller override stays and keeps both ha
 override fun setSomething(x: Int) { domain.sendSomething(x); super.setSomething(x) }   // same order as before
 ```
 
+## Freeze (2026-10-31, after step 5)
+
+Steps 6 to 9 wait for the field test of the night of 2026-10-31, so the first real capture in the
+`Nocturne/<Target>/<night>/…` tree is not confounded by high-risk moves. The phone has the step 5 build (git
+`91ba37e`); the rollback for the pre-split build is `~/Workspace/nocturne-rollback/app-debug-15f2866.apk`.
+Resume with step 7 (devices, independent), then 6 (scheduler and session), then 9 if the night went well;
+step 8 (the reducer) after 3 to 6. Order for 6 and 9: move verbatim, keep the order of every `super` call, and
+test each under the sky as the user finds time.
+
 ## Steps
 
 Each step is one commit. Between steps: compile, the unit tests, and the phone smoke test below.
