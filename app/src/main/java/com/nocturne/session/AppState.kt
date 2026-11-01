@@ -997,7 +997,37 @@ data class SequenceJob(
      * those keep their undated name so a synced job still matches what Ekos has.
      */
     val createdAtMs: Long = 0L,
+    /**
+     * The target as it was when the job was added. [targetId] is only a reference, and a search
+     * result or the Plan selection can be gone by the time the job is pushed (a new search, another
+     * pick, an app restart), which left the push with no coordinates and the Scheduler add silently
+     * doing nothing. Read it through [targetOf], which prefers the live target. Null for jobs saved
+     * before this field existed.
+     */
+    val target: Target? = null,
 )
+
+/** The job's target: the live one when it can still be found, else the copy the job kept. */
+fun AppState.targetOf(job: SequenceJob): Target? = findTarget(job.targetId) ?: job.target
+
+/**
+ * A new single-block job for [targetId], holding a copy of the target as it is now so the job outlives
+ * the search results and the selection it came from. Ids and the block defaults are what the Plan tab's
+ * "Add to sequence" has always used.
+ */
+fun AppState.newJobFor(targetId: String, nowMs: Long = System.currentTimeMillis()): SequenceJob {
+    val block = Block(
+        id = "b1", filter = realFilterNames?.firstOrNull() ?: "", exposureSec = 300, subCount = 10, doneCount = 0,
+        gain = 100, offset = 50, binning = 1, ditherEvery = 2,
+    )
+    return SequenceJob(
+        id = "j$jobSeq", targetId = targetId, blocks = listOf(block), blockSeq = 2,
+        // Keeps the Scheduler name/`.esq` filename unique even if job.id repeats
+        // (reinstall, queue reset); see targetNameFor.
+        createdAtMs = nowMs,
+        target = findTarget(targetId),
+    )
+}
 
 /**
  * The name Ekos knows a job by, used to name-match [AppState.wireSchedulerJobs]:
@@ -1010,7 +1040,7 @@ data class SequenceJob(
  *   doesn't strip `#`, and a `#` in the save path makes image writes fail.
  */
 fun AppState.targetNameFor(job: SequenceJob): String {
-    val target = findTarget(job.targetId)
+    val target = targetOf(job)
     val base = target?.common ?: target?.id ?: job.targetId
     val dated = if (job.createdAtMs > 0L) "_${JOB_NAME_DATE_FORMATTER.format(Instant.ofEpochMilli(job.createdAtMs).atZone(ZoneId.systemDefault()))}" else ""
     return "${base}_${job.id}$dated"

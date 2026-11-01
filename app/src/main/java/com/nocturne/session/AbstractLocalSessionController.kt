@@ -82,16 +82,7 @@ abstract class AbstractLocalSessionController : SessionController {
      */
     override fun addToSequence(targetId: String) {
         update { s ->
-            val block = Block(
-                id = "b1", filter = s.realFilterNames?.firstOrNull() ?: "", exposureSec = 300, subCount = 10, doneCount = 0,
-                gain = 100, offset = 50, binning = 1, ditherEvery = 2,
-            )
-            val job = SequenceJob(
-                id = "j${s.jobSeq}", targetId = targetId, blocks = listOf(block), blockSeq = 2,
-                // Keeps the Scheduler name/`.esq` filename unique even if job.id repeats
-                // (reinstall, queue reset); see AppState.targetNameFor.
-                createdAtMs = System.currentTimeMillis(),
-            )
+            val job = s.newJobFor(targetId)
             s.copy(jobs = s.jobs + job, jobSeq = s.jobSeq + 1, activeJobId = job.id, openBlockId = null)
         }
     }

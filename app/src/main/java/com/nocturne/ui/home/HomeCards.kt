@@ -65,7 +65,7 @@ import com.nocturne.session.missing
 import com.nocturne.session.ready
 import com.nocturne.session.runningJob
 import com.nocturne.session.totalDoneSec
-import com.nocturne.session.findTarget
+import com.nocturne.session.targetOf
 import com.nocturne.session.sourceLabel
 import com.nocturne.ui.components.BtnStyle
 import androidx.compose.ui.graphics.Color
@@ -217,7 +217,7 @@ internal fun SessionLine(state: AppState, onOpen: () -> Unit) {
                 style = t.Body13, color = c.textMuted,
             )
         } else {
-            val target = state.findTarget(job.targetId)?.let { if (it.custom) it.common else it.id } ?: job.targetId
+            val target = state.targetOf(job)?.let { if (it.custom) it.common else it.id } ?: job.targetId
             TextC(target, style = t.Body135, color = c.text)
             val remainingSec = (job.totalPlannedSec - job.totalDoneSec).coerceAtLeast(0)
             val rms = state.guideRmsTotal?.let { " · RMS %.2f\"".format(it) } ?: ""

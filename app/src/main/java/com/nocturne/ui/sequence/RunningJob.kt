@@ -3,7 +3,7 @@ package com.nocturne.ui.sequence
 import com.nocturne.protocol.SchedulerJobStatus
 import com.nocturne.protocol.jobStatusLabel
 import com.nocturne.session.SequenceJob
-import com.nocturne.session.findTarget
+import com.nocturne.session.targetOf
 import com.nocturne.session.wireJobFor
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.background
@@ -74,7 +74,7 @@ internal fun RunningJobHeader(state: AppState, job: SequenceJob) {
     val real = state.wireJobFor(job)
     val label = real?.jobStatusLabel ?: "Queued"
     val color = if (real?.state == SchedulerJobStatus.BUSY) c.ok else c.warn
-    val target = state.findTarget(job.targetId)?.let { if (it.custom) it.common else it.id } ?: job.targetId
+    val target = state.targetOf(job)?.let { if (it.custom) it.common else it.id } ?: job.targetId
     Card {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(6.dp).background(color, RoundedCornerShape(3.dp)))

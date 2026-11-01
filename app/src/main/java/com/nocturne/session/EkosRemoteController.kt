@@ -2055,7 +2055,7 @@ class EkosRemoteController(
     private fun pushRealJob(jobId: String, alsoStart: Boolean = false) {
         val s = _state.value
         val job = s.jobs.firstOrNull { it.id == jobId } ?: return
-        val target = s.findTarget(job.targetId)
+        val target = s.targetOf(job)
         val targetName = s.targetNameFor(job)
         val layoutTarget = target?.common ?: target?.id ?: job.targetId
         val night = CaptureLayout.nightDate(

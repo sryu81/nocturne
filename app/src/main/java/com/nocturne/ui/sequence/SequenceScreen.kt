@@ -43,7 +43,7 @@ import com.nocturne.session.SheetType
 import com.nocturne.session.AppState
 import com.nocturne.session.contractJob
 import com.nocturne.session.displayName
-import com.nocturne.session.findTarget
+import com.nocturne.session.targetOf
 import com.nocturne.session.meta
 import com.nocturne.session.missing
 import com.nocturne.session.pct
@@ -151,7 +151,7 @@ private fun EmptyJobListCard() {
 private fun JobCard(state: AppState, job: SequenceJob, onOpen: () -> Unit, onRemove: () -> Unit) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
-    val target = state.findTarget(job.targetId)
+    val target = state.targetOf(job)
     val doneTotal = job.blocks.sumOf { it.doneCount }
     val subTotal = job.blocks.sumOf { it.subCount }
     val real = state.wireJobFor(job)
@@ -286,7 +286,7 @@ private fun JobDetailScreen(
 private fun JobDetailHeader(state: AppState, job: SequenceJob, onBack: () -> Unit) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
-    val target = state.findTarget(job.targetId)
+    val target = state.targetOf(job)
     Column(Modifier.fillMaxWidth()) {
         Row(
             Modifier
@@ -339,7 +339,7 @@ private fun NightPlanBar(state: AppState, ctrl: SessionController) {
     val c = NocturneTheme.colors
     val t = NocturneTheme.type
     val contractJob = state.contractJob
-    val contractTarget = contractJob?.let { state.findTarget(it.targetId)?.displayName ?: it.targetId }
+    val contractTarget = contractJob?.let { state.targetOf(it)?.displayName ?: it.targetId }
     val showFixturePlan = state.jobs.isNotEmpty()
     // (filter, planned seconds, subCount)
     val realBlocks = contractJob?.blocks

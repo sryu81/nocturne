@@ -6,7 +6,7 @@ import androidx.core.content.FileProvider
 import com.nocturne.session.AppState
 import com.nocturne.session.displayName
 import com.nocturne.session.endedJob
-import com.nocturne.session.findTarget
+import com.nocturne.session.targetOf
 import com.nocturne.session.formatSiteTime
 import com.nocturne.session.keepCount
 import com.nocturne.session.meta
@@ -21,7 +21,7 @@ import java.io.File
  */
 fun buildSessionReportHtml(state: AppState): String {
     val job = state.endedJob
-    val target = job?.let { j -> state.findTarget(j.targetId) }
+    val target = job?.let { j -> state.targetOf(j) }
 
     val blockRows = job?.blocks?.joinToString("\n") { b ->
         "<tr><td>${b.filter}</td><td>${b.spec}</td><td>${b.meta}</td></tr>"
